@@ -5,6 +5,100 @@
 
 ---
 
+## 🌐 Browser Rendering Engine & Gateway Architecture
+
+KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, local micro-node routing, and content shields.
+
+### Engine Specifications
+- **Core Rendering Engine**: Android System WebView (Chromium/Blink WebCore with V8 JavaScript engine & Skia 2D rendering).
+- **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `hyper://`, `.kas`, `.mesh`, and P2P hash targets).
+- **Network Pipeline**: Asynchronous OkHttp3 client with HTTP/2, HTTP/3, and WebSocket connection pooling, local DNS cache, and SSL pinning capabilities.
+- **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and local Kaspa wallet signing without exposing private keys.
+- **Privacy & Content Shield Engine**: Real-time URL blocklist evaluator inspecting incoming DOM resources against ad-trackers and telemetry scripts before passing sanitized streams into the rendering pipeline.
+
+---
+
+## 🔄 End-to-End Connection & Rendering Flow Diagram
+
+The following diagram illustrates how user input, network resolution, peer discovery, protocol fallback, and DOM rendering flow through the KaspaBrowser subsystems:
+
+```
++----------------------------------------------------------------------------------------------------+
+|                                         USER INTERFACE (Jetpack Compose)                          |
+|  [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Kaspa Wallet ]   [ Account DID Pill ] |
++----------------------------------------------------------------------------------------------------+
+                                                   |
+                                            (User Action / URL)
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                                      VIEWMODEL & ROUTING STATE                                     |
+|                              DecentralViewModel (StateFlow / Coroutines)                           |
++----------------------------------------------------------------------------------------------------+
+                                                   |
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                                    DUAL-STACK RESOLVER & ROUTER                                    |
+|                                       (DualStackResolver.kt)                                       |
++----------------------------------------------------------------------------------------------------+
+                   |                               |                              |
+      (Standard Web Protocols)           (Decentralized TLDs)              (Direct P2P / Mesh)
+        http:// or https://               .kas / .mesh / ipfs://             Local Node Host
+                   |                               |                              |
+                   v                               v                              v
++--------------------+            +-------------------------------+    +-----------------------------+
+|   Standard DNS     |            |    Mesh / IPFS Gateway Engine |    |     Local Node Manager      |
+| Resolver & OkHttp  |            |  - Query NSD / LAN peers      |    |  - Serves local localhost   |
+| HTTP/2 Connection  |            |  - Query Public IPFS Gateways |    |    on-device micro-daemon   |
+|   Pool (OkHttp3)   |            |  - Fallback: dweb.link, etc.  |    |  - Resolves local payload   |
++--------------------+            +-------------------------------+    +-----------------------------+
+          |                                        |                                  |
+          +----------------------------------------+----------------------------------+
+                                                   |
+                                         (Resolved Stream / URI)
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                                 TRAFFIC AUDIT & PRIVACY SHIELD                                     |
+| - Inspects network headers and payload size                                                        |
+| - Filters tracking scripts, malicious telemetry, and ad endpoints                                  |
+| - Records real-time I/O metrics to Traffic Audit ledger                                            |
++----------------------------------------------------------------------------------------------------+
+                                                   |
+                                       (Sanitized Web Stream)
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                                      WEB ENGINE INTEGRATION LAYER                                  |
+|                                                                                                    |
+|  +-------------------------------------+          +---------------------------------------------+  |
+|  |     Custom WebViewClient            |          |         Custom WebChromeClient              |  |
+|  |  - Intercepts sub-resource requests |          |  - Handles progress, titles & favicons      |  |
+|  |  - Manages cookie/session storage   |          |  - Zero-permission Android Photo Picker     |  |
+|  |  - Enforces SSL/TLS security checks |          |  - Geolocation & Fullscreen control         |  |
+|  +-------------------------------------+          +---------------------------------------------+  |
+|                                                  |                                                 |
+|                                  +---------------+---------------+                                 |
+|                                  |     JavaScript Bridge Layer   |                                 |
+|                                  |  - Zero-Knowledge DID Bridge  |                                 |
+|                                  |  - Kaspa Wallet Web3 Provider |                                 |
+|                                  +---------------+---------------+                                 |
++--------------------------------------------------+-------------------------------------------------+
+                                                   |
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                                   CHROMIUM / BLINK RENDERING ENGINE                                |
+| - HTML5 Parsing & CSS3 Styling Engine (Skia GPU Acceleration)                                      |
+| - V8 JavaScript Execution Engine                                                                   |
+| - DOM Tree Construction -> Render Tree Layout -> GPU Compositing & Rasterization                   |
++----------------------------------------------------------------------------------------------------+
+                                                   |
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                                      ANDROID DISPLAY SURFACE                                       |
+|  Edge-to-Edge Compose Canvas rendering active web page, dApp viewport, and interactive UI          |
++----------------------------------------------------------------------------------------------------+
+```
+
+---
+
 ## 🌟 Key Features
 
 ### 🌐 1. Dual-Stack Gateway & Web Browser
@@ -46,7 +140,7 @@ The codebase is engineered following modern Android architecture guidelines (**M
 ```
 ├── .github/
 │   └── workflows/
-│       └── release.yml          # Automated CI/CD for signed/unsigned Release APK publishing
+│       └── android_build.yml    # Automated CI/CD for signed/unsigned Release APK publishing
 ├── app/
 │   ├── build.gradle.kts         # Module build script (Compile SDK 36, Target SDK 36, Min SDK 26)
 │   ├── proguard-rules.pro       # R8/ProGuard rules for serialization, Room, and coroutines
@@ -120,7 +214,7 @@ gradle :app:assembleRelease
 ```
 
 ### Automated GitHub Release Action
-Pushing any version tag (e.g., `v1.0.0`) automatically triggers `.github/workflows/release.yml`:
+Pushing any version tag (e.g., `v1.0.0`) automatically triggers `.github/workflows/android_build.yml`:
 - **If Keystore Secrets are configured** in GitHub (`RELEASE_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`, `RELEASE_KEY_ALIAS`), it builds and signs `KaspaBrowser-release-signed.apk` with `apksigner` (v1/v2/v3 schemes) and attaches it to the GitHub Release.
 - **If Secrets are absent**, it builds `KaspaBrowser-release-unsigned.apk` and publishes it to the GitHub Release.
 

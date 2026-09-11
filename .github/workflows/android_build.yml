@@ -1,4 +1,4 @@
-name: Build & Publish Release APK
+name: Android Build & Release
 
 on:
   push:
@@ -16,8 +16,8 @@ on:
         default: ''
 
 jobs:
-  build-and-publish:
-    name: Build & Publish Release APK
+  build-and-release:
+    name: Build, Sign & Publish Release APK
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -49,7 +49,7 @@ jobs:
             chmod +x ./gradlew
           fi
 
-      - name: Inspect Secrets & Prepare Signing
+      - name: Inspect Secrets & Prepare Keystore
         id: check_secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
@@ -59,13 +59,13 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_PASSWORD" ] && [ -n "$KEY_ALIAS" ]; then
             echo "HAS_SECRETS=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::All signing secrets (KEYSTORE_PASSWORD, KEY_PASSWORD, RELEASE_KEYSTORE_BASE64, RELEASE_KEY_ALIAS) are provided. Building and signing release APK."
+            echo "::notice::Release signing secrets detected. Building signed production APK."
           else
             echo "HAS_SECRETS=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Signing secrets not fully present. Building unsigned release APK only."
+            echo "::notice::Signing secrets not detected or incomplete. Building unsigned release APK."
           fi
 
-      - name: Build Release APK
+      - name: Build & Sign Release APK
         env:
           HAS_SECRETS: ${{ steps.check_secrets.outputs.HAS_SECRETS }}
           KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
@@ -81,7 +81,7 @@ jobs:
           ZIPALIGN="${BUILD_TOOLS_DIR}/zipalign"
 
           if [ "$HAS_SECRETS" = "true" ]; then
-            echo "=== Decoding Release Keystore ==="
+            echo "=== Decoding Keystore Secret ==="
             echo "$KEYSTORE_BASE64" | base64 -d > "${GITHUB_WORKSPACE}/release.keystore"
 
             export KEYSTORE_PATH="${GITHUB_WORKSPACE}/release.keystore"
@@ -93,11 +93,11 @@ jobs:
 
             RAW_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
             if [ -z "$RAW_APK" ]; then
-              echo "Error: Release APK not found after build!"
+              echo "Error: Release APK not found after assembleRelease task!"
               exit 1
             fi
 
-            echo "=== Signing & Verifying Release APK with apksigner ==="
+            echo "=== Aligning and Signing Release APK with apksigner ==="
             "$APKSIGNER" sign \
               --ks "${GITHUB_WORKSPACE}/release.keystore" \
               --ks-pass "pass:${KEYSTORE_PASSWORD}" \
@@ -111,13 +111,12 @@ jobs:
 
             echo "=== Verifying Signed APK ==="
             "$APKSIGNER" verify --verbose "release-artifacts/KaspaBrowser-release-signed.apk"
-            echo "Signed APK successfully created at release-artifacts/KaspaBrowser-release-signed.apk"
+            echo "Signed Release APK successfully generated: release-artifacts/KaspaBrowser-release-signed.apk"
 
-            # Clean up keystore
+            # Remove sensitive keystore from disk
             rm -f "${GITHUB_WORKSPACE}/release.keystore"
           else
             echo "=== Building Unsigned Release APK ==="
-            # Create a temporary throwaway keystore so Gradle packageRelease task completes
             keytool -genkey -v \
               -keystore "${GITHUB_WORKSPACE}/my-upload-key.jks" \
               -alias upload \
@@ -135,17 +134,14 @@ jobs:
 
             RAW_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
             if [ -z "$RAW_APK" ]; then
-              echo "Error: Release APK not found after build!"
+              echo "Error: Release APK not found after assembleRelease task!"
               exit 1
             fi
 
-            # Copy to release-artifacts and strip signature files to make it strictly unsigned
             cp "$RAW_APK" "release-artifacts/KaspaBrowser-release-unsigned.apk"
             zip -d "release-artifacts/KaspaBrowser-release-unsigned.apk" "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" "META-INF/MANIFEST.MF" "META-INF/SIG-*" || true
 
-            echo "Unsigned release APK successfully created at release-artifacts/KaspaBrowser-release-unsigned.apk"
-
-            # Clean up temporary keystore
+            echo "Unsigned Release APK successfully generated: release-artifacts/KaspaBrowser-release-unsigned.apk"
             rm -f "${GITHUB_WORKSPACE}/my-upload-key.jks"
           fi
 
@@ -164,11 +160,11 @@ jobs:
           if [ -n "${{ github.event.inputs.release_title }}" ]; then
             TITLE="${{ github.event.inputs.release_title }}"
           else
-            TITLE="Release ${TAG}"
+            TITLE="KaspaBrowser ${TAG}"
           fi
           echo "TITLE=$TITLE" >> "$GITHUB_OUTPUT"
 
-      - name: Publish Release to GitHub Releases
+      - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_info.outputs.TAG }}
@@ -181,9 +177,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Release APK as Workflow Artifact
+      - name: Upload Artifacts to Workflow Run
         uses: actions/upload-artifact@v4
         with:
-          name: release-apk
+          name: kaspabrowser-release-apk
           path: release-artifacts/*.apk
           if-no-files-found: error
