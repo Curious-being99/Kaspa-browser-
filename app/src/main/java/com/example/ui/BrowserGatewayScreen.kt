@@ -821,12 +821,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                            val layerType = if (java.io.File("/dev/dri/renderD128").exists()) {
-                                android.view.View.LAYER_TYPE_NONE
-                            } else {
-                                android.view.View.LAYER_TYPE_SOFTWARE
-                            }
-                            setLayerType(layerType, null)
+                                val layerType = if (shouldDisableHardwareAcceleration()) {
+                                    android.view.View.LAYER_TYPE_SOFTWARE
+                                } else {
+                                    android.view.View.LAYER_TYPE_NONE
+                                }
+                                setLayerType(layerType, null)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
@@ -3828,12 +3828,12 @@ fun YouTubeVideoCard(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                val layerType = if (java.io.File("/dev/dri/renderD128").exists()) {
-                                 android.view.View.LAYER_TYPE_NONE
-                             } else {
-                                 android.view.View.LAYER_TYPE_SOFTWARE
-                             }
-                             setLayerType(layerType, null)
+                                val layerType = if (shouldDisableHardwareAcceleration()) {
+                                    android.view.View.LAYER_TYPE_SOFTWARE
+                                } else {
+                                    android.view.View.LAYER_TYPE_NONE
+                                }
+                                setLayerType(layerType, null)
                                 overScrollMode = android.view.View.OVER_SCROLL_NEVER
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -4188,4 +4188,17 @@ fun YouTubeVideoCard(
             }
         }
     }
+}
+
+private fun shouldDisableHardwareAcceleration(): Boolean {
+    // Check known physical mobile GPU kernel driver nodes
+    val hasMobileGpu = java.io.File("/dev/kgsl-3d0").exists() ||  // Qualcomm Adreno
+                       java.io.File("/dev/mali0").exists() ||     // ARM Mali (MediaTek, Exynos, Google Tensor)
+                       java.io.File("/dev/pvr").exists() ||       // PowerVR
+                       java.io.File("/dev/pvrsrvkm").exists() ||  // PowerVR
+                       java.io.File("/dev/nvhost-gpu").exists() ||// Nvidia Tegra
+                       java.io.File("/dev/nvmap").exists() ||     // Nvidia Tegra
+                       java.io.File("/dev/galcore").exists()      // Vivante
+                       
+    return !hasMobileGpu // If it doesn't have a physical mobile GPU, disable hardware acceleration!
 }
