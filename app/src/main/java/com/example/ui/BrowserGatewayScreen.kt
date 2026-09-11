@@ -249,6 +249,24 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val selectedProtocol by viewModel.selectedProtocol.collectAsState()
     val currentResource by viewModel.currentResource.collectAsState()
 
+    var textFieldValue by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                text = urlInput,
+                selection = androidx.compose.ui.text.TextRange(urlInput.length)
+            )
+        )
+    }
+
+    LaunchedEffect(urlInput) {
+        if (textFieldValue.text != urlInput) {
+            textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                text = urlInput,
+                selection = androidx.compose.ui.text.TextRange(urlInput.length)
+            )
+        }
+    }
+
     LaunchedEffect(urlInput, currentResource) {
         val index = tabs.indexOfFirst { it.id == activeTabId }
         if (index != -1) {
@@ -485,11 +503,23 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )
                             }
                             BasicTextField(
-                                value = urlInput,
-                                onValueChange = { viewModel.setUrlInput(it) },
+                                value = textFieldValue,
+                                onValueChange = { newValue ->
+                                    textFieldValue = newValue
+                                    if (urlInput != newValue.text) {
+                                        viewModel.setUrlInput(newValue.text)
+                                    }
+                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .onFocusChanged { isInputFocused = it.isFocused }
+                                    .onFocusChanged { focusState ->
+                                        isInputFocused = focusState.isFocused
+                                        if (focusState.isFocused && textFieldValue.text.isNotEmpty()) {
+                                            textFieldValue = textFieldValue.copy(
+                                                selection = androidx.compose.ui.text.TextRange(0, textFieldValue.text.length)
+                                            )
+                                        }
+                                    }
                                     .testTag("url_input_field"),
                                 singleLine = true,
                                 cursorBrush = SolidColor(ElectricCyan),
@@ -498,7 +528,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     isInputFocused = false
                                     focusManager.clearFocus()
                                     viewSourceMode = false
-                                    val input = urlInput.trim()
+                                    val input = textFieldValue.text.trim()
                                     if (input.isNotBlank()) {
                                         val normalized = viewModel.normalizeUrlOrQuery(input)
                                         if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
@@ -518,7 +548,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         // Clear input button
                         if (urlInput.isNotEmpty()) {
                             IconButton(
-                                onClick = { viewModel.setUrlInput("") },
+                                onClick = { 
+                                    viewModel.setUrlInput("") 
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue("", selection = androidx.compose.ui.text.TextRange.Zero)
+                                },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
