@@ -1,0 +1,8 @@
+{
+  "name": "Kaspa Browser",
+  "description": "A decentralized network layer designed to coexist and integrate seamlessly with the existing centralized internet.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
