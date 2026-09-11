@@ -330,6 +330,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val installSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var pendingPermissionRequest by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.entries.all { it.value }
+        if (granted) {
+            pendingPermissionRequest?.let { req ->
+                req.grant(req.resources)
+            }
+        } else {
+            pendingPermissionRequest?.deny()
+        }
+        pendingPermissionRequest = null
+    }
+
     var uploadCallback by remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
     val fileChooserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
@@ -833,7 +848,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                                    request?.grant(request.resources)
+                                    if (request != null) {
+                                        pendingPermissionRequest = request
+                                        val androidPermissions = mutableListOf<String>()
+                                        if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                                            androidPermissions.add(android.Manifest.permission.RECORD_AUDIO)
+                                        }
+                                        if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                                            androidPermissions.add(android.Manifest.permission.CAMERA)
+                                        }
+                                        if (androidPermissions.isNotEmpty()) {
+                                            permissionLauncher.launch(androidPermissions.toTypedArray())
+                                        } else {
+                                            request.grant(request.resources)
+                                            pendingPermissionRequest = null
+                                        }
+                                    }
                                 }
 
                                 override fun onCreateWindow(
@@ -4126,6 +4156,21 @@ fun YouTubeVideoCard(
 ) {
     val effectiveVideoId = item.videoId ?: extractYouTubeVideoId(item.url) ?: "By_Zw58PN6o"
     var isPlaying by remember { mutableStateOf(false) }
+    
+    var pendingPermissionRequest by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.entries.all { it.value }
+        if (granted) {
+            pendingPermissionRequest?.let { req ->
+                req.grant(req.resources)
+            }
+        } else {
+            pendingPermissionRequest?.deny()
+        }
+        pendingPermissionRequest = null
+    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
@@ -4181,38 +4226,25 @@ fun YouTubeVideoCard(
                                         return android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
                                     }
                                     override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                                        request?.grant(request.resources)
+                                        if (request != null) {
+                                            pendingPermissionRequest = request
+                                            val androidPermissions = mutableListOf<String>()
+                                            if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                                                androidPermissions.add(android.Manifest.permission.RECORD_AUDIO)
+                                            }
+                                            if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                                                androidPermissions.add(android.Manifest.permission.CAMERA)
+                                            }
+                                            if (androidPermissions.isNotEmpty()) {
+                                                permissionLauncher.launch(androidPermissions.toTypedArray())
+                                            } else {
+                                                request.grant(request.resources)
+                                                pendingPermissionRequest = null
+                                            }
+                                        }
                                     }
                                 }
                                 webViewClient = object : android.webkit.WebViewClient() {
-                                    override fun onPageStarted(view: android.webkit.WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                                        view?.evaluateJavascript("""
-                                            (function() {
-                                                if (window.__webgl_texture_fixed) return;
-                                                window.__webgl_texture_fixed = true;
-                                                try {
-                                                    var origGet = HTMLCanvasElement.prototype.getContext;
-                                                    HTMLCanvasElement.prototype.getContext = function(t, a) {
-                                                        var gl = origGet.apply(this, arguments);
-                                                        if (gl && (t === 'webgl' || t === 'experimental-webgl' || t === 'webgl2')) {
-                                                            try {
-                                                                var maxUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 32;
-                                                                var dummyTex = gl.createTexture();
-                                                                gl.bindTexture(gl.TEXTURE_2D, dummyTex);
-                                                                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-                                                                for (var i = 16; i < maxUnits; i++) {
-                                                                    gl.activeTexture(gl.TEXTURE0 + i);
-                                                                    gl.bindTexture(gl.TEXTURE_2D, dummyTex);
-                                                                }
-                                                                gl.activeTexture(gl.TEXTURE0);
-                                                            } catch(err) {}
-                                                        }
-                                                        return gl;
-                                                    };
-                                                } catch(e) {}
-                                            })();
-                                        """.trimIndent(), null)
-                                    }
                                     override fun shouldOverrideUrlLoading(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?): Boolean {
                                         val targetUrl = request?.url?.toString() ?: return false
                                         if (!targetUrl.startsWith("data:") && !targetUrl.startsWith("about:") && !targetUrl.contains("youtube-nocookie.com/embed/")) {
@@ -4237,30 +4269,6 @@ fun YouTubeVideoCard(
                                     <meta charset="utf-8">
                                     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                                     <meta name="referrer" content="strict-origin-when-cross-origin">
-                                    <script>
-                                        (function() {
-                                            try {
-                                                var origGet = HTMLCanvasElement.prototype.getContext;
-                                                HTMLCanvasElement.prototype.getContext = function(t, a) {
-                                                    var gl = origGet.apply(this, arguments);
-                                                    if (gl && (t === 'webgl' || t === 'experimental-webgl' || t === 'webgl2')) {
-                                                        try {
-                                                            var maxUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 32;
-                                                            var dummyTex = gl.createTexture();
-                                                            gl.bindTexture(gl.TEXTURE_2D, dummyTex);
-                                                            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-                                                            for (var i = 16; i < maxUnits; i++) {
-                                                                gl.activeTexture(gl.TEXTURE0 + i);
-                                                                gl.bindTexture(gl.TEXTURE_2D, dummyTex);
-                                                            }
-                                                            gl.activeTexture(gl.TEXTURE0);
-                                                        } catch(err) {}
-                                                    }
-                                                    return gl;
-                                                };
-                                            } catch(e) {}
-                                        })();
-                                    </script>
                                     <style>
                                         * { margin:0; padding:0; box-sizing:border-box; background:#000; }
                                         body, html { width:100%; height:100%; overflow:hidden; }

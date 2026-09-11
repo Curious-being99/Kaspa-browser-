@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
@@ -862,7 +863,7 @@ private fun SendKaspaSection(
                 if (isSending) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ObsidianBg, strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Default.Send, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(14.dp))
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Confirm & Broadcast Transaction", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ObsidianBg)
                 }

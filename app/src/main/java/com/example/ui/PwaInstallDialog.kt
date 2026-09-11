@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -182,7 +183,7 @@ fun PwaInstallDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     PwaFeatureRow(
-                        icon = Icons.Default.AddToHomeScreen,
+                        icon = Icons.AutoMirrored.Filled.AddToHomeScreen,
                         title = "Home Screen Integration",
                         subtitle = "Launch directly from your Android device home screen"
                     )
@@ -239,7 +240,7 @@ fun PwaInstallDialog(
                         .height(44.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Shortcut,
+                        imageVector = Icons.AutoMirrored.Filled.Shortcut,
                         contentDescription = null,
                         tint = EmeraldMesh,
                         modifier = Modifier.size(16.dp)
