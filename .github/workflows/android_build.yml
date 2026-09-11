@@ -46,8 +46,12 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
 
-      - name: Grant Execute Permission to Gradlew
+      - name: Prepare Gradle & Wrapper Executable
         run: |
+          if [ ! -f "./gradlew" ]; then
+            echo "Gradle wrapper not found in repository. Generating gradle wrapper..."
+            gradle wrapper || true
+          fi
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
           fi
@@ -83,6 +87,13 @@ jobs:
           APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
           ZIPALIGN="${BUILD_TOOLS_DIR}/zipalign"
 
+          # Determine Gradle executable (wrapper or CLI)
+          if [ -f "./gradlew" ]; then
+            GRADLE_BIN="./gradlew"
+          else
+            GRADLE_BIN="gradle"
+          fi
+
           if [ "$HAS_SECRETS" = "true" ]; then
             echo "=== Decoding Keystore Secret ==="
             echo "$KEYSTORE_BASE64" | base64 -d > "${GITHUB_WORKSPACE}/release.keystore"
@@ -92,7 +103,7 @@ jobs:
             export KEY_PASSWORD="$KEY_PASSWORD"
 
             echo "=== Building Release APK ==="
-            ./gradlew :app:assembleRelease --no-daemon --stacktrace
+            $GRADLE_BIN :app:assembleRelease --no-daemon --stacktrace
 
             RAW_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
             if [ -z "$RAW_APK" ]; then
@@ -133,7 +144,7 @@ jobs:
             export STORE_PASSWORD=temp1234
             export KEY_PASSWORD=temp1234
 
-            ./gradlew :app:assembleRelease --no-daemon --stacktrace
+            $GRADLE_BIN :app:assembleRelease --no-daemon --stacktrace
 
             RAW_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
             if [ -z "$RAW_APK" ]; then
