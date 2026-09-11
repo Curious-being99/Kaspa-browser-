@@ -133,6 +133,24 @@ The following diagram illustrates how user input, network resolution, peer disco
 
 ---
 
+## 🎨 Component Visual Identity & Brand Logo Color Palette
+
+KaspaBrowser features a sleek **Cyber-Minimalist Dark Canvas** accented with Kaspa's signature tea turquoise brand palette:
+
+| Component / Token | Hex Code | Visual Sample | Usage & UI Mapping |
+|---|---|---|---|
+| **Kaspa Tea (Brand Primary)** | `#70C7BA` | ![#70C7BA](https://via.placeholder.com/15/70C7BA/000000?text=+) `rgb(112, 199, 186)` | App Logo, Primary Action Buttons, Active Navigation Tab, KAS Balance Counters, Verified Badges |
+| **Cyan Glow (Mesh Accent)** | `#49A89A` | ![#49A89A](https://via.placeholder.com/15/49A89A/000000?text=+) `rgb(73, 168, 154)` | Mesh Radar Pulse Rings, Active Peer Nodes, Encryption Status Beacon |
+| **Obsidian Dark (Canvas)** | `#0C0D10` | ![#0C0D10](https://via.placeholder.com/15/0C0D10/000000?text=+) `rgb(12, 13, 16)` | Root Application Background, Status Bar Scrim, Fullscreen WebView Backdrop |
+| **Surface Dark (Header/Bar)** | `#14161C` | ![#14161C](https://via.placeholder.com/15/14161C/000000?text=+) `rgb(20, 22, 28)` | Browser Address Bar, Navigation Bar, Card Containers, Sheet Headers |
+| **Surface Elevated (Border)** | `#282C37` | ![#282C37](https://via.placeholder.com/15/282C37/000000?text=+) `rgb(40, 44, 55)` | Card Borders, URL Search Bar Outline, Tab Dividers |
+| **Violet Bridge (Identity/zk)** | `#6366F1` | ![#6366F1](https://via.placeholder.com/15/6366F1/000000?text=+) `rgb(99, 102, 241)` | Decentralized ID (DID) Badges, Ed25519 Keys, IPFS Gateway Indicators |
+| **Amber Central (Warning)** | `#F59E0B` | ![#F59E0B](https://via.placeholder.com/15/F59E0B/000000?text=+) `rgb(245, 158, 11)` | Medium-Latency Nodes, Pending BlockDAG Transactions, Unsigned Warnings |
+| **Red Tamper (Shield/Alert)** | `#EF4444` | ![#EF4444](https://via.placeholder.com/15/EF4444/000000?text=+) `rgb(239, 68, 68)` | Blocked Tracker Ledger, Dropped Packets, Offline Status Alerts |
+| **Text Primary (High Contrast)**| `#F3F4F6` | ![#F3F4F6](https://via.placeholder.com/15/F3F4F6/000000?text=+) `rgb(243, 244, 246)` | URL Typography, Headings, Primary Interactive Labels |
+
+---
+
 ## 🏗️ Project Architecture & Structure
 
 The codebase is engineered following modern Android architecture guidelines (**MVVM**, **Unidirectional Data Flow**, and **Clean Architecture**):
