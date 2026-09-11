@@ -12,9 +12,11 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -83,6 +85,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.Storage
@@ -126,8 +129,12 @@ import com.example.network.CryptoUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -310,6 +317,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
     val strictDecentralizedMode by viewModel.strictDecentralizedMode.collectAsState()
     val sendDntHeaders by viewModel.sendDntHeaders.collectAsState()
+    val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
     val activeAccount by viewModel.activeAccount.collectAsState()
@@ -364,6 +372,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            try {
+                webViewInstance?.apply {
+                    stopLoading()
+                    clearHistory()
+                    clearCache(true)
+                    loadUrl("about:blank")
+                    onPause()
+                    destroy()
+                }
+            } catch (_: Exception) {}
+            webViewInstance = null
+        }
+    }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { mutableFloatStateOf(0f) }
@@ -409,10 +432,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 .fillMaxWidth()
                 .testTag("browser_address_bar"),
             color = SurfaceDark,
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
             tonalElevation = 4.dp
         ) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -434,10 +456,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     Surface(
                         shape = RoundedCornerShape(24.dp), // Modern pill shape
                         color = SurfaceCard,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(44.dp)
                     ) {
                     Row(
                         modifier = Modifier
@@ -686,10 +707,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp, start = 8.dp, end = 8.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp)),
+                            .padding(top = 4.dp),
                         color = SurfaceDark,
+                        shape = androidx.compose.ui.graphics.RectangleShape,
                         shadowElevation = 8.dp
                     ) {
                         Column(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -784,13 +804,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 // IN-APP WEB VIEW: Renders full web pages inside the browser itself!
                 AndroidView(
                     factory = { ctx ->
-                        WebView(ctx).apply {
+                        SwipeRefreshLayout(ctx).apply {
+                            val swipeContainer = this
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                            // Set layer type to NONE to allow direct rendering without forcing offscreen Mesa rendernode
-                            setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                            setColorSchemeColors(
+                                android.graphics.Color.parseColor("#00E5FF"),
+                                android.graphics.Color.parseColor("#00FFB2")
+                            )
+                            setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#121824"))
+
+                            val webView = WebView(ctx).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                            val layerType = if (java.io.File("/dev/dri/renderD128").exists()) {
+                                android.view.View.LAYER_TYPE_NONE
+                            } else {
+                                android.view.View.LAYER_TYPE_SOFTWARE
+                            }
+                            setLayerType(layerType, null)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
@@ -807,6 +843,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 displayZoomControls = false
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
+                                textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(false)
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -815,8 +852,52 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = false
-                                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                offscreenPreRaster = true
+                                setGeolocationEnabled(true)
+                                @Suppress("DEPRECATION")
+                                setRenderPriority(WebSettings.RenderPriority.HIGH)
+                                userAgentString = if (desktopModeEnabled) {
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                                } else {
+                                    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                }
+                            }
+
+                            // Swipe gesture listener for left (forward) & right (back) browser navigation
+                            var touchStartX = 0f
+                            var touchStartY = 0f
+                            var touchStartTime = 0L
+
+                            @android.annotation.SuppressLint("ClickableViewAccessibility")
+                            setOnTouchListener { _, event ->
+                                when (event.action) {
+                                    android.view.MotionEvent.ACTION_DOWN -> {
+                                        touchStartX = event.x
+                                        touchStartY = event.y
+                                        touchStartTime = System.currentTimeMillis()
+                                        false
+                                    }
+                                    android.view.MotionEvent.ACTION_UP -> {
+                                        val deltaX = event.x - touchStartX
+                                        val deltaY = event.y - touchStartY
+                                        val deltaTime = System.currentTimeMillis() - touchStartTime
+                                        val absX = kotlin.math.abs(deltaX)
+                                        val absY = kotlin.math.abs(deltaY)
+
+                                        // Horizontal swipe gesture detection (swipe right -> back, swipe left -> forward)
+                                        if (absX > 140f && absY < 130f && absX > absY * 1.4f && deltaTime < 600) {
+                                            if (deltaX > 0f && canGoBack()) {
+                                                goBack()
+                                                return@setOnTouchListener true
+                                            } else if (deltaX < 0f && canGoForward()) {
+                                                goForward()
+                                                return@setOnTouchListener true
+                                            }
+                                        }
+                                        false
+                                    }
+                                    else -> false
+                                }
                             }
                             
                             val wv = this
@@ -954,6 +1035,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isWebLoading = false
+                                    swipeContainer.isRefreshing = false
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -1186,52 +1268,72 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                             webViewInstance = this
                         }
-                    },
-                    update = { webView ->
-                        webViewInstance = webView
-                        canGoBack = webView.canGoBack()
-                        canGoForward = webView.canGoForward()
 
-                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
+                        addView(webView)
 
-                        val isDirectHttp = resource.url.startsWith("http://", ignoreCase = true) || resource.url.startsWith("https://", ignoreCase = true)
+                        setOnChildScrollUpCallback { _, _ ->
+                            webView.canScrollVertically(-1) || webView.scrollY > 0
+                        }
+
+                        setOnRefreshListener {
+                            webView.reload()
+                        }
+                    }
+                },
+                update = { swipeRefreshLayout ->
+                    val webView = (0 until swipeRefreshLayout.childCount)
+                        .mapNotNull { swipeRefreshLayout.getChildAt(it) as? WebView }
+                        .firstOrNull() ?: return@AndroidView
+
+                    webViewInstance = webView
+                    canGoBack = webView.canGoBack()
+                    canGoForward = webView.canGoForward()
+                    if (!isWebLoading && swipeRefreshLayout.isRefreshing) {
+                        swipeRefreshLayout.isRefreshing = false
+                    }
+
+                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
+
+                    val isDirectHttp = resource.url.startsWith("http://", ignoreCase = true) || resource.url.startsWith("https://", ignoreCase = true)
+                    
+                    if (isDirectHttp) {
+                        val isWebStore = resource.url.contains("chromewebstore.google.com") || resource.url.contains("chrome.google.com/webstore")
+                        val desiredUa = if (desktopModeEnabled || isWebStore) {
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                        } else {
+                            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                        }
+                        if (webView.settings.userAgentString != desiredUa) {
+                            webView.settings.userAgentString = desiredUa
+                            webView.reload()
+                        }
                         
-                        if (isDirectHttp) {
-                            val isWebStore = resource.url.contains("chromewebstore.google.com") || resource.url.contains("chrome.google.com/webstore")
-                            val desiredUa = if (isWebStore) {
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-                            } else {
-                                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-                            }
-                            if (webView.settings.userAgentString != desiredUa) {
-                                webView.settings.userAgentString = desiredUa
-                            }
-                            
+                        val loadKey = resource.url
+                        if (webView.tag != loadKey) {
                             val currentWvUrl = webView.url ?: ""
                             val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
                             val normRes = resource.url.removeSuffix("/").trim().lowercase()
-                            
-                            if (webView.tag != resource.url) {
-                                webView.tag = resource.url
-                                if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
-                                    webView.loadUrl(resource.url)
-                                }
-                            }
-                        } else {
-                            val loadKey = "${resource.url}_${resource.cid}"
-                            if (webView.tag != loadKey) {
-                                webView.tag = loadKey
-                                val baseUrl = "https://${resource.cid}.ipfs.dweb.link/"
-                                webView.loadDataWithBaseURL(
-                                    baseUrl,
-                                    resource.content,
-                                    "text/html",
-                                    "UTF-8",
-                                    baseUrl
-                                )
+
+                            webView.tag = loadKey
+                            if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
+                                webView.loadUrl(resource.url)
                             }
                         }
-                    },
+                    } else {
+                        val loadKey = "${resource.url}_${resource.cid}"
+                        if (webView.tag != loadKey) {
+                            webView.tag = loadKey
+                            val baseUrl = "https://${resource.cid}.ipfs.dweb.link/"
+                            webView.loadDataWithBaseURL(
+                                baseUrl,
+                                resource.content,
+                                "text/html",
+                                "UTF-8",
+                                baseUrl
+                            )
+                        }
+                    }
+                },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -1372,174 +1474,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
-        }
-
-        // PERSISTENT BOTTOM BROWSER NAVIGATION BAR (Back, Forward, Reload, Bookmarks, Share, Security)
-        if (currentResource != null) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("browser_bottom_toolbar"),
-                color = SurfaceDark,
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Back Button
-                    IconButton(
-                        onClick = {
-                            if (webViewInstance?.canGoBack() == true) {
-                                webViewInstance?.goBack()
-                            } else {
-                                viewModel.resetToHome()
-                            }
-                        },
-                        enabled = canGoBack || currentResource != null,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = if (canGoBack || currentResource != null) TextPrimary else TextMuted,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Forward Button
-                    IconButton(
-                        onClick = { webViewInstance?.goForward() },
-                        enabled = canGoForward,
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "Forward",
-                            tint = if (canGoForward) TextPrimary else TextMuted,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Reload / Refresh Button
-                    IconButton(
-                        onClick = {
-                            if (webViewInstance != null) {
-                                webViewInstance?.reload()
-                            } else {
-                                viewModel.resolveUrl()
-                            }
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Bookmark Star Button
-                    val isBookmarked = pinnedContents.any { it.cid == currentResource?.cid }
-                    IconButton(
-                        onClick = {
-                            currentResource?.let { res ->
-                                viewModel.togglePin(res.cid)
-                                viewModel.setStatusMessage(if (isBookmarked) "Removed bookmark" else "Bookmarked page")
-                            }
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isBookmarked) Icons.Default.Star else Icons.Default.StarOutline,
-                            contentDescription = "Bookmark",
-                            tint = if (isBookmarked) AmberCentral else TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Share Button
-                    IconButton(
-                        onClick = {
-                            currentResource?.let { res ->
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, res.title)
-                                    putExtra(Intent.EXTRA_TEXT, "${res.title}\n${res.url}")
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Page"))
-                            }
-                        },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // PWA write up (clean text, no glow cardboard)
-                    Text(
-                        text = "PWA",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextSecondary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { showInstallSheet = true }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-
-                    // Downloads Sheet Button
-                    IconButton(
-                        onClick = { showSecuritySheet = true },
-                        modifier = Modifier.size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Downloads",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    if (showSecuritySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showSecuritySheet = false },
-            sheetState = sheetState,
-            containerColor = SurfaceDark,
-            tonalElevation = 8.dp,
-            dragHandle = {
-                Box(
-                    modifier = Modifier
-                        .padding(vertical = 10.dp)
-                        .size(width = 36.dp, height = 4.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceCardBorder)
-                )
-            }
-        ) {
-            SecurityAuditSheetContent(
-                resource = currentResource,
-                viewModel = viewModel,
-                webView = webViewInstance,
-                onVerifyIntegrity = {
-                    viewModel.verifyResourceIntegrity()
-                },
-                onClose = {
-                    scope.launch { sheetState.hide() }.invokeOnCompletion { showSecuritySheet = false }
-                }
-            )
         }
     }
 
@@ -2520,7 +2454,6 @@ fun BrowserSpeedDial(
         Surface(
             shape = androidx.compose.ui.graphics.RectangleShape,
             color = SurfaceDark,
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -2619,7 +2552,6 @@ fun BrowserSpeedDial(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
         ) {
             KaspaNewsSection(onNavigate = onNavigate)
             Spacer(modifier = Modifier.height(8.dp))
@@ -2695,319 +2627,6 @@ fun openDownloadedFile(context: android.content.Context, downloadId: Long, fileN
     }
 }
 
-@Composable
-fun SecurityAuditSheetContent(
-    resource: ResolvedResource?,
-    viewModel: DecentralViewModel,
-    webView: WebView?,
-    onVerifyIntegrity: () -> Unit,
-    onClose: () -> Unit
-) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val blockTrackers by viewModel.blockTrackers.collectAsState()
-    val encryptedLocalStorage by viewModel.encryptedLocalStorage.collectAsState()
-    val thirdPartyCookies by viewModel.thirdPartyCookies.collectAsState()
-    val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
-    val strictDecentralizedMode by viewModel.strictDecentralizedMode.collectAsState()
-    val sendDntHeaders by viewModel.sendDntHeaders.collectAsState()
-    val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
-    val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
-    val activeDownloads by viewModel.activeDownloads.collectAsState()
-
-    var purgeSuccessMsg by remember { mutableStateOf<String?>(null) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        // Title Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Downloads",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-            }
-
-            IconButton(onClick = onClose) {
-                Icon(Icons.Default.Clear, contentDescription = "Close", tint = TextSecondary)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // REAL-TIME DOWNLOADS MONITOR CARD
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = SurfaceCard,
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                if (activeDownloads.isEmpty()) {
-                    Text(
-                        text = "No active downloads registered.",
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                } else {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        activeDownloads.asReversed().forEach { download ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = SurfaceDark,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (download.status == "Success") EmeraldMesh.copy(alpha = 0.3f) else SurfaceCardBorder
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        openDownloadedFile(context, download.downloadId, download.fileName, download.url)
-                                    }
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                            Text(
-                                                text = download.fileName,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = TextPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (download.status == "Success") {
-                                                Text(
-                                                    text = "Tap to open",
-                                                    fontSize = 9.sp,
-                                                    color = EmeraldMesh,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            } else if (download.status == "Failed") {
-                                                Text(
-                                                    text = "Download failed. Tap to retry",
-                                                    fontSize = 9.sp,
-                                                    color = Color.Red,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                        
-                                        val statusColor = when (download.status) {
-                                            "Success" -> EmeraldMesh
-                                            "Failed" -> Color.Red
-                                            else -> ElectricCyan
-                                        }
-                                        
-                                        if (download.status == "Failed") {
-                                            Button(
-                                                onClick = {
-                                                    viewModel.redownload(context, download.url, download.fileName)
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = Color.Red.copy(alpha = 0.15f),
-                                                    contentColor = Color.Red
-                                                ),
-                                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                modifier = Modifier.height(26.dp),
-                                                shape = RoundedCornerShape(6.dp)
-                                            ) {
-                                                Text("Redownload", fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                            }
-                                        } else {
-                                            Surface(
-                                                color = statusColor.copy(alpha = 0.15f),
-                                                shape = RoundedCornerShape(4.dp),
-                                                modifier = Modifier.padding(start = 4.dp)
-                                            ) {
-                                                Text(
-                                                    text = download.status,
-                                                    color = statusColor,
-                                                    fontSize = 9.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                    
-                                    Spacer(modifier = Modifier.height(6.dp))
-
-                                    // Real-Time Progress Bar
-                                    LinearProgressIndicator(
-                                        progress = download.progress,
-                                        color = ElectricCyan,
-                                        trackColor = SurfaceCard,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                    )
-
-                                    Spacer(modifier = Modifier.height(4.dp))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        val progressPct = (download.progress * 100).toInt()
-                                        Text(
-                                            text = "$progressPct% Completed",
-                                            fontSize = 10.sp,
-                                            color = TextMuted
-                                        )
-                                        
-                                        val formattedDownloaded = if (download.bytesDownloaded > 0) {
-                                            if (download.bytesDownloaded > 1024 * 1024) {
-                                                String.format("%.1f MB", download.bytesDownloaded.toDouble() / (1024 * 1024))
-                                            } else {
-                                                String.format("%.1f KB", download.bytesDownloaded.toDouble() / 1024)
-                                            }
-                                        } else "0 KB"
-
-                                        val formattedTotal = if (download.bytesTotal > 0) {
-                                            if (download.bytesTotal > 1024 * 1024) {
-                                                String.format("%.1f MB", download.bytesTotal.toDouble() / (1024 * 1024))
-                                            } else {
-                                                String.format("%.1f KB", download.bytesTotal.toDouble() / 1024)
-                                            }
-                                        } else "Unknown"
-
-                                        Text(
-                                            text = "$formattedDownloaded / $formattedTotal",
-                                            fontSize = 10.sp,
-                                            color = TextMuted
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Action buttons for the download item: Install, Shortcut, Open
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        val isApk = download.fileName.endsWith(".apk", ignoreCase = true)
-
-                                        // INSTALL BUTTON
-                                        Button(
-                                            onClick = {
-                                                if (isApk) {
-                                                    viewModel.installApkFile(context, download.downloadId, download.fileName)
-                                                } else if (download.url.isNotBlank() && (download.url.startsWith("http") || download.url.startsWith("kas"))) {
-                                                    viewModel.installPwa(context, download.fileName, download.url)
-                                                } else {
-                                                    viewModel.installApkFile(context, download.downloadId, download.fileName)
-                                                }
-                                            },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = ElectricCyan,
-                                                contentColor = Color.Black
-                                            ),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(30.dp),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.InstallMobile,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "Install",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-
-                                        // SHORTCUT BUTTON
-                                        OutlinedButton(
-                                            onClick = {
-                                                viewModel.createDownloadShortcut(context, download.fileName, download.url, download.downloadId)
-                                            },
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                contentColor = EmeraldMesh
-                                            ),
-                                            border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.5f)),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(30.dp),
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Shortcut,
-                                                contentDescription = null,
-                                                tint = EmeraldMesh,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "Shortcut",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = EmeraldMesh
-                                            )
-                                        }
-
-                                        // OPEN BUTTON
-                                        if (download.status == "Success") {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    openDownloadedFile(context, download.downloadId, download.fileName, download.url)
-                                                },
-                                                colors = ButtonDefaults.outlinedButtonColors(
-                                                    contentColor = TextPrimary
-                                                ),
-                                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                modifier = Modifier.height(30.dp),
-                                                shape = RoundedCornerShape(6.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.OpenInNew,
-                                                    contentDescription = null,
-                                                    tint = TextSecondary,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Open", fontSize = 11.sp, color = TextPrimary)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-
-
-        Spacer(modifier = Modifier.height(8.dp))
-    }
-}
 
 @Composable
 fun InstallSheetContent(
@@ -3383,8 +3002,39 @@ data class KaspaNewsItem(
     val epochMillis: Long = System.currentTimeMillis()
 )
 
+fun extractTagContent(xml: String, tagName: String): String {
+    val regex = Regex("<$tagName(?:\\s+[^>]*)?>(.*?)</$tagName>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    val match = regex.find(xml)
+    if (match != null) {
+        return cleanXmlText(match.groupValues[1])
+    }
+    return ""
+}
+
+fun extractLinkUrl(xml: String): String {
+    val hrefMatch = Regex("<link[^>]+href=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(xml)
+    if (hrefMatch != null) {
+        return cleanXmlText(hrefMatch.groupValues[1]).trim()
+    }
+    val content = extractTagContent(xml, "link")
+    if (content.isNotEmpty()) return content.trim()
+    return ""
+}
+
+fun formatEpochToDisplay(epochMillis: Long): String {
+    val diff = System.currentTimeMillis() - epochMillis
+    if (diff < 0) return "Just now"
+    if (diff < 60_000) return "Just now"
+    if (diff < 3600_000) return "${diff / 60_000}m ago"
+    if (diff < 86400_000) return "${diff / 3600_000}h ago"
+    val days = diff / 86400_000
+    if (days < 7) return "${days}d ago"
+    val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US)
+    return sdf.format(java.util.Date(epochMillis))
+}
+
 fun parseDateToEpoch(dateStr: String): Long {
-    if (dateStr.isBlank() || dateStr == "Recently") return System.currentTimeMillis()
+    if (dateStr.isBlank() || dateStr == "Recently" || dateStr == "Just now") return System.currentTimeMillis()
     val formats = listOf(
         "EEE, dd MMM yyyy HH:mm:ss z",
         "EEE, dd MMM yyyy HH:mm:ss Z",
@@ -3440,112 +3090,61 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
             val itemXml = xml.substring(itemStart, itemEnd)
             index = itemEnd
 
-            val titleStart = itemXml.indexOf("<title>")
-            val titleEnd = itemXml.indexOf("</title>")
-            var title = ""
-            if (titleStart != -1 && titleEnd != -1) {
-                title = itemXml.substring(titleStart + 7, titleEnd)
-                title = cleanXmlText(title)
+            var title = extractTagContent(itemXml, "title")
+            if (title.isEmpty()) title = extractTagContent(itemXml, "media:title")
+
+            val link = extractLinkUrl(itemXml)
+
+            var desc = extractTagContent(itemXml, "description")
+            if (desc.isEmpty()) desc = extractTagContent(itemXml, "summary")
+            if (desc.isEmpty()) desc = extractTagContent(itemXml, "content")
+            if (desc.isEmpty()) desc = extractTagContent(itemXml, "media:description")
+            if (desc.length > 200) {
+                desc = desc.take(197) + "..."
             }
 
-            var link = ""
-            if (isAtom) {
-                val linkHrefStart = itemXml.indexOf("href=\"")
-                if (linkHrefStart != -1) {
-                    val linkHrefEnd = itemXml.indexOf("\"", linkHrefStart + 6)
-                    if (linkHrefEnd != -1) {
-                        link = itemXml.substring(linkHrefStart + 6, linkHrefEnd)
-                    }
-                }
-            } else {
-                val linkStart = itemXml.indexOf("<link>")
-                val linkEnd = itemXml.indexOf("</link>")
-                if (linkStart != -1 && linkEnd != -1) {
-                    link = itemXml.substring(linkStart + 6, linkEnd)
-                }
-            }
-            if (link.isEmpty()) {
-                val linkStart2 = itemXml.indexOf("<link>")
-                val linkEnd2 = itemXml.indexOf("</link>")
-                if (linkStart2 != -1 && linkEnd2 != -1) {
-                    link = itemXml.substring(linkStart2 + 6, linkEnd2)
-                }
-            }
-            link = cleanXmlText(link).trim()
+            var rawDate = extractTagContent(itemXml, "pubDate")
+            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "updated")
+            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "published")
+            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "dc:date")
 
-            var desc = ""
-            val descTags = listOf("<description>", "<summary>", "<content>")
-            for (tag in descTags) {
-                val dStart = itemXml.indexOf(tag)
-                val endTag = tag.replace("<", "</")
-                val dEnd = itemXml.indexOf(endTag)
-                if (dStart != -1 && dEnd != -1) {
-                    desc = itemXml.substring(dStart + tag.length, dEnd)
-                    break
-                }
-            }
-            desc = cleanXmlText(desc)
-            if (desc.length > 180) {
-                desc = desc.take(177) + "..."
-            }
+            val epochMillis = parseDateToEpoch(rawDate)
+            val displayDate = if (rawDate.isNotBlank()) formatEpochToDisplay(epochMillis) else "Recently"
 
-            var date = "Recently"
-            val dateTags = listOf("<pubDate>", "<updated>", "<published>")
-            for (tag in dateTags) {
-                val pStart = itemXml.indexOf(tag)
-                val endTag = tag.replace("<", "</")
-                val pEnd = itemXml.indexOf(endTag)
-                if (pStart != -1 && pEnd != -1) {
-                    date = cleanXmlText(itemXml.substring(pStart + tag.length, pEnd))
-                    break
-                }
-            }
-            if (date.length > 25) {
-                date = date.take(16)
-            }
-            
-            var author = ""
-            val authorStart = itemXml.indexOf("<name>")
-            val authorEnd = itemXml.indexOf("</name>")
-            if (authorStart != -1 && authorEnd != -1) {
-                author = cleanXmlText(itemXml.substring(authorStart + 6, authorEnd))
-            } else {
-                val authorStart2 = itemXml.indexOf("<author>")
-                val authorEnd2 = itemXml.indexOf("</author>")
-                if (authorStart2 != -1 && authorEnd2 != -1) {
-                    author = cleanXmlText(itemXml.substring(authorStart2 + 8, authorEnd2))
-                }
-            }
+            var author = extractTagContent(itemXml, "name")
+            if (author.isEmpty()) author = extractTagContent(itemXml, "author")
+            if (author.isEmpty()) author = extractTagContent(itemXml, "dc:creator")
+            if (author.isEmpty()) author = extractTagContent(itemXml, "source")
+            if (author.isEmpty() && defaultCategory == "News") author = "Kaspa News"
 
-            var videoId: String? = null
-            val ytVideoStart = itemXml.indexOf("<yt:videoId>")
-            val ytVideoEnd = itemXml.indexOf("</yt:videoId>")
-            if (ytVideoStart != -1 && ytVideoEnd != -1) {
-                videoId = cleanXmlText(itemXml.substring(ytVideoStart + 12, ytVideoEnd)).trim()
-            }
-            if (videoId == null && link.isNotEmpty()) {
+            var videoId: String? = extractTagContent(itemXml, "yt:videoId").ifBlank { null }
+            if (videoId.isNullOrBlank() && link.isNotEmpty()) {
                 videoId = extractYouTubeVideoId(link)
             }
 
-            val finalCategory = if (videoId != null || defaultCategory == "YouTube" || link.contains("youtube.com") || link.contains("youtu.be")) {
+            val finalCategory = if (!videoId.isNullOrBlank() || defaultCategory == "YouTube" || link.contains("youtube.com") || link.contains("youtu.be")) {
                 "YouTube"
-            } else if (link.contains("x.com") || link.contains("twitter.com") || defaultCategory == "X" || defaultCategory == "X Feeds") {
+            } else if (link.contains("x.com") || link.contains("twitter.com") || link.contains("nitter") || defaultCategory == "X") {
                 "X"
+            } else if (defaultCategory == "Reddit" || link.contains("reddit.com")) {
+                "Reddit"
+            } else if (defaultCategory == "GitHub" || link.contains("github.com")) {
+                "GitHub"
             } else {
-                defaultCategory
+                if (defaultCategory.isBlank()) "Kaspa News" else defaultCategory
             }
 
-            if (title.isNotEmpty()) {
+            if (title.isNotBlank()) {
                 items.add(
                     KaspaNewsItem(
                         title = title,
-                        desc = if (desc.isEmpty()) "Click to open full blockDAG update." else desc,
-                        url = if (link.isEmpty()) "https://kaspa.org" else link,
+                        desc = desc.ifBlank { "Click to view full blockDAG update." },
+                        url = link.ifBlank { "https://kaspa.org" },
                         category = finalCategory,
-                        timestamp = date,
+                        timestamp = displayDate,
                         author = author,
                         videoId = videoId,
-                        epochMillis = parseDateToEpoch(date)
+                        epochMillis = epochMillis
                     )
                 )
             }
@@ -3556,20 +3155,60 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
     return items
 }
 
-fun cleanXmlText(text: String): String {
-    var cleaned = text
-    if (cleaned.contains("<![CDATA[")) {
-        cleaned = cleaned.substringAfter("<![CDATA[").substringBefore("]]>")
+fun unescapeHtmlEntities(input: String): String {
+    if (input.isBlank()) return ""
+    return try {
+        @Suppress("DEPRECATION")
+        android.text.Html.fromHtml(input).toString()
+    } catch (_: Throwable) {
+        input.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
+            .replace("&#32;", " ")
+            .replace("&nbsp;", " ")
     }
-    cleaned = cleaned.replace(Regex("<[^>]*>"), "")
-    cleaned = cleaned
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&#39;", "'")
-    return cleaned.trim()
+}
+
+fun cleanXmlText(text: String): String {
+    if (text.isBlank()) return ""
+    var cleaned = text
+
+    // 1. Extract content inside CDATA blocks if present
+    while (cleaned.contains("<![CDATA[")) {
+        cleaned = cleaned.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) { match ->
+            match.groupValues[1]
+        }
+    }
+
+    // 2. Unescape HTML entities first so encoded tags (e.g. &lt;!-- SC_OFF --&gt;) become literal tags/comments
+    cleaned = unescapeHtmlEntities(cleaned)
+
+    // 3. Remove HTML comments <!-- ... -->
+    cleaned = cleaned.replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
+
+    // 4. Remove all HTML tags <...>
+    cleaned = cleaned.replace(Regex("<[^>]+>"), " ")
+
+    // 5. Unescape any secondary entities that were double-encoded
+    cleaned = unescapeHtmlEntities(cleaned)
+
+    // 6. Remove Reddit & RSS boilerplate clutter
+    cleaned = cleaned.replace(Regex("submitted by\\s+/u/\\S+", RegexOption.IGNORE_CASE), "")
+    cleaned = cleaned.replace(Regex("\\[link\\]", RegexOption.IGNORE_CASE), "")
+    cleaned = cleaned.replace(Regex("\\[comments\\]", RegexOption.IGNORE_CASE), "")
+
+    // 7. Collapse all spaces, tabs, and line breaks into single spaces
+    cleaned = cleaned.replace(Regex("\\s+"), " ").trim()
+
+    return cleaned
+}
+
+fun getKaspaNewsDeduplicationKey(item: KaspaNewsItem): String {
+    val cleanTitle = item.title.lowercase().replace(Regex("[^a-z0-9]"), "")
+    return if (cleanTitle.length > 8) cleanTitle else item.url.lowercase().trim()
 }
 
 @Composable
@@ -3578,6 +3217,7 @@ fun KaspaNewsSection(
 ) {
     var selectedFilter by remember { mutableStateOf("All") }
     var isRefreshing by remember { mutableStateOf(false) }
+    var shuffleTrigger by remember { mutableIntStateOf(0) }
     
     val initialItems = remember {
         listOf(
@@ -3732,8 +3372,26 @@ fun KaspaNewsSection(
                 timestamp = "Sep 04, 2026",
                 author = "@Kaspa_Miners",
                 epochMillis = 1788480000000L
+            ),
+            KaspaNewsItem(
+                title = "Kaspa BlockDAG: Revolutionary 10 BPS Mainnet Upgrade Landmark",
+                desc = "Historical milestone as Kaspa mainnet transitions smoothly to 10 blocks per second, validating sub-second transactions.",
+                url = "https://medium.com/@kaspanet",
+                category = "News",
+                timestamp = "Aug 28, 2026",
+                author = "Kaspa Research",
+                epochMillis = 1787875200000L
+            ),
+            KaspaNewsItem(
+                title = "kaspanet/kaspad: Rust Node Engine Complete Transition Milestone",
+                desc = "Full deprecation of legacy Go node code base in favor of high-speed multi-threaded Rust p2p engine.",
+                url = "https://github.com/kaspanet/kaspad",
+                category = "GitHub",
+                timestamp = "Aug 15, 2026",
+                author = "shaiwy",
+                epochMillis = 1786752000000L
             )
-        )
+        ).distinctBy { getKaspaNewsDeduplicationKey(it) }
     }
 
     var newsItems by remember { mutableStateOf(initialItems) }
@@ -3744,96 +3402,55 @@ fun KaspaNewsSection(
         scope.launch {
             try {
                 val fetched = withContext(Dispatchers.IO) {
-                    val list = mutableListOf<KaspaNewsItem>()
                     val client = okhttp3.OkHttpClient.Builder()
-                        .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                        .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
                         .build()
 
                     val feeds = listOf(
+                        Pair("https://news.google.com/rss/search?q=Kaspa+KAS+crypto&hl=en-US&gl=US&ceid=US:en", "News"),
+                        Pair("https://kaspanews.com/feed/", "News"),
+                        Pair("https://kaspa.org/feed/", "News"),
+                        Pair("https://medium.com/feed/@kaspanet", "News"),
                         Pair("https://www.reddit.com/r/kaspa/.rss", "Reddit"),
                         Pair("https://github.com/kaspanet/kaspad/commits/master.atom", "GitHub"),
-                        Pair("https://medium.com/feed/@kaspanet", "X"),
-                        Pair("https://nitter.net/KaspaCurrency/rss", "X"),
+                        Pair("https://github.com/kaspanet/rusty-kaspa/commits/master.atom", "GitHub"),
+                        Pair("https://github.com/kaspanet/kaspad/releases.atom", "GitHub"),
                         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCsnbLKm_lpCUj63_HPW17og", "YouTube"),
-                        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube")
+                        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube"),
+                        Pair("https://nitter.privacydev.net/KaspaCurrency/rss", "X"),
+                        Pair("https://nitter.poast.org/KaspaCurrency/rss", "X")
                     )
 
-                    for ((url, cat) in feeds) {
-                        try {
-                            val request = okhttp3.Request.Builder()
-                                .url(url)
-                                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) KaspaBrowser/1.0")
-                                .build()
-                            client.newCall(request).execute().use { response ->
-                                if (response.isSuccessful) {
-                                    val bodyStr = response.body?.string() ?: ""
-                                    val parsed = parseRssXml(bodyStr, cat)
-                                    list.addAll(parsed)
+                    val list: MutableList<KaspaNewsItem> = coroutineScope {
+                        feeds.map { (url, cat) ->
+                            async(Dispatchers.IO) {
+                                val feedItems = mutableListOf<KaspaNewsItem>()
+                                try {
+                                    val request = okhttp3.Request.Builder()
+                                        .url(url)
+                                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) KaspaBrowser/1.0")
+                                        .build()
+                                    client.newCall(request).execute().use { response ->
+                                        if (response.isSuccessful) {
+                                            val bodyStr = response.body?.string() ?: ""
+                                            feedItems.addAll(parseRssXml(bodyStr, cat))
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.w("KaspaNews", "Feed fetch failed for $url: ${e.message}")
                                 }
+                                feedItems
                             }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                        }.awaitAll().flatten().toMutableList()
                     }
-
-                    // Generate a dynamic real-time update post at System.currentTimeMillis()
-                    val now = System.currentTimeMillis()
-                    val dynamicLivePosts = listOf(
-                        KaspaNewsItem(
-                            title = "@KaspaCurrency: BlockDAG consensus processing 10.2 BPS smoothly",
-                            desc = "Real-time metrics from 600+ decentralized P2P nodes show sub-second confirmation speed and peak network security.",
-                            url = "https://kaspa.stream",
-                            category = "X",
-                            timestamp = "Just now",
-                            author = "@KaspaCurrency",
-                            epochMillis = now
-                        ),
-                        KaspaNewsItem(
-                            title = "kaspa-core/kaspad: Parallel UTXO DAG validation engine commit",
-                            desc = "Optimized P2P transaction propagation speed and reduced RAM footprint for low-power node runners.",
-                            url = "https://github.com/kaspanet/kaspad",
-                            category = "GitHub",
-                            timestamp = "Just now",
-                            author = "michaels",
-                            epochMillis = now
-                        ),
-                        KaspaNewsItem(
-                            title = "r/kaspa: KCC-20 ecosystem transaction volume surges +32%",
-                            desc = "Community indexers report over 140,000 decentralized token transfers and smart inscriptions completed today.",
-                            url = "https://reddit.com/r/kaspa",
-                            category = "Reddit",
-                            timestamp = "Just now",
-                            author = "u/BlockDAG_Rider",
-                            epochMillis = now
-                        ),
-                        KaspaNewsItem(
-                            title = "@Kaspa_Miners: Global hash rate surpasses 345 PH/s milestone",
-                            desc = "Network security reaches a new record with zero orphan rate spikes across all active mining pools.",
-                            url = "https://x.com/Kaspa_Miners",
-                            category = "X",
-                            timestamp = "Just now",
-                            author = "@Kaspa_Miners",
-                            epochMillis = now
-                        ),
-                        KaspaNewsItem(
-                            title = "DagKnight Protocol Update: Parameterless BFT security achieved",
-                            desc = "New paper demonstration confirms dynamic confirmation bounds tighten under optimal network propagation conditions.",
-                            url = "https://kaspa.org",
-                            category = "X",
-                            timestamp = "Just now",
-                            author = "Yonatan Sompolinsky",
-                            epochMillis = now
-                        )
-                    )
-                    list.add(dynamicLivePosts.random())
                     list
                 }
 
                 val combined = (fetched + newsItems)
-                    .distinctBy { it.title.lowercase().trim() }
+                    .distinctBy { getKaspaNewsDeduplicationKey(it) }
                     .sortedByDescending { it.epochMillis }
-                    .take(20) // Oldest items move down and disappear off the list
+                    .take(250)
 
                 newsItems = combined
             } catch (e: Exception) {
@@ -3865,7 +3482,7 @@ fun KaspaNewsSection(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val categories = listOf("All", "Reddit", "GitHub", "X", "YouTube")
+                val categories = listOf("All", "X", "YouTube", "News", "Reddit", "GitHub")
                 categories.forEach { cat ->
                     val isSelected = selectedFilter == cat
                     Surface(
@@ -3873,6 +3490,9 @@ fun KaspaNewsSection(
                         color = if (isSelected) ElectricCyan else SurfaceDark,
                         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                         modifier = Modifier.clickable {
+                            if (cat == "All") {
+                                shuffleTrigger++
+                            }
                             selectedFilter = cat
                         }
                     ) {
@@ -3954,15 +3574,41 @@ fun KaspaNewsSection(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        val filteredItems = remember(newsItems, selectedFilter) {
-            val list = if (selectedFilter == "All") {
-                newsItems
-            } else if (selectedFilter == "X") {
-                newsItems.filter { it.category == "X" || it.category == "X Feeds" }
-            } else {
-                newsItems.filter { it.category == selectedFilter }
+        val filteredItems = remember(newsItems, selectedFilter, shuffleTrigger) {
+            val deduplicated = newsItems.distinctBy { getKaspaNewsDeduplicationKey(it) }
+            when (selectedFilter) {
+                "All" -> deduplicated.sortedByDescending { it.epochMillis }
+                "X" -> deduplicated.filter {
+                    it.category.contains("X", ignoreCase = true) ||
+                    it.url.contains("x.com") ||
+                    it.url.contains("twitter") ||
+                    it.url.contains("nitter") ||
+                    it.author.startsWith("@")
+                }.sortedByDescending { it.epochMillis }
+                "YouTube" -> deduplicated.filter {
+                    it.category.equals("YouTube", ignoreCase = true) ||
+                    it.videoId != null ||
+                    it.url.contains("youtube") ||
+                    it.url.contains("youtu.be")
+                }.sortedByDescending { it.epochMillis }
+                "News", "Kaspa News" -> deduplicated.filter {
+                    it.category.contains("News", ignoreCase = true) ||
+                    it.url.contains("kaspanews") ||
+                    it.url.contains("kaspa.org") ||
+                    it.url.contains("medium.com")
+                }.sortedByDescending { it.epochMillis }
+                "Reddit" -> deduplicated.filter {
+                    it.category.equals("Reddit", ignoreCase = true) ||
+                    it.url.contains("reddit.com")
+                }.sortedByDescending { it.epochMillis }
+                "GitHub" -> deduplicated.filter {
+                    it.category.equals("GitHub", ignoreCase = true) ||
+                    it.url.contains("github.com")
+                }.sortedByDescending { it.epochMillis }
+                else -> deduplicated.filter {
+                    it.category.contains(selectedFilter, ignoreCase = true)
+                }.sortedByDescending { it.epochMillis }
             }
-            list.sortedByDescending { it.epochMillis }
         }
 
         if (filteredItems.isEmpty()) {
@@ -4039,8 +3685,8 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
 
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-        shape = RoundedCornerShape(12.dp),
+        border = null,
+        shape = RoundedCornerShape(0.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigate(item.url) }
@@ -4089,21 +3735,7 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        if (isRecent) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = EmeraldMesh.copy(alpha = 0.2f),
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, SurfaceCardBorder)
-                            ) {
-                                Text(
-                                    text = "RECENT UPDATE",
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = EmeraldMesh,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
+                        // RECENT UPDATE badge removed per user request
                     }
                     Text(
                         text = displayTime,
@@ -4174,8 +3806,8 @@ fun YouTubeVideoCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-        shape = RoundedCornerShape(14.dp),
+        border = null,
+        shape = RoundedCornerShape(0.dp),
         modifier = Modifier
             .fillMaxWidth()
     ) {
@@ -4196,7 +3828,12 @@ fun YouTubeVideoCard(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                val layerType = if (java.io.File("/dev/dri/renderD128").exists()) {
+                                 android.view.View.LAYER_TYPE_NONE
+                             } else {
+                                 android.view.View.LAYER_TYPE_SOFTWARE
+                             }
+                             setLayerType(layerType, null)
                                 overScrollMode = android.view.View.OVER_SCROLL_NEVER
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -4213,9 +3850,10 @@ fun YouTubeVideoCard(
                                     mediaPlaybackRequiresUserGesture = false
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
+                                    textZoom = 100
                                     allowFileAccess = false
                                     allowContentAccess = true
-                                    offscreenPreRaster = false
+                                    offscreenPreRaster = true
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
                                     mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE

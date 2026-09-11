@@ -130,6 +130,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _aiMode = MutableStateFlow(false)
     val aiMode: StateFlow<Boolean> = _aiMode.asStateFlow()
 
+    private val _desktopModeEnabled = MutableStateFlow(false)
+    val desktopModeEnabled: StateFlow<Boolean> = _desktopModeEnabled.asStateFlow()
+
     private val _blockedTrackersCount = MutableStateFlow(0)
     val blockedTrackersCount: StateFlow<Int> = _blockedTrackersCount.asStateFlow()
 
@@ -211,6 +214,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleSendDntHeaders(enabled: Boolean) { _sendDntHeaders.value = enabled }
     fun toggleIncognitoMode(enabled: Boolean) { _incognitoMode.value = enabled }
     fun toggleAiMode(enabled: Boolean) { _aiMode.value = enabled }
+    fun toggleDesktopMode(enabled: Boolean) { _desktopModeEnabled.value = enabled }
 
     fun logBlockedTracker(domainOrUrl: String) {
         _blockedTrackersCount.value += 1

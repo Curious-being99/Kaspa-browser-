@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Hub
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -101,8 +103,10 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
     val strictDecentralizedMode by viewModel.strictDecentralizedMode.collectAsState()
     val sendDntHeaders by viewModel.sendDntHeaders.collectAsState()
+    val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
+    val activeDownloads by viewModel.activeDownloads.collectAsState()
 
     var filterMode by remember { mutableStateOf("ALL") }
     var purgeMsg by remember { mutableStateOf<String?>(null) }
@@ -120,14 +124,14 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .padding(horizontal = 16.dp)
+            
     ) {
         item {
             Spacer(modifier = Modifier.height(12.dp))
 
             // Screen Header
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -161,7 +165,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     .fillMaxWidth()
                     .testTag("privacy_settings_card"),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(0.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                 )
@@ -232,6 +236,16 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         checked = enableUploads,
                         onCheckedChange = { viewModel.toggleUploads(it) }
                     )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Request Desktop Site",
+                        desc = "Request complete desktop version of webpages by default",
+                        icon = Icons.Default.Devices,
+                        checked = desktopModeEnabled,
+                        onCheckedChange = { viewModel.toggleDesktopMode(it) }
+                    )
                 }
             }
 
@@ -244,7 +258,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         .fillMaxWidth()
                         .testTag("blocked_trackers_log_card"),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(0.dp),
                     border = CardDefaults.outlinedCardBorder().copy(
                         brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                     )
@@ -299,7 +313,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     .fillMaxWidth()
                     .testTag("audit_summary_card"),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(0.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                 )
@@ -359,9 +373,213 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // REAL-TIME DOWNLOADS MONITOR CARD
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(0.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Downloads",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (activeDownloads.isEmpty()) {
+                        Text(
+                            text = "No active downloads registered.",
+                            fontSize = 12.sp,
+                            color = TextMuted,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    } else {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            activeDownloads.asReversed().forEach { download ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = ObsidianBg,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (download.status == "Success") EmeraldMesh.copy(alpha = 0.3f) else SurfaceCardBorder
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            com.example.ui.openDownloadedFile(context, download.downloadId, download.fileName, download.url)
+                                        }
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                Text(
+                                                    text = download.fileName,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = TextPrimary,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                )
+                                                if (download.status == "Success") {
+                                                    Text(
+                                                        text = "Tap to open",
+                                                        fontSize = 9.sp,
+                                                        color = EmeraldMesh,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                } else if (download.status == "Failed") {
+                                                    Text(
+                                                        text = "Download failed. Tap to retry",
+                                                        fontSize = 9.sp,
+                                                        color = Color.Red,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+
+                                            val statusColor = when (download.status) {
+                                                "Success" -> EmeraldMesh
+                                                "Failed" -> Color.Red
+                                                else -> ElectricCyan
+                                            }
+
+                                            if (download.status == "Failed") {
+                                                androidx.compose.material3.Button(
+                                                    onClick = {
+                                                        viewModel.redownload(context, download.url, download.fileName)
+                                                    },
+                                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                                        containerColor = Color.Red.copy(alpha = 0.15f),
+                                                        contentColor = Color.Red
+                                                    ),
+                                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(26.dp),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text("Redownload", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            } else {
+                                                Surface(
+                                                    color = statusColor.copy(alpha = 0.15f),
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    modifier = Modifier.padding(start = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = download.status,
+                                                        color = statusColor,
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        
+                                        // Real-Time Progress Bar
+                                        androidx.compose.material3.LinearProgressIndicator(
+                                            progress = download.progress,
+                                            color = ElectricCyan,
+                                            trackColor = SurfaceCard,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                        )
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            val progressPct = (download.progress * 100).toInt()
+                                            Text(
+                                                text = "$progressPct% Completed",
+                                                fontSize = 10.sp,
+                                                color = TextMuted
+                                            )
+
+                                            val formattedDownloaded = if (download.bytesDownloaded > 0) {
+                                                if (download.bytesDownloaded > 1024 * 1024) {
+                                                    String.format("%.1f MB", download.bytesDownloaded.toDouble() / (1024 * 1024))
+                                                } else {
+                                                    String.format("%.1f KB", download.bytesDownloaded.toDouble() / 1024)
+                                                }
+                                            } else "0 KB"
+
+                                            val formattedTotal = if (download.bytesTotal > 0) {
+                                                if (download.bytesTotal > 1024 * 1024) {
+                                                    String.format("%.1f MB", download.bytesTotal.toDouble() / (1024 * 1024))
+                                                } else {
+                                                    String.format("%.1f KB", download.bytesTotal.toDouble() / 1024)
+                                                }
+                                            } else "Unknown"
+
+                                            Text(
+                                                text = "$formattedDownloaded / $formattedTotal",
+                                                fontSize = 10.sp,
+                                                color = TextMuted
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // About Section
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(0.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "About Kaspa Browser",
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Version 1.0.0\nA decentralized, peer-to-peer web browsing experience powered by the speed and security of blockDAG technology.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             // Filter Bar
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -413,7 +631,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
         if (filteredAudits.isEmpty()) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(0.dp),
                     color = SurfaceDark,
                     border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                     modifier = Modifier.fillMaxWidth()
@@ -469,7 +687,7 @@ fun RealTrafficAuditItemCard(audit: TrafficAuditEntity) {
             .fillMaxWidth()
             .testTag("audit_item_${audit.id}"),
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(0.dp),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(
                 if (audit.isTamperProof) SurfaceCardBorder else RedTamper.copy(alpha = 0.5f)

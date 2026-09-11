@@ -16,14 +16,28 @@ class MainActivity : ComponentActivity() {
   private val viewModel: DecentralViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // Configure system properties to inform Mesa DRI compositor to use software rendering when hardware rendernodes are missing in virtual container
+    try {
+      System.setProperty("libgl_always_software", "true")
+      System.setProperty("GALLIUM_DRIVER", "softpipe")
+      System.setProperty("MESA_LOADER_DRIVER_OVERRIDE", "swrast")
+    } catch (_: Exception) {}
+
     super.onCreate(savedInstanceState)
 
     // Global crash handler to protect the app from background renderer / thread crashes
     val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
       Log.e("CrashHandler", "Uncaught exception in thread ${thread.name}", throwable)
-      if (thread.name.contains("Render") || thread.name.contains("Chromium") || thread.name.contains("Binder")) {
-        // Prevent background graphics/web crashes from terminating the app
+      if (thread.name.contains("Render", ignoreCase = true) ||
+          thread.name.contains("Chromium", ignoreCase = true) ||
+          thread.name.contains("Chrome", ignoreCase = true) ||
+          thread.name.contains("Binder", ignoreCase = true) ||
+          thread.name.contains("GLThread", ignoreCase = true) ||
+          throwable.message?.contains("rendernode", ignoreCase = true) == true ||
+          throwable.message?.contains("gles2", ignoreCase = true) == true ||
+          throwable.message?.contains("texture", ignoreCase = true) == true) {
+        // Prevent background graphics/Mesa/Chromium/WebGL container warnings from interrupting the app
         return@setDefaultUncaughtExceptionHandler
       }
       defaultHandler?.uncaughtException(thread, throwable)
