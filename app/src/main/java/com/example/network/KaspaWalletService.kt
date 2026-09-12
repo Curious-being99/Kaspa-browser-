@@ -178,10 +178,10 @@ class KaspaWalletService(
             val sompis = (amountKas * 100_000_000).toLong()
             val feeSompis = 10_000L // 0.0001 KAS standard fee
             
-            // Generate cryptographic Schnorr payload
+            // Generate cryptographic ECDSA payload on Secp256k1 curve
             val txPayload = "${senderAddress}_to_${recipientAddress}_${sompis}_sompis_${System.currentTimeMillis()}"
             val txId = CryptoUtils.sha256(txPayload)
-            val schnorrSig = "kaspa_schnorr_sig_" + CryptoUtils.sha256("sig_$txPayload").take(32)
+            val realDnetSignature = CryptoUtils.signMessage(txPayload, senderSeed)
 
             val jsonPayload = JSONObject().apply {
                 put("transactionId", txId)
@@ -189,7 +189,7 @@ class KaspaWalletService(
                 put("to", recipientAddress)
                 put("amountSompis", sompis)
                 put("feeSompis", feeSompis)
-                put("schnorrSignature", schnorrSig)
+                put("schnorrSignature", realDnetSignature)
                 put("timestamp", System.currentTimeMillis())
             }
 

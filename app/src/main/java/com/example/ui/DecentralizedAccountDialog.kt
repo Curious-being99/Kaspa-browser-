@@ -536,8 +536,9 @@ private fun ActiveProfileTab(
                             )
                         }
                         if (showMnemonic) {
+                            val decryptedMnemonic = CryptoUtils.getDecryptedSeed(account.seedPhrase)
                             IconButton(
-                                onClick = { onCopy("12-Word Seed Phrase", account.seedPhrase) },
+                                onClick = { onCopy("12-Word Seed Phrase", decryptedMnemonic) },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
@@ -553,7 +554,8 @@ private fun ActiveProfileTab(
 
                 if (showMnemonic) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    val words = account.seedPhrase.split(" ")
+                    val decryptedMnemonic = CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                    val words = decryptedMnemonic.split(" ")
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),

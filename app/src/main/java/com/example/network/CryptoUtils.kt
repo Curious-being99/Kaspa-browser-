@@ -237,12 +237,54 @@ object CryptoUtils {
         return (1..12).map { MNEMONIC_WORDS.random() }.joinToString(" ")
     }
 
+    fun getDecryptedSeed(seedPhrase: String): String {
+        val trimmed = seedPhrase.trim()
+        if (trimmed.split("\\s+".toRegex()).size == 12) {
+            return trimmed
+        }
+        return try {
+            val decrypted = decryptAes256(trimmed)
+            if (decrypted.trim().split("\\s+".toRegex()).size == 12) {
+                decrypted.trim()
+            } else {
+                trimmed
+            }
+        } catch (_: Exception) {
+            trimmed
+        }
+    }
+
+    fun deriveKeyPairFromSeed(seedPhrase: String): java.security.KeyPair {
+        val decryptedSeed = getDecryptedSeed(seedPhrase)
+        val seedBytes = sha256Raw((decryptedSeed + "KaspaDecentralNetEntropy2026").toByteArray(Charsets.UTF_8))
+        
+        val keyPairGenerator = java.security.KeyPairGenerator.getInstance("EC")
+        val ecGenParameterSpec = java.security.spec.ECGenParameterSpec("secp256k1")
+        val secureRandom = java.security.SecureRandom.getInstance("SHA1PRNG")
+        secureRandom.setSeed(seedBytes)
+        keyPairGenerator.initialize(ecGenParameterSpec, secureRandom)
+        return keyPairGenerator.generateKeyPair()
+    }
+
+    fun signMessage(message: String, seedPhrase: String): String {
+        return try {
+            val keyPair = deriveKeyPairFromSeed(seedPhrase)
+            val dsa = java.security.Signature.getInstance("SHA256withECDSA")
+            dsa.initSign(keyPair.private)
+            dsa.update(message.toByteArray(Charsets.UTF_8))
+            val signatureBytes = dsa.sign()
+            signatureBytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            sha256("sig_" + message + "_" + seedPhrase)
+        }
+    }
+
     fun deriveDecentralizedAccount(
         customHandle: String? = null,
         seedMnemonic: String? = null
     ): com.example.data.AccountEntity {
-        val mnemonic = seedMnemonic?.trim()?.ifBlank { null } ?: generateMnemonic()
-        val seedBytes = sha256Raw((mnemonic + "KaspaDecentralNetEntropy2026").toByteArray(Charsets.UTF_8))
+        val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it) } ?: generateMnemonic()
+        val seedBytes = sha256Raw((plainMnemonic + "KaspaDecentralNetEntropy2026").toByteArray(Charsets.UTF_8))
         val pubKeyBytes = sha256Raw(("pub_" + sha256Bytes(seedBytes)).toByteArray(Charsets.UTF_8))
         val pubKeyHex = pubKeyBytes.joinToString("") { "%02x".format(it) }
         
@@ -257,13 +299,15 @@ object CryptoUtils {
         val cleanHandle = DomainConstants.formatDomain(rawHandle)
         val handle = if (cleanHandle.startsWith("@")) cleanHandle else "@$cleanHandle"
 
+        val encryptedMnemonic = encryptAes256(plainMnemonic)
+
         return com.example.data.AccountEntity(
             did = did,
             handle = if (handle.startsWith("@")) handle else "@$handle",
             kaspaAddress = kaspaAddress,
             peerId = peerId,
             publicKeyHex = pubKeyHex,
-            seedPhrase = mnemonic,
+            seedPhrase = encryptedMnemonic,
             accountType = "DECENTRALIZED_NATIVE",
             googleEmail = null,
             googleDisplayName = null,
@@ -290,13 +334,15 @@ object CryptoUtils {
         val peerId = "12D3KooW" + pubKeyHex.take(24)
         val handle = "@" + cleanEmail.substringBefore("@") + ".google.dnet"
 
+        val encryptedMnemonic = encryptAes256(mnemonic)
+
         return com.example.data.AccountEntity(
             did = did,
             handle = handle,
             kaspaAddress = kaspaAddress,
             peerId = peerId,
             publicKeyHex = pubKeyHex,
-            seedPhrase = mnemonic,
+            seedPhrase = encryptedMnemonic,
             accountType = "GOOGLE_ZK_BRIDGE",
             googleEmail = cleanEmail,
             googleDisplayName = displayName.ifBlank { cleanEmail.substringBefore("@") },

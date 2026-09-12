@@ -280,7 +280,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true)
             val result = kaspaWalletService.sendKaspa(
                 senderAddress = senderAcc.kaspaAddress,
-                senderSeed = senderAcc.seedPhrase,
+                senderSeed = CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase),
                 recipientAddress = recipientAddress,
                 amountKas = amountKas
             )
