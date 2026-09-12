@@ -1690,7 +1690,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             Triple("kasrace.com", "Kasrace 4D Realtime Explorer", "https://kasrace.com"),
                             Triple("kaskad.live", "Kaskad Decentralized Network", "https://kaskad.live"),
                             Triple("mykai.dev", "Kai Sovereign Cloud & Apps", "https://mykai.dev"),
-                            Triple("google.com", "Google Search Engine", "https://google.com"),
+                            Triple("duckduckgo.com", "DuckDuckGo Privacy Search Engine", "https://duckduckgo.com"),
                             Triple("github.com", "GitHub Developer Platform", "https://github.com"),
                             Triple("reddit.com/r/kaspa", "Kaspa Reddit Community", "https://www.reddit.com/r/kaspa"),
                             Triple("discord.gg/kaspa", "Kaspa Discord Server", "https://discord.gg/kaspa")
@@ -1702,7 +1702,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val encodedQuery = try {
                                     java.net.URLEncoder.encode(query, "UTF-8")
                                 } catch (_: Exception) { query }
-                                list.add(Triple(query, "Search Google for \"$query\"", "https://www.google.com/search?q=$encodedQuery"))
+                                list.add(Triple(query, "Search DuckDuckGo for \"$query\"", "https://duckduckgo.com/?q=$encodedQuery"))
 
                                 if (query.contains(".") || query.startsWith("http")) {
                                     val directUrl = if (query.startsWith("http")) query else "https://$query"
@@ -3736,7 +3736,7 @@ fun KaspaNewsSection(
                         .build()
 
                     val feeds = listOf(
-                        Pair("https://news.google.com/rss/search?q=Kaspa+KAS+crypto&hl=en-US&gl=US&ceid=US:en", "News"),
+                        Pair("https://kaspanews.com/feed/", "News"),
                         Pair("https://kaspanews.com/feed/", "News"),
                         Pair("https://kaspa.org/feed/", "News"),
                         Pair("https://medium.com/feed/@kaspanet", "News"),
