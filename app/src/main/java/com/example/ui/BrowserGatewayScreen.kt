@@ -243,6 +243,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val urlInput by viewModel.urlInput.collectAsState()
     val selectedProtocol by viewModel.selectedProtocol.collectAsState()
     val currentResource by viewModel.currentResource.collectAsState()
+    val navigationSessionId by viewModel.navigationSessionId.collectAsState()
 
     var textFieldValue by remember {
         mutableStateOf(
@@ -1078,6 +1079,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         try { view?.stopLoading() } catch (_: Exception) {}
                                         return
                                     }
+                                    val currentTag = view?.tag as? Pair<*, *>
+                                    val tagId = currentTag?.second as? Int
+                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
+                                        try { view?.stopLoading() } catch (_: Exception) {}
+                                        return
+                                    }
                                     isWebLoading = true
                                     webProgress = 0.15f
                                     viewModel.setIsLoading(true)
@@ -1085,7 +1092,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
                                         if (!it.startsWith("data:") && !it.startsWith("about:")) {
-                                            view?.tag = it
+                                            view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
@@ -1096,6 +1103,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (viewModel.currentResource.value == null) {
                                         return
                                     }
+                                    val currentTag = view?.tag as? Pair<*, *>
+                                    val tagId = currentTag?.second as? Int
+                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
+                                        return
+                                    }
                                     isWebLoading = false
                                     webProgress = 1.0f
                                     viewModel.setIsLoading(false)
@@ -1104,7 +1116,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
                                          if (!it.startsWith("data:") && !it.startsWith("about:")) {
-                                            view?.tag = it
+                                            view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                         }
                                     }
@@ -1170,11 +1182,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                     super.doUpdateVisitedHistory(view, url, isReload)
+                                    if (viewModel.currentResource.value == null) {
+                                        return
+                                    }
+                                    val currentTag = view?.tag as? Pair<*, *>
+                                    val tagId = currentTag?.second as? Int
+                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
+                                        return
+                                    }
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
-                                        if (!it.startsWith("data:") && !it.startsWith("about:")) {
-                                            view?.tag = it
+                                         if (!it.startsWith("data:") && !it.startsWith("about:")) {
+                                            view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                         }
                                     }
@@ -1208,6 +1228,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                    if (viewModel.currentResource.value == null) {
+                                        try { view?.stopLoading() } catch (_: Exception) {}
+                                        return true
+                                    }
+                                    val currentTag = view?.tag as? Pair<*, *>
+                                    val tagId = currentTag?.second as? Int
+                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
+                                        try { view?.stopLoading() } catch (_: Exception) {}
+                                        return true
+                                    }
                                     val targetUrl = request?.url?.toString() ?: return false
 
                                     if (strictDecentralizedMode && targetUrl.startsWith("http://", ignoreCase = true)) {
@@ -1432,19 +1462,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
                         val normRes = resource.url.removeSuffix("/").trim().lowercase()
 
-                        if (webView.tag != loadKey) {
+                        val currentTag = webView.tag as? Pair<*, *>
+                        val tagUrl = currentTag?.first as? String
+                        val tagId = currentTag?.second as? Int
+                        val tagPair = Pair(loadKey, navigationSessionId)
+
+                        if (tagUrl != loadKey || tagId != navigationSessionId) {
                             if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
-                                webView.tag = loadKey
+                                webView.tag = tagPair
                                 webView.loadUrl(resource.url)
                             } else {
-                                webView.tag = loadKey
+                                webView.tag = tagPair
                             }
                         }
                     } else {
                         val cidKey = if (resource.cid.isNotBlank()) resource.cid else "kaspa"
                         val loadKey = "${resource.url}_$cidKey"
-                        if (webView.tag != loadKey) {
-                            webView.tag = loadKey
+                        val currentTag = webView.tag as? Pair<*, *>
+                        val tagUrl = currentTag?.first as? String
+                        val tagId = currentTag?.second as? Int
+                        val tagPair = Pair(loadKey, navigationSessionId)
+
+                        if (tagUrl != loadKey || tagId != navigationSessionId) {
+                            webView.tag = tagPair
                             val baseUrl = if (resource.cid.isNotBlank()) {
                                 "https://${resource.cid}.ipfs.dweb.link/"
                             } else {
@@ -1459,6 +1499,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             )
                         }
                     }
+                },
+                onRelease = { swipeRefreshLayout ->
+                    val webView = (0 until swipeRefreshLayout.childCount)
+                        .mapNotNull { swipeRefreshLayout.getChildAt(it) as? WebView }
+                        .firstOrNull()
+                    webView?.stopLoading()
+                    webView?.loadUrl("about:blank")
+                    webView?.destroy()
                 },
                     modifier = Modifier.fillMaxSize()
                 )

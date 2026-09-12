@@ -87,6 +87,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _currentResource = MutableStateFlow<ResolvedResource?>(null)
     val currentResource: StateFlow<ResolvedResource?> = _currentResource.asStateFlow()
 
+    private val _navigationSessionId = MutableStateFlow(0)
+    val navigationSessionId: StateFlow<Int> = _navigationSessionId.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -393,6 +396,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun resetToHome() {
+        _navigationSessionId.value = _navigationSessionId.value + 1
         _urlInput.value = ""
         _currentResource.value = null
         _statusMessage.value = null
@@ -456,36 +460,17 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateCurrentUrl(newUrl: String) {
         if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:")) return
+        val current = _currentResource.value ?: return
         _urlInput.value = newUrl
-        val current = _currentResource.value
         if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {
             val host = try { java.net.URI(newUrl).host ?: newUrl } catch (_: Exception) { newUrl }
-            if (current != null) {
-                if (current.url == newUrl) return
-                _currentResource.value = current.copy(
-                    url = newUrl,
-                    title = if (current.title.isBlank() || current.title == "HTTP Connection Error") host else current.title,
-                    centralizedUrl = newUrl,
-                    cryptographicHash = com.example.network.CryptoUtils.sha256(newUrl)
-                )
-            } else {
-                _currentResource.value = ResolvedResource(
-                    url = newUrl,
-                    resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-                    cid = com.example.network.CryptoUtils.generateCid(newUrl),
-                    title = host,
-                    content = "",
-                    contentType = "text/html",
-                    sizeBytes = 0L,
-                    latencyMs = 15L,
-                    centralizedUrl = newUrl,
-                    centralizedLatencyMs = 15L,
-                    centralizedIp = "Direct High-Speed Stack",
-                    verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
-                    cryptographicHash = com.example.network.CryptoUtils.sha256(newUrl),
-                    routedVia = "Direct High-Speed Web Stack: $host"
-                )
-            }
+            if (current.url == newUrl) return
+            _currentResource.value = current.copy(
+                url = newUrl,
+                title = if (current.title.isBlank() || current.title == "HTTP Connection Error") host else current.title,
+                centralizedUrl = newUrl,
+                cryptographicHash = com.example.network.CryptoUtils.sha256(newUrl)
+            )
         }
     }
 
@@ -497,6 +482,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun resolveUrl(url: String? = null) {
+        _navigationSessionId.value = _navigationSessionId.value + 1
         val raw = url ?: _urlInput.value
         if (raw.isBlank()) {
             _currentResource.value = null
@@ -529,27 +515,32 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             )
         }
 
+        val currentSessionId = _navigationSessionId.value
         viewModelScope.launch {
             try {
                 val result = resolver.resolve(target, _selectedProtocol.value)
-                _currentResource.value = result
-                
-                val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
-                nodeManager.recordBrowserTraffic(bytesTransferred, target)
-                
-                if (result.resolvedProtocol == NetworkProtocol.DECENTRALIZED_P2P || 
-                    result.resolvedProtocol == NetworkProtocol.HYBRID_COEXISTENCE) {
-                    if (result.verificationStatus == VerificationStatus.VERIFIED_TAMPER_PROOF ||
-                        result.verificationStatus == VerificationStatus.MIRROR_MATCHED) {
-                        nodeManager.incrementCrossVerifications()
+                if (_navigationSessionId.value == currentSessionId) {
+                    _currentResource.value = result
+                    
+                    val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
+                    nodeManager.recordBrowserTraffic(bytesTransferred, target)
+                    
+                    if (result.resolvedProtocol == NetworkProtocol.DECENTRALIZED_P2P || 
+                        result.resolvedProtocol == NetworkProtocol.HYBRID_COEXISTENCE) {
+                        if (result.verificationStatus == VerificationStatus.VERIFIED_TAMPER_PROOF ||
+                            result.verificationStatus == VerificationStatus.MIRROR_MATCHED) {
+                            nodeManager.incrementCrossVerifications()
+                        }
                     }
                 }
             } catch (e: Exception) {
-                if (!isHttp) {
+                if (!isHttp && _navigationSessionId.value == currentSessionId) {
                     _statusMessage.value = "Failed to resolve: ${e.localizedMessage}"
                 }
             } finally {
-                _isLoading.value = false
+                if (_navigationSessionId.value == currentSessionId) {
+                    _isLoading.value = false
+                }
             }
         }
     }
