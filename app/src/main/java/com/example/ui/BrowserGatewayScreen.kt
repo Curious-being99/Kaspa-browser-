@@ -217,6 +217,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var activeTabId by remember { mutableStateOf("default") }
     var showTabSwitcher by remember { mutableStateOf(false) }
     var isInputFocused by remember { mutableStateOf(false) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            try {
+                webViewInstance?.apply {
+                    stopLoading()
+                    clearHistory()
+                    loadUrl("about:blank")
+                    onPause()
+                    destroy()
+                }
+            } catch (_: Exception) {}
+            webViewInstance = null
+        }
+    }
+    var canGoBack by remember { mutableStateOf(false) }
+    var canGoForward by remember { mutableStateOf(false) }
+    var webProgress by remember { mutableFloatStateOf(0f) }
+    var isWebLoading by remember { mutableStateOf(false) }
+    var viewSourceMode by remember { mutableStateOf(false) }
     val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
@@ -269,6 +289,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     title = newTitle
                 )
             }
+        }
+    }
+
+    LaunchedEffect(currentResource) {
+        if (currentResource == null) {
+            try {
+                webViewInstance?.apply {
+                    tag = null
+                    stopLoading()
+                    loadUrl("about:blank")
+                }
+            } catch (_: Exception) {}
+            webViewInstance = null
+            webProgress = 0f
+            isWebLoading = false
         }
     }
 
@@ -377,27 +412,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
         uploadCallback = null
     }
-
-    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose {
-            try {
-                webViewInstance?.apply {
-                    stopLoading()
-                    clearHistory()
-                    loadUrl("about:blank")
-                    onPause()
-                    destroy()
-                }
-            } catch (_: Exception) {}
-            webViewInstance = null
-        }
-    }
-    var canGoBack by remember { mutableStateOf(false) }
-    var canGoForward by remember { mutableStateOf(false) }
-    var webProgress by remember { mutableFloatStateOf(0f) }
-    var isWebLoading by remember { mutableStateOf(false) }
-    var viewSourceMode by remember { mutableStateOf(false) }
 
     val status = currentResource?.verificationStatus ?: VerificationStatus.UNVERIFIED
     val shieldColor = when (status) {
@@ -940,6 +954,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    if (viewModel.currentResource.value == null) {
+                                        try { view?.stopLoading() } catch (_: Exception) {}
+                                        return
+                                    }
                                     webProgress = newProgress / 100f
                                     if (newProgress >= 95) {
                                         isWebLoading = false
@@ -1056,6 +1074,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    if (viewModel.currentResource.value == null) {
+                                        try { view?.stopLoading() } catch (_: Exception) {}
+                                        return
+                                    }
                                     isWebLoading = true
                                     webProgress = 0.15f
                                     viewModel.setIsLoading(true)
@@ -1071,6 +1093,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
+                                    if (viewModel.currentResource.value == null) {
+                                        return
+                                    }
                                     isWebLoading = false
                                     webProgress = 1.0f
                                     viewModel.setIsLoading(false)
