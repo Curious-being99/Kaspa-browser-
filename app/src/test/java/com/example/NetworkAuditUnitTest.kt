@@ -3,7 +3,12 @@ package com.example
 import com.example.network.CryptoUtils
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class NetworkAuditUnitTest {
 
     @Test
@@ -196,5 +201,95 @@ class NetworkAuditUnitTest {
         val headers = com.example.network.KaspaPrivacyEngine.getPrivacyHeaders()
         assertEquals("1", headers["DNT"])
         assertEquals("1", headers["Sec-GPC"])
+    }
+
+    @Test
+    fun testKaspaAddressToScriptPublicKeyDecoding() {
+        val pubKey32 = CryptoUtils.sha256Raw("KaspaScriptPubKeyTestVector".toByteArray(Charsets.UTF_8))
+        val address = CryptoUtils.encodeRealKaspaAddress(pubKey32, "kaspa")
+        val scriptPubKey = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(address)
+        
+        assertEquals(0, scriptPubKey.version)
+        val expectedPubKeyHex = pubKey32.joinToString("") { "%02x".format(it) }
+        assertEquals("20" + expectedPubKeyHex + "ac", scriptPubKey.script)
+    }
+
+    @Test
+    fun testKaspaTransactionSigningAndIdGeneration() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val keyPair = CryptoUtils.deriveKaspaKeyPair(mnemonic)
+        val senderAddress = keyPair.kaspaAddress
+        val recipientAddress = "kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e"
+        
+        val senderScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
+        val recipientScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(recipientAddress)
+
+        val outpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint(
+            transactionId = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            index = 0L
+        )
+        val utxoEntry = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(
+            amount = 500_000_000L,
+            scriptPublicKey = senderScript
+        )
+
+        val input = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = outpoint)
+        val output1 = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
+            amount = 100_000_000L,
+            scriptPublicKey = recipientScript
+        )
+        val output2 = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
+            amount = 399_990_000L,
+            scriptPublicKey = senderScript
+        )
+
+        val tx = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransaction(
+            version = 0,
+            inputs = listOf(input),
+            outputs = listOf(output1, output2),
+            lockTime = 0L
+        )
+
+        val signedTx = com.example.network.kaspa.KaspaTransactionEngine.signTransaction(
+            tx = tx,
+            utxoEntries = listOf(utxoEntry),
+            privateKey = keyPair.privateKey
+        )
+
+        val sigScript = signedTx.inputs[0].signatureScript
+        assertTrue("Signature script must start with OP_DATA_65 (0x41)", sigScript.startsWith("41"))
+        assertTrue("Signature script must end with SIGHASH_ALL (0x01)", sigScript.endsWith("01"))
+        assertEquals("Signature script length must be 132 hex characters (1 + 64 + 1 bytes = 66 bytes)", 132, sigScript.length)
+
+        val txId = com.example.network.kaspa.KaspaTransactionEngine.calcTransactionId(signedTx)
+        assertEquals("Kaspa Transaction ID must be 64 hex characters", 64, txId.length)
+
+        val submitJson = com.example.network.kaspa.KaspaTransactionEngine.buildSubmitPayload(signedTx)
+        assertTrue(submitJson.has("transaction"))
+        val txJson = submitJson.getJSONObject("transaction")
+        assertEquals(0, txJson.getInt("version"))
+        assertEquals(1, txJson.getJSONArray("inputs").length())
+        assertEquals(2, txJson.getJSONArray("outputs").length())
+    }
+
+    @Test
+    fun testBackupAndDataExtractionRulesExclusions() {
+        val backupRulesFile = java.io.File("src/main/res/xml/backup_rules.xml")
+        val dataExtractionRulesFile = java.io.File("src/main/res/xml/data_extraction_rules.xml")
+        
+        val backupContent = if (backupRulesFile.exists()) backupRulesFile.readText() else java.io.File("app/src/main/res/xml/backup_rules.xml").readText()
+        val extractionContent = if (dataExtractionRulesFile.exists()) dataExtractionRulesFile.readText() else java.io.File("app/src/main/res/xml/data_extraction_rules.xml").readText()
+
+        // Verify databases excluded
+        assertTrue("Backup rules must exclude decentralnet_db", backupContent.contains("path=\"decentralnet_db\""))
+        assertTrue("Backup rules must exclude decentralnet_db-wal", backupContent.contains("path=\"decentralnet_db-wal\""))
+        assertTrue("Backup rules must exclude decentralnet_db-shm", backupContent.contains("path=\"decentralnet_db-shm\""))
+        assertTrue("Backup rules must exclude kaspa_node_prefs.xml", backupContent.contains("path=\"kaspa_node_prefs.xml\""))
+
+        // Verify data extraction rules for Android 12+ cloud and device transfer
+        assertTrue("Data extraction rules must have cloud-backup", extractionContent.contains("<cloud-backup>"))
+        assertTrue("Data extraction rules must have device-transfer", extractionContent.contains("<device-transfer>"))
+        assertTrue("Data extraction rules must exclude decentralnet_db from cloud", extractionContent.contains("path=\"decentralnet_db\""))
+        assertTrue("Data extraction rules must exclude kaspa_node_prefs.xml from device transfer", extractionContent.contains("path=\"kaspa_node_prefs.xml\""))
     }
 }

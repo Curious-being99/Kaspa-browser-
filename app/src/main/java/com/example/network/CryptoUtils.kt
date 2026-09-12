@@ -43,7 +43,7 @@ object CryptoUtils {
     }
 
     // Real Kaspa CashAddr polymod & bit conversion implementation
-    private fun kaspaPolymod(prefix: String, payload: ByteArray): Long {
+    fun kaspaPolymod(prefix: String, payload: ByteArray): Long {
         var c = 1L
         for (ch in prefix) {
             val d = ch.code and 0x1f

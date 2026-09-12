@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Exclude sensitive local database containing wallet keys and accounts from auto cloud backup to harden privacy -->
+    <!-- Exclude sensitive local database containing wallet keys, seeds, peer credentials, and traffic audits from auto cloud backup -->
     <exclude domain="database" path="decentralnet_db"/>
     <exclude domain="database" path="decentralnet_db-shm"/>
     <exclude domain="database" path="decentralnet_db-wal"/>
+    <exclude domain="database" path="decentralnet_db-journal"/>
     <exclude domain="sharedpref" path="kaspa_node_prefs.xml"/>
+    <exclude domain="sharedpref" path="app_prefs.xml"/>
+    <exclude domain="sharedpref" path="browser_installed_pwas.xml"/>
 </full-backup-content>

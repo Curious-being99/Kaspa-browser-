@@ -3903,6 +3903,10 @@ fun YouTubeVideoCard(
                                     allowFileAccessFromFileURLs = false
                                     @Suppress("DEPRECATION")
                                     allowUniversalAccessFromFileURLs = false
+                                    setGeolocationEnabled(false)
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        safeBrowsingEnabled = true
+                                    }
                                     offscreenPreRaster = true
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
