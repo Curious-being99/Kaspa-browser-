@@ -37,7 +37,7 @@ class LocalNodeManager(
     }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_1_1))
         .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(4, TimeUnit.SECONDS)
         .build()

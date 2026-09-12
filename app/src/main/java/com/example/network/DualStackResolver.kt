@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 class DualStackResolver(private val database: AppDatabase) {
 
     private val okHttpClient = OkHttpClient.Builder()
-        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_1_1))
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

@@ -3718,7 +3718,7 @@ fun KaspaNewsSection(
             try {
                 val fetched = withContext(Dispatchers.IO) {
                     val client = okhttp3.OkHttpClient.Builder()
-                        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_1_1))
                         .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
                         .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
                         .build()

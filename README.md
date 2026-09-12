@@ -11,8 +11,11 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 
 ### Engine Specifications
 - **Core Rendering Engine**: Android System WebView (Chromium/Blink WebCore with V8 JavaScript engine & Skia 2D rendering).
-- **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `hyper://`, `.kas`, `.mesh`, and P2P hash targets).
-- **Network Pipeline**: Asynchronous OkHttp3 client with HTTP/2, HTTP/3, and WebSocket connection pooling, local DNS cache, and SSL pinning capabilities.
+- **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `kas://`, `mesh://`, `dweb://`, `.kas`, `.hns`, `.eth`, and P2P CID targets).
+- **Network Pipeline**: Asynchronous OkHttp3 client with pure **HTTP/3 (QUIC over UDP)** transport layer, 0-RTT handshakes, zero head-of-line blocking, and connection migration (HTTP/2 removed).
+- **Decentralized DNS Engine**: Multi-chain DoH & ledger resolver querying Handshake (HNS) PoW root chain, Kaspa Block DAG (KNS), ENS (.eth), EmerDNS, and OpenNIC directly.
+- **Cryptographic Verification Engine**: Local in-browser SHA-256 message digest calculator certifying incoming payload streams as `VERIFIED_TAMPER_PROOF` and blocking tampered packets.
+- **Local Mesh Seeding Engine**: Room SQLite database engine (`AppDatabase` / `ContentDao`) storing content-addressed blocks with `isSeeding = true` for peer mesh seeding and zero single point of failure during server outages.
 - **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and local Kaspa wallet signing without exposing private keys.
 - **Privacy & Content Shield Engine**: Real-time URL blocklist evaluator inspecting incoming DOM resources against ad-trackers and telemetry scripts before passing sanitized streams into the rendering pipeline.
 
@@ -41,20 +44,38 @@ The following diagram illustrates how user input, network resolution, peer disco
 |                                       (DualStackResolver.kt)                                       |
 +----------------------------------------------------------------------------------------------------+
                    |                               |                              |
-      (Standard Web Protocols)           (Decentralized TLDs)              (Direct P2P / Mesh)
-        http:// or https://               .kas / .mesh / ipfs://             Local Node Host
+      (Standard Web Protocols)           (Decentralized TLDs & CIDs)          (Direct P2P / Mesh)
+        http:// or https://           .hns / .kas / .eth / ipfs://               Local Node Host
                    |                               |                              |
                    v                               v                              v
 +--------------------+            +-------------------------------+    +-----------------------------+
-|   Standard DNS     |            |    Mesh / IPFS Gateway Engine |    |     Local Node Manager      |
-| Resolver & OkHttp  |            |  - Query NSD / LAN peers      |    |  - Serves local localhost   |
-| HTTP/2 Connection  |            |  - Query Public IPFS Gateways |    |    on-device micro-daemon   |
-|   Pool (OkHttp3)   |            |  - Fallback: dweb.link, etc.  |    |  - Resolves local payload   |
+|    HTTP/3 (QUIC    |            | Handshake / Kaspa / ENS Engine|    |     Local Node Manager      |
+|    over UDP)       |            |  - Handshake (HNS) PoW Root   |    |  - Serves local localhost   |
+| 0-RTT Connection   |            |  - Kaspa (KNS) Block DAG      |    |    on-device micro-daemon   |
+| (HTTP/2 Removed)   |            |  - ENS / OpenNIC / EmerDNS    |    |  - Resolves local payload   |
 +--------------------+            +-------------------------------+    +-----------------------------+
           |                                        |                                  |
           +----------------------------------------+----------------------------------+
                                                    |
-                                         (Resolved Stream / URI)
+                                         (Raw Resource Payload)
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                             IN-BROWSER SHA-256 TAMPER VERIFICATION                                 |
+| - Computes local SHA-256 digest of payload data streams                                            |
+| - Verifies hash against CID: CERTIFIES AS VERIFIED_TAMPER_PROOF                                    |
+| - Rejects altered payloads (TAMPERED_HASH_MISMATCH)                                                |
++----------------------------------------------------------------------------------------------------+
+                                                   |
+                                         (Verified Data Stream)
+                                                   v
++----------------------------------------------------------------------------------------------------+
+|                           LOCAL MESH SEEDING & ROOM DB PERSISTENCE                                 |
+| - Indexes content block into SQLite Room database (`ContentEntity`)                                |
+| - Sets `isSeeding = true` to seed content to nearby P2P mesh nodes                                 |
+| - Guarantees zero single point of failure during central server outages                            |
++----------------------------------------------------------------------------------------------------+
+                                                   |
+                                         (Sanitized Web Stream)
                                                    v
 +----------------------------------------------------------------------------------------------------+
 |                                 TRAFFIC AUDIT & PRIVACY SHIELD                                     |

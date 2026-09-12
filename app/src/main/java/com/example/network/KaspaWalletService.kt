@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 
 class KaspaWalletService(
     private val client: OkHttpClient = OkHttpClient.Builder()
-        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_1_1))
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()

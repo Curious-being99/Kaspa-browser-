@@ -11,7 +11,8 @@ The browser operates using a multi-layered hybrid engine stack:
 | Component | Engine / Technology | Description |
 | :--- | :--- | :--- |
 | **Rendering & JS Engine** | **Chromium Blink & V8 Engine** | Native Android Chromium container supporting full HTML5, WebAssembly, WebGL, WebRTC, CSS3, and ES2024 JavaScript execution. |
-| **Protocol Routing Engine** | **`DualStackResolver` Engine** | Custom Kotlin network gateway intercepting requests and routing between P2P DHT swarms, blockchain resolution, and HTTPS fallback. |
+| **Transport Layer** | **Pure HTTP/3 (QUIC over UDP)** | 0-RTT connection establishment, connection migration, and zero head-of-line blocking (HTTP/2 removed). |
+| **Protocol Routing Engine** | **`DualStackResolver` Engine** | Custom Kotlin network gateway intercepting requests and routing between P2P DHT swarms, blockchain resolution, and HTTP/3 fallback. |
 | **P2P Storage Engine** | **IPFS / Kaspa DNet & DHT** | Content-Addressed Storage engine retrieving files by cryptographic hashes (CIDs: `bafy...`, `Qm...`). |
 | **Decentralized DNS Engine** | **Handshake (HNS), KNS & ENS** | On-chain resolution resolving `.kas`, `.hns`, `.eth`, `.coin`, and `.bit` domains directly from distributed ledgers. |
 | **Cryptographic Verification** | **SHA-256 Digest Engine** | In-browser SHA-256 hashing certifying data streams as `VERIFIED_TAMPER_PROOF`. |
