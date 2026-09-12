@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -92,6 +93,7 @@ fun KaspaWalletView(
     onSendKaspa: (recipient: String, amount: Double) -> Unit,
     onOpenUrl: (url: String) -> Unit,
     onNavigateToCreateOrImport: () -> Unit = {},
+    onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -374,6 +376,29 @@ fun KaspaWalletView(
                     }
                     Text("UTXOs: ${walletState.utxosCount}", fontSize = 10.sp, color = TextSecondary)
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = { onSignOut() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(36.dp)
+                        .testTag("wallet_sign_out_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0x1AFF5555), // Subtle transparent red background
+                        contentColor = Color(0xFFFF5555)   // Solid red text
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33FF5555)),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = "Sign Out & Disconnect",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
@@ -481,133 +506,6 @@ fun KaspaWalletView(
             }
             WalletModalType.NONE -> {
                 // Nothing rendered here
-            }
-        }
-
-        // Expose 12-Word Recovery Seed Phrase Card
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-            shape = RoundedCornerShape(14.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.VpnKey, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("12-Word Recovery Seed Phrase", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    }
-
-                    Row {
-                        IconButton(
-                            onClick = { showExposedSeed = !showExposedSeed },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                if (showExposedSeed) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = "Toggle Seed Visibility",
-                                tint = ElectricCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                activeAccount?.seedPhrase?.let { seed ->
-                                    try {
-                                        val decrypted = CryptoUtils.getDecryptedSeed(seed)
-                                        clipboardManager.setText(AnnotatedString(decrypted))
-                                        copyToast = "12-Word Seed Phrase"
-                                    } catch (_: Exception) {
-                                        copyToast = "Decryption Failed"
-                                    }
-                                }
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.ContentCopy,
-                                contentDescription = "Copy Seed Phrase",
-                                tint = ElectricCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "This 12-word seed phrase holds full cryptographic control over your Kaspa wallet balance and decentralized identity.",
-                    fontSize = 11.sp,
-                    color = TextMuted,
-                    lineHeight = 15.sp
-                )
-
-                if (showExposedSeed) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    val seedPhraseRaw = activeAccount?.seedPhrase ?: "desert cactus mountain orbit crystal galaxy sphere quantum tunnel matrix cipher horizon"
-                    val seedPhrase = try {
-                        CryptoUtils.getDecryptedSeed(seedPhraseRaw)
-                    } catch (_: Exception) {
-                        "Decryption Failed (Invalid Key)"
-                    }
-                    val words = seedPhrase.split(" ")
-                    
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        words.forEachIndexed { i, word ->
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = SurfaceDark,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("${i + 1}.", fontSize = 10.sp, color = TextMuted)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        word,
-                                        fontSize = 11.sp,
-                                        color = EmeraldMesh,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = SurfaceDark,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(12.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Non-custodial: Private keys are derived locally in-browser via SHA-256.",
-                                fontSize = 10.sp,
-                                color = TextSecondary
-                            )
-                        }
-                    }
-                }
             }
         }
 

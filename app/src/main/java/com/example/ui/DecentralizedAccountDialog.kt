@@ -120,6 +120,7 @@ fun DecentralizedAccountDialog(
     onRefreshWallet: () -> Unit = {},
     onSendKaspa: (recipient: String, amount: Double) -> Unit = { _, _ -> },
     onOpenUrl: (url: String) -> Unit = {},
+    onSignOut: () -> Unit = {},
     initialTab: Int = 0
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -275,7 +276,8 @@ fun DecentralizedAccountDialog(
                             onRefresh = onRefreshWallet,
                             onSendKaspa = onSendKaspa,
                             onOpenUrl = onOpenUrl,
-                            onNavigateToCreateOrImport = { selectedTab = 2 }
+                            onNavigateToCreateOrImport = { selectedTab = 2 },
+                            onSignOut = onSignOut
                         )
                         1 -> ActiveProfileTab(
                             account = activeAccount,

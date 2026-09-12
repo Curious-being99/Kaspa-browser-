@@ -1966,6 +1966,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             onOpenUrl = { url ->
                 showAccountDialog = false
                 viewModel.openUrlInBrowser(url)
+            },
+            onSignOut = {
+                viewModel.signOutActiveAccount()
             }
         )
     }

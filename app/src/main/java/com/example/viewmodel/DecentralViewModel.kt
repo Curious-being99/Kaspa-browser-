@@ -364,6 +364,17 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun signOutActiveAccount() {
+        viewModelScope.launch {
+            try {
+                database.accountDao().deactivateAll()
+                _statusMessage.value = "Signed out successfully"
+            } catch (e: Exception) {
+                _statusMessage.value = "Failed to sign out: ${e.message}"
+            }
+        }
+    }
+
 
     fun openUrlInBrowser(url: String) {
         _urlInput.value = url
