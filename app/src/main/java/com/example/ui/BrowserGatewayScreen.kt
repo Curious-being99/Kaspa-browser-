@@ -385,7 +385,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 webViewInstance?.apply {
                     stopLoading()
                     clearHistory()
-                    clearCache(true)
                     loadUrl("about:blank")
                     onPause()
                     destroy()
@@ -851,12 +850,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     safeBrowsingEnabled = true
                                 }
-                                cacheMode = WebSettings.LOAD_DEFAULT
+                                 cacheMode = WebSettings.LOAD_DEFAULT
                                 mediaPlaybackRequiresUserGesture = false
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = true
+                                offscreenPreRaster = false
                                 setGeolocationEnabled(false)
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -1058,16 +1057,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
-                                    }
-                                    view?.evaluateJavascript(
-                                        "try { if(!document.getElementById('kaspa-tap-style')) { var s = document.createElement('style'); s.id = 'kaspa-tap-style'; s.innerHTML = 'html, body { -webkit-tap-highlight-color: transparent !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; }'; (document.head || document.documentElement).appendChild(s); } } catch(e){}",
-                                        null
-                                    )
-                                    if (sendDntHeaders) {
-                                        view?.evaluateJavascript(
-                                            KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
-                                            null
-                                        )
                                     }
                                 }
 
