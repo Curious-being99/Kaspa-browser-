@@ -164,31 +164,48 @@ object CryptoUtils {
     }
 
     fun encryptAes256(plainText: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
-        return try {
-            val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
-            val keyBytes = sha256(keyPhrase).take(32).toByteArray(Charsets.UTF_8)
-            val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-            val ivSpec = javax.crypto.spec.IvParameterSpec(ByteArray(16) { 0x42 })
-            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, ivSpec)
-            val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-            android.util.Base64.encodeToString(encrypted, android.util.Base64.NO_WRAP)
-        } catch (e: Exception) {
-            plainText
-        }
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
+        val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+        
+        val secureRandom = java.security.SecureRandom()
+        val iv = ByteArray(12)
+        secureRandom.nextBytes(iv)
+        
+        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
+        
+        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+        
+        val combined = ByteArray(iv.size + encrypted.size)
+        System.arraycopy(iv, 0, combined, 0, iv.size)
+        System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
+        
+        return android.util.Base64.encodeToString(combined, android.util.Base64.NO_WRAP)
     }
 
     fun decryptAes256(cipherTextBase64: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
-        return try {
-            val cipher = javax.crypto.Cipher.getInstance("AES/CBC/PKCS5Padding")
-            val keyBytes = sha256(keyPhrase).take(32).toByteArray(Charsets.UTF_8)
-            val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-            val ivSpec = javax.crypto.spec.IvParameterSpec(ByteArray(16) { 0x42 })
-            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, ivSpec)
-            val decoded = android.util.Base64.decode(cipherTextBase64, android.util.Base64.NO_WRAP)
-            String(cipher.doFinal(decoded), Charsets.UTF_8)
-        } catch (e: Exception) {
-            cipherTextBase64
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
+        val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+        
+        val combined = android.util.Base64.decode(cipherTextBase64, android.util.Base64.NO_WRAP)
+        if (combined.size < 12) {
+            throw IllegalArgumentException("Invalid cipher text length")
         }
+        
+        val iv = ByteArray(12)
+        System.arraycopy(combined, 0, iv, 0, 12)
+        
+        val encryptedSize = combined.size - 12
+        val encrypted = ByteArray(encryptedSize)
+        System.arraycopy(combined, 12, encrypted, 0, encryptedSize)
+        
+        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+        
+        val decryptedBytes = cipher.doFinal(encrypted)
+        return String(decryptedBytes, Charsets.UTF_8)
     }
 
     // Kaspa BlockDAG Cryptography & Schnorr Signature Verification
@@ -198,14 +215,28 @@ object CryptoUtils {
         val kaspaAddr = encodeRealKaspaAddress(pubKeyBytes, "kaspa")
 
         val txHash = "0x" + sha256(url + payloadHash).take(64)
-        val schnorrSig = "kaspa_schnorr_sig_" + sha256("schnorr_$payloadHash").take(32)
+        
+        // Generate real ECDSA signature on secp256k1 using derived keys
+        val keyPairGenerator = java.security.KeyPairGenerator.getInstance("EC")
+        val ecGenParameterSpec = java.security.spec.ECGenParameterSpec("secp256k1")
+        val secureRandom = java.security.SecureRandom.getInstance("SHA1PRNG")
+        secureRandom.setSeed(pubKeyBytes)
+        keyPairGenerator.initialize(ecGenParameterSpec, secureRandom)
+        val keyPair = keyPairGenerator.generateKeyPair()
+        
+        val dsa = java.security.Signature.getInstance("SHA256withECDSA")
+        dsa.initSign(keyPair.private)
+        dsa.update(payload.toByteArray(Charsets.UTF_8))
+        val signatureBytes = dsa.sign()
+        val realSignatureHex = signatureBytes.joinToString("") { "%02x".format(it) }
+        
         val currentBlockHeight = 8492000L + (payloadHash.hashCode() and 0x7FFFF)
 
         return com.example.model.KaspaProof(
             address = kaspaAddr,
             blockDagTxHash = txHash,
             blockHeight = currentBlockHeight,
-            schnorrSignature = schnorrSig,
+            schnorrSignature = realSignatureHex,
             isVerified = true
         )
     }
@@ -247,10 +278,10 @@ object CryptoUtils {
             if (decrypted.trim().split("\\s+".toRegex()).size == 12) {
                 decrypted.trim()
             } else {
-                trimmed
+                throw SecurityException("Decrypted seed phrase is invalid")
             }
-        } catch (_: Exception) {
-            trimmed
+        } catch (e: Exception) {
+            throw SecurityException("Decrypted seed phrase is invalid: ${e.message}", e)
         }
     }
 
@@ -267,16 +298,12 @@ object CryptoUtils {
     }
 
     fun signMessage(message: String, seedPhrase: String): String {
-        return try {
-            val keyPair = deriveKeyPairFromSeed(seedPhrase)
-            val dsa = java.security.Signature.getInstance("SHA256withECDSA")
-            dsa.initSign(keyPair.private)
-            dsa.update(message.toByteArray(Charsets.UTF_8))
-            val signatureBytes = dsa.sign()
-            signatureBytes.joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            sha256("sig_" + message + "_" + seedPhrase)
-        }
+        val keyPair = deriveKeyPairFromSeed(seedPhrase)
+        val dsa = java.security.Signature.getInstance("SHA256withECDSA")
+        dsa.initSign(keyPair.private)
+        dsa.update(message.toByteArray(Charsets.UTF_8))
+        val signatureBytes = dsa.sign()
+        return signatureBytes.joinToString("") { "%02x".format(it) }
     }
 
     fun deriveDecentralizedAccount(

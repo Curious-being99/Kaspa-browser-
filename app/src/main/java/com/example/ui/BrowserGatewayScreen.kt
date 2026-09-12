@@ -869,8 +869,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
                                 databaseEnabled = true
-                                allowFileAccess = true
-                                allowContentAccess = true
+                                allowFileAccess = false
+                                allowContentAccess = false
+                                @Suppress("DEPRECATION")
+                                allowFileAccessFromFileURLs = false
+                                @Suppress("DEPRECATION")
+                                allowUniversalAccessFromFileURLs = false
                                 setSupportZoom(true)
                                 builtInZoomControls = true
                                 displayZoomControls = false
@@ -3885,7 +3889,11 @@ fun YouTubeVideoCard(
                                     useWideViewPort = true
                                     textZoom = 100
                                     allowFileAccess = false
-                                    allowContentAccess = true
+                                    allowContentAccess = false
+                                    @Suppress("DEPRECATION")
+                                    allowFileAccessFromFileURLs = false
+                                    @Suppress("DEPRECATION")
+                                    allowUniversalAccessFromFileURLs = false
                                     offscreenPreRaster = true
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
