@@ -45,6 +45,9 @@ class MainActivity : ComponentActivity() {
 
     enableEdgeToEdge()
 
+    // Initialize Cronet Engine with true QUIC transport capabilities
+    com.example.network.CronetClientFactory.initialize(applicationContext)
+
     // Clean up stale or corrupted 0-byte code cache files to prevent Chromium SimpleFileEnumerator warnings (Trigger New APK Deploy)
     try {
       val codeCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache")

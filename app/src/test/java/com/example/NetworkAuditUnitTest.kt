@@ -129,13 +129,20 @@ class NetworkAuditUnitTest {
     }
 
     @Test
-    fun testKaspaLinkProofVerification() {
-        val proof = CryptoUtils.verifyKaspaLinkProof("<h1>Kaspa Decentralized Content</h1>", "kaspa://dnet/content/index.html")
+    fun KaspaLinkProofVerification() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val keyPair = CryptoUtils.deriveKaspaKeyPair(mnemonic)
+        val payload = "<h1>Kaspa Decentralized Content</h1>"
+        val url = "kaspa://dnet/content/index.html"
+        val messageBytes = (payload + url).toByteArray(Charsets.UTF_8)
+        val signature = CryptoUtils.signKaspaPersonalMessage(keyPair.privateKey, messageBytes)
+
+        val proof = CryptoUtils.verifyKaspaLinkProof(payload, url, keyPair.publicKeyHex, signature)
         assertNotNull(proof)
-        assertTrue(proof.isVerified)
+        assertTrue("Proof must verify successfully", proof.isVerified)
         assertTrue(CryptoUtils.isValidKaspaAddress(proof.address))
         assertEquals(128, proof.schnorrSignature.length)
-        assertTrue(proof.blockHeight > 8000000L)
+        assertTrue("Blockheight must be a live blockDAG score from mainnet (> 500,000,000)", proof.blockHeight > 500000000L)
     }
 
     @Test
