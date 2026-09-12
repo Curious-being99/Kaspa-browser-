@@ -4,6 +4,14 @@ import java.security.MessageDigest
 
 object CryptoUtils {
 
+    private val client: okhttp3.OkHttpClient by lazy {
+        CronetClientFactory.buildClient(
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        )
+    }
+
     private const val KASPA_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
     fun sha256(input: String): String {
@@ -682,19 +690,35 @@ object CryptoUtils {
         var currentBlockHeight = 0L
 
         try {
-            val json = java.net.URL("https://api.kaspa.org/info/blockdag").readText()
-            val match = """"virtualDaaScore"\s*:\s*"?(\d+)"?""".toRegex().find(json)
-            if (match != null) {
-                currentBlockHeight = match.groupValues[1].toLong()
+            val request = okhttp3.Request.Builder()
+                .url("https://api.kaspa.org/info/blockdag")
+                .header("User-Agent", "DecentralNet-P2P/1.0")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = response.body?.string() ?: ""
+                    val match = """"virtualDaaScore"\s*:\s*"?(\d+)"?""".toRegex().find(json)
+                    if (match != null) {
+                        currentBlockHeight = match.groupValues[1].toLong()
+                    }
+                }
             }
         } catch (_: Exception) {}
 
         if (isValid && kaspaAddr.startsWith("kaspa:") && kaspaAddr != "kaspa:unverified") {
             try {
-                val txJson = java.net.URL("https://api.kaspa.org/addresses/$kaspaAddr/transactions?limit=1").readText()
-                val txMatch = """"transaction_id"\s*:\s*"([^"]+)"""".toRegex().find(txJson)
-                if (txMatch != null) {
-                    txHash = txMatch.groupValues[1]
+                val request = okhttp3.Request.Builder()
+                    .url("https://api.kaspa.org/addresses/$kaspaAddr/transactions?limit=1")
+                    .header("User-Agent", "DecentralNet-P2P/1.0")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val txJson = response.body?.string() ?: ""
+                        val txMatch = """"transaction_id"\s*:\s*"([^"]+)"""".toRegex().find(txJson)
+                        if (txMatch != null) {
+                            txHash = txMatch.groupValues[1]
+                        }
+                    }
                 }
             } catch (_: Exception) {}
         }
