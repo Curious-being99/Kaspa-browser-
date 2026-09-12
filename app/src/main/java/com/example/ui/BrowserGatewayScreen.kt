@@ -772,7 +772,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
 
                 // Web Page Loading Progress Bar
-                if (isWebLoading || isLoading) {
+                if ((isWebLoading || isLoading) && webProgress < 1.0f) {
                     LinearProgressIndicator(
                         progress = { if (webProgress > 0f) webProgress else 0.5f },
                         modifier = Modifier
@@ -846,7 +846,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(false)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     safeBrowsingEnabled = true
                                 }
@@ -934,15 +934,23 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val wv = this
                             android.webkit.CookieManager.getInstance().apply {
                                 setAcceptCookie(true)
-                                setAcceptThirdPartyCookies(wv, true)
+                                setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
                             setBackgroundColor(android.graphics.Color.parseColor("#0B0F17"))
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     webProgress = newProgress / 100f
-                                    isWebLoading = newProgress < 100
+                                    if (newProgress >= 95) {
+                                        isWebLoading = false
+                                        viewModel.setIsLoading(false)
+                                    } else {
+                                        isWebLoading = true
+                                    }
                                     if (newProgress == 100) {
+                                        webProgress = 1.0f
+                                        isWebLoading = false
+                                        viewModel.setIsLoading(false)
                                         val cur = view?.url ?: ""
                                         if (cur.isNotBlank() && !cur.startsWith("data:") && !cur.startsWith("about:")) {
                                             viewModel.recordBrowserTraffic(cur, 220 * 1024L)
@@ -1049,6 +1057,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     isWebLoading = true
+                                    webProgress = 0.15f
+                                    viewModel.setIsLoading(true)
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -1062,6 +1072,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isWebLoading = false
+                                    webProgress = 1.0f
+                                    viewModel.setIsLoading(false)
                                     swipeContainer.isRefreshing = false
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
@@ -4174,7 +4186,7 @@ fun YouTubeVideoCard(
                                     offscreenPreRaster = true
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
-                                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                                 }
                                 webChromeClient = object : android.webkit.WebChromeClient() {

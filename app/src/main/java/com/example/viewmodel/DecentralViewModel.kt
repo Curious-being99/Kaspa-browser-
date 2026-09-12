@@ -112,7 +112,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _encryptedLocalStorage = MutableStateFlow(true)
     val encryptedLocalStorage: StateFlow<Boolean> = _encryptedLocalStorage.asStateFlow()
 
-    private val _thirdPartyCookies = MutableStateFlow(true)
+    private val _thirdPartyCookies = MutableStateFlow(false)
     val thirdPartyCookies: StateFlow<Boolean> = _thirdPartyCookies.asStateFlow()
 
     private val _blockThirdPartyCookies = MutableStateFlow(false)
@@ -552,6 +552,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 _isLoading.value = false
             }
         }
+    }
+
+    fun setIsLoading(loading: Boolean) {
+        _isLoading.value = loading
     }
 
     fun recordBrowserTraffic(url: String, estimatedBytes: Long = 0L) {
