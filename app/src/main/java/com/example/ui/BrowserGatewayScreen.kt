@@ -1319,6 +1319,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     // Keep all HTTP/HTTPS links inside this WebView without opening external apps
+                                    if (targetUrl.startsWith("http://", ignoreCase = true) || targetUrl.startsWith("https://", ignoreCase = true)) {
+                                        if (targetUrl == viewModel.currentResource.value?.url) {
+                                            return false
+                                        }
+                                        viewModel.resolveUrl(targetUrl)
+                                        return true
+                                    }
                                     viewModel.setUrlInput(targetUrl)
                                     return false
                                 }

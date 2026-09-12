@@ -14,6 +14,8 @@ data class ContentEntity(
     val isSeeding: Boolean,
     val centralizedMirrorUrl: String?,
     val authorPeerId: String,
+    val authorAddress: String = "",
+    val signature: String = "",
     val createdAt: Long,
     val sha256Hash: String,
     val protocolPrefix: String = "mesh://"

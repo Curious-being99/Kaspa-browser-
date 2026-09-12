@@ -474,7 +474,9 @@ class LocalNodeManager(
     suspend fun publishContent(
         title: String,
         content: String,
-        slugOrName: String
+        slugOrName: String,
+        authorAddress: String = "",
+        signature: String = ""
     ): ContentEntity = withContext(Dispatchers.IO) {
         val hash = CryptoUtils.sha256(content)
         val cid = CryptoUtils.generateCid(content)
@@ -492,6 +494,8 @@ class LocalNodeManager(
             isSeeding = true,
             centralizedMirrorUrl = gatewayUrl,
             authorPeerId = localNodeId,
+            authorAddress = authorAddress,
+            signature = signature,
             createdAt = System.currentTimeMillis(),
             sha256Hash = hash,
             protocolPrefix = protocolPrefix

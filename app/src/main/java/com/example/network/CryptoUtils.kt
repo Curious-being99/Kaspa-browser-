@@ -656,28 +656,48 @@ object CryptoUtils {
     }
 
     // Kaspa BlockDAG Cryptography & Schnorr Signature Verification (rusty-kaspa standard)
-    fun verifyKaspaLinkProof(payload: String, url: String): com.example.model.KaspaProof {
+    fun verifyKaspaLinkProof(payload: String, url: String, pubKeyHex: String = "", providedSignature: String = ""): com.example.model.KaspaProof {
         val messageBytes = (payload + url).toByteArray(Charsets.UTF_8)
         val messageHash32 = kaspaPersonalMessageHash(messageBytes)
         
-        // Deterministic Kaspa key derivation for the payload
-        val privKeyScalar = java.math.BigInteger(1, messageHash32).mod(SECP256K1_N)
-            .let { if (it == java.math.BigInteger.ZERO) java.math.BigInteger.ONE else it }
-        
-        var pPoint = pointMultiply(privKeyScalar, ECPoint.G)
-        var finalD = privKeyScalar
-        if (pPoint.y.testBit(0)) {
-            finalD = SECP256K1_N.subtract(finalD)
-            pPoint = ECPoint(pPoint.x, SECP256K1_P.subtract(pPoint.y))
-        }
+        var pubKey32: ByteArray? = null
+        var isValid = false
+        var kaspaAddr = "kaspa:unverified"
+        var schnorrSig = providedSignature
 
-        val pubKey32 = to32ByteArray(pPoint.x)
-        val kaspaAddr = encodeRealKaspaAddress(pubKey32, "kaspa")
-        val txHash = "0x" + blake2b256(url.toByteArray(Charsets.UTF_8) + messageHash32).joinToString("") { "%02x".format(it) }
+        if (pubKeyHex.isNotBlank() && providedSignature.isNotBlank()) {
+            try {
+                val decodedPubKey = hexToBytes(pubKeyHex)
+                if (decodedPubKey.size == 32) {
+                    pubKey32 = decodedPubKey
+                    isValid = verifySchnorrSignature(providedSignature, messageHash32, decodedPubKey)
+                    kaspaAddr = encodeRealKaspaAddress(decodedPubKey, "kaspa")
+                }
+            } catch (e: Exception) {
+                // Verification failed due to format error
+            }
+        }
         
-        val schnorrSig = signSchnorr(finalD, messageHash32)
-        val isValid = verifySchnorrSignature(schnorrSig, messageHash32, pubKey32)
-        val currentBlockHeight = 8492000L + (messageHash32.hashCode() and 0x7FFFF)
+        var txHash = "0x" + blake2b256(url.toByteArray(Charsets.UTF_8) + messageHash32).joinToString("") { "%02x".format(it) }
+        var currentBlockHeight = 0L
+
+        try {
+            val json = java.net.URL("https://api.kaspa.org/info/blockdag").readText()
+            val match = """"virtualDaaScore"\s*:\s*"?(\d+)"?""".toRegex().find(json)
+            if (match != null) {
+                currentBlockHeight = match.groupValues[1].toLong()
+            }
+        } catch (_: Exception) {}
+
+        if (isValid && kaspaAddr.startsWith("kaspa:") && kaspaAddr != "kaspa:unverified") {
+            try {
+                val txJson = java.net.URL("https://api.kaspa.org/addresses/$kaspaAddr/transactions?limit=1").readText()
+                val txMatch = """"transaction_id"\s*:\s*"([^"]+)"""".toRegex().find(txJson)
+                if (txMatch != null) {
+                    txHash = txMatch.groupValues[1]
+                }
+            } catch (_: Exception) {}
+        }
 
         return com.example.model.KaspaProof(
             address = kaspaAddr,

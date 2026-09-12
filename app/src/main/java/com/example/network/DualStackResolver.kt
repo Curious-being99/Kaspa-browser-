@@ -292,7 +292,7 @@ class DualStackResolver(private val database: AppDatabase) {
             val start = System.currentTimeMillis()
             val latency = System.currentTimeMillis() - start
             val hash = CryptoUtils.sha256(localMatch.content)
-            val kProof = CryptoUtils.verifyKaspaLinkProof(localMatch.content, url)
+            val kProof = CryptoUtils.verifyKaspaLinkProof(localMatch.content, localMatch.protocolPrefix, localMatch.authorAddress, localMatch.signature)
 
             return@withContext ResolvedResource(
                 url = url,
@@ -356,7 +356,7 @@ class DualStackResolver(private val database: AppDatabase) {
                 1
             }
 
-            val kProof = CryptoUtils.verifyKaspaLinkProof(foundInLocal.content, url)
+            val kProof = CryptoUtils.verifyKaspaLinkProof(foundInLocal.content, foundInLocal.protocolPrefix, foundInLocal.authorAddress, foundInLocal.signature)
 
             return@withContext ResolvedResource(
                 url = url,

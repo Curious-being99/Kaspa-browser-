@@ -521,6 +521,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 val result = resolver.resolve(target, _selectedProtocol.value)
                 if (_navigationSessionId.value == currentSessionId) {
                     _currentResource.value = result
+                    verifyResourceIntegrity()
                     
                     val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
                     nodeManager.recordBrowserTraffic(bytesTransferred, target)
@@ -560,10 +561,32 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
+        val account = activeAccount.value
+
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val entity = nodeManager.publishContent(title, content, slug)
+                var authorAddress = ""
+                var signature = ""
+
+                if (account != null) {
+                    try {
+                        val cleanSlug = com.example.network.DomainConstants.removeDomainSuffix(slug.trim().lowercase().replace(" ", "-"))
+                        val cid = com.example.network.CryptoUtils.generateCid(content)
+                        val protocolPrefix = if (cleanSlug.isNotEmpty()) "mesh://$cleanSlug | ${com.example.network.DomainConstants.formatDomain(cleanSlug)}" else "ipfs://$cid"
+                        
+                        authorAddress = account.publicKeyHex
+                        val seedBytes = com.example.network.CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                        val keyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(seedBytes)
+                        
+                        val messageBytes = (content + protocolPrefix).toByteArray(Charsets.UTF_8)
+                        signature = com.example.network.CryptoUtils.signKaspaPersonalMessage(keyPair.privateKey, messageBytes)
+                    } catch (e: Exception) {
+                        // Keep signature empty if signing fails
+                    }
+                }
+
+                val entity = nodeManager.publishContent(title, content, slug, authorAddress, signature)
                 _statusMessage.value = "Published to decentralized swarm! CID: ${entity.cid.take(16)}..."
                 _urlInput.value = entity.protocolPrefix
                 _currentResource.value = resolver.resolve(entity.protocolPrefix, NetworkProtocol.HYBRID_COEXISTENCE)
@@ -579,7 +602,8 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun verifyResourceIntegrity() {
         val current = _currentResource.value ?: return
-        val calculatedHash = CryptoUtils.sha256(current.content)
+        val contentToHash = if (current.content.isNotEmpty()) current.content else current.url
+        val calculatedHash = com.example.network.CryptoUtils.sha256(contentToHash)
         val isMatch = calculatedHash.equals(current.cryptographicHash, ignoreCase = true)
 
         if (isMatch) {
