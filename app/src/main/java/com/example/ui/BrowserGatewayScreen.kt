@@ -49,6 +49,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -215,6 +217,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var activeTabId by remember { mutableStateOf("default") }
     var showTabSwitcher by remember { mutableStateOf(false) }
     var isInputFocused by remember { mutableStateOf(false) }
+    val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val urlInput by viewModel.urlInput.collectAsState()
     val selectedProtocol by viewModel.selectedProtocol.collectAsState()
@@ -227,6 +231,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 selection = androidx.compose.ui.text.TextRange(urlInput.length)
             )
         )
+    }
+
+    LaunchedEffect(isInputFocused) {
+        if (isInputFocused) {
+            try {
+                urlFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+            if (textFieldValue.text.isNotEmpty()) {
+                textFieldValue = textFieldValue.copy(
+                    selection = androidx.compose.ui.text.TextRange(0, textFieldValue.text.length)
+                )
+            }
+        } else {
+            focusManager.clearFocus()
+        }
     }
 
     LaunchedEffect(urlInput) {
@@ -314,7 +333,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val kaspaWalletState by viewModel.kaspaWalletState.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
-    val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -399,8 +417,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 res.url.startsWith("https://")
     }
 
-    androidx.activity.compose.BackHandler(enabled = canGoBack || currentResource != null || showTabSwitcher) {
-        if (showTabSwitcher) {
+    androidx.activity.compose.BackHandler(enabled = isInputFocused || showTabSwitcher || canGoBack || currentResource != null) {
+        if (isInputFocused) {
+            isInputFocused = false
+            focusManager.clearFocus()
+            textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                text = urlInput,
+                selection = androidx.compose.ui.text.TextRange(urlInput.length)
+            )
+        } else if (showTabSwitcher) {
             showTabSwitcher = false
         } else if (webViewInstance?.canGoBack() == true) {
             webViewInstance?.goBack()
@@ -423,352 +448,329 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             tonalElevation = 4.dp
         ) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { viewModel.resetToHome() },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Home,
-                            contentDescription = "Home",
-                            tint = TextMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-
-                    // Main URL & Search Bar Container
-                    Surface(
-                        shape = RoundedCornerShape(24.dp), // Modern pill shape
-                        color = SurfaceCard,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                    ) {
+                if (isInputFocused) {
+                    // FOCUSED SEARCH HEADER (Industry Standard Chrome/Safari/Brave UX)
                     Row(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 6.dp),
+                            .fillMaxWidth()
+                            .height(48.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Protocol Mode Dropdown Pill (Leading side)
-                        Box {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = SurfaceDark,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { showProtocolMenu = true }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = when (selectedProtocol) {
-                                            NetworkProtocol.HYBRID_COEXISTENCE -> Icons.Default.Hub
-                                            NetworkProtocol.DECENTRALIZED_P2P -> Icons.Default.Language
-                                            NetworkProtocol.CENTRALIZED_HTTP -> Icons.Default.Cloud
-                                        },
-                                        contentDescription = "Protocol Mode Logo",
-                                        tint = when (selectedProtocol) {
-                                            NetworkProtocol.HYBRID_COEXISTENCE -> ElectricCyan
-                                            NetworkProtocol.DECENTRALIZED_P2P -> EmeraldMesh
-                                            NetworkProtocol.CENTRALIZED_HTTP -> AmberCentral
-                                        },
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = showProtocolMenu,
-                                onDismissRequest = { showProtocolMenu = false },
-                                modifier = Modifier.background(SurfaceDark)
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Hybrid Verified (Auto)", color = ElectricCyan, fontSize = 12.sp) },
-                                    onClick = {
-                                        viewModel.setProtocol(NetworkProtocol.HYBRID_COEXISTENCE)
-                                        showProtocolMenu = false
-                                        viewModel.resolveUrl()
-                                    }
+                        IconButton(
+                            onClick = {
+                                isInputFocused = false
+                                focusManager.clearFocus()
+                                textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                    text = urlInput,
+                                    selection = androidx.compose.ui.text.TextRange(urlInput.length)
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("P2P Mesh (Zero-Trust)", color = EmeraldMesh, fontSize = 12.sp) },
-                                    onClick = {
-                                        viewModel.setProtocol(NetworkProtocol.DECENTRALIZED_P2P)
-                                        showProtocolMenu = false
-                                        viewModel.resolveUrl()
-                                    }
-                                )
-                            }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Cancel Search",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
 
                         Spacer(modifier = Modifier.width(4.dp))
 
-                        // Text Field Area (vertically centered, never clipped)
-                        Box(
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, ElectricCyan),
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 2.dp),
-                            contentAlignment = Alignment.CenterStart
+                                .height(44.dp)
                         ) {
-                            if (urlInput.isEmpty()) {
-                                Text(
-                                    text = "Search or type URL",
-                                    color = TextMuted,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            BasicTextField(
-                                value = textFieldValue,
-                                onValueChange = { newValue ->
-                                    textFieldValue = newValue
-                                    if (urlInput != newValue.text) {
-                                        viewModel.setUrlInput(newValue.text)
-                                    }
-                                },
+                            Row(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .onFocusChanged { focusState ->
-                                        isInputFocused = focusState.isFocused
-                                        if (focusState.isFocused && textFieldValue.text.isNotEmpty()) {
-                                            textFieldValue = textFieldValue.copy(
-                                                selection = androidx.compose.ui.text.TextRange(0, textFieldValue.text.length)
+                                    .fillMaxSize()
+                                    .padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (textFieldValue.text.isEmpty()) {
+                                        Text(
+                                            text = "Search or type URL",
+                                            color = TextMuted,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    BasicTextField(
+                                        value = textFieldValue,
+                                        onValueChange = { newValue ->
+                                            textFieldValue = newValue
+                                            if (urlInput != newValue.text) {
+                                                viewModel.setUrlInput(newValue.text)
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(urlFocusRequester)
+                                            .testTag("url_input_field"),
+                                        singleLine = true,
+                                        cursorBrush = SolidColor(ElectricCyan),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                                        keyboardActions = KeyboardActions(onGo = {
+                                            isInputFocused = false
+                                            focusManager.clearFocus()
+                                            viewSourceMode = false
+                                            val input = textFieldValue.text.trim()
+                                            if (input.isNotBlank()) {
+                                                val normalized = viewModel.normalizeUrlOrQuery(input)
+                                                if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                                    webViewInstance?.loadUrl(normalized)
+                                                }
+                                                viewModel.resolveUrl(normalized)
+                                            }
+                                        }),
+                                        textStyle = TextStyle(
+                                            fontFamily = FontFamily.SansSerif,
+                                            fontSize = 14.sp,
+                                            color = TextPrimary
+                                        )
+                                    )
+                                }
+
+                                if (textFieldValue.text.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.setUrlInput("")
+                                            textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                                "",
+                                                selection = androidx.compose.ui.text.TextRange.Zero
+                                            )
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Clear input",
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // NORMAL UNFOCUSED BROWSING HEADER
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { viewModel.resetToHome() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Home,
+                                contentDescription = "Home",
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Main URL Pill Container
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clickable {
+                                    isInputFocused = true
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Protocol Mode Indicator Icon
+                                Box {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = SurfaceDark,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable { showProtocolMenu = true }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = when (selectedProtocol) {
+                                                    NetworkProtocol.HYBRID_COEXISTENCE -> Icons.Default.Hub
+                                                    NetworkProtocol.DECENTRALIZED_P2P -> Icons.Default.Language
+                                                    NetworkProtocol.CENTRALIZED_HTTP -> Icons.Default.Cloud
+                                                },
+                                                contentDescription = "Protocol Mode Logo",
+                                                tint = when (selectedProtocol) {
+                                                    NetworkProtocol.HYBRID_COEXISTENCE -> ElectricCyan
+                                                    NetworkProtocol.DECENTRALIZED_P2P -> EmeraldMesh
+                                                    NetworkProtocol.CENTRALIZED_HTTP -> AmberCentral
+                                                },
+                                                modifier = Modifier.size(16.dp)
                                             )
                                         }
                                     }
-                                    .testTag("url_input_field"),
-                                singleLine = true,
-                                cursorBrush = SolidColor(ElectricCyan),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                                keyboardActions = KeyboardActions(onGo = {
-                                    isInputFocused = false
-                                    focusManager.clearFocus()
-                                    viewSourceMode = false
-                                    val input = textFieldValue.text.trim()
-                                    if (input.isNotBlank()) {
-                                        val normalized = viewModel.normalizeUrlOrQuery(input)
-                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                            webViewInstance?.loadUrl(normalized)
-                                        }
-                                        viewModel.resolveUrl(normalized)
-                                    }
-                                }),
-                                textStyle = TextStyle(
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontSize = 13.sp,
-                                    color = TextPrimary
-                                )
-                            )
-                        }
 
-                        // Clear input button
-                        if (urlInput.isNotEmpty()) {
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setUrlInput("") 
-                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue("", selection = androidx.compose.ui.text.TextRange.Zero)
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear",
-                                    tint = TextMuted,
-                                    modifier = Modifier.size(14.dp)
-                                )
+                                    DropdownMenu(
+                                        expanded = showProtocolMenu,
+                                        onDismissRequest = { showProtocolMenu = false },
+                                        modifier = Modifier.background(SurfaceDark)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Hybrid Verified (Auto)", color = ElectricCyan, fontSize = 12.sp) },
+                                            onClick = {
+                                                viewModel.setProtocol(NetworkProtocol.HYBRID_COEXISTENCE)
+                                                showProtocolMenu = false
+                                                viewModel.resolveUrl()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("P2P Mesh (Zero-Trust)", color = EmeraldMesh, fontSize = 12.sp) },
+                                            onClick = {
+                                                viewModel.setProtocol(NetworkProtocol.DECENTRALIZED_P2P)
+                                                showProtocolMenu = false
+                                                viewModel.resolveUrl()
+                                            }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = if (urlInput.isBlank()) "Search or type URL" else urlInput,
+                                        color = if (urlInput.isBlank()) TextMuted else TextPrimary,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                if (isLoading || isWebLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .padding(1.dp),
+                                        strokeWidth = 2.dp,
+                                        color = ElectricCyan
+                                    )
+                                } else if (urlInput.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            val normalized = viewModel.normalizeUrlOrQuery(urlInput)
+                                            if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                                webViewInstance?.reload()
+                                            } else {
+                                                viewModel.resolveUrl(normalized)
+                                            }
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Reload",
+                                            tint = TextMuted,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
 
-                        // Go / Loading Icon
-                        if (isLoading || isWebLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .padding(2.dp),
-                                strokeWidth = 2.dp,
-                                color = ElectricCyan
-                            )
-                        }
-                    }
-                }
+                        Spacer(modifier = Modifier.width(6.dp))
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Tab Plus (+) Button
-                IconButton(
-                    onClick = { createNewTab() },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New Tab",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Square Tab Switcher Button
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .border(1.2.dp, TextPrimary, RoundedCornerShape(5.dp))
-                        .clickable { showTabSwitcher = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = tabs.size.toString(),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Decentralized Account & Google zk-Bridge Profile Pill / Avatar Button
-                Surface(
-                    shape = CircleShape,
-                    color = SurfaceCard,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .clickable {
-                            accountDialogInitialTab = 1
-                            showAccountDialog = true
-                        }
-                        .testTag("account_identity_button")
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
-                            GoogleLogoIcon(iconSize = 20.dp)
-                        } else {
+                        IconButton(
+                            onClick = { createNewTab() },
+                            modifier = Modifier.size(28.dp)
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Decentralized Account",
-                                tint = ElectricCyan,
-                                modifier = Modifier.size(22.dp)
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "New Tab",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
-                }
-            }
 
-            // AUTO-COMPLETE SEARCH & WEBSITE SUGGESTIONS OVERLAY
-            if (urlInput.isNotBlank() && (currentResource == null || isInputFocused)) {
-                val suggestions = remember(urlInput) {
-                    val query = urlInput.trim().lowercase()
-                    if (query.isEmpty()) emptyList() else {
-                        val predefined = listOf(
-                            Triple("kaspa.stream", "Kaspa BlockDAG Explorer", "https://kaspa.stream"),
-                            Triple("kaspa.org", "Kaspa Proof-of-Work BlockDAG", "https://kaspa.org"),
-                            Triple("kaspa.com", "Kaspa Ecosystem & Markets", "https://kaspa.com"),
-                            Triple("kasrace.com", "Kasrace 4D Realtime Explorer", "https://kasrace.com"),
-                            Triple("kaskad.live", "Kaskad Decentralized Network", "https://kaskad.live"),
-                            Triple("mykai.dev", "Kai Sovereign Cloud & Apps", "https://mykai.dev"),
-                            Triple("google.com", "Google Search Engine", "https://google.com"),
-                            Triple("github.com", "GitHub Developer Platform", "https://github.com"),
-                            Triple("reddit.com/r/kaspa", "Kaspa Reddit Community", "https://www.reddit.com/r/kaspa"),
-                            Triple("discord.gg/kaspa", "Kaspa Discord Server", "https://discord.gg/kaspa")
-                        )
-                        val matches = predefined.filter {
-                            it.first.contains(query) || it.second.lowercase().contains(query)
-                        }.toMutableList()
+                        Spacer(modifier = Modifier.width(6.dp))
 
-                        // Add Search Google Suggestion
-                        val encodedQuery = try {
-                            java.net.URLEncoder.encode(query, "UTF-8")
-                        } catch (_: Exception) {
-                            query
-                        }
-                        matches.add(Triple(query, "Search Google for \"$query\"", "https://www.google.com/search?q=$encodedQuery"))
-
-                        // Add Open Direct URL Suggestion if it looks like a URL or has dot
-                        if (query.contains(".") || query.startsWith("http")) {
-                            val directUrl = if (query.startsWith("http")) query else "https://$query"
-                            matches.add(Triple(query, "Go directly to $directUrl", directUrl))
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .border(1.2.dp, TextPrimary, RoundedCornerShape(5.dp))
+                                .clickable { showTabSwitcher = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = tabs.size.toString(),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
                         }
 
-                        matches.toList()
-                    }
-                }
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                if (suggestions.isNotEmpty()) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp),
-                        color = SurfaceDark,
-                        shape = androidx.compose.ui.graphics.RectangleShape,
-                        shadowElevation = 8.dp
-                    ) {
-                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            suggestions.take(5).forEach { item ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            val target = item.third
-                                            viewModel.setUrlInput(target)
-                                            viewSourceMode = false
-                                            val normalized = viewModel.normalizeUrlOrQuery(target)
-                                            if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                                webViewInstance?.loadUrl(normalized)
-                                            }
-                                            viewModel.resolveUrl(normalized)
-                                            isInputFocused = false
-                                            focusManager.clearFocus()
-                                        }
-                                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    accountDialogInitialTab = 1
+                                    showAccountDialog = true
+                                }
+                                .testTag("account_identity_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
+                                    GoogleLogoIcon(iconSize = 20.dp)
+                                } else {
                                     Icon(
-                                        imageVector = if (item.third.contains("google.com/search")) Icons.Default.Search else if (item.third.contains("kaspa") || item.third.contains("kas")) Icons.Default.Language else Icons.Default.Language,
-                                        contentDescription = null,
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = "Decentralized Account",
                                         tint = ElectricCyan,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = item.second,
-                                            color = TextPrimary,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = item.third,
-                                            color = TextMuted,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                        contentDescription = null,
-                                        tint = TextMuted,
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(22.dp)
                                     )
                                 }
                             }
                         }
                     }
                 }
-            }
 
                 // Web Page Loading Progress Bar
                 if (isWebLoading || isLoading) {
@@ -878,8 +880,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         touchStartX = event.x
                                         touchStartY = event.y
                                         touchStartTime = System.currentTimeMillis()
-                                        val edgeZoneWidth = (v.width * 0.18f).coerceIn(40f, 180f)
-                                        // Detect if start is near left edge (swipe right for back) or right edge (swipe left for forward)
+                                        val edgeZoneWidth = (v.width * 0.04f).coerceIn(16f, 48f)
+                                        // Detect if start is near extreme left edge (swipe right for back) or extreme right edge (swipe left for forward)
                                         isEdgeSwipe = (touchStartX <= edgeZoneWidth) || (touchStartX >= v.width - edgeZoneWidth)
                                         false
                                     }
@@ -1058,7 +1060,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
                                     view?.evaluateJavascript(
-                                        "try { var s = document.createElement('style'); s.innerHTML = '* { -webkit-tap-highlight-color: transparent !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; outline: none !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; background: transparent !important; }'; (document.head || document.documentElement).appendChild(s); } catch(e){}",
+                                        "try { if(!document.getElementById('kaspa-tap-style')) { var s = document.createElement('style'); s.id = 'kaspa-tap-style'; s.innerHTML = 'html, body { -webkit-tap-highlight-color: transparent !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; }'; (document.head || document.documentElement).appendChild(s); } } catch(e){}",
                                         null
                                     )
                                     if (sendDntHeaders) {
@@ -1081,7 +1083,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
                                     view?.evaluateJavascript(
-                                        "try { var s = document.createElement('style'); s.innerHTML = '* { -webkit-tap-highlight-color: transparent !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; outline: none !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; background: transparent !important; }'; (document.head || document.documentElement).appendChild(s); } catch(e){}",
+                                        "try { if(!document.getElementById('kaspa-tap-style')) { var s = document.createElement('style'); s.id = 'kaspa-tap-style'; s.innerHTML = 'html, body { -webkit-tap-highlight-color: transparent !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; }'; (document.head || document.documentElement).appendChild(s); } } catch(e){}",
                                         null
                                     )
 
@@ -1347,11 +1349,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         addView(webView)
 
                         setOnChildScrollUpCallback { _, _ ->
-                            webView.canScrollVertically(-1) || webView.scrollY > 0
+                            val activeUrl = webView.url ?: ""
+                            val isModalOrSubRoute = activeUrl.contains("?") || activeUrl.contains("#") || activeUrl.contains("proof")
+                            isModalOrSubRoute || webView.canScrollVertically(-1) || webView.scrollY > 0
                         }
 
                         setOnRefreshListener {
+                            val activeUrl = webView.url ?: ""
+                            if (activeUrl.contains("?") || activeUrl.contains("#") || activeUrl.contains("proof")) {
+                                isRefreshing = false
+                                return@setOnRefreshListener
+                            }
+                            isWebLoading = true
                             webView.reload()
+                            postDelayed({
+                                isRefreshing = false
+                            }, 1200)
                         }
                     }
                 },
@@ -1363,6 +1376,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     webViewInstance = webView
                     canGoBack = webView.canGoBack()
                     canGoForward = webView.canGoForward()
+                    
+                    val currentWvUrl = webView.url ?: resource.url
+                    val isModalOrSubRoute = currentWvUrl.contains("?") || currentWvUrl.contains("#") || currentWvUrl.contains("proof")
+                    swipeRefreshLayout.isEnabled = !isModalOrSubRoute
+
                     if (!isWebLoading && swipeRefreshLayout.isRefreshing) {
                         swipeRefreshLayout.isRefreshing = false
                     }
@@ -1384,14 +1402,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
                         
                         val loadKey = resource.url
-                        if (webView.tag != loadKey) {
-                            val currentWvUrl = webView.url ?: ""
-                            val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
-                            val normRes = resource.url.removeSuffix("/").trim().lowercase()
+                        val currentWvUrl = webView.url ?: ""
+                        val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
+                        val normRes = resource.url.removeSuffix("/").trim().lowercase()
 
-                            webView.tag = loadKey
+                        if (webView.tag != loadKey) {
                             if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
+                                webView.tag = loadKey
                                 webView.loadUrl(resource.url)
+                            } else {
+                                webView.tag = loadKey
                             }
                         }
                     } else {
@@ -1552,6 +1572,232 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // FULL-SCREEN PROFESSIONAL SEARCH OVERLAY PANEL
+            if (isInputFocused) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            isInputFocused = false
+                            focusManager.clearFocus()
+                        },
+                    color = ObsidianBg
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        // Quick Action Buttons Row (Paste / Copy)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val clipText = try { clipboardManager.getText()?.text } catch (_: Exception) { null }
+                            if (!clipText.isNullOrBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = SurfaceCard,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                    modifier = Modifier.clickable {
+                                        val pasted = clipText.trim()
+                                        viewModel.setUrlInput(pasted)
+                                        textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                            text = pasted,
+                                            selection = androidx.compose.ui.text.TextRange(pasted.length)
+                                        )
+                                        val normalized = viewModel.normalizeUrlOrQuery(pasted)
+                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                            webViewInstance?.loadUrl(normalized)
+                                        }
+                                        viewModel.resolveUrl(normalized)
+                                        isInputFocused = false
+                                        focusManager.clearFocus()
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentPaste,
+                                            contentDescription = null,
+                                            tint = ElectricCyan,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Paste from clipboard",
+                                            color = TextPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (urlInput.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = SurfaceCard,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                    modifier = Modifier.clickable {
+                                        try {
+                                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(urlInput))
+                                            viewModel.setStatusMessage("URL copied to clipboard")
+                                        } catch (_: Exception) {}
+                                    }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = null,
+                                            tint = EmeraldMesh,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Copy link",
+                                            color = TextPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val query = urlInput.trim().lowercase()
+                        val predefined = listOf(
+                            Triple("kaspa.stream", "Kaspa BlockDAG Explorer", "https://kaspa.stream"),
+                            Triple("kaspa.org", "Kaspa Proof-of-Work BlockDAG", "https://kaspa.org"),
+                            Triple("kaspa.com", "Kaspa Ecosystem & Markets", "https://kaspa.com"),
+                            Triple("kasrace.com", "Kasrace 4D Realtime Explorer", "https://kasrace.com"),
+                            Triple("kaskad.live", "Kaskad Decentralized Network", "https://kaskad.live"),
+                            Triple("mykai.dev", "Kai Sovereign Cloud & Apps", "https://mykai.dev"),
+                            Triple("google.com", "Google Search Engine", "https://google.com"),
+                            Triple("github.com", "GitHub Developer Platform", "https://github.com"),
+                            Triple("reddit.com/r/kaspa", "Kaspa Reddit Community", "https://www.reddit.com/r/kaspa"),
+                            Triple("discord.gg/kaspa", "Kaspa Discord Server", "https://discord.gg/kaspa")
+                        )
+
+                        val suggestionsList = remember(query) {
+                            val list = mutableListOf<Triple<String, String, String>>()
+                            if (query.isNotEmpty()) {
+                                val encodedQuery = try {
+                                    java.net.URLEncoder.encode(query, "UTF-8")
+                                } catch (_: Exception) { query }
+                                list.add(Triple(query, "Search Google for \"$query\"", "https://www.google.com/search?q=$encodedQuery"))
+
+                                if (query.contains(".") || query.startsWith("http")) {
+                                    val directUrl = if (query.startsWith("http")) query else "https://$query"
+                                    list.add(Triple(query, "Go directly to $directUrl", directUrl))
+                                }
+
+                                val matches = predefined.filter {
+                                    it.first.contains(query) || it.second.lowercase().contains(query)
+                                }
+                                list.addAll(matches)
+                            } else {
+                                list.addAll(predefined)
+                            }
+                            list
+                        }
+
+                        Text(
+                            text = if (query.isEmpty()) "Quick Navigation" else "Search Suggestions",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                        )
+
+                        suggestionsList.take(8).forEach { item ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = SurfaceCard,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                                    .clickable {
+                                        val target = item.third
+                                        viewModel.setUrlInput(target)
+                                        textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                            text = target,
+                                            selection = androidx.compose.ui.text.TextRange(target.length)
+                                        )
+                                        viewSourceMode = false
+                                        val normalized = viewModel.normalizeUrlOrQuery(target)
+                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                            webViewInstance?.loadUrl(normalized)
+                                        }
+                                        viewModel.resolveUrl(normalized)
+                                        isInputFocused = false
+                                        focusManager.clearFocus()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(SurfaceDark),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (item.third.contains("google.com/search")) Icons.Default.Search else Icons.Default.Language,
+                                            contentDescription = null,
+                                            tint = ElectricCyan,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.second,
+                                            color = TextPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = item.third,
+                                            color = TextMuted,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

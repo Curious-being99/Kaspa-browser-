@@ -136,6 +136,8 @@ object KaspaPrivacyEngine {
      */
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
+            if (window.__kaspa_shield_injected) return;
+            window.__kaspa_shield_injected = true;
             try {
                 // 1. Global Privacy Control & DNT
                 Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: false });
