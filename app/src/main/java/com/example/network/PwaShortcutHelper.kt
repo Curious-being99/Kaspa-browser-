@@ -195,6 +195,7 @@ object PwaShortcutHelper {
             }
 
             // Fallback for older launcher broadcast
+            @Suppress("DEPRECATION")
             val legacyIntent = Intent("com.android.launcher.action.INSTALL_SHORTCUT").apply {
                 putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent)
                 putExtra(Intent.EXTRA_SHORTCUT_NAME, shortLabel)
@@ -385,6 +386,7 @@ object PwaShortcutHelper {
                 Toast.makeText(context, "Shortcut created for \"$shortLabel\"", Toast.LENGTH_SHORT).show()
                 return Pair(true, "Shortcut added to home screen!")
             } else {
+                @Suppress("DEPRECATION")
                 val legacyIntent = Intent("com.android.launcher.action.INSTALL_SHORTCUT").apply {
                     putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent)
                     putExtra(Intent.EXTRA_SHORTCUT_NAME, shortLabel)

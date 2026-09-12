@@ -236,9 +236,10 @@ class LocalNodeManager(
                         .head()
                         .header("User-Agent", "DecentralNet-P2P/1.0")
                         .build()
-                    val response = okHttpClient.newCall(request).execute()
-                    latency = (System.currentTimeMillis() - start).coerceAtLeast(10L)
-                    isOnline = response.isSuccessful || response.code in 200..499
+                    okHttpClient.newCall(request).execute().use { response ->
+                        latency = (System.currentTimeMillis() - start).coerceAtLeast(10L)
+                        isOnline = response.isSuccessful || response.code in 200..499
+                    }
                 } else {
                     val ip = InetAddress.getByName(host)
                     val testUrl = "http://$host:8080/"
@@ -248,9 +249,10 @@ class LocalNodeManager(
                         .header("User-Agent", "DecentralNet-P2P/1.0")
                         .build()
 
-                    val response = okHttpClient.newCall(request).execute()
-                    latency = (System.currentTimeMillis() - start).coerceAtLeast(5L)
-                    isOnline = response.isSuccessful || response.code in 200..499
+                    okHttpClient.newCall(request).execute().use { response ->
+                        latency = (System.currentTimeMillis() - start).coerceAtLeast(5L)
+                        isOnline = response.isSuccessful || response.code in 200..499
+                    }
                 }
             } catch (_: Exception) {
                 // If ping fails on emulator/restricted network, fallback to online for known seeds
@@ -355,10 +357,12 @@ class LocalNodeManager(
     }
 
     private suspend fun handleIncomingConnection(client: Socket) = withContext(Dispatchers.IO) {
+        var reader: BufferedReader? = null
+        var writer: OutputStreamWriter? = null
         try {
             client.soTimeout = 4000
-            val reader = BufferedReader(InputStreamReader(client.getInputStream()))
-            val writer = OutputStreamWriter(client.getOutputStream())
+            reader = BufferedReader(InputStreamReader(client.getInputStream()))
+            writer = OutputStreamWriter(client.getOutputStream())
             val requestLine = reader.readLine() ?: ""
 
             val remoteHost = client.inetAddress?.hostAddress ?: "127.0.0.1"
@@ -368,8 +372,9 @@ class LocalNodeManager(
                 try {
                     val reqJson = JSONObject(requestLine)
                     val incomingPeerId = reqJson.optString("fromPeerId", "12D3KooWLAN$remoteHost")
-                    val incomingNodeName = reqJson.optString("fromNodeName", "Local LAN Peer ($remoteHost)")
-                    val incomingPort = reqJson.optInt("listeningPort", client.port)
+                        .take(64).filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+                    val incomingNodeName = reqJson.optString("fromNodeName", "Local LAN Peer ($remoteHost)").take(48)
+                    val incomingPort = reqJson.optInt("listeningPort", client.port).coerceIn(1, 65535)
 
                     // Insert/Update peer in local DB
                     val peerEntity = PeerEntity(
@@ -402,8 +407,9 @@ class LocalNodeManager(
             } else if (requestLine.startsWith("GET /ipfs/") || requestLine.startsWith("GET /block/")) {
                 // P2P Block retrieval request
                 val path = requestLine.split(" ").getOrNull(1) ?: ""
-                val cid = path.substringAfterLast("/")
-                val entity = database.contentDao().getContentByCid(cid)
+                val rawCid = path.substringAfterLast("/").substringBefore("?").substringBefore("#")
+                val cid = rawCid.filter { it.isLetterOrDigit() }
+                val entity = if (cid.isNotEmpty()) database.contentDao().getContentByCid(cid) else null
 
                 if (entity != null) {
                     val body = entity.content
@@ -437,8 +443,11 @@ class LocalNodeManager(
                 writer.write(httpResponse)
                 writer.flush()
             }
-            client.close()
         } catch (_: Exception) {
+            // Connection handled or terminated
+        } finally {
+            try { writer?.close() } catch (_: Exception) {}
+            try { reader?.close() } catch (_: Exception) {}
             try { client.close() } catch (_: Exception) {}
         }
     }

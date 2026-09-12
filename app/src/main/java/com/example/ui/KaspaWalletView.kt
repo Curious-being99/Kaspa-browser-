@@ -519,9 +519,13 @@ fun KaspaWalletView(
                         IconButton(
                             onClick = {
                                 activeAccount?.seedPhrase?.let { seed ->
-                                    val decrypted = CryptoUtils.getDecryptedSeed(seed)
-                                    clipboardManager.setText(AnnotatedString(decrypted))
-                                    copyToast = "12-Word Seed Phrase"
+                                    try {
+                                        val decrypted = CryptoUtils.getDecryptedSeed(seed)
+                                        clipboardManager.setText(AnnotatedString(decrypted))
+                                        copyToast = "12-Word Seed Phrase"
+                                    } catch (_: Exception) {
+                                        copyToast = "Decryption Failed"
+                                    }
                                 }
                             },
                             modifier = Modifier.size(32.dp)
@@ -547,7 +551,11 @@ fun KaspaWalletView(
                 if (showExposedSeed) {
                     Spacer(modifier = Modifier.height(10.dp))
                     val seedPhraseRaw = activeAccount?.seedPhrase ?: "desert cactus mountain orbit crystal galaxy sphere quantum tunnel matrix cipher horizon"
-                    val seedPhrase = CryptoUtils.getDecryptedSeed(seedPhraseRaw)
+                    val seedPhrase = try {
+                        CryptoUtils.getDecryptedSeed(seedPhraseRaw)
+                    } catch (_: Exception) {
+                        "Decryption Failed (Invalid Key)"
+                    }
                     val words = seedPhrase.split(" ")
                     
                     FlowRow(

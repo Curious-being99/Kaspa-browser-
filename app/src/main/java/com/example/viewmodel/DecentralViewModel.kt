@@ -410,7 +410,11 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             trimmed.startsWith("dweb://", ignoreCase = true) ||
             trimmed.startsWith("p2p://", ignoreCase = true) ||
             trimmed.startsWith("kas://", ignoreCase = true) ||
-            trimmed.startsWith("kaspa://", ignoreCase = true)
+            trimmed.startsWith("kaspa://", ignoreCase = true) ||
+            trimmed.startsWith("dnet://", ignoreCase = true) ||
+            trimmed.startsWith("kns://", ignoreCase = true) ||
+            trimmed.startsWith("hyper://", ignoreCase = true) ||
+            trimmed.startsWith("magnet:", ignoreCase = true)
         ) {
             return trimmed
         }

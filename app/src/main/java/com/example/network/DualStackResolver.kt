@@ -40,6 +40,8 @@ class DualStackResolver(private val database: AppDatabase) {
                 cleanUrl.startsWith("mesh://", ignoreCase = true) ||
                 cleanUrl.startsWith("dweb://", ignoreCase = true) ||
                 cleanUrl.startsWith("p2p://", ignoreCase = true) ||
+                cleanUrl.startsWith("dnet://", ignoreCase = true) ||
+                cleanUrl.startsWith("hyper://", ignoreCase = true) ||
                 cleanUrl.endsWith(".mesh", ignoreCase = true) ||
                 cleanUrl.endsWith(".eth", ignoreCase = true) ||
                 (cleanUrl.startsWith("Qm") && cleanUrl.length == 46) ||
@@ -47,7 +49,8 @@ class DualStackResolver(private val database: AppDatabase) {
 
         val isKaspa = DomainConstants.isCustomDomain(cleanUrl) ||
                 cleanUrl.startsWith("kas://", ignoreCase = true) ||
-                cleanUrl.startsWith("kaspa://", ignoreCase = true)
+                cleanUrl.startsWith("kaspa://", ignoreCase = true) ||
+                cleanUrl.startsWith("kns://", ignoreCase = true)
 
         val normalizedUrl = if (!isExplicitP2p && !isKaspa &&
             !cleanUrl.startsWith("http://", ignoreCase = true) &&
@@ -126,60 +129,61 @@ class DualStackResolver(private val database: AppDatabase) {
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            val latency = System.currentTimeMillis() - start
-            val body = response.body?.let { responseBody ->
-                val source = responseBody.source()
-                source.request(256 * 1024)
-                val buffer = source.buffer.clone()
-                buffer.readUtf8()
-            } ?: ""
-            val hash = CryptoUtils.sha256(if (body.isNotEmpty()) body else targetUrl)
-            val generatedCid = CryptoUtils.generateCid(if (body.isNotEmpty()) body else targetUrl)
-            val tlsVersion = response.handshake?.tlsVersion?.name ?: "TLS 1.3"
-            val cipher = response.handshake?.cipherSuite?.javaName ?: "AES-GCM"
+            okHttpClient.newCall(request).execute().use { response ->
+                val latency = System.currentTimeMillis() - start
+                val body = response.body?.let { responseBody ->
+                    val source = responseBody.source()
+                    source.request(256 * 1024)
+                    val buffer = source.buffer.clone()
+                    buffer.readUtf8()
+                } ?: ""
+                val hash = CryptoUtils.sha256(if (body.isNotEmpty()) body else targetUrl)
+                val generatedCid = CryptoUtils.generateCid(if (body.isNotEmpty()) body else targetUrl)
+                val tlsVersion = response.handshake?.tlsVersion?.name ?: "TLS 1.3"
+                val cipher = response.handshake?.cipherSuite?.javaName ?: "AES-GCM"
 
-            val title = extractTitle(body, host)
-            val contentType = response.header("Content-Type") ?: "text/html"
+                val title = extractTitle(body, host)
+                val contentType = response.header("Content-Type") ?: "text/html"
 
-            val verificationStatus = if (response.isSuccessful) {
-                VerificationStatus.VERIFIED_TAMPER_PROOF
-            } else {
-                VerificationStatus.UNVERIFIED
+                val verificationStatus = if (response.isSuccessful) {
+                    VerificationStatus.VERIFIED_TAMPER_PROOF
+                } else {
+                    VerificationStatus.UNVERIFIED
+                }
+
+                val maskedIp = maskIpAddress(resolvedIp)
+                val routeDescription = if (targetUrl.startsWith("https://", ignoreCase = true)) {
+                    "Centralized Web (Verified): HTTPS TLS ($tlsVersion) -> SHA-256 Digest ($maskedIp)"
+                } else {
+                    "Centralized Web (Verified): HTTP Connection -> SHA-256 Digest ($maskedIp)"
+                }
+
+                val isDeployedKaspa = DomainConstants.isCustomDomain(targetUrl) || 
+                        database.contentDao().searchContent(targetUrl) != null
+
+                val kProof = if (isDeployedKaspa) CryptoUtils.verifyKaspaLinkProof(body, targetUrl) else null
+
+                ResolvedResource(
+                    url = targetUrl,
+                    resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                    cid = generatedCid,
+                    title = title,
+                    content = body,
+                    contentType = contentType,
+                    sizeBytes = body.toByteArray().size.toLong(),
+                    latencyMs = latency,
+                    centralizedUrl = targetUrl,
+                    centralizedLatencyMs = latency,
+                    centralizedIp = maskedIp,
+                    decentralizedPeersCount = 0,
+                    decentralizedLatencyMs = null,
+                    verificationStatus = verificationStatus,
+                    cryptographicHash = hash,
+                    routedVia = routeDescription,
+                    kaspaProof = kProof,
+                    kaspaVerificationSummary = kProof?.let { "Kaspa DAG Tx ${it.blockDagTxHash.take(10)}... | Height #${it.blockHeight}" } ?: ""
+                )
             }
-
-            val maskedIp = maskIpAddress(resolvedIp)
-            val routeDescription = if (targetUrl.startsWith("https://", ignoreCase = true)) {
-                "Centralized Web (Verified): HTTPS TLS ($tlsVersion) -> SHA-256 Digest ($maskedIp)"
-            } else {
-                "Centralized Web (Verified): HTTP Connection -> SHA-256 Digest ($maskedIp)"
-            }
-
-            val isDeployedKaspa = DomainConstants.isCustomDomain(targetUrl) || 
-                    database.contentDao().searchContent(targetUrl) != null
-
-            val kProof = if (isDeployedKaspa) CryptoUtils.verifyKaspaLinkProof(body, targetUrl) else null
-
-            ResolvedResource(
-                url = targetUrl,
-                resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-                cid = generatedCid,
-                title = title,
-                content = body,
-                contentType = contentType,
-                sizeBytes = body.toByteArray().size.toLong(),
-                latencyMs = latency,
-                centralizedUrl = targetUrl,
-                centralizedLatencyMs = latency,
-                centralizedIp = maskedIp,
-                decentralizedPeersCount = 0,
-                decentralizedLatencyMs = null,
-                verificationStatus = verificationStatus,
-                cryptographicHash = hash,
-                routedVia = routeDescription,
-                kaspaProof = kProof,
-                kaspaVerificationSummary = kProof?.let { "Kaspa DAG Tx ${it.blockDagTxHash.take(10)}... | Height #${it.blockHeight}" } ?: ""
-            )
         } catch (e: Exception) {
             val latency = System.currentTimeMillis() - start
             val hash = CryptoUtils.sha256(targetUrl)
@@ -327,40 +331,41 @@ class DualStackResolver(private val database: AppDatabase) {
                     .header("User-Agent", "DecentralNet-P2PClient/1.0")
                     .build()
 
-                val response = okHttpClient.newCall(request).execute()
-                if (response.isSuccessful) {
-                    val gLatency = System.currentTimeMillis() - gStart
-                    val body = response.body?.string() ?: ""
-                    val hash = CryptoUtils.sha256(body)
-                    val realIp = try {
-                        val host = URI(gatewayUrl).host ?: ""
-                        InetAddress.getByName(host).hostAddress
-                    } catch (_: Exception) {
-                        null
-                    }
-                    val maskedIp = maskIpAddress(realIp)
-                    val kProof = CryptoUtils.verifyKaspaLinkProof(body, url)
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val gLatency = System.currentTimeMillis() - gStart
+                        val body = response.body?.string() ?: ""
+                        val hash = CryptoUtils.sha256(body)
+                        val realIp = try {
+                            val host = URI(gatewayUrl).host ?: ""
+                            InetAddress.getByName(host).hostAddress
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val maskedIp = maskIpAddress(realIp)
+                        val kProof = CryptoUtils.verifyKaspaLinkProof(body, url)
 
-                    return@withContext ResolvedResource(
-                        url = url,
-                        resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
-                        cid = cleanQuery,
-                        title = extractTitle(body, "IPFS Document: $cleanQuery"),
-                        content = body,
-                        contentType = response.header("Content-Type") ?: "text/plain",
-                        sizeBytes = body.toByteArray().size.toLong(),
-                        latencyMs = gLatency,
-                        centralizedUrl = gatewayUrl,
-                        centralizedLatencyMs = null,
-                        centralizedIp = maskedIp,
-                        decentralizedPeersCount = 1,
-                        decentralizedLatencyMs = gLatency,
-                        verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
-                        cryptographicHash = hash,
-                        routedVia = "Decentralized Swarm via Gateway: $gateway ($gLatency ms)",
-                        kaspaProof = kProof,
-                        kaspaVerificationSummary = "Kaspa DAG Tx ${kProof.blockDagTxHash.take(10)}... | Height #${kProof.blockHeight}"
-                    )
+                        return@withContext ResolvedResource(
+                            url = url,
+                            resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
+                            cid = cleanQuery,
+                            title = extractTitle(body, "IPFS Document: $cleanQuery"),
+                            content = body,
+                            contentType = response.header("Content-Type") ?: "text/plain",
+                            sizeBytes = body.toByteArray().size.toLong(),
+                            latencyMs = gLatency,
+                            centralizedUrl = gatewayUrl,
+                            centralizedLatencyMs = null,
+                            centralizedIp = maskedIp,
+                            decentralizedPeersCount = 1,
+                            decentralizedLatencyMs = gLatency,
+                            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                            cryptographicHash = hash,
+                            routedVia = "Decentralized Swarm via Gateway: $gateway ($gLatency ms)",
+                            kaspaProof = kProof,
+                            kaspaVerificationSummary = "Kaspa DAG Tx ${kProof.blockDagTxHash.take(10)}... | Height #${kProof.blockHeight}"
+                        )
+                    }
                 }
             } catch (_: Exception) {
                 // Try next gateway
@@ -429,9 +434,10 @@ class DualStackResolver(private val database: AppDatabase) {
                     val host = URI(mirrorUrl).host
                     centralIp = host?.let { InetAddress.getByName(it).hostAddress }
                     val req = Request.Builder().url(mirrorUrl).head().build()
-                    val res = okHttpClient.newCall(req).execute()
-                    if (res.isSuccessful) {
-                        centralLatency = System.currentTimeMillis() - cStart
+                    okHttpClient.newCall(req).execute().use { res ->
+                        if (res.isSuccessful) {
+                            centralLatency = System.currentTimeMillis() - cStart
+                        }
                     }
                 } catch (_: Exception) {
                     centralIp = "Mirror Offline"

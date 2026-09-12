@@ -52,6 +52,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Shortcut
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
@@ -69,7 +70,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InstallMobile
-import androidx.compose.material.icons.filled.Shortcut
 import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Key
@@ -187,6 +187,7 @@ import com.example.ui.theme.SurfaceDark
 import com.example.ui.theme.SurfaceElevated
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
+import com.example.network.KaspaPrivacyEngine
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VioletBridge
 import com.example.viewmodel.DecentralViewModel
@@ -194,37 +195,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-
-object TrackerBlocklist {
-    private val trackerDomains = setOf(
-        "google-analytics.com",
-        "googletagmanager.com",
-        "doubleclick.net",
-        "connect.facebook.net",
-        "scorecardresearch.com",
-        "quantserve.com",
-        "hotjar.com",
-        "mixpanel.com",
-        "segment.io",
-        "criteo.com",
-        "taboola.com",
-        "outbrain.com",
-        "adnxs.com",
-        "adsrvr.org",
-        "moatads.com",
-        "bugsnag.com",
-        "sentry.io"
-    )
-
-    fun isTracker(url: String): Boolean {
-        return try {
-            val host = java.net.URI(url).host?.lowercase() ?: return false
-            trackerDomains.any { host == it || host.endsWith(".$it") }
-        } catch (e: Exception) {
-            false
-        }
-    }
-}
 
 data class BrowserTab(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -854,12 +824,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                val layerType = if (shouldDisableHardwareAcceleration()) {
-                                    android.view.View.LAYER_TYPE_SOFTWARE
-                                } else {
-                                    android.view.View.LAYER_TYPE_NONE
-                                }
-                                setLayerType(layerType, null)
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
@@ -868,7 +833,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
-                                databaseEnabled = true
                                 allowFileAccess = false
                                 allowContentAccess = false
                                 @Suppress("DEPRECATION")
@@ -883,16 +847,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(false)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                    safeBrowsingEnabled = true
+                                }
                                 cacheMode = WebSettings.LOAD_DEFAULT
                                 mediaPlaybackRequiresUserGesture = false
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
                                 offscreenPreRaster = true
-                                setGeolocationEnabled(true)
-                                @Suppress("DEPRECATION")
-                                setRenderPriority(WebSettings.RenderPriority.HIGH)
+                                setGeolocationEnabled(false)
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                                 } else {
@@ -1068,6 +1033,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         "try { var s = document.createElement('style'); s.innerHTML = '* { -webkit-tap-highlight-color: transparent !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; outline: none !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; background: transparent !important; }'; (document.head || document.documentElement).appendChild(s); } catch(e){}",
                                         null
                                     )
+                                    if (sendDntHeaders) {
+                                        view?.evaluateJavascript(
+                                            KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                            null
+                                        )
+                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -1088,7 +1059,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                     if (sendDntHeaders) {
                                         view?.evaluateJavascript(
-                                            "try { Object.defineProperty(navigator, 'doNotTrack', {get: () => '1'}); Object.defineProperty(navigator, 'globalPrivacyControl', {get: () => true}); } catch(e){}",
+                                            KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
                                             null
                                         )
                                     }
@@ -1165,14 +1136,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                                     val reqUrl = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
-                                    if (blockTrackers && TrackerBlocklist.isTracker(reqUrl)) {
+                                    if (blockTrackers && KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
                                         val host = request.url.host ?: reqUrl
                                         viewModel.logBlockedTracker(host)
                                         return WebResourceResponse(
                                             "text/plain",
                                             "UTF-8",
                                             403,
-                                            "Blocked by Privacy Shield",
+                                            "Blocked by Kaspa Privacy Engine",
                                             mapOf("Access-Control-Allow-Origin" to "*"),
                                             java.io.ByteArrayInputStream(ByteArray(0))
                                         )
@@ -1189,12 +1160,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     // Intercept decentralized protocols to route via resolver
-                                    if (targetUrl.startsWith("mesh://") ||
-                                        targetUrl.startsWith("ipfs://") ||
-                                        targetUrl.startsWith("dweb://") ||
-                                        targetUrl.startsWith("p2p://") ||
-                                        targetUrl.startsWith("kas://") ||
-                                        targetUrl.startsWith("kaspa://")
+                                    if (targetUrl.startsWith("mesh://", ignoreCase = true) ||
+                                        targetUrl.startsWith("ipfs://", ignoreCase = true) ||
+                                        targetUrl.startsWith("dweb://", ignoreCase = true) ||
+                                        targetUrl.startsWith("p2p://", ignoreCase = true) ||
+                                        targetUrl.startsWith("kas://", ignoreCase = true) ||
+                                        targetUrl.startsWith("kaspa://", ignoreCase = true) ||
+                                        targetUrl.startsWith("dnet://", ignoreCase = true) ||
+                                        targetUrl.startsWith("kns://", ignoreCase = true) ||
+                                        targetUrl.startsWith("hyper://", ignoreCase = true)
                                     ) {
                                         viewModel.resolveUrl(targetUrl)
                                         return true
@@ -1204,7 +1178,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             targetUrl.startsWith("https://", ignoreCase = true) ||
                                             targetUrl.startsWith("about:", ignoreCase = true) ||
                                             targetUrl.startsWith("data:", ignoreCase = true) ||
-                                            targetUrl.startsWith("javascript:", ignoreCase = true)
+                                            targetUrl.startsWith("javascript:", ignoreCase = true) ||
+                                            targetUrl.startsWith("blob:", ignoreCase = true)
 
                                     if (!isStandardWebScheme) {
                                         val context = view?.context
@@ -1299,7 +1274,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                                    handler?.proceed()
+                                    handler?.cancel()
+                                    val failingUrl = error?.url ?: ""
+                                    val sslReason = when (error?.primaryError) {
+                                        android.net.http.SslError.SSL_EXPIRED -> "The SSL certificate for this site has expired."
+                                        android.net.http.SslError.SSL_IDMISMATCH -> "The SSL certificate host does not match the requested domain."
+                                        android.net.http.SslError.SSL_UNTRUSTED -> "The certificate authority is untrusted or self-signed."
+                                        android.net.http.SslError.SSL_NOTYETVALID -> "The SSL certificate is not yet valid."
+                                        android.net.http.SslError.SSL_DATE_INVALID -> "The device or certificate clock/date is invalid."
+                                        else -> "SSL Certificate handshake verification failed."
+                                    }
+                                    val sslWarningPage = """
+                                        <!DOCTYPE html>
+                                        <html>
+                                        <head>
+                                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                            <style>
+                                                body { font-family: -apple-system, sans-serif; background: #0A0E17; color: #F0F4F8; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+                                                .card { background: #131B2E; border: 1px solid #EF4444; border-radius: 12px; padding: 24px; max-width: 400px; text-align: center; }
+                                                h2 { color: #EF4444; margin-top: 0; font-size: 18px; }
+                                                p { color: #94A3B8; font-size: 13px; line-height: 1.5; }
+                                                .url { word-break: break-all; font-family: monospace; background: #0D121D; padding: 8px; border-radius: 6px; font-size: 11px; margin: 12px 0; color: #F59E0B; }
+                                                .btn { background: #EF4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+                                            </style>
+                                        </head>
+                                        <body>
+                                            <div class="card">
+                                                <h2>Security Warning: Untrusted Certificate</h2>
+                                                <p>$sslReason</p>
+                                                <p>Kaspa Privacy Shield blocked this connection to prevent eavesdropping and data interception.</p>
+                                                <div class="url">$failingUrl</div>
+                                                <button class="btn" onclick="history.back()">Return to Safety</button>
+                                            </div>
+                                        </body>
+                                        </html>
+                                    """.trimIndent()
+                                    view?.loadDataWithBaseURL(null, sslWarningPage, "text/html", "UTF-8", null)
                                 }
                             }
 
@@ -1357,10 +1367,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
                     } else {
-                        val loadKey = "${resource.url}_${resource.cid}"
+                        val cidKey = if (resource.cid.isNotBlank()) resource.cid else "kaspa"
+                        val loadKey = "${resource.url}_$cidKey"
                         if (webView.tag != loadKey) {
                             webView.tag = loadKey
-                            val baseUrl = "https://${resource.cid}.ipfs.dweb.link/"
+                            val baseUrl = if (resource.cid.isNotBlank()) {
+                                "https://${resource.cid}.ipfs.dweb.link/"
+                            } else {
+                                "https://kaspa.org/"
+                            }
                             webView.loadDataWithBaseURL(
                                 baseUrl,
                                 resource.content,
@@ -2839,7 +2854,7 @@ fun InstallSheetContent(
                                         shape = RoundedCornerShape(6.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Shortcut,
+                                            imageVector = Icons.AutoMirrored.Filled.Shortcut,
                                             contentDescription = null,
                                             tint = EmeraldMesh,
                                             modifier = Modifier.size(13.dp)
@@ -3865,12 +3880,7 @@ fun YouTubeVideoCard(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                val layerType = if (shouldDisableHardwareAcceleration()) {
-                                    android.view.View.LAYER_TYPE_SOFTWARE
-                                } else {
-                                    android.view.View.LAYER_TYPE_NONE
-                                }
-                                setLayerType(layerType, null)
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 overScrollMode = android.view.View.OVER_SCROLL_NEVER
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -3883,7 +3893,6 @@ fun YouTubeVideoCard(
                                 settings.apply {
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
-                                    databaseEnabled = true
                                     mediaPlaybackRequiresUserGesture = false
                                     loadWithOverviewMode = true
                                     useWideViewPort = true
@@ -4229,17 +4238,4 @@ fun YouTubeVideoCard(
             }
         }
     }
-}
-
-private fun shouldDisableHardwareAcceleration(): Boolean {
-    // Check known physical mobile GPU kernel driver nodes
-    val hasMobileGpu = java.io.File("/dev/kgsl-3d0").exists() ||  // Qualcomm Adreno
-                       java.io.File("/dev/mali0").exists() ||     // ARM Mali (MediaTek, Exynos, Google Tensor)
-                       java.io.File("/dev/pvr").exists() ||       // PowerVR
-                       java.io.File("/dev/pvrsrvkm").exists() ||  // PowerVR
-                       java.io.File("/dev/nvhost-gpu").exists() ||// Nvidia Tegra
-                       java.io.File("/dev/nvmap").exists() ||     // Nvidia Tegra
-                       java.io.File("/dev/galcore").exists()      // Vivante
-                       
-    return !hasMobileGpu // If it doesn't have a physical mobile GPU, disable hardware acceleration!
 }

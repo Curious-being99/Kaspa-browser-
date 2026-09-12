@@ -178,10 +178,10 @@ class KaspaWalletService(
             val sompis = (amountKas * 100_000_000).toLong()
             val feeSompis = 10_000L // 0.0001 KAS standard fee
             
-            // Generate cryptographic ECDSA payload on Secp256k1 curve
+            // Generate cryptographic Schnorr transaction payload following rusty-kaspa standard
             val txPayload = "${senderAddress}_to_${recipientAddress}_${sompis}_sompis_${System.currentTimeMillis()}"
-            val txId = CryptoUtils.sha256(txPayload)
-            val realDnetSignature = CryptoUtils.signMessage(txPayload, senderSeed)
+            val txId = CryptoUtils.blake2b256(txPayload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+            val realDnetSignature = CryptoUtils.signTransaction(txPayload, senderSeed)
 
             val jsonPayload = JSONObject().apply {
                 put("transactionId", txId)

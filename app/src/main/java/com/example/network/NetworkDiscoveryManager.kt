@@ -419,6 +419,7 @@ class NetworkDiscoveryManager(
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun resolveDiscoveredService(service: NsdServiceInfo) {
         scope.launch(Dispatchers.IO) {
             resolveMutex.withLock {

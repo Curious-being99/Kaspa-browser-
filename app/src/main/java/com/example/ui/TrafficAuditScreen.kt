@@ -172,7 +172,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     Text(
-                        text = "Privacy Shield Settings",
+                        text = "Kaspa Privacy Engine Settings",
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
                         fontSize = 13.sp
@@ -180,8 +180,8 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     Spacer(modifier = Modifier.height(12.dp))
 
                     PrivacyToggleRow(
-                        title = "Tracker Interceptor & Ad Blocker",
-                        desc = "Intercepts tracking scripts, ad pixels & telemetry ($blockedTrackersCount blocked)",
+                        title = "Kaspa Tracker & Ad Blocker",
+                        desc = "KaspaPrivacyEngine intercepts tracking scripts, ad pixels & telemetry ($blockedTrackersCount blocked)",
                         icon = Icons.Default.Shield,
                         checked = blockTrackers,
                         onCheckedChange = { viewModel.toggleBlockTrackers(it) }
@@ -495,7 +495,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         
                                         // Real-Time Progress Bar
                                         androidx.compose.material3.LinearProgressIndicator(
-                                            progress = download.progress,
+                                            progress = { download.progress },
                                             color = ElectricCyan,
                                             trackColor = SurfaceCard,
                                             modifier = Modifier
