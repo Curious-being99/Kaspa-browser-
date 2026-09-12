@@ -214,6 +214,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
     var activeTabId by remember { mutableStateOf("default") }
     var showTabSwitcher by remember { mutableStateOf(false) }
+    var isInputFocused by remember { mutableStateOf(false) }
 
     val urlInput by viewModel.urlInput.collectAsState()
     val selectedProtocol by viewModel.selectedProtocol.collectAsState()
@@ -229,7 +230,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     LaunchedEffect(urlInput) {
-        if (textFieldValue.text != urlInput) {
+        if (!isInputFocused && textFieldValue.text != urlInput) {
             textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
                 text = urlInput,
                 selection = androidx.compose.ui.text.TextRange(urlInput.length)
@@ -380,7 +381,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var webProgress by remember { mutableFloatStateOf(0f) }
     var isWebLoading by remember { mutableStateOf(false) }
     var viewSourceMode by remember { mutableStateOf(false) }
-    var isInputFocused by remember { mutableStateOf(false) }
 
     val status = currentResource?.verificationStatus ?: VerificationStatus.UNVERIFIED
     val shieldColor = when (status) {
@@ -451,89 +451,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 8.dp),
+                            .padding(horizontal = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        // Text Field Area (vertically centered, never clipped)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 4.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (urlInput.isEmpty()) {
-                                Text(
-                                    text = "Search or type kaspa.stream, https://",
-                                    color = TextMuted,
-                                    fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            BasicTextField(
-                                value = textFieldValue,
-                                onValueChange = { newValue ->
-                                    textFieldValue = newValue
-                                    if (urlInput != newValue.text) {
-                                        viewModel.setUrlInput(newValue.text)
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .onFocusChanged { focusState ->
-                                        isInputFocused = focusState.isFocused
-                                        if (focusState.isFocused && textFieldValue.text.isNotEmpty()) {
-                                            textFieldValue = textFieldValue.copy(
-                                                selection = androidx.compose.ui.text.TextRange(0, textFieldValue.text.length)
-                                            )
-                                        }
-                                    }
-                                    .testTag("url_input_field"),
-                                singleLine = true,
-                                cursorBrush = SolidColor(ElectricCyan),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                                keyboardActions = KeyboardActions(onGo = {
-                                    isInputFocused = false
-                                    focusManager.clearFocus()
-                                    viewSourceMode = false
-                                    val input = textFieldValue.text.trim()
-                                    if (input.isNotBlank()) {
-                                        val normalized = viewModel.normalizeUrlOrQuery(input)
-                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                            webViewInstance?.loadUrl(normalized)
-                                        }
-                                        viewModel.resolveUrl(normalized)
-                                    }
-                                }),
-                                textStyle = TextStyle(
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontSize = 14.sp,
-                                    color = TextPrimary
-                                )
-                            )
-                        }
-
-                        // Clear input button
-                        if (urlInput.isNotEmpty()) {
-                            IconButton(
-                                onClick = { 
-                                    viewModel.setUrlInput("") 
-                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue("", selection = androidx.compose.ui.text.TextRange.Zero)
-                                },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "Clear",
-                                    tint = TextMuted,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
-
-                        // Protocol Mode Dropdown Pill (Logo Style)
+                        // Protocol Mode Dropdown Pill (Leading side)
                         Box {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -544,7 +465,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     .clickable { showProtocolMenu = true }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -588,14 +509,91 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(2.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Text Field Area (vertically centered, never clipped)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 2.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (urlInput.isEmpty()) {
+                                Text(
+                                    text = "Search or type URL",
+                                    color = TextMuted,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BasicTextField(
+                                value = textFieldValue,
+                                onValueChange = { newValue ->
+                                    textFieldValue = newValue
+                                    if (urlInput != newValue.text) {
+                                        viewModel.setUrlInput(newValue.text)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onFocusChanged { focusState ->
+                                        isInputFocused = focusState.isFocused
+                                        if (focusState.isFocused && textFieldValue.text.isNotEmpty()) {
+                                            textFieldValue = textFieldValue.copy(
+                                                selection = androidx.compose.ui.text.TextRange(0, textFieldValue.text.length)
+                                            )
+                                        }
+                                    }
+                                    .testTag("url_input_field"),
+                                singleLine = true,
+                                cursorBrush = SolidColor(ElectricCyan),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                                keyboardActions = KeyboardActions(onGo = {
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                    viewSourceMode = false
+                                    val input = textFieldValue.text.trim()
+                                    if (input.isNotBlank()) {
+                                        val normalized = viewModel.normalizeUrlOrQuery(input)
+                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                            webViewInstance?.loadUrl(normalized)
+                                        }
+                                        viewModel.resolveUrl(normalized)
+                                    }
+                                }),
+                                textStyle = TextStyle(
+                                    fontFamily = FontFamily.SansSerif,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary
+                                )
+                            )
+                        }
+
+                        // Clear input button
+                        if (urlInput.isNotEmpty()) {
+                            IconButton(
+                                onClick = { 
+                                    viewModel.setUrlInput("") 
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue("", selection = androidx.compose.ui.text.TextRange.Zero)
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
 
                         // Go / Loading Icon
                         if (isLoading || isWebLoading) {
                             CircularProgressIndicator(
                                 modifier = Modifier
-                                    .size(26.dp)
-                                    .padding(3.dp),
+                                    .size(22.dp)
+                                    .padding(2.dp),
                                 strokeWidth = 2.dp,
                                 color = ElectricCyan
                             )
@@ -865,37 +863,67 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                             }
 
-                            // Swipe gesture listener for left (forward) & right (back) browser navigation
+                            // Edge swipe gesture navigation (standard Chrome/Firefox Android pattern)
                             var touchStartX = 0f
                             var touchStartY = 0f
                             var touchStartTime = 0L
+                            var isEdgeSwipe = false
+                            val viewConfig = android.view.ViewConfiguration.get(context)
+                            val scaledTouchSlop = viewConfig.scaledTouchSlop
 
                             @android.annotation.SuppressLint("ClickableViewAccessibility")
-                            setOnTouchListener { _, event ->
+                            setOnTouchListener { v, event ->
                                 when (event.action) {
                                     android.view.MotionEvent.ACTION_DOWN -> {
                                         touchStartX = event.x
                                         touchStartY = event.y
                                         touchStartTime = System.currentTimeMillis()
+                                        val edgeZoneWidth = (v.width * 0.18f).coerceIn(40f, 180f)
+                                        // Detect if start is near left edge (swipe right for back) or right edge (swipe left for forward)
+                                        isEdgeSwipe = (touchStartX <= edgeZoneWidth) || (touchStartX >= v.width - edgeZoneWidth)
+                                        false
+                                    }
+                                    android.view.MotionEvent.ACTION_MOVE -> {
+                                        if (isEdgeSwipe) {
+                                            val dx = kotlin.math.abs(event.x - touchStartX)
+                                            val dy = kotlin.math.abs(event.y - touchStartY)
+                                            if (dx > scaledTouchSlop && dx > dy * 1.5f) {
+                                                // Prevent SwipeRefreshLayout from stealing horizontal navigation swipe
+                                                swipeContainer.requestDisallowInterceptTouchEvent(true)
+                                            }
+                                        }
                                         false
                                     }
                                     android.view.MotionEvent.ACTION_UP -> {
-                                        val deltaX = event.x - touchStartX
-                                        val deltaY = event.y - touchStartY
-                                        val deltaTime = System.currentTimeMillis() - touchStartTime
-                                        val absX = kotlin.math.abs(deltaX)
-                                        val absY = kotlin.math.abs(deltaY)
+                                        swipeContainer.requestDisallowInterceptTouchEvent(false)
+                                        if (isEdgeSwipe) {
+                                            val deltaX = event.x - touchStartX
+                                            val deltaY = event.y - touchStartY
+                                            val deltaTime = System.currentTimeMillis() - touchStartTime
+                                            val absX = kotlin.math.abs(deltaX)
+                                            val absY = kotlin.math.abs(deltaY)
+                                            val minDistance = (v.width * 0.20f).coerceIn(100f, 250f)
 
-                                        // Horizontal swipe gesture detection (swipe right -> back, swipe left -> forward)
-                                        if (absX > 140f && absY < 130f && absX > absY * 1.4f && deltaTime < 600) {
-                                            if (deltaX > 0f && canGoBack()) {
-                                                goBack()
-                                                return@setOnTouchListener true
-                                            } else if (deltaX < 0f && canGoForward()) {
-                                                goForward()
-                                                return@setOnTouchListener true
+                                            // Swipe right from left edge -> Back
+                                            if (touchStartX <= (v.width * 0.25f) && deltaX > minDistance && absX > absY * 1.3f && deltaTime < 800) {
+                                                if (canGoBack()) {
+                                                    goBack()
+                                                    return@setOnTouchListener true
+                                                }
+                                            }
+                                            // Swipe left from right edge -> Forward
+                                            else if (touchStartX >= (v.width * 0.75f) && deltaX < -minDistance && absX > absY * 1.3f && deltaTime < 800) {
+                                                if (canGoForward()) {
+                                                    goForward()
+                                                    return@setOnTouchListener true
+                                                }
                                             }
                                         }
+                                        false
+                                    }
+                                    android.view.MotionEvent.ACTION_CANCEL -> {
+                                        swipeContainer.requestDisallowInterceptTouchEvent(false)
+                                        isEdgeSwipe = false
                                         false
                                     }
                                     else -> false
