@@ -43,12 +43,6 @@ enum class SearchEngine(val baseUrl: String, val displayName: String) {
     DECENTRAL_SEARCH("kas://search.kas?q=", "Decentral Search")
 }
 
-enum class TranslationProvider(val displayName: String) {
-    GOOGLE("Google Translate"),
-    LIBRE("LibreTranslate (Open Source)"),
-    LINGVA("Lingva Translate (Open Source)")
-}
-
 data class ActiveDownload(
     val downloadId: Long,
     val fileName: String,
@@ -243,12 +237,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _webAuthEnabled = MutableStateFlow(true)
     val webAuthEnabled: StateFlow<Boolean> = _webAuthEnabled.asStateFlow()
 
-    private val _translationRequested = MutableStateFlow<String?>(null)
-    val translationRequested: StateFlow<String?> = _translationRequested.asStateFlow()
-
-    private val _translationProvider = MutableStateFlow(TranslationProvider.LIBRE)
-    val translationProvider: StateFlow<TranslationProvider> = _translationProvider.asStateFlow()
-
     private val _searchEngine = MutableStateFlow(SearchEngine.DUCKDUCKGO)
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
 
@@ -336,19 +324,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleDesktopMode(enabled: Boolean) { _desktopModeEnabled.value = enabled }
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
     fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }
-
-    fun setTranslationProvider(provider: TranslationProvider) {
-        _translationProvider.value = provider
-    }
-
-    fun requestTranslation(targetLang: String = "en") {
-        _translationRequested.value = targetLang
-    }
-
-    fun clearTranslationRequest() {
-        _translationRequested.value = null
-    }
-
     fun setSearchEngine(engine: SearchEngine) { _searchEngine.value = engine }
 
     fun addToHistory(url: String, title: String) {

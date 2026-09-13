@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Devices
@@ -263,57 +262,6 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         onCheckedChange = { viewModel.toggleWebAuth(it) }
                     )
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
-
-                    // Translation Service
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Default.Translate, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(text = "Native Page Translator", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                                    Text(text = "Privacy-focused translation using open-source engines", fontSize = 10.sp, color = TextSecondary)
-                                }
-                            }
-                            Button(
-                                onClick = { viewModel.requestTranslation("en") },
-                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan.copy(alpha = 0.1f), contentColor = ElectricCyan),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                modifier = Modifier.height(30.dp),
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text("Translate Now", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        val currentProvider by viewModel.translationProvider.collectAsState()
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            com.example.viewmodel.TranslationProvider.values().forEach { provider ->
-                                val isSelected = currentProvider == provider
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isSelected) ElectricCyan else SurfaceCard,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                                    modifier = Modifier.weight(1f).clickable { viewModel.setTranslationProvider(provider) }
-                                ) {
-                                    Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = provider.displayName.split(" ")[0], // Show short name
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color.Black else TextSecondary
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
 

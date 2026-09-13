@@ -92,7 +92,6 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
-import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -340,33 +339,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
     val kaspaWalletState by viewModel.kaspaWalletState.collectAsState()
-    val translationRequested by viewModel.translationRequested.collectAsState()
-    val translationProvider by viewModel.translationProvider.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
-
-    LaunchedEffect(translationRequested) {
-        translationRequested?.let { targetLang ->
-            webViewInstance?.let { wv ->
-                val currentUrl = wv.url
-                if (currentUrl != null && (currentUrl.startsWith("http://") || currentUrl.startsWith("https://"))) {
-                    val encodedUrl = android.net.Uri.encode(currentUrl)
-                    val translateUrl = when (translationProvider) {
-                        com.example.viewmodel.TranslationProvider.GOOGLE -> 
-                            "https://translate.google.com/translate?sl=auto&tl=$targetLang&u=$encodedUrl"
-                        com.example.viewmodel.TranslationProvider.LIBRE -> 
-                            "https://itranslate.com/translate?u=$encodedUrl&tl=$targetLang" 
-                        com.example.viewmodel.TranslationProvider.LINGVA ->
-                            "https://lingva.ml/external/translate?url=$encodedUrl&lang=$targetLang"
-                    }
-                    wv.loadUrl(translateUrl)
-                    viewModel.setStatusMessage("Translating page to ${targetLang.uppercase()} via ${translationProvider.displayName}...")
-                } else {
-                    viewModel.setStatusMessage("Translation only supported for standard web protocols")
-                }
-                viewModel.clearTranslationRequest()
-            }
-        }
-    }
 
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -747,19 +720,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             )
                                         }
 
-                                        Spacer(modifier = Modifier.width(2.dp))
-
-                                        IconButton(
-                                            onClick = { viewModel.requestTranslation("en") },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Translate,
-                                                contentDescription = "Translate Page",
-                                                tint = TextMuted,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
                                     }
                                 }
                             }
