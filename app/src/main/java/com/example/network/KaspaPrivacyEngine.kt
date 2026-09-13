@@ -85,9 +85,21 @@ object KaspaPrivacyEngine {
 
     /**
      * Checks if a given request URL matches any known tracker, ad network, or telemetry domain.
+     * Uses microsecond-fast substring matching and O(1) set lookups to prevent WebView loading delays.
      */
     fun isTrackerOrAd(url: String): Boolean {
-        if (url.isBlank()) return false
+        if (url.length < 4) return false
+        
+        // Fast skip for data:, blob:, about:, javascript:
+        val firstChar = url[0]
+        if (firstChar == 'd' || firstChar == 'b' || firstChar == 'a' || firstChar == 'j') {
+            if (url.startsWith("data:", ignoreCase = true) || 
+                url.startsWith("blob:", ignoreCase = true) || 
+                url.startsWith("about:", ignoreCase = true) ||
+                url.startsWith("javascript:", ignoreCase = true)) {
+                return false
+            }
+        }
         
         // Never block decentralized Kaspa schemes or localhost nodes
         if (url.startsWith("kaspa://", ignoreCase = true) ||
@@ -100,18 +112,36 @@ object KaspaPrivacyEngine {
             return false
         }
 
-        return try {
-            val uri = URI(url)
-            val host = uri.host?.lowercase() ?: return false
-            TRACKER_AND_AD_DOMAINS.any { domain ->
-                host == domain || host.endsWith(".$domain")
-            }
-        } catch (_: Exception) {
-            val cleanUrl = url.lowercase()
-            TRACKER_AND_AD_DOMAINS.any { domain ->
-                cleanUrl.contains("://$domain") || cleanUrl.contains(".$domain/")
-            }
+        val host = extractHostFast(url) ?: return false
+        if (TRACKER_AND_AD_DOMAINS.contains(host)) return true
+        
+        // Check parent domains (e.g. adservice.google.com -> google.com)
+        var dotIndex = host.indexOf('.')
+        while (dotIndex != -1 && dotIndex < host.length - 1) {
+            val parentDomain = host.substring(dotIndex + 1)
+            if (TRACKER_AND_AD_DOMAINS.contains(parentDomain)) return true
+            dotIndex = host.indexOf('.', dotIndex + 1)
         }
+        return false
+    }
+
+    private fun extractHostFast(url: String): String? {
+        val schemeEnd = url.indexOf("://")
+        val start = if (schemeEnd != -1) schemeEnd + 3 else 0
+        if (start >= url.length) return null
+        
+        var end = url.indexOf('/', start)
+        if (end == -1) end = url.indexOf('?', start)
+        if (end == -1) end = url.indexOf('#', start)
+        if (end == -1) end = url.length
+        
+        val colonInHost = url.indexOf(':', start)
+        if (colonInHost != -1 && colonInHost < end) {
+            end = colonInHost
+        }
+        
+        if (start >= end) return null
+        return url.substring(start, end).lowercase()
     }
 
     /**
@@ -168,33 +198,11 @@ object KaspaPrivacyEngine {
                     };
                 }
 
-                // 4. WebGL Stability & Texture Unit Shield (Prevents Mesa driver crash & gles2 unbound texture warnings)
+                // 4. Clean Performance Hints
                 if (window.HTMLCanvasElement && window.HTMLCanvasElement.prototype) {
                     const origGetContext = window.HTMLCanvasElement.prototype.getContext;
                     window.HTMLCanvasElement.prototype.getContext = function(type, attribs) {
-                        if (attribs && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
-                            attribs.powerPreference = 'low-power';
-                            attribs.antialias = false; // Reduce memory allocation 4x on Mesa software renderer
-                            attribs.failIfMajorPerformanceCaveat = false;
-                        }
-                        const ctx = origGetContext.apply(this, arguments);
-                        if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
-                            try {
-                                if (!ctx.__kaspa_units_bound) {
-                                    ctx.__kaspa_units_bound = true;
-                                    const dummyTex = ctx.createTexture();
-                                    ctx.bindTexture(ctx.TEXTURE_2D, dummyTex);
-                                    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, 1, 1, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-                                    const maxUnits = Math.min(ctx.getParameter(ctx.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 32, 32);
-                                    for (let i = 0; i < maxUnits; i++) {
-                                        ctx.activeTexture(ctx.TEXTURE0 + i);
-                                        ctx.bindTexture(ctx.TEXTURE_2D, dummyTex);
-                                    }
-                                    ctx.activeTexture(ctx.TEXTURE0);
-                                }
-                            } catch (err) {}
-                        }
-                        return ctx;
+                        return origGetContext.apply(this, arguments);
                     };
                 }
             } catch (e) {}

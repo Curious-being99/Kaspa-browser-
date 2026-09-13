@@ -62,6 +62,12 @@ interface BrowserTabDao {
     @Query("SELECT * FROM browser_tabs ORDER BY lastAccessed DESC")
     fun getAllTabs(): Flow<List<BrowserTabEntity>>
 
+    @Query("SELECT * FROM browser_tabs ORDER BY lastAccessed DESC")
+    suspend fun getAllTabsList(): List<BrowserTabEntity>
+
+    @Query("SELECT * FROM browser_tabs WHERE id = :id LIMIT 1")
+    suspend fun getTabById(id: String): BrowserTabEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(tab: BrowserTabEntity)
 

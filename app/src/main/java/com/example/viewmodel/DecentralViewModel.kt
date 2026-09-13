@@ -86,40 +86,81 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         .getAllTabs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _activeTabId = MutableStateFlow<String?>("default")
+    private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
     fun setActiveTab(id: String?) {
+        if (id == null) return
         _activeTabId.value = id
-        id?.let { updateTabAccessTime(it) }
-    }
-
-    private fun updateTabAccessTime(id: String) {
         viewModelScope.launch {
-            val tabs = browserTabs.value
-            tabs.find { it.id == id }?.let {
-                database.browserTabDao().insert(it.copy(lastAccessed = System.currentTimeMillis()))
+            val tab = database.browserTabDao().getTabById(id) ?: browserTabs.value.find { it.id == id }
+            if (tab != null) {
+                database.browserTabDao().insert(tab.copy(lastAccessed = System.currentTimeMillis()))
+                if (tab.url.isBlank()) {
+                    resetToHome()
+                } else {
+                    _urlInput.value = tab.url
+                    resolveUrl(tab.url)
+                }
             }
         }
     }
 
-    fun createNewTab(url: String = "", title: String = "New Tab") {
+    private fun updateTabAccessTime(id: String) {
+        viewModelScope.launch {
+            val tab = database.browserTabDao().getTabById(id)
+            if (tab != null) {
+                database.browserTabDao().insert(tab.copy(lastAccessed = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun createNewTab(url: String = "", title: String = if (url.isBlank()) "Home" else "New Tab") {
         viewModelScope.launch {
             val newId = java.util.UUID.randomUUID().toString()
-            database.browserTabDao().insert(
-                BrowserTabEntity(id = newId, url = url, title = title)
+            val newTab = BrowserTabEntity(
+                id = newId,
+                url = url,
+                title = title,
+                lastAccessed = System.currentTimeMillis()
             )
+            database.browserTabDao().insert(newTab)
             _activeTabId.value = newId
+            if (url.isBlank()) {
+                resetToHome()
+            } else {
+                _urlInput.value = url
+                resolveUrl(url)
+            }
+        }
+    }
+
+    fun openBackgroundTab(url: String, title: String = "New Tab") {
+        viewModelScope.launch {
+            val newId = java.util.UUID.randomUUID().toString()
+            val newTab = BrowserTabEntity(
+                id = newId,
+                url = url,
+                title = title,
+                lastAccessed = System.currentTimeMillis()
+            )
+            database.browserTabDao().insert(newTab)
+            _statusMessage.value = "Tab opened in background"
         }
     }
 
     fun closeTab(id: String) {
         viewModelScope.launch {
-            val tabs = browserTabs.value
-            tabs.find { it.id == id }?.let {
-                database.browserTabDao().delete(it)
-                if (_activeTabId.value == id) {
-                    _activeTabId.value = browserTabs.value.firstOrNull { it.id != id }?.id
+            val tabs = database.browserTabDao().getAllTabsList()
+            val target = tabs.find { it.id == id } ?: return@launch
+            database.browserTabDao().delete(target)
+            val remaining = tabs.filter { it.id != id }
+            if (_activeTabId.value == id) {
+                if (remaining.isNotEmpty()) {
+                    val nextTab = remaining.maxByOrNull { it.lastAccessed } ?: remaining.first()
+                    setActiveTab(nextTab.id)
+                } else {
+                    createNewTab("", "Home")
                 }
             }
         }
@@ -127,8 +168,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateTab(id: String, url: String, title: String) {
         viewModelScope.launch {
+            val existing = database.browserTabDao().getTabById(id)
+            val isSuspended = existing?.isSuspended ?: false
             database.browserTabDao().insert(
-                BrowserTabEntity(id = id, url = url, title = title, lastAccessed = System.currentTimeMillis())
+                BrowserTabEntity(id = id, url = url, title = title, lastAccessed = System.currentTimeMillis(), isSuspended = isSuspended)
             )
         }
     }
@@ -140,7 +183,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun suspendInactiveTabs() {
         viewModelScope.launch {
-            val tabs = browserTabs.value
+            val tabs = database.browserTabDao().getAllTabsList()
             val now = System.currentTimeMillis()
             val fiveMinutes = 5 * 60 * 1000
             tabs.forEach { tab ->
@@ -154,7 +197,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun clearAllTabs() {
         viewModelScope.launch {
             database.browserTabDao().clearAll()
-            createNewTab()
+            createNewTab("", "Home")
         }
     }
 
@@ -409,6 +452,27 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     refreshKaspaWallet(address)
                 }
             }
+        }
+
+        // Initialize browser tabs with a clean Home tab if empty or restore active tab
+        viewModelScope.launch {
+            try {
+                val tabs = database.browserTabDao().getAllTabsList()
+                if (tabs.isEmpty()) {
+                    val newId = java.util.UUID.randomUUID().toString()
+                    database.browserTabDao().insert(
+                        BrowserTabEntity(id = newId, url = "", title = "Home", lastAccessed = System.currentTimeMillis())
+                    )
+                    _activeTabId.value = newId
+                } else {
+                    val mostRecent = tabs.maxByOrNull { it.lastAccessed } ?: tabs.first()
+                    _activeTabId.value = mostRecent.id
+                    if (mostRecent.url.isNotBlank()) {
+                        _urlInput.value = mostRecent.url
+                        resolveUrl(mostRecent.url)
+                    }
+                }
+            } catch (_: Exception) {}
         }
     }
 

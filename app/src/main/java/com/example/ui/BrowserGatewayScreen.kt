@@ -220,6 +220,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
     var isReaderMode by remember { mutableStateOf(false) }
+    var longPressedLinkUrl by remember { mutableStateOf<String?>(null) }
+    var showLinkContextMenu by remember { mutableStateOf(false) }
 
     val bookmarks by viewModel.bookmarks.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
@@ -804,6 +806,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 modifier = Modifier.background(SurfaceDark)
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("New Tab", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.createNewTab()
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Find in Page", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted) },
                                     onClick = {
@@ -947,7 +957,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
@@ -998,7 +1008,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = false
+                                offscreenPreRaster = true
                                 setGeolocationEnabled(false)
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -1026,6 +1036,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 scope = scope
                             )
                             addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
+
+                            // Long-press context menu for links and images
+                            setOnLongClickListener { v ->
+                                val wv = v as? WebView
+                                val result = wv?.hitTestResult
+                                if (result != null) {
+                                    val type = result.type
+                                    val extra = result.extra
+                                    if (!extra.isNullOrBlank() && (
+                                        type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
+                                        type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE ||
+                                        type == WebView.HitTestResult.IMAGE_TYPE ||
+                                        type == WebView.HitTestResult.GEO_TYPE ||
+                                        type == WebView.HitTestResult.EMAIL_TYPE ||
+                                        type == WebView.HitTestResult.PHONE_TYPE
+                                    )) {
+                                        longPressedLinkUrl = extra
+                                        showLinkContextMenu = true
+                                        return@setOnLongClickListener true
+                                    }
+                                }
+                                false
+                            }
 
                             // Edge swipe gesture navigation (standard Chrome/Firefox Android pattern)
                             var touchStartX = 0f
@@ -1282,16 +1315,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     isReaderMode = false
-                                    if (viewModel.currentResource.value == null) {
-                                        try { view?.stopLoading() } catch (_: Exception) {}
-                                        return
-                                    }
-                                    val currentTag = view?.tag as? Pair<*, *>
-                                    val tagId = currentTag?.second as? Int
-                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
-                                        try { view?.stopLoading() } catch (_: Exception) {}
-                                        return
-                                    }
                                     isWebLoading = true
                                     webProgress = 0.15f
                                     viewModel.setIsLoading(true)
@@ -1299,7 +1322,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
                                         if (!it.startsWith("data:") && !it.startsWith("about:")) {
-                                            view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
+                                            view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
@@ -1319,14 +1342,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
-                                    if (viewModel.currentResource.value == null) {
-                                        return
-                                    }
-                                    val currentTag = view?.tag as? Pair<*, *>
-                                    val tagId = currentTag?.second as? Int
-                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
-                                        return
-                                    }
                                     isWebLoading = false
                                     webProgress = 1.0f
                                     viewModel.setIsLoading(false)
@@ -1335,7 +1350,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
                                          if (!it.startsWith("data:") && !it.startsWith("about:")) {
-                                            view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
+                                            view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
                                         }
@@ -1407,19 +1422,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                     super.doUpdateVisitedHistory(view, url, isReload)
-                                    if (viewModel.currentResource.value == null) {
-                                        return
-                                    }
-                                    val currentTag = view?.tag as? Pair<*, *>
-                                    val tagId = currentTag?.second as? Int
-                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
-                                        return
-                                    }
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
                                          if (!it.startsWith("data:") && !it.startsWith("about:")) {
-                                            view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
+                                            view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                         }
                                     }
@@ -1470,16 +1477,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                    if (viewModel.currentResource.value == null) {
-                                        try { view?.stopLoading() } catch (_: Exception) {}
-                                        return true
-                                    }
-                                    val currentTag = view?.tag as? Pair<*, *>
-                                    val tagId = currentTag?.second as? Int
-                                    if (tagId != null && tagId != viewModel.navigationSessionId.value) {
-                                        try { view?.stopLoading() } catch (_: Exception) {}
-                                        return true
-                                    }
                                     val targetUrl = request?.url?.toString() ?: return false
 
                                     if (strictDecentralizedMode && targetUrl.startsWith("http://", ignoreCase = true)) {
@@ -2508,6 +2505,127 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             },
             containerColor = SurfaceCard,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showLinkContextMenu && longPressedLinkUrl != null) {
+        val linkUrl = longPressedLinkUrl ?: ""
+        AlertDialog(
+            onDismissRequest = {
+                showLinkContextMenu = false
+                longPressedLinkUrl = null
+            },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    text = "Link Options",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = linkUrl,
+                        fontSize = 12.sp,
+                        color = ElectricCyan,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider(color = SurfaceCardBorder, thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Option 1: Open in New Tab
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                showLinkContextMenu = false
+                                longPressedLinkUrl = null
+                                viewModel.createNewTab(linkUrl, "New Tab")
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Open in New Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+
+                    // Option 2: Open in Background Tab
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                showLinkContextMenu = false
+                                longPressedLinkUrl = null
+                                viewModel.openBackgroundTab(linkUrl, "New Tab")
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Open in Background Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+
+                    // Option 3: Copy Link Address
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                showLinkContextMenu = false
+                                longPressedLinkUrl = null
+                                clipboardManager.setText(AnnotatedString(linkUrl))
+                                viewModel.setStatusMessage("Link address copied to clipboard")
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Copy Link Address", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+
+                    // Option 4: Share Link
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                showLinkContextMenu = false
+                                longPressedLinkUrl = null
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, linkUrl)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Link"))
+                            }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Share Link", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLinkContextMenu = false
+                        longPressedLinkUrl = null
+                    }
+                ) {
+                    Text("Cancel", color = TextMuted)
+                }
+            }
         )
     }
 
