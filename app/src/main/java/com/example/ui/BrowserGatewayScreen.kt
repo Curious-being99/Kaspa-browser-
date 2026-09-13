@@ -58,6 +58,7 @@ import androidx.compose.material.icons.automirrored.filled.Shortcut
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -78,6 +79,7 @@ import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
@@ -87,6 +89,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Shuffle
@@ -850,6 +853,31 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
                                 )
+                                HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
+                                DropdownMenuItem(
+                                    text = { Text("Network (Mesh Radar)", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Hub, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setTab(com.example.viewmodel.AppTab.MESH_RADAR)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings & Traffic Audit", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Library (History & Bookmarks)", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.LibraryBooks, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY)
+                                    }
+                                )
                             }
                         }
 
@@ -957,7 +985,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
@@ -1003,12 +1031,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     safeBrowsingEnabled = true
                                 }
+                                layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
                                 cacheMode = WebSettings.LOAD_DEFAULT
                                 mediaPlaybackRequiresUserGesture = false
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = true
+                                offscreenPreRaster = false
                                 setGeolocationEnabled(false)
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -1179,10 +1208,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     pendingGeoCallback = callback
                                 }
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                    if (viewModel.currentResource.value == null) {
-                                        try { view?.stopLoading() } catch (_: Exception) {}
-                                        return
-                                    }
                                     webProgress = newProgress / 100f
                                     if (newProgress >= 95) {
                                         isWebLoading = false
@@ -3461,8 +3486,8 @@ fun DiscoverFeedCard(
     Card(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-        shape = RoundedCornerShape(12.dp),
+        border = null,
+        shape = RoundedCornerShape(0.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -3620,7 +3645,6 @@ fun BrowserSpeedDial(
                 .fillMaxWidth()
         ) {
             KaspaNewsSection(onNavigate = onNavigate)
-            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -4528,11 +4552,11 @@ fun KaspaNewsSection(
         }
     }
 
-    // Auto-refresh feeds periodically every 60 seconds (less aggressive)
+    // Auto-refresh feeds periodically every 15 minutes
     LaunchedEffect(Unit) {
         while (isActive) {
             refreshFeeds()
-            kotlinx.coroutines.delay(60_000)
+            kotlinx.coroutines.delay(15 * 60_000L)
         }
     }
 
@@ -4545,8 +4569,9 @@ fun KaspaNewsSection(
         ) {
             Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 val categories = listOf("All", "X", "YouTube", "News", "Reddit", "GitHub")
@@ -4615,28 +4640,6 @@ fun KaspaNewsSection(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            if (isRefreshing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = ElectricCyan
-                )
-            } else {
-                IconButton(
-                    onClick = { refreshFeeds() },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh",
-                        tint = ElectricCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -4681,8 +4684,8 @@ fun KaspaNewsSection(
         if (filteredItems.isEmpty()) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                shape = RoundedCornerShape(12.dp),
+                border = null,
+                shape = RoundedCornerShape(0.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
@@ -4692,7 +4695,7 @@ fun KaspaNewsSection(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No news found in this category. Press refresh above to reload.",
+                        text = "No news found in this category.",
                         color = TextSecondary,
                         fontSize = 11.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -4700,13 +4703,15 @@ fun KaspaNewsSection(
                 }
             }
         } else {
-            filteredItems.forEach { item ->
+            filteredItems.forEachIndexed { index, item ->
                 if (item.category == "YouTube" || item.videoId != null) {
                     YouTubeVideoCard(item = item, onNavigate = onNavigate)
                 } else {
                     NewsFeedCard(item = item, onNavigate = onNavigate)
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+                if (index < filteredItems.lastIndex) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
             }
         }
     }
@@ -4922,7 +4927,7 @@ fun YouTubeVideoCard(
                                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                         safeBrowsingEnabled = true
                                     }
-                                    offscreenPreRaster = true
+                                    offscreenPreRaster = false
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
                                     databaseEnabled = true

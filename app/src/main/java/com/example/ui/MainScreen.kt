@@ -1,6 +1,12 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -106,108 +113,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                 .fillMaxSize()
                 .background(ObsidianBg),
             contentWindowInsets = WindowInsets.safeDrawing,
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            bottomBar = {
-                androidx.compose.material3.Surface(
-                    color = SurfaceDark,
-                    shadowElevation = 0.dp,
-                    modifier = Modifier.background(SurfaceDark).navigationBarsPadding()
-                ) {
-                    androidx.compose.foundation.layout.Column {
-                        NavigationBar(
-                            containerColor = SurfaceDark,
-                            contentColor = TextPrimary,
-                            tonalElevation = 0.dp,
-                            windowInsets = WindowInsets(0.dp),
-                            modifier = Modifier.testTag("main_bottom_nav").height(64.dp)
-                        ) {
-                    NavigationBarItem(
-                        selected = activeTab == AppTab.BROWSER_GATEWAY,
-                        onClick = { viewModel.setTab(AppTab.BROWSER_GATEWAY) },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Language,
-                                contentDescription = "Gateway",
-                                tint = if (activeTab == AppTab.BROWSER_GATEWAY) ElectricCyan else TextMuted
-                            )
-                        },
-                        label = { Text("Gateway") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ElectricCyan,
-                            selectedTextColor = ElectricCyan,
-                            indicatorColor = Color.Transparent,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
-                        ),
-                        modifier = Modifier.testTag("tab_browser")
-                    )
-
-                    NavigationBarItem(
-                        selected = activeTab == AppTab.MESH_RADAR,
-                        onClick = { viewModel.setTab(AppTab.MESH_RADAR) },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Hub,
-                                contentDescription = "Network",
-                                tint = if (activeTab == AppTab.MESH_RADAR) ElectricCyan else TextMuted
-                            )
-                        },
-                        label = { Text("Network") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ElectricCyan,
-                            selectedTextColor = ElectricCyan,
-                            indicatorColor = Color.Transparent,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
-                        ),
-                        modifier = Modifier.testTag("tab_radar")
-                    )
-
-                     NavigationBarItem(
-                        selected = activeTab == AppTab.TRAFFIC_AUDIT,
-                        onClick = { viewModel.setTab(AppTab.TRAFFIC_AUDIT) },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = if (activeTab == AppTab.TRAFFIC_AUDIT) ElectricCyan else TextMuted
-                            )
-                        },
-                        label = { Text("Settings") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ElectricCyan,
-                            selectedTextColor = ElectricCyan,
-                            indicatorColor = Color.Transparent,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
-                        ),
-                        modifier = Modifier.testTag("tab_audit")
-                    )
-
-                    NavigationBarItem(
-                        selected = activeTab == AppTab.LIBRARY,
-                        onClick = { viewModel.setTab(AppTab.LIBRARY) },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.LibraryBooks,
-                                contentDescription = "Library",
-                                tint = if (activeTab == AppTab.LIBRARY) ElectricCyan else TextMuted
-                            )
-                        },
-                        label = { Text("Library") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ElectricCyan,
-                            selectedTextColor = ElectricCyan,
-                            indicatorColor = Color.Transparent,
-                            unselectedIconColor = TextMuted,
-                            unselectedTextColor = TextMuted
-                        ),
-                        modifier = Modifier.testTag("tab_library")
-                    )
-                }
-                }
-                }
-            }
+            snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { paddingValues ->
             Box(
                 modifier = Modifier
@@ -244,7 +150,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         // Kaspa Logo Card
                         Box(
                             modifier = Modifier
-                                .size(80.dp)
+                                .size(72.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(SurfaceDark),
                             contentAlignment = Alignment.Center
@@ -253,7 +159,9 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                                 painter = painterResource(id = R.drawable.kaspa_reverse_k_icon_1789061783750),
                                 contentDescription = "Kaspa Logo",
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .scale(1.4f)
                             )
                         }
 
@@ -332,3 +240,4 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
         }
     }
 }
+

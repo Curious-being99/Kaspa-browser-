@@ -197,14 +197,6 @@ object KaspaPrivacyEngine {
                         return new OrigRTC(config, constraints);
                     };
                 }
-
-                // 4. Clean Performance Hints
-                if (window.HTMLCanvasElement && window.HTMLCanvasElement.prototype) {
-                    const origGetContext = window.HTMLCanvasElement.prototype.getContext;
-                    window.HTMLCanvasElement.prototype.getContext = function(type, attribs) {
-                        return origGetContext.apply(this, arguments);
-                    };
-                }
             } catch (e) {}
         })();
     """
