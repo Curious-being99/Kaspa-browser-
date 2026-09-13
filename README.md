@@ -11,6 +11,12 @@
 
 ---
 
+## 🎨 Component Visual Identity & Brand Logo Color Palette
+
+![KaspaBrowser Brand Palette](brand_palette.jpg)
+
+---
+
 ## ✨ Newly Added Production Features
 
 1. **Unified Settings & Privacy Hub (`TrafficAuditScreen.kt`)**:
