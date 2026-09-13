@@ -168,26 +168,34 @@ object KaspaPrivacyEngine {
                     };
                 }
 
-                // 4. WebGL Anti-Fingerprinting & GLES Texture Bounds Shield
-                function wrapWebGL(proto) {
-                    if (!proto) return;
-                    const origGetParam = proto.getParameter;
-                    proto.getParameter = function(param) {
-                        // UNMASKED_VENDOR_WEBGL (0x9245), UNMASKED_RENDERER_WEBGL (0x9246)
-                        if (param === 0x9245) return 'Kaspa Decentralized Mesh';
-                        if (param === 0x9246) return 'Kaspa Privacy GPU Engine';
-                        // MAX_TEXTURE_IMAGE_UNITS (0x8872)
-                        if (param === 0x8872) return 16;
-                        // MAX_COMBINED_TEXTURE_IMAGE_UNITS (0x8B4D)
-                        if (param === 0x8B4D) return 32;
-                        return origGetParam.apply(this, arguments);
+                // 4. WebGL Stability & Texture Unit Shield (Prevents Mesa driver crash & gles2 unbound texture warnings)
+                if (window.HTMLCanvasElement && window.HTMLCanvasElement.prototype) {
+                    const origGetContext = window.HTMLCanvasElement.prototype.getContext;
+                    window.HTMLCanvasElement.prototype.getContext = function(type, attribs) {
+                        if (attribs && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
+                            attribs.powerPreference = 'low-power';
+                            attribs.antialias = false; // Reduce memory allocation 4x on Mesa software renderer
+                            attribs.failIfMajorPerformanceCaveat = false;
+                        }
+                        const ctx = origGetContext.apply(this, arguments);
+                        if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
+                            try {
+                                if (!ctx.__kaspa_units_bound) {
+                                    ctx.__kaspa_units_bound = true;
+                                    const dummyTex = ctx.createTexture();
+                                    ctx.bindTexture(ctx.TEXTURE_2D, dummyTex);
+                                    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, 1, 1, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+                                    const maxUnits = Math.min(ctx.getParameter(ctx.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 32, 32);
+                                    for (let i = 0; i < maxUnits; i++) {
+                                        ctx.activeTexture(ctx.TEXTURE0 + i);
+                                        ctx.bindTexture(ctx.TEXTURE_2D, dummyTex);
+                                    }
+                                    ctx.activeTexture(ctx.TEXTURE0);
+                                }
+                            } catch (err) {}
+                        }
+                        return ctx;
                     };
-                }
-                if (window.WebGLRenderingContext) {
-                    wrapWebGL(window.WebGLRenderingContext.prototype);
-                }
-                if (window.WebGL2RenderingContext) {
-                    wrapWebGL(window.WebGL2RenderingContext.prototype);
                 }
             } catch (e) {}
         })();

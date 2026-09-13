@@ -256,6 +256,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             webViewInstance = null
         }
     }
+    var webViewRecreateKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var rendererCrashCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var lastCrashTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { mutableFloatStateOf(0f) }
@@ -340,6 +343,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val allAccounts by viewModel.allAccounts.collectAsState()
     val kaspaWalletState by viewModel.kaspaWalletState.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
+    val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -923,8 +927,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 )
             } else if (isHtml && !viewSourceMode) {
                 // IN-APP WEB VIEW: Renders full web pages inside the browser itself!
-                AndroidView(
-                    factory = { ctx ->
+                androidx.compose.runtime.key(webViewRecreateKey) {
+                    AndroidView(
+                        factory = { ctx ->
                         SwipeRefreshLayout(ctx).apply {
                             val swipeContainer = this
                             layoutParams = ViewGroup.LayoutParams(
@@ -1000,6 +1005,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } else {
                                     "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                                 }
+                            }
+
+                            // Early document-start JavaScript injection for WebGL stability and privacy shield
+                            if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                                try {
+                                    androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                                        this,
+                                        KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                        setOf("*")
+                                    )
+                                } catch (_: Throwable) {}
                             }
 
                             // Attach WebAuthn FIDO2 / Passkey Javascript Interface & Credential Manager Bridge
@@ -1289,12 +1305,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
 
-                                    if (sendDntHeaders) {
-                                        view?.evaluateJavascript(
-                                            KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
-                                            null
-                                        )
-                                    }
+                                    view?.evaluateJavascript(
+                                        KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                        null
+                                    )
 
                                     if (webAuthEnabled) {
                                         view?.evaluateJavascript(
@@ -1331,12 +1345,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
-                                    if (sendDntHeaders) {
-                                        view?.evaluateJavascript(
-                                            KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
-                                            null
-                                        )
-                                    }
+                                    view?.evaluateJavascript(
+                                        KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                        null
+                                    )
 
                                     if (webAuthEnabled) {
                                         view?.evaluateJavascript(
@@ -1414,12 +1426,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
-                                    (view?.parent as? ViewGroup)?.removeView(view)
+                                    val didCrash = detail?.didCrash() == true
+                                    android.util.Log.w("BrowserGatewayScreen", "WebView renderer process gone (didCrash=$didCrash)")
                                     try {
+                                        (view?.parent as? ViewGroup)?.removeView(view)
                                         view?.destroy()
                                     } catch (_: Exception) {}
                                     webViewInstance = null
-                                    viewModel.setStatusMessage("Graphics rendering process recovered")
+
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastCrashTimestamp < 15_000L) {
+                                        rendererCrashCount++
+                                    } else {
+                                        rendererCrashCount = 1
+                                    }
+                                    lastCrashTimestamp = now
+
+                                    if (rendererCrashCount >= 2) {
+                                        viewModel.setStatusMessage("Heavy graphics halted to prevent crash loop")
+                                        viewModel.setUrlInput("about:blank")
+                                    } else {
+                                        viewModel.setStatusMessage("Graphics rendering process restored")
+                                    }
+                                    webViewRecreateKey++
                                     return true
                                 }
 
@@ -1537,13 +1566,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return true
                                     }
 
-                                    // Keep all HTTP/HTTPS links inside this WebView without opening external apps
+                                    // Keep all HTTP/HTTPS links inside this WebView natively without opening external apps or abort loops
                                     if (targetUrl.startsWith("http://", ignoreCase = true) || targetUrl.startsWith("https://", ignoreCase = true)) {
-                                        if (targetUrl == viewModel.currentResource.value?.url) {
-                                            return false
-                                        }
-                                        viewModel.resolveUrl(targetUrl)
-                                        return true
+                                        viewModel.setUrlInput(targetUrl)
+                                        return false
                                     }
                                     viewModel.setUrlInput(targetUrl)
                                     return false
@@ -1763,6 +1789,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 },
                     modifier = Modifier.fillMaxSize()
                 )
+            }
             } else {
                 // NATIVE DOCUMENT READER: Markdown / Text / Source Code
                 Column(
@@ -2156,6 +2183,76 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
             )
         }
+    }
+
+    // WebAuthn Passkey / RP ID In-App Authentication Notice Dialog
+    if (showWebAuthnRpIdDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.setShowWebAuthnRpIdDialog(false) },
+            containerColor = SurfaceDark,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary,
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Fingerprint,
+                    contentDescription = null,
+                    tint = ElectricCyan,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Passkey Verification Notice",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Android OS restricts hardware Passkey RP ID validation to domains linked by the site owner.",
+                        fontSize = 13.sp,
+                        color = TextPrimary
+                    )
+                    Surface(
+                        color = SurfaceCard,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "Continue inside this browser:",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ElectricCyan
+                            )
+                            Text(
+                                text = "1. Tap 'More options' on the screen.",
+                                fontSize = 12.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "2. Select 'Authenticator app', 'GitHub Mobile', or 'Recovery code' to authenticate seamlessly.",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.setShowWebAuthnRpIdDialog(false) },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg)
+                ) {
+                    Text("Got It (Continue Here)", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        )
     }
 
     // PWA & Web App Device Installation Dialog

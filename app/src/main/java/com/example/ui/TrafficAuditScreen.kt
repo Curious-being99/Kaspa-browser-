@@ -256,7 +256,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
                     PrivacyToggleRow(
                         title = "WebAuth Support (FIDO2)",
-                        desc = "Enable support for hardware security keys and Passkeys for secure logins",
+                        desc = "Enable hardware security keys and Passkey support for WebAuthn authentication",
                         icon = Icons.Default.Fingerprint,
                         checked = webAuthEnabled,
                         onCheckedChange = { viewModel.toggleWebAuth(it) }

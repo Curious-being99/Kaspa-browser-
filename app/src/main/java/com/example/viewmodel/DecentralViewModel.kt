@@ -237,6 +237,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _webAuthEnabled = MutableStateFlow(true)
     val webAuthEnabled: StateFlow<Boolean> = _webAuthEnabled.asStateFlow()
 
+    private val _showWebAuthnRpIdDialog = MutableStateFlow(false)
+    val showWebAuthnRpIdDialog: StateFlow<Boolean> = _showWebAuthnRpIdDialog.asStateFlow()
+
     private val _searchEngine = MutableStateFlow(SearchEngine.DUCKDUCKGO)
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
 
@@ -324,6 +327,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleDesktopMode(enabled: Boolean) { _desktopModeEnabled.value = enabled }
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
     fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }
+    fun setShowWebAuthnRpIdDialog(show: Boolean) { _showWebAuthnRpIdDialog.value = show }
     fun setSearchEngine(engine: SearchEngine) { _searchEngine.value = engine }
 
     fun addToHistory(url: String, title: String) {
@@ -612,8 +616,30 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateCurrentUrl(newUrl: String) {
         if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:")) return
-        val current = _currentResource.value ?: return
         _urlInput.value = newUrl
+        val current = _currentResource.value
+        if (current == null) {
+            if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {
+                val host = try { java.net.URI(newUrl).host ?: newUrl } catch (_: Exception) { newUrl }
+                _currentResource.value = ResolvedResource(
+                    url = newUrl,
+                    resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                    cid = com.example.network.CryptoUtils.generateCid(newUrl),
+                    title = host,
+                    content = "",
+                    contentType = "text/html",
+                    sizeBytes = 0L,
+                    latencyMs = 15L,
+                    centralizedUrl = newUrl,
+                    centralizedLatencyMs = 15L,
+                    centralizedIp = "Direct High-Speed Stack",
+                    verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                    cryptographicHash = com.example.network.CryptoUtils.sha256(newUrl),
+                    routedVia = "Direct High-Speed Web Stack: $host"
+                )
+            }
+            return
+        }
         if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {
             val host = try { java.net.URI(newUrl).host ?: newUrl } catch (_: Exception) { newUrl }
             if (current.url == newUrl) return

@@ -145,18 +145,18 @@ class DualStackResolver(private val database: AppDatabase) {
 
             okHttpClient.newCall(request).execute().use { response ->
                 val latency = System.currentTimeMillis() - start
-                val body = response.body?.let { responseBody ->
+                val snippet = response.body?.let { responseBody ->
                     val source = responseBody.source()
-                    source.request(256 * 1024)
+                    source.request(16 * 1024)
                     val buffer = source.buffer.clone()
                     buffer.readUtf8()
                 } ?: ""
-                val hash = CryptoUtils.sha256(if (body.isNotEmpty()) body else targetUrl)
-                val generatedCid = CryptoUtils.generateCid(if (body.isNotEmpty()) body else targetUrl)
+                val hash = CryptoUtils.sha256(if (snippet.isNotEmpty()) snippet else targetUrl)
+                val generatedCid = CryptoUtils.generateCid(if (snippet.isNotEmpty()) snippet else targetUrl)
                 val tlsVersion = response.handshake?.tlsVersion?.name ?: "TLS 1.3"
                 val cipher = response.handshake?.cipherSuite?.javaName ?: "AES-GCM"
 
-                val title = extractTitle(body, host)
+                val title = extractTitle(snippet, host)
                 val contentType = response.header("Content-Type") ?: "text/html"
 
                 val verificationStatus = if (response.isSuccessful) {
@@ -175,16 +175,16 @@ class DualStackResolver(private val database: AppDatabase) {
                 val isDeployedKaspa = DomainConstants.isCustomDomain(targetUrl) || 
                         database.contentDao().searchContent(targetUrl) != null
 
-                val kProof = if (isDeployedKaspa) CryptoUtils.verifyKaspaLinkProof(body, targetUrl) else null
+                val kProof = if (isDeployedKaspa) CryptoUtils.verifyKaspaLinkProof(snippet, targetUrl) else null
 
                 ResolvedResource(
                     url = targetUrl,
                     resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
                     cid = generatedCid,
                     title = title,
-                    content = body,
+                    content = "",
                     contentType = contentType,
-                    sizeBytes = body.toByteArray().size.toLong(),
+                    sizeBytes = response.body?.contentLength()?.takeIf { it > 0 } ?: (snippet.toByteArray().size.toLong()),
                     latencyMs = latency,
                     centralizedUrl = targetUrl,
                     centralizedLatencyMs = latency,

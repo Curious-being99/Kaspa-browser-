@@ -66,7 +66,12 @@ class KaspaWebAuthnBridge(
                 Log.w(tag, "WebAuthn createCredential failed: ${e.message}", e)
                 val userMsg = e.message ?: "Authentication error or user cancelled"
                 rejectCallback(callbackId, userMsg)
-                viewModel.setStatusMessage("Passkey registration: $userMsg")
+                if (userMsg.contains("RP ID", ignoreCase = true) || userMsg.contains("relying party", ignoreCase = true)) {
+                    viewModel.setShowWebAuthnRpIdDialog(true)
+                    viewModel.setStatusMessage("Passkey RP ID restricted: Tap 'More options' on GitHub for Authenticator or 2FA.")
+                } else {
+                    viewModel.setStatusMessage("Passkey registration: $userMsg")
+                }
             }
         }
     }
@@ -99,7 +104,12 @@ class KaspaWebAuthnBridge(
                 Log.w(tag, "WebAuthn getCredential failed: ${e.message}", e)
                 val userMsg = e.message ?: "Verification error or user cancelled"
                 rejectCallback(callbackId, userMsg)
-                viewModel.setStatusMessage("Passkey verification: $userMsg")
+                if (userMsg.contains("RP ID", ignoreCase = true) || userMsg.contains("relying party", ignoreCase = true)) {
+                    viewModel.setShowWebAuthnRpIdDialog(true)
+                    viewModel.setStatusMessage("Passkey RP ID restricted: Tap 'More options' on GitHub for Authenticator or 2FA.")
+                } else {
+                    viewModel.setStatusMessage("Passkey verification: $userMsg")
+                }
             }
         }
     }
