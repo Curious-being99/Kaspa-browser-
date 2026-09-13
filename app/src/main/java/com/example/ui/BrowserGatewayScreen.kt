@@ -16,7 +16,6 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -968,17 +967,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 androidx.compose.runtime.key(webViewRecreateKey) {
                     AndroidView(
                         factory = { ctx ->
-                        SwipeRefreshLayout(ctx).apply {
-                            val swipeContainer = this
+                        android.widget.FrameLayout(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                            setColorSchemeColors(
-                                android.graphics.Color.parseColor("#00E5FF"),
-                                android.graphics.Color.parseColor("#00FFB2")
-                            )
-                            setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#121824"))
 
                             val webView = WebView(ctx).apply {
                                 layoutParams = ViewGroup.LayoutParams(
@@ -1094,8 +1087,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             var touchStartY = 0f
                             var touchStartTime = 0L
                             var isEdgeSwipe = false
-                            val viewConfig = android.view.ViewConfiguration.get(context)
-                            val scaledTouchSlop = viewConfig.scaledTouchSlop
 
                             @android.annotation.SuppressLint("ClickableViewAccessibility")
                             setOnTouchListener { v, event ->
@@ -1110,18 +1101,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         false
                                     }
                                     android.view.MotionEvent.ACTION_MOVE -> {
-                                        if (isEdgeSwipe) {
-                                            val dx = kotlin.math.abs(event.x - touchStartX)
-                                            val dy = kotlin.math.abs(event.y - touchStartY)
-                                            if (dx > scaledTouchSlop && dx > dy * 1.5f) {
-                                                // Prevent SwipeRefreshLayout from stealing horizontal navigation swipe
-                                                swipeContainer.requestDisallowInterceptTouchEvent(true)
-                                            }
-                                        }
                                         false
                                     }
                                     android.view.MotionEvent.ACTION_UP -> {
-                                        swipeContainer.requestDisallowInterceptTouchEvent(false)
                                         if (isEdgeSwipe) {
                                             val deltaX = event.x - touchStartX
                                             val deltaY = event.y - touchStartY
@@ -1145,10 +1127,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 }
                                             }
                                         }
+                                        isEdgeSwipe = false
                                         false
                                     }
                                     android.view.MotionEvent.ACTION_CANCEL -> {
-                                        swipeContainer.requestDisallowInterceptTouchEvent(false)
                                         isEdgeSwipe = false
                                         false
                                     }
@@ -1370,7 +1352,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     isWebLoading = false
                                     webProgress = 1.0f
                                     viewModel.setIsLoading(false)
-                                    swipeContainer.isRefreshing = false
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -1677,44 +1658,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
 
                         addView(webView)
-
-                        setOnChildScrollUpCallback { _, _ ->
-                            val activeUrl = webView.url ?: ""
-                            val isModalOrSubRoute = activeUrl.contains("?") || activeUrl.contains("#") || activeUrl.contains("proof")
-                            isModalOrSubRoute || webView.canScrollVertically(-1) || webView.scrollY > 0
-                        }
-
-                        setOnRefreshListener {
-                            val activeUrl = webView.url ?: ""
-                            if (activeUrl.contains("?") || activeUrl.contains("#") || activeUrl.contains("proof")) {
-                                isRefreshing = false
-                                return@setOnRefreshListener
-                            }
-                            isWebLoading = true
-                            webView.reload()
-                            postDelayed({
-                                isRefreshing = false
-                            }, 1200)
-                        }
                     }
                 },
-                update = { swipeRefreshLayout ->
+                update = { containerLayout ->
                     try {
-                        val webView = (0 until swipeRefreshLayout.childCount)
-                            .mapNotNull { swipeRefreshLayout.getChildAt(it) as? WebView }
+                        val webView = (0 until containerLayout.childCount)
+                            .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                             .firstOrNull() ?: return@AndroidView
 
                         webViewInstance = webView
                         canGoBack = webView.canGoBack()
                         canGoForward = webView.canGoForward()
-                        
-                        val currentWvUrl = webView.url ?: resource.url
-                        val isModalOrSubRoute = currentWvUrl.contains("?") || currentWvUrl.contains("#") || currentWvUrl.contains("proof")
-                        swipeRefreshLayout.isEnabled = !isModalOrSubRoute
-
-                        if (!isWebLoading && swipeRefreshLayout.isRefreshing) {
-                            swipeRefreshLayout.isRefreshing = false
-                        }
 
                         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
 
@@ -1801,9 +1755,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         android.util.Log.w("BrowserGatewayScreen", "Error during webView update: ${e.message}")
                     }
                 },
-                onRelease = { swipeRefreshLayout ->
-                    val webView = (0 until swipeRefreshLayout.childCount)
-                        .mapNotNull { swipeRefreshLayout.getChildAt(it) as? WebView }
+                onRelease = { containerLayout ->
+                    val webView = (0 until containerLayout.childCount)
+                        .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                         .firstOrNull()
                     webView?.stopLoading()
                     webView?.loadUrl("about:blank")
