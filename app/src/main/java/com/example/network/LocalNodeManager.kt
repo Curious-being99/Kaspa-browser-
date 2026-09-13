@@ -75,14 +75,24 @@ class LocalNodeManager(
 
     init {
         scope.launch(Dispatchers.IO) {
-            cleanLegacyMockData()
-            seedPublicGatewaysIfEmpty()
-            startLocalDaemon()
-            pingAllPeers()
-            observePeersAndContent()
-            observeNetworkState()
-            startBandwidthStreamTicker()
+            try {
+                cleanLegacyMockData()
+                seedPublicGatewaysIfEmpty()
+                startLocalDaemon()
+                pingAllPeers()
+            } catch (e: Exception) {
+                android.util.Log.w("LocalNodeManager", "Init error: ${e.message}")
+            }
         }
+        scope.launch(Dispatchers.IO) {
+            try {
+                observePeersAndContent()
+            } catch (e: Exception) {
+                android.util.Log.w("LocalNodeManager", "Peers collection error: ${e.message}")
+            }
+        }
+        observeNetworkState()
+        startBandwidthStreamTicker()
     }
 
     private fun recalculateSwarmMetrics() {

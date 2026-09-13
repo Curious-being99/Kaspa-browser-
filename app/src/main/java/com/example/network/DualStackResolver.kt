@@ -177,27 +177,6 @@ class DualStackResolver(private val database: AppDatabase) {
 
                 val kProof = if (isDeployedKaspa) CryptoUtils.verifyKaspaLinkProof(body, targetUrl) else null
 
-                if (body.isNotEmpty() && response.isSuccessful) {
-                    try {
-                        database.contentDao().insertContent(
-                            ContentEntity(
-                                cid = generatedCid,
-                                title = title,
-                                content = body,
-                                contentType = contentType,
-                                sizeBytes = body.toByteArray().size.toLong(),
-                                isPinned = false,
-                                isSeeding = true,
-                                centralizedMirrorUrl = targetUrl,
-                                authorPeerId = "local_node",
-                                createdAt = System.currentTimeMillis(),
-                                sha256Hash = hash,
-                                protocolPrefix = "https://"
-                            )
-                        )
-                    } catch (_: Exception) {}
-                }
-
                 ResolvedResource(
                     url = targetUrl,
                     resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,

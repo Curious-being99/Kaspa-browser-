@@ -672,7 +672,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 val result = resolver.resolve(target, _selectedProtocol.value)
                 if (_navigationSessionId.value == currentSessionId) {
-                    _currentResource.value = result
+                    val activeUrl = _urlInput.value
+                    val finalResult = if (isHttp && activeUrl.isNotBlank() && activeUrl != result.url) {
+                        result.copy(url = activeUrl, title = _currentResource.value?.title ?: result.title)
+                    } else {
+                        result
+                    }
+                    _currentResource.value = finalResult
                     verifyResourceIntegrity()
                     
                     val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)

@@ -387,6 +387,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         uploadCallback = null
     }
 
+    LaunchedEffect(webAuthEnabled) {
+        webViewInstance?.let { wv ->
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
+                val supportLevel = if (webAuthEnabled) {
+                    androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                } else {
+                    androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                }
+                try {
+                    androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(wv.settings, supportLevel)
+                } catch (_: Throwable) {}
+            }
+            if (webAuthEnabled) {
+                try {
+                    wv.evaluateJavascript(
+                        com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
+                        null
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
     val status = currentResource?.verificationStatus ?: VerificationStatus.UNVERIFIED
     val shieldColor = when (status) {
         VerificationStatus.VERIFIED_TAMPER_PROOF, VerificationStatus.MIRROR_MATCHED -> EmeraldMesh
@@ -940,18 +963,32 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 textZoom = 100
-                                javaScriptCanOpenWindowsAutomatically = webAuthEnabled
-                                setSupportMultipleWindows(webAuthEnabled)
+                                javaScriptCanOpenWindowsAutomatically = true
+                                setSupportMultipleWindows(false)
                                 databaseEnabled = true
-                                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                 // Modern Dark Mode support using AndroidX Webkit
-                                 if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                     androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_ON)
-                                 }
+                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
+                                // Modern Dark Mode support using AndroidX Webkit
+                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
+                                    androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_ON)
+                                }
+
+                                // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit
+                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
+                                    val supportLevel = if (webAuthEnabled) {
+                                        androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                                    } else {
+                                        androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                                    }
+                                    try {
+                                        androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(this, supportLevel)
+                                    } catch (_: Throwable) {}
+                                }
+
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     safeBrowsingEnabled = true
                                 }
-                                 cacheMode = WebSettings.LOAD_DEFAULT
+                                cacheMode = WebSettings.LOAD_DEFAULT
                                 mediaPlaybackRequiresUserGesture = false
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
@@ -964,6 +1001,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                                 }
                             }
+
+                            // Attach WebAuthn FIDO2 / Passkey Javascript Interface & Credential Manager Bridge
+                            val webAuthnBridge = com.example.network.KaspaWebAuthnBridge(
+                                context = ctx,
+                                webViewProvider = { webViewInstance },
+                                viewModel = viewModel,
+                                scope = scope
+                            )
+                            addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
 
                             // Edge swipe gesture navigation (standard Chrome/Firefox Android pattern)
                             var touchStartX = 0f
@@ -1249,6 +1295,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             null
                                         )
                                     }
+
+                                    if (webAuthEnabled) {
+                                        view?.evaluateJavascript(
+                                            com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
+                                            null
+                                        )
+                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -1281,6 +1334,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (sendDntHeaders) {
                                         view?.evaluateJavascript(
                                             KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                            null
+                                        )
+                                    }
+
+                                    if (webAuthEnabled) {
+                                        view?.evaluateJavascript(
+                                            com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
                                             null
                                         )
                                     }
@@ -1591,84 +1651,106 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 },
                 update = { swipeRefreshLayout ->
-                    val webView = (0 until swipeRefreshLayout.childCount)
-                        .mapNotNull { swipeRefreshLayout.getChildAt(it) as? WebView }
-                        .firstOrNull() ?: return@AndroidView
+                    try {
+                        val webView = (0 until swipeRefreshLayout.childCount)
+                            .mapNotNull { swipeRefreshLayout.getChildAt(it) as? WebView }
+                            .firstOrNull() ?: return@AndroidView
 
-                    webViewInstance = webView
-                    canGoBack = webView.canGoBack()
-                    canGoForward = webView.canGoForward()
-                    
-                    val currentWvUrl = webView.url ?: resource.url
-                    val isModalOrSubRoute = currentWvUrl.contains("?") || currentWvUrl.contains("#") || currentWvUrl.contains("proof")
-                    swipeRefreshLayout.isEnabled = !isModalOrSubRoute
-
-                    if (!isWebLoading && swipeRefreshLayout.isRefreshing) {
-                        swipeRefreshLayout.isRefreshing = false
-                    }
-
-                    android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
-
-                    val isDirectHttp = resource.url.startsWith("http://", ignoreCase = true) || resource.url.startsWith("https://", ignoreCase = true)
-                    
-                    if (isDirectHttp) {
-                        val isWebStore = resource.url.contains("chromewebstore.google.com") || resource.url.contains("chrome.google.com/webstore")
-                        val desiredUa = if (desktopModeEnabled || isWebStore) {
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-                        } else {
-                            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-                        }
-                        if (webView.settings.userAgentString != desiredUa) {
-                            webView.settings.userAgentString = desiredUa
-                            webView.reload()
-                        }
+                        webViewInstance = webView
+                        canGoBack = webView.canGoBack()
+                        canGoForward = webView.canGoForward()
                         
-                        val loadKey = resource.url
-                        val currentWvUrl = webView.url ?: ""
-                        val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
-                        val normRes = resource.url.removeSuffix("/").trim().lowercase()
+                        val currentWvUrl = webView.url ?: resource.url
+                        val isModalOrSubRoute = currentWvUrl.contains("?") || currentWvUrl.contains("#") || currentWvUrl.contains("proof")
+                        swipeRefreshLayout.isEnabled = !isModalOrSubRoute
 
-                        val currentTag = webView.tag as? Pair<*, *>
-                        val tagUrl = currentTag?.first as? String
-                        val tagId = currentTag?.second as? Int
-                        val tagPair = Pair(loadKey, navigationSessionId)
+                        if (!isWebLoading && swipeRefreshLayout.isRefreshing) {
+                            swipeRefreshLayout.isRefreshing = false
+                        }
 
-                        if (tagUrl != loadKey || tagId != navigationSessionId) {
-                            if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
-                                val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
-                                    resource.url.replaceFirst("http://", "https://", ignoreCase = true)
-                                } else {
-                                    resource.url
+                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
+
+                        // Sync WebAuthn support state with settings safely
+                        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
+                            val targetSupport = if (webAuthEnabled) {
+                                androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                            } else {
+                                androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                            }
+                            try {
+                                val current = androidx.webkit.WebSettingsCompat.getWebAuthenticationSupport(webView.settings)
+                                if (current != targetSupport) {
+                                    androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(webView.settings, targetSupport)
                                 }
-                                webView.tag = tagPair
-                                webView.loadUrl(finalUrl)
-                            } else {
-                                webView.tag = tagPair
-                            }
+                            } catch (_: Throwable) {}
                         }
-                    } else {
-                        val cidKey = if (resource.cid.isNotBlank()) resource.cid else "kaspa"
-                        val loadKey = "${resource.url}_$cidKey"
-                        val currentTag = webView.tag as? Pair<*, *>
-                        val tagUrl = currentTag?.first as? String
-                        val tagId = currentTag?.second as? Int
-                        val tagPair = Pair(loadKey, navigationSessionId)
 
-                        if (tagUrl != loadKey || tagId != navigationSessionId) {
-                            webView.tag = tagPair
-                            val baseUrl = if (resource.cid.isNotBlank()) {
-                                "https://${resource.cid}.ipfs.dweb.link/"
+                        val isDirectHttp = resource.url.startsWith("http://", ignoreCase = true) || resource.url.startsWith("https://", ignoreCase = true)
+                        
+                        if (isDirectHttp) {
+                            val isWebStore = resource.url.contains("chromewebstore.google.com") || resource.url.contains("chrome.google.com/webstore")
+                            val desiredUa = if (desktopModeEnabled || isWebStore) {
+                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                             } else {
-                                "https://kaspa.org/"
+                                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                             }
-                            webView.loadDataWithBaseURL(
-                                baseUrl,
-                                resource.content,
-                                "text/html",
-                                "UTF-8",
-                                baseUrl
-                            )
+                            if (webView.settings.userAgentString != desiredUa) {
+                                webView.settings.userAgentString = desiredUa
+                                webView.reload()
+                            }
+                            
+                            val loadKey = resource.url
+                            val currentWvUrl = webView.url ?: ""
+                            val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
+                            val normRes = resource.url.removeSuffix("/").trim().lowercase()
+
+                            val currentTag = webView.tag as? Pair<*, *>
+                            val tagUrl = currentTag?.first as? String
+                            val tagId = currentTag?.second as? Int
+                            val tagPair = Pair(loadKey, navigationSessionId)
+
+                            val isSameSession = (tagId == navigationSessionId && normWv.isNotEmpty())
+                            if (!isSameSession && (tagUrl != loadKey || tagId != navigationSessionId)) {
+                                if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
+                                    val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
+                                        resource.url.replaceFirst("http://", "https://", ignoreCase = true)
+                                    } else {
+                                        resource.url
+                                    }
+                                    webView.tag = tagPair
+                                    webView.loadUrl(finalUrl)
+                                } else {
+                                    webView.tag = tagPair
+                                }
+                            } else if (isSameSession) {
+                                webView.tag = Pair(currentWvUrl.ifEmpty { loadKey }, navigationSessionId)
+                            }
+                        } else {
+                            val cidKey = if (resource.cid.isNotBlank()) resource.cid else "kaspa"
+                            val loadKey = "${resource.url}_$cidKey"
+                            val currentTag = webView.tag as? Pair<*, *>
+                            val tagUrl = currentTag?.first as? String
+                            val tagId = currentTag?.second as? Int
+                            val tagPair = Pair(loadKey, navigationSessionId)
+
+                            if (tagUrl != loadKey || tagId != navigationSessionId) {
+                                webView.tag = tagPair
+                                val baseUrl = if (resource.cid.isNotBlank()) {
+                                    "https://${resource.cid}.ipfs.dweb.link/"
+                                } else {
+                                    "https://kaspa.org/"
+                                }
+                                webView.loadDataWithBaseURL(
+                                    baseUrl,
+                                    resource.content,
+                                    "text/html",
+                                    "UTF-8",
+                                    baseUrl
+                                )
+                            }
                         }
+                    } catch (e: Throwable) {
+                        android.util.Log.w("BrowserGatewayScreen", "Error during webView update: ${e.message}")
                     }
                 },
                 onRelease = { swipeRefreshLayout ->

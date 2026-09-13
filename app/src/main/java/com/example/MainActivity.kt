@@ -16,28 +16,35 @@ class MainActivity : ComponentActivity() {
   private val viewModel: DecentralViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {
-    // Configure system properties to inform Mesa DRI compositor to use software rendering when hardware rendernodes are missing in virtual container
-    try {
-      System.setProperty("libgl_always_software", "true")
-      System.setProperty("GALLIUM_DRIVER", "softpipe")
-      System.setProperty("MESA_LOADER_DRIVER_OVERRIDE", "swrast")
-    } catch (_: Exception) {}
-
     super.onCreate(savedInstanceState)
 
-    // Global crash handler to protect the app from background renderer / thread crashes
+    // Global crash handler to protect the app from background renderer, Chromium, and graphic driver crashes
     val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
       Log.e("CrashHandler", "Uncaught exception in thread ${thread.name}", throwable)
-      if (thread.name.contains("Render", ignoreCase = true) ||
+      val msg = throwable.message.orEmpty().lowercase()
+      val stack = Log.getStackTraceString(throwable).lowercase()
+      val isNonFatalInternalError =
+          thread.name.contains("Render", ignoreCase = true) ||
           thread.name.contains("Chromium", ignoreCase = true) ||
           thread.name.contains("Chrome", ignoreCase = true) ||
           thread.name.contains("Binder", ignoreCase = true) ||
           thread.name.contains("GLThread", ignoreCase = true) ||
-          throwable.message?.contains("rendernode", ignoreCase = true) == true ||
-          throwable.message?.contains("gles2", ignoreCase = true) == true ||
-          throwable.message?.contains("texture", ignoreCase = true) == true) {
-        // Prevent background graphics/Mesa/Chromium/WebGL container warnings from interrupting the app
+          thread.name.contains("OkHttp", ignoreCase = true) ||
+          thread.name.contains("DefaultDispatcher", ignoreCase = true) ||
+          msg.contains("rendernode") ||
+          msg.contains("gles2") ||
+          msg.contains("texture") ||
+          msg.contains("egl") ||
+          msg.contains("webview") ||
+          msg.contains("deadobjectexception") ||
+          stack.contains("android.webkit") ||
+          stack.contains("org.chromium") ||
+          stack.contains("cronet") ||
+          stack.contains("cursorwindow") ||
+          stack.contains("blobtoobig")
+      if (isNonFatalInternalError) {
+        Log.w("CrashHandler", "Suppressed non-fatal internal WebView/Renderer error on ${thread.name}")
         return@setDefaultUncaughtExceptionHandler
       }
       defaultHandler?.uncaughtException(thread, throwable)
@@ -45,26 +52,12 @@ class MainActivity : ComponentActivity() {
 
     enableEdgeToEdge()
 
-    // Initialize Cronet Engine with true QUIC transport capabilities
-    com.example.network.CronetClientFactory.initialize(applicationContext)
-
-    // Clean up stale or corrupted 0-byte code cache files to prevent Chromium SimpleFileEnumerator warnings (Trigger New APK Deploy)
+    // Initialize Cronet Engine safely
     try {
-      val codeCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache")
-      if (codeCacheDir.exists()) {
-        codeCacheDir.walkTopDown().forEach { file ->
-          if (file.isFile && (!file.canRead() || file.length() == 0L)) {
-            try { file.delete() } catch (_: Exception) {}
-          }
-        }
-      } else {
-        codeCacheDir.mkdirs()
-      }
-      val jsDir = File(codeCacheDir, "js")
-      if (!jsDir.exists()) jsDir.mkdirs()
-      val wasmDir = File(codeCacheDir, "wasm")
-      if (!wasmDir.exists()) wasmDir.mkdirs()
-    } catch (_: Exception) {}
+      com.example.network.CronetClientFactory.initialize(applicationContext)
+    } catch (e: Exception) {
+      Log.w("MainActivity", "Failed to initialize Cronet: ${e.message}")
+    }
 
     handleIncomingIntent(intent)
 
