@@ -4,6 +4,41 @@ DecentralNet is a modern, fully decentralized Android web browser built with **J
 
 ---
 
+## 🎨 System Architecture & Visual Overview
+
+![DecentralNet Architecture Diagram](src/main/res/drawable/architecture_diagram.jpg)
+
+---
+
+## ✨ Newly Added Production Features
+
+1. **Unified Settings & Privacy Hub (`TrafficAuditScreen.kt`)**:
+   - Centralized management console combining network audits, privacy toggles, search engine preferences, and security settings into a single clean Material 3 screen.
+
+2. **HTTPS-Only Mode Enforcement**:
+   - Automatically intercepts and upgrades all unencrypted `http://` requests to secure `https://` before network transmission.
+
+3. **Incognito & Strict Decentralized Modes**:
+   - **Incognito Mode**: Prevents global persistence of history, cookies, and web storage.
+   - **Strict Decentralized Mode**: Blocks all unencrypted centralized Web2 traffic, forcing P2P and encrypted mesh routing.
+
+4. **WebAuth & FIDO2 Passkey Support**:
+   - Full support for hardware security keys and biometric Passkeys in the Chromium container, enabling secure, passwordless authentication.
+
+5. **Open-Source Native Page Translation**:
+   - Integrated translation engine supporting privacy-focused open-source providers (**LibreTranslate** and **Lingva Translate**) alongside Google Translate fallback, accessible instantly from the address bar and settings.
+
+6. **One-Tap Browsing Data & Cache Purge**:
+   - Instantly wipes browser history (`Room`), system cookies (`CookieManager`), and web storage (`WebStorage`) securely.
+
+7. **Advanced Kaspa Tracker & Ad Blocker**:
+   - Real-time interception of advertising scripts, analytics beacons, and tracking pixels with live statistics and blocked request logs.
+
+8. **Native Download Manager Integration**:
+   - Seamless file downloads using Android's native `DownloadManager` with notification tracking and automatic file handling.
+
+---
+
 ## 🛠️ Browser Engine Architecture
 
 The browser operates using a multi-layered hybrid engine stack:
@@ -11,14 +46,14 @@ The browser operates using a multi-layered hybrid engine stack:
 | Component | Engine / Technology | Description |
 | :--- | :--- | :--- |
 | **Rendering & JS Engine** | **Chromium Blink & V8 Engine** | Native Android Chromium container supporting full HTML5, WebAssembly, WebGL, WebRTC, CSS3, and ES2024 JavaScript execution. |
-| **Transport Layer** | **Pure HTTP/3 (QUIC over UDP)** | 0-RTT connection establishment, connection migration, and zero head-of-line blocking (HTTP/2 removed). |
+| **Transport Layer** | **Pure HTTP/3 (QUIC over UDP)** | 0-RTT connection establishment, connection migration, and zero head-of-line blocking. |
 | **Protocol Routing Engine** | **`DualStackResolver` Engine** | Custom Kotlin network gateway intercepting requests and routing between P2P DHT swarms, blockchain resolution, and HTTP/3 fallback. |
 | **P2P Storage Engine** | **IPFS / Kaspa DNet & DHT** | Content-Addressed Storage engine retrieving files by cryptographic hashes (CIDs: `bafy...`, `Qm...`). |
 | **Decentralized DNS Engine** | **Handshake (HNS), KNS & ENS** | On-chain resolution resolving `.kas`, `.hns`, `.eth`, `.coin`, and `.bit` domains directly from distributed ledgers. |
 | **Cryptographic Verification** | **SHA-256 Digest Engine** | In-browser SHA-256 hashing certifying data streams as `VERIFIED_TAMPER_PROOF`. |
 | **Local Mesh Seeding Engine** | **Android Room / SQLite (`AppDatabase`)** | Indexed local database storing CID blocks for peer-to-peer mesh seeding and offline server outage protection. |
 
-### 📐 System Architecture & Request Data Flow
+### 📐 End-to-End Request Data Flow
 
 ```
 +-------------------------------------------------------------------------+
@@ -29,6 +64,7 @@ The browser operates using a multi-layered hybrid engine stack:
                                      v
 +-------------------------------------------------------------------------+
 |                  DualStackResolver (Protocol Gateway)                   |
+|           (Enforces HTTPS-Only, WebAuth, & Privacy Interception)        |
 +------------------+------------------+------------------+----------------+
                    |                  |                  |
                    v                  v                  v
@@ -54,6 +90,7 @@ The browser operates using a multi-layered hybrid engine stack:
 ```
 
 ---
+
 
 ## 📂 Project Directory Structure
 

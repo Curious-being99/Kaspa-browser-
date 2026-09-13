@@ -5,6 +5,41 @@
 
 ---
 
+## 🎨 System Architecture & Visual Overview
+
+![KaspaBrowser Architecture Diagram](src/main/res/drawable/architecture_diagram.jpg)
+
+---
+
+## ✨ Newly Added Production Features
+
+1. **Unified Settings & Privacy Hub (`TrafficAuditScreen.kt`)**:
+   - Centralized management console combining network audits, privacy toggles, search engine preferences, and security settings into a single clean Material 3 screen.
+
+2. **HTTPS-Only Mode Enforcement**:
+   - Automatically intercepts and upgrades all unencrypted `http://` requests to secure `https://` before network transmission.
+
+3. **Incognito & Strict Decentralized Modes**:
+   - **Incognito Mode**: Prevents global persistence of history, cookies, and web storage.
+   - **Strict Decentralized Mode**: Blocks all unencrypted centralized Web2 traffic, forcing P2P and encrypted mesh routing.
+
+4. **WebAuth & FIDO2 Passkey Support**:
+   - Full support for hardware security keys and biometric Passkeys in the Chromium container, enabling secure, passwordless authentication.
+
+5. **Open-Source Native Page Translation**:
+   - Integrated translation engine supporting privacy-focused open-source providers (**LibreTranslate** and **Lingva Translate**) alongside Google Translate fallback, accessible instantly from the address bar and settings.
+
+6. **One-Tap Browsing Data & Cache Purge**:
+   - Instantly wipes browser history (`Room`), system cookies (`CookieManager`), and web storage (`WebStorage`) securely.
+
+7. **Advanced Kaspa Tracker & Ad Blocker**:
+   - Real-time interception of advertising scripts, analytics beacons, and tracking pixels with live statistics and blocked request logs.
+
+8. **Native Download Manager Integration**:
+   - Seamless file downloads using Android's native `DownloadManager` with notification tracking and automatic file handling.
+
+---
+
 ## 🌐 Browser Rendering Engine & Gateway Architecture
 
 KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, local micro-node routing, and content shields.
