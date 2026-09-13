@@ -1082,7 +1082,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 false
                             }
 
-                            // Edge swipe gesture navigation (standard Chrome/Firefox Android pattern)
+                            // Touch & Gesture navigation (Edge swipe Back/Forward)
                             var touchStartX = 0f
                             var touchStartY = 0f
                             var touchStartTime = 0L
@@ -1096,7 +1096,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         touchStartY = event.y
                                         touchStartTime = System.currentTimeMillis()
                                         val edgeZoneWidth = (v.width * 0.04f).coerceIn(16f, 48f)
-                                        // Detect if start is near extreme left edge (swipe right for back) or extreme right edge (swipe left for forward)
                                         isEdgeSwipe = (touchStartX <= edgeZoneWidth) || (touchStartX >= v.width - edgeZoneWidth)
                                         false
                                     }
@@ -1137,7 +1136,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     else -> false
                                 }
                             }
-                            
+
                             val wv = this
                             android.webkit.CookieManager.getInstance().apply {
                                 setAcceptCookie(true)
