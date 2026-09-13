@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -182,6 +183,27 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         ),
                         modifier = Modifier.testTag("tab_audit")
                     )
+
+                    NavigationBarItem(
+                        selected = activeTab == AppTab.LIBRARY,
+                        onClick = { viewModel.setTab(AppTab.LIBRARY) },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.LibraryBooks,
+                                contentDescription = "Library",
+                                tint = if (activeTab == AppTab.LIBRARY) ElectricCyan else TextMuted
+                            )
+                        },
+                        label = { Text("Library") },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricCyan,
+                            selectedTextColor = ElectricCyan,
+                            indicatorColor = Color.Transparent,
+                            unselectedIconColor = TextMuted,
+                            unselectedTextColor = TextMuted
+                        ),
+                        modifier = Modifier.testTag("tab_library")
+                    )
                 }
                 }
                 }
@@ -196,6 +218,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     AppTab.BROWSER_GATEWAY -> BrowserGatewayScreen(viewModel = viewModel)
                     AppTab.MESH_RADAR -> MeshRadarScreen(viewModel = viewModel)
                     AppTab.TRAFFIC_AUDIT -> TrafficAuditScreen(viewModel = viewModel)
+                    AppTab.LIBRARY -> LibraryScreen(viewModel = viewModel)
                 }
             }
         }

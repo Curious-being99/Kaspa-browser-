@@ -6,8 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class],
-    version = 3,
+    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -15,6 +15,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trafficAuditDao(): TrafficAuditDao
     abstract fun peerDao(): PeerDao
     abstract fun accountDao(): AccountDao
+    abstract fun historyDao(): HistoryDao
+    abstract fun bookmarkDao(): BookmarkDao
+    abstract fun browserTabDao(): BrowserTabDao
 
 
     companion object {

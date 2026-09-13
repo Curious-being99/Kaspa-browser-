@@ -35,8 +35,11 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -103,6 +106,9 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
     val strictDecentralizedMode by viewModel.strictDecentralizedMode.collectAsState()
     val sendDntHeaders by viewModel.sendDntHeaders.collectAsState()
+    val incognitoMode by viewModel.incognitoMode.collectAsState()
+    val httpsOnlyMode by viewModel.httpsOnlyMode.collectAsState()
+    val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
@@ -220,6 +226,98 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
 
                     PrivacyToggleRow(
+                        title = "Incognito Mode",
+                        desc = "Don't save history, cookies or site data globally",
+                        icon = Icons.Default.VisibilityOff,
+                        checked = incognitoMode,
+                        onCheckedChange = { viewModel.toggleIncognitoMode(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "HTTPS-Only Mode",
+                        desc = "Attempt to upgrade all HTTP connections to secure HTTPS automatically",
+                        icon = Icons.Default.Lock,
+                        checked = httpsOnlyMode,
+                        onCheckedChange = { viewModel.toggleHttpsOnlyMode(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Strict Decentralized Mode",
+                        desc = "Block all centralized Web2 traffic; only allow P2P and Hybrid mesh resolution",
+                        icon = Icons.Default.Hub,
+                        checked = strictDecentralizedMode,
+                        onCheckedChange = { viewModel.toggleStrictDecentralizedMode(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "WebAuth Support (FIDO2)",
+                        desc = "Enable support for hardware security keys and Passkeys for secure logins",
+                        icon = Icons.Default.Fingerprint,
+                        checked = webAuthEnabled,
+                        onCheckedChange = { viewModel.toggleWebAuth(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    // Translation Service
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Translate, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(text = "Native Page Translator", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                    Text(text = "Privacy-focused translation using open-source engines", fontSize = 10.sp, color = TextSecondary)
+                                }
+                            }
+                            Button(
+                                onClick = { viewModel.requestTranslation("en") },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan.copy(alpha = 0.1f), contentColor = ElectricCyan),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(30.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text("Translate Now", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        val currentProvider by viewModel.translationProvider.collectAsState()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            com.example.viewmodel.TranslationProvider.values().forEach { provider ->
+                                val isSelected = currentProvider == provider
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) ElectricCyan else SurfaceCard,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                    modifier = Modifier.weight(1f).clickable { viewModel.setTranslationProvider(provider) }
+                                ) {
+                                    Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = provider.displayName.split(" ")[0], // Show short name
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.Black else TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
                         title = "Native File Downloads",
                         desc = "Allow websites to download files to your device storage",
                         icon = Icons.Default.Cloud,
@@ -239,13 +337,68 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
 
+                    // SEARCH ENGINE SELECTION
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Language, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(text = "Default Search Engine", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            com.example.viewmodel.SearchEngine.values().forEach { engine ->
+                                val isSelected = viewModel.searchEngine.collectAsState().value == engine
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) ElectricCyan else SurfaceCard,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                    modifier = Modifier.weight(1f).clickable { viewModel.setSearchEngine(engine) }
+                                ) {
+                                    Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = engine.displayName,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.Black else TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+                    
                     PrivacyToggleRow(
-                        title = "Request Desktop Site",
-                        desc = "Request complete desktop version of webpages by default",
+                        title = "Desktop Mode",
+                        desc = "Request desktop version of websites by default",
                         icon = Icons.Default.Devices,
                         checked = desktopModeEnabled,
                         onCheckedChange = { viewModel.toggleDesktopMode(it) }
                     )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Button(
+                        onClick = { viewModel.clearBrowsingData(context) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("clear_data_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = RedTamper.copy(alpha = 0.1f),
+                            contentColor = RedTamper
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, RedTamper.copy(alpha = 0.3f))
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Clear All Browsing Data", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 

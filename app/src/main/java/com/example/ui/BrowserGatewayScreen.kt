@@ -58,6 +58,8 @@ import androidx.compose.material.icons.automirrored.filled.Shortcut
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
@@ -90,6 +92,8 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
@@ -124,6 +128,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import com.example.data.AccountEntity
 import com.example.network.CryptoUtils
@@ -172,6 +177,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material.icons.filled.Article
+import com.example.data.BookmarkEntity
 import com.example.data.ContentEntity
 import com.example.model.NetworkProtocol
 import com.example.model.ResolvedResource
@@ -209,13 +216,31 @@ data class BrowserTab(
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
-    val tabs = remember {
-        androidx.compose.runtime.mutableStateListOf(
-            BrowserTab(id = "default", url = "", title = "Home", resource = null)
-        )
-    }
-    var activeTabId by remember { mutableStateOf("default") }
+    val tabs by viewModel.browserTabs.collectAsState()
+    val activeTabId by viewModel.activeTabId.collectAsState()
     var showTabSwitcher by remember { mutableStateOf(false) }
+    var showBrowserMenu by remember { mutableStateOf(false) }
+    var isReaderMode by remember { mutableStateOf(false) }
+
+    val bookmarks by viewModel.bookmarks.collectAsState()
+    val searchEngine by viewModel.searchEngine.collectAsState()
+
+    var showFindInPage by remember { mutableStateOf(false) }
+    var findInPageQuery by remember { mutableStateOf("") }
+
+    var jsAlertMessage by remember { mutableStateOf<String?>(null) }
+    var jsAlertResult by remember { mutableStateOf<android.webkit.JsResult?>(null) }
+
+    var jsConfirmMessage by remember { mutableStateOf<String?>(null) }
+    var jsConfirmResult by remember { mutableStateOf<android.webkit.JsResult?>(null) }
+
+    var jsPromptMessage by remember { mutableStateOf<String?>(null) }
+    var jsPromptDefaultValue by remember { mutableStateOf("") }
+    var jsPromptResult by remember { mutableStateOf<android.webkit.JsPromptResult?>(null) }
+    var jsPromptInputText by remember { mutableStateOf("") }
+
+    var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
+    var pendingGeoCallback by remember { mutableStateOf<android.webkit.GeolocationPermissions.Callback?>(null) }
     var isInputFocused by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -279,18 +304,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     LaunchedEffect(urlInput, currentResource) {
-        val index = tabs.indexOfFirst { it.id == activeTabId }
-        if (index != -1) {
-            val activeTab = tabs[index]
-            val newTitle = currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput
-            if (activeTab.url != urlInput || activeTab.resource != currentResource || activeTab.title != newTitle) {
-                tabs[index] = activeTab.copy(
-                    url = urlInput,
-                    resource = currentResource,
-                    title = newTitle
-                )
-            }
-        }
+        viewModel.updateActiveTabMetadata(urlInput, currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput)
     }
 
     LaunchedEffect(currentResource) {
@@ -308,48 +322,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    val selectTab: (String) -> Unit = { tabId ->
-        activeTabId = tabId
-        val tab = tabs.firstOrNull { it.id == tabId }
-        if (tab != null) {
-            viewModel.setUrlInput(tab.url)
-            viewModel.setCurrentResource(tab.resource)
-        }
-    }
-
-    val createNewTab: () -> Unit = {
-        val newId = java.util.UUID.randomUUID().toString()
-        val newTab = BrowserTab(id = newId, url = "", title = "Home", resource = null)
-        tabs.add(newTab)
-        activeTabId = newId
-        viewModel.setUrlInput("")
-        viewModel.setCurrentResource(null)
-    }
-
-    val closeTab: (String) -> Unit = { tabId ->
-        if (tabs.size <= 1) {
-            val index = tabs.indexOfFirst { it.id == tabId }
-            if (index != -1) {
-                tabs[index] = BrowserTab(id = tabId, url = "", title = "Home", resource = null)
-                if (activeTabId == tabId) {
-                    viewModel.setUrlInput("")
-                    viewModel.setCurrentResource(null)
-                }
-            }
-        } else {
-            val indexToClose = tabs.indexOfFirst { it.id == tabId }
-            if (indexToClose != -1) {
-                tabs.removeAt(indexToClose)
-                if (activeTabId == tabId) {
-                    val newActiveIndex = if (indexToClose >= tabs.size) tabs.size - 1 else indexToClose
-                    val nextTab = tabs[newActiveIndex]
-                    activeTabId = nextTab.id
-                    viewModel.setUrlInput(nextTab.url)
-                    viewModel.setCurrentResource(nextTab.resource)
-                }
-            }
-        }
-    }
     val isLoading by viewModel.isLoading.collectAsState()
     val pinnedContents by viewModel.pinnedContents.collectAsState()
 
@@ -361,12 +333,40 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
     val strictDecentralizedMode by viewModel.strictDecentralizedMode.collectAsState()
     val sendDntHeaders by viewModel.sendDntHeaders.collectAsState()
+    val httpsOnlyMode by viewModel.httpsOnlyMode.collectAsState()
     val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
     val kaspaWalletState by viewModel.kaspaWalletState.collectAsState()
+    val translationRequested by viewModel.translationRequested.collectAsState()
+    val translationProvider by viewModel.translationProvider.collectAsState()
+    val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
+
+    LaunchedEffect(translationRequested) {
+        translationRequested?.let { targetLang ->
+            webViewInstance?.let { wv ->
+                val currentUrl = wv.url
+                if (currentUrl != null && (currentUrl.startsWith("http://") || currentUrl.startsWith("https://"))) {
+                    val encodedUrl = android.net.Uri.encode(currentUrl)
+                    val translateUrl = when (translationProvider) {
+                        com.example.viewmodel.TranslationProvider.GOOGLE -> 
+                            "https://translate.google.com/translate?sl=auto&tl=$targetLang&u=$encodedUrl"
+                        com.example.viewmodel.TranslationProvider.LIBRE -> 
+                            "https://itranslate.com/translate?u=$encodedUrl&tl=$targetLang" 
+                        com.example.viewmodel.TranslationProvider.LINGVA ->
+                            "https://lingva.ml/external/translate?url=$encodedUrl&lang=$targetLang"
+                    }
+                    wv.loadUrl(translateUrl)
+                    viewModel.setStatusMessage("Translating page to ${targetLang.uppercase()} via ${translationProvider.displayName}...")
+                } else {
+                    viewModel.setStatusMessage("Translation only supported for standard web protocols")
+                }
+                viewModel.clearTranslationRequest()
+            }
+        }
+    }
 
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -461,8 +461,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             color = SurfaceDark,
             tonalElevation = 4.dp
         ) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                if (isInputFocused) {
+            Box {
+                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    if (isInputFocused) {
                     // FOCUSED SEARCH HEADER (Industry Standard Chrome/Safari/Brave UX)
                     Row(
                         modifier = Modifier
@@ -588,7 +589,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 } else {
                     // NORMAL UNFOCUSED BROWSING HEADER
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
@@ -693,32 +696,70 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 Spacer(modifier = Modifier.width(4.dp))
 
-                                if (isLoading || isWebLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .padding(1.dp),
-                                        strokeWidth = 2.dp,
-                                        color = ElectricCyan
-                                    )
-                                } else if (urlInput.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = {
-                                            val normalized = viewModel.normalizeUrlOrQuery(urlInput)
-                                            if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                                webViewInstance?.reload()
-                                            } else {
-                                                viewModel.resolveUrl(normalized)
-                                            }
-                                        },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Reload",
-                                            tint = TextMuted,
-                                            modifier = Modifier.size(14.dp)
+                                Box(
+                                    modifier = Modifier.size(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isLoading || isWebLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier
+                                                .size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = ElectricCyan
                                         )
+                                    } else if (urlInput.isNotEmpty()) {
+                                        val isBookmarked = remember(urlInput, bookmarks) {
+                                            bookmarks.any { it.url == urlInput }
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.toggleBookmark(urlInput, currentResource?.title ?: urlInput)
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                contentDescription = "Bookmark",
+                                                tint = if (isBookmarked) ElectricCyan else TextMuted,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(2.dp))
+
+                                        IconButton(
+                                            onClick = {
+                                                val normalized = viewModel.normalizeUrlOrQuery(urlInput)
+                                                if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                                    webViewInstance?.reload()
+                                                } else {
+                                                    viewModel.resolveUrl(normalized)
+                                                }
+                                            },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Reload",
+                                                tint = TextMuted,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(2.dp))
+
+                                        IconButton(
+                                            onClick = { viewModel.requestTranslation("en") },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Translate,
+                                                contentDescription = "Translate Page",
+                                                tint = TextMuted,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -727,7 +768,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         Spacer(modifier = Modifier.width(6.dp))
 
                         IconButton(
-                            onClick = { createNewTab() },
+                            onClick = { viewModel.createNewTab() },
                             modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
@@ -753,6 +794,66 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+                        
+                        Box {
+                            IconButton(
+                                onClick = { showBrowserMenu = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Menu",
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = showBrowserMenu,
+                                onDismissRequest = { showBrowserMenu = false },
+                                modifier = Modifier.background(SurfaceDark)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Find in Page", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted) },
+                                    onClick = {
+                                        showFindInPage = true
+                                        showBrowserMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share Page", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = TextMuted) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, urlInput)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Share URL"))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Reader Mode", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Article, contentDescription = null, tint = TextMuted) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        webViewInstance?.evaluateJavascript(com.example.network.KaspaReaderMode.JS_EXTRACT_CONTENT) { result ->
+                                            try {
+                                                val json = org.json.JSONObject(result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\""))
+                                                val title = json.getString("title")
+                                                val content = json.getString("content")
+                                                val readerHtml = com.example.network.KaspaReaderMode.getReaderHtml(title, content)
+                                                webViewInstance?.loadDataWithBaseURL(urlInput, readerHtml, "text/html", "UTF-8", null)
+                                                isReaderMode = true
+                                            } catch (_: Exception) {}
+                                        }
+                                    }
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.width(8.dp))
@@ -786,22 +887,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 }
 
+                }
+                
+                // Find in Page Bar
+                if (showFindInPage) {
+                    FindInPageBar(
+                        query = findInPageQuery,
+                        onQueryChange = { 
+                            findInPageQuery = it
+                            webViewInstance?.findAllAsync(it)
+                        },
+                        onNext = { webViewInstance?.findNext(true) },
+                        onPrevious = { webViewInstance?.findNext(false) },
+                        onClose = { 
+                            showFindInPage = false
+                            findInPageQuery = ""
+                            webViewInstance?.clearMatches()
+                        }
+                    )
+                }
+
                 // Web Page Loading Progress Bar
                 if ((isWebLoading || isLoading) && webProgress < 1.0f) {
                     LinearProgressIndicator(
                         progress = { if (webProgress > 0f) webProgress else 0.5f },
                         modifier = Modifier
+                            .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .height(2.dp)
-                            .padding(top = 4.dp),
+                            .height(2.dp),
                         color = ElectricCyan,
-                        trackColor = SurfaceCard
+                        trackColor = Color.Transparent
                     )
                 }
             }
         }
 
-        // BROWSER VIEWPORT: Full-Screen in-app rendering
+    // BROWSER VIEWPORT: Full-Screen in-app rendering
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -859,9 +980,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 textZoom = 100
-                                javaScriptCanOpenWindowsAutomatically = true
-                                setSupportMultipleWindows(false)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                javaScriptCanOpenWindowsAutomatically = webAuthEnabled
+                                setSupportMultipleWindows(webAuthEnabled)
+                                databaseEnabled = true
+                                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                 // Modern Dark Mode support using AndroidX Webkit
+                                 if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
+                                     androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_ON)
+                                 }
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     safeBrowsingEnabled = true
                                 }
@@ -954,6 +1080,49 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             setBackgroundColor(android.graphics.Color.parseColor("#0B0F17"))
 
                             webChromeClient = object : WebChromeClient() {
+                                override fun onJsAlert(
+                                    view: WebView?,
+                                    url: String?,
+                                    message: String?,
+                                    result: android.webkit.JsResult?
+                                ): Boolean {
+                                    jsAlertMessage = message
+                                    jsAlertResult = result
+                                    return true
+                                }
+
+                                override fun onJsConfirm(
+                                    view: WebView?,
+                                    url: String?,
+                                    message: String?,
+                                    result: android.webkit.JsResult?
+                                ): Boolean {
+                                    jsConfirmMessage = message
+                                    jsConfirmResult = result
+                                    return true
+                                }
+
+                                override fun onJsPrompt(
+                                    view: WebView?,
+                                    url: String?,
+                                    message: String?,
+                                    defaultValue: String?,
+                                    result: android.webkit.JsPromptResult?
+                                ): Boolean {
+                                    jsPromptMessage = message
+                                    jsPromptDefaultValue = defaultValue ?: ""
+                                    jsPromptInputText = defaultValue ?: ""
+                                    jsPromptResult = result
+                                    return true
+                                }
+
+                                override fun onGeolocationPermissionsShowPrompt(
+                                    origin: String?,
+                                    callback: android.webkit.GeolocationPermissions.Callback?
+                                ) {
+                                    pendingGeoOrigin = origin
+                                    pendingGeoCallback = callback
+                                }
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     if (viewModel.currentResource.value == null) {
                                         try { view?.stopLoading() } catch (_: Exception) {}
@@ -1074,7 +1243,23 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
 
                             webViewClient = object : WebViewClient() {
+                                override fun onSafeBrowsingHit(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    threatType: Int,
+                                    callback: android.webkit.SafeBrowsingResponse?
+                                ) {
+                                    val host = request?.url?.host ?: "unknown"
+                                    viewModel.logBlockedTracker("[MALICIOUS PHISHING DETECTED] $host")
+                                    viewModel.setStatusMessage("Blocked access to potentially harmful phishing/malware site: $host")
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                    callback?.backToSafety(true)
+                                } else {
+                                    webViewInstance?.loadUrl("about:blank")
+                                }
+                                }
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    isReaderMode = false
                                     if (viewModel.currentResource.value == null) {
                                         try { view?.stopLoading() } catch (_: Exception) {}
                                         return
@@ -1097,6 +1282,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
                                     }
+
+                                    if (sendDntHeaders) {
+                                        view?.evaluateJavascript(
+                                            KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                            null
+                                        )
+                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -1118,6 +1310,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                          if (!it.startsWith("data:") && !it.startsWith("about:")) {
                                             view?.tag = Pair(it, tagId ?: viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
+                                            viewModel.addToHistory(it, view?.title ?: it)
                                         }
                                     }
                                     view?.evaluateJavascript(
@@ -1242,6 +1435,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                     if (strictDecentralizedMode && targetUrl.startsWith("http://", ignoreCase = true)) {
                                         viewModel.setStatusMessage("Blocked unencrypted http:// URL under Strict Pure Decentralized Mode")
+                                        return true
+                                    }
+
+                                    if (httpsOnlyMode && targetUrl.startsWith("http://", ignoreCase = true)) {
+                                        val httpsUrl = targetUrl.replaceFirst("http://", "https://", ignoreCase = true)
+                                        view?.loadUrl(httpsUrl)
                                         return true
                                     }
 
@@ -1476,8 +1675,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         if (tagUrl != loadKey || tagId != navigationSessionId) {
                             if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
+                                val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
+                                    resource.url.replaceFirst("http://", "https://", ignoreCase = true)
+                                } else {
+                                    resource.url
+                                }
                                 webView.tag = tagPair
-                                webView.loadUrl(resource.url)
+                                webView.loadUrl(finalUrl)
                             } else {
                                 webView.tag = tagPair
                             }
@@ -1973,6 +2177,201 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         )
     }
 
+    // CUSTOM IN-BROWSER JS ALERTS, CONFIRMS, PROMPTS & LOCATION OVERLAYS
+    if (jsAlertMessage != null) {
+        AlertDialog(
+            onDismissRequest = {
+                jsAlertResult?.cancel()
+                jsAlertMessage = null
+                jsAlertResult = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Site Notification", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
+            text = {
+                Text(jsAlertMessage ?: "", fontSize = 14.sp, color = TextSecondary)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        jsAlertResult?.confirm()
+                        jsAlertMessage = null
+                        jsAlertResult = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("OK", fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (jsConfirmMessage != null) {
+        AlertDialog(
+            onDismissRequest = {
+                jsConfirmResult?.cancel()
+                jsConfirmMessage = null
+                jsConfirmResult = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Confirm Action", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
+            text = {
+                Text(jsConfirmMessage ?: "", fontSize = 14.sp, color = TextSecondary)
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        jsConfirmResult?.confirm()
+                        jsConfirmMessage = null
+                        jsConfirmResult = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Confirm", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        jsConfirmResult?.cancel()
+                        jsConfirmMessage = null
+                        jsConfirmResult = null
+                    }
+                ) {
+                    Text("Cancel", color = TextMuted)
+                }
+            },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (jsPromptMessage != null) {
+        AlertDialog(
+            onDismissRequest = {
+                jsPromptResult?.cancel()
+                jsPromptMessage = null
+                jsPromptResult = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Site Request", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
+            text = {
+                Column {
+                    Text(jsPromptMessage ?: "", fontSize = 14.sp, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = jsPromptInputText,
+                        onValueChange = { jsPromptInputText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ElectricCyan,
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedContainerColor = SurfaceDark,
+                            unfocusedContainerColor = SurfaceDark,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        jsPromptResult?.confirm(jsPromptInputText)
+                        jsPromptMessage = null
+                        jsPromptResult = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Submit", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        jsPromptResult?.cancel()
+                        jsPromptMessage = null
+                        jsPromptResult = null
+                    }
+                ) {
+                    Text("Cancel", color = TextMuted)
+                }
+            },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (pendingGeoOrigin != null) {
+        AlertDialog(
+            onDismissRequest = {
+                pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+                pendingGeoOrigin = null
+                pendingGeoCallback = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Location Permission Request", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+            },
+            text = {
+                Text(
+                    text = "The website at \"$pendingGeoOrigin\" wants to access your device's physical location. DecentralNet isolates and protects your geolocation info.",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingGeoCallback?.invoke(pendingGeoOrigin, true, true)
+                        pendingGeoOrigin = null
+                        pendingGeoCallback = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Allow Access", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+                        pendingGeoOrigin = null
+                        pendingGeoCallback = null
+                    }
+                ) {
+                    Text("Deny", color = TextMuted)
+                }
+            },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
     // MULTI-TAB SWITCHER FULL-SCREEN OVERLAY
     if (showTabSwitcher) {
         Surface(
@@ -2006,7 +2405,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         color = TextPrimary
                     )
                     IconButton(onClick = {
-                        createNewTab()
+                        viewModel.createNewTab()
                         showTabSwitcher = false
                     }) {
                         Icon(
@@ -2042,7 +2441,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     shape = RoundedCornerShape(12.dp)
                                 )
                                 .clickable {
-                                    selectTab(tab.id)
+                                    viewModel.setActiveTab(tab.id)
                                     showTabSwitcher = false
                                 },
                             color = if (isActive) SurfaceCard else SurfaceDark
@@ -2079,7 +2478,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         horizontalArrangement = Arrangement.End
                                     ) {
                                         IconButton(
-                                            onClick = { closeTab(tab.id) },
+                                            onClick = { viewModel.closeTab(tab.id) },
                                             modifier = Modifier.size(28.dp)
                                         ) {
                                             Icon(
@@ -2110,7 +2509,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     ) {
                         Button(
                             onClick = {
-                                createNewTab()
+                                viewModel.createNewTab()
                                 showTabSwitcher = false
                             },
                             colors = ButtonDefaults.buttonColors(
@@ -4269,7 +4668,13 @@ fun YouTubeVideoCard(
                                     offscreenPreRaster = true
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
-                                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                    databaseEnabled = true
+                                    domStorageEnabled = true
+                                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                    // Modern Dark Mode support using AndroidX Webkit
+                                    if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
+                                        androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_ON)
+                                    }
                                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                                 }
                                 webChromeClient = object : android.webkit.WebChromeClient() {
@@ -4598,6 +5003,48 @@ fun YouTubeVideoCard(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun FindInPageBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = SurfaceDark,
+        tonalElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close Find", tint = TextMuted)
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .background(SurfaceCard, RoundedCornerShape(4.dp))
+                    .padding(8.dp),
+                textStyle = TextStyle(color = TextPrimary, fontSize = 14.sp),
+                cursorBrush = SolidColor(ElectricCyan),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+            )
+            IconButton(onClick = onPrevious) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous", tint = TextMuted)
+            }
+            IconButton(onClick = onNext) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", tint = TextMuted)
             }
         }
     }

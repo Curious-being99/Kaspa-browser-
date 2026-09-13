@@ -8,6 +8,10 @@ import com.example.data.AccountEntity
 import com.example.data.ContentEntity
 import com.example.data.PeerEntity
 import com.example.data.TrafficAuditEntity
+import com.example.data.HistoryEntity
+import com.example.data.BookmarkEntity
+import com.example.data.BrowserTabEntity
+import kotlinx.coroutines.flow.combine
 
 import com.example.model.KaspaWalletState
 import com.example.model.NetworkMetrics
@@ -29,7 +33,20 @@ import kotlinx.coroutines.launch
 enum class AppTab {
     BROWSER_GATEWAY,
     MESH_RADAR,
-    TRAFFIC_AUDIT
+    TRAFFIC_AUDIT,
+    LIBRARY
+}
+
+enum class SearchEngine(val baseUrl: String, val displayName: String) {
+    DUCKDUCKGO("https://duckduckgo.com/?q=", "DuckDuckGo"),
+    GOOGLE("https://www.google.com/search?q=", "Google"),
+    DECENTRAL_SEARCH("kas://search.kas?q=", "Decentral Search")
+}
+
+enum class TranslationProvider(val displayName: String) {
+    GOOGLE("Google Translate"),
+    LIBRE("LibreTranslate (Open Source)"),
+    LINGVA("Lingva Translate (Open Source)")
 }
 
 data class ActiveDownload(
@@ -62,6 +79,90 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     val trafficAudits: StateFlow<List<TrafficAuditEntity>> = database.trafficAuditDao()
         .getRecentAudits()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val history: StateFlow<List<HistoryEntity>> = database.historyDao()
+        .getAllHistory()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bookmarks: StateFlow<List<BookmarkEntity>> = database.bookmarkDao()
+        .getAllBookmarks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val browserTabs: StateFlow<List<BrowserTabEntity>> = database.browserTabDao()
+        .getAllTabs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _activeTabId = MutableStateFlow<String?>("default")
+    val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
+
+    fun setActiveTab(id: String?) {
+        _activeTabId.value = id
+        id?.let { updateTabAccessTime(it) }
+    }
+
+    private fun updateTabAccessTime(id: String) {
+        viewModelScope.launch {
+            val tabs = browserTabs.value
+            tabs.find { it.id == id }?.let {
+                database.browserTabDao().insert(it.copy(lastAccessed = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun createNewTab(url: String = "", title: String = "New Tab") {
+        viewModelScope.launch {
+            val newId = java.util.UUID.randomUUID().toString()
+            database.browserTabDao().insert(
+                BrowserTabEntity(id = newId, url = url, title = title)
+            )
+            _activeTabId.value = newId
+        }
+    }
+
+    fun closeTab(id: String) {
+        viewModelScope.launch {
+            val tabs = browserTabs.value
+            tabs.find { it.id == id }?.let {
+                database.browserTabDao().delete(it)
+                if (_activeTabId.value == id) {
+                    _activeTabId.value = browserTabs.value.firstOrNull { it.id != id }?.id
+                }
+            }
+        }
+    }
+
+    fun updateTab(id: String, url: String, title: String) {
+        viewModelScope.launch {
+            database.browserTabDao().insert(
+                BrowserTabEntity(id = id, url = url, title = title, lastAccessed = System.currentTimeMillis())
+            )
+        }
+    }
+
+    fun updateActiveTabMetadata(url: String, title: String) {
+        val id = _activeTabId.value ?: return
+        updateTab(id, url, title)
+    }
+
+    fun suspendInactiveTabs() {
+        viewModelScope.launch {
+            val tabs = browserTabs.value
+            val now = System.currentTimeMillis()
+            val fiveMinutes = 5 * 60 * 1000
+            tabs.forEach { tab ->
+                if (tab.id != _activeTabId.value && !tab.isSuspended && now - tab.lastAccessed > fiveMinutes) {
+                    database.browserTabDao().insert(tab.copy(isSuspended = true))
+                }
+            }
+        }
+    }
+
+    fun clearAllTabs() {
+        viewModelScope.launch {
+            database.browserTabDao().clearAll()
+            createNewTab()
+        }
+    }
 
     val activeAccount: StateFlow<AccountEntity?> = database.accountDao()
         .getActiveAccount()
@@ -135,6 +236,21 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _desktopModeEnabled = MutableStateFlow(false)
     val desktopModeEnabled: StateFlow<Boolean> = _desktopModeEnabled.asStateFlow()
+
+    private val _httpsOnlyMode = MutableStateFlow(true)
+    val httpsOnlyMode: StateFlow<Boolean> = _httpsOnlyMode.asStateFlow()
+
+    private val _webAuthEnabled = MutableStateFlow(true)
+    val webAuthEnabled: StateFlow<Boolean> = _webAuthEnabled.asStateFlow()
+
+    private val _translationRequested = MutableStateFlow<String?>(null)
+    val translationRequested: StateFlow<String?> = _translationRequested.asStateFlow()
+
+    private val _translationProvider = MutableStateFlow(TranslationProvider.LIBRE)
+    val translationProvider: StateFlow<TranslationProvider> = _translationProvider.asStateFlow()
+
+    private val _searchEngine = MutableStateFlow(SearchEngine.DUCKDUCKGO)
+    val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
 
     private val _blockedTrackersCount = MutableStateFlow(0)
     val blockedTrackersCount: StateFlow<Int> = _blockedTrackersCount.asStateFlow()
@@ -218,6 +334,56 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleIncognitoMode(enabled: Boolean) { _incognitoMode.value = enabled }
     fun toggleAiMode(enabled: Boolean) { _aiMode.value = enabled }
     fun toggleDesktopMode(enabled: Boolean) { _desktopModeEnabled.value = enabled }
+    fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
+    fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }
+
+    fun setTranslationProvider(provider: TranslationProvider) {
+        _translationProvider.value = provider
+    }
+
+    fun requestTranslation(targetLang: String = "en") {
+        _translationRequested.value = targetLang
+    }
+
+    fun clearTranslationRequest() {
+        _translationRequested.value = null
+    }
+
+    fun setSearchEngine(engine: SearchEngine) { _searchEngine.value = engine }
+
+    fun addToHistory(url: String, title: String) {
+        if (url.startsWith("about:") || url.startsWith("data:") || _incognitoMode.value) return
+        viewModelScope.launch {
+            database.historyDao().insert(HistoryEntity(url = url, title = title))
+        }
+    }
+
+    fun toggleBookmark(url: String, title: String) {
+        viewModelScope.launch {
+            val isBookmarked = database.bookmarkDao().isBookmarked(url)
+            if (isBookmarked) {
+                database.bookmarkDao().delete(BookmarkEntity(url, title))
+            } else {
+                database.bookmarkDao().insert(BookmarkEntity(url, title))
+            }
+        }
+    }
+
+    suspend fun isBookmarked(url: String): Boolean {
+        return database.bookmarkDao().isBookmarked(url)
+    }
+
+    fun deleteHistoryItem(id: Int) {
+        viewModelScope.launch {
+            database.historyDao().delete(id)
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch {
+            database.historyDao().clearAll()
+        }
+    }
 
     fun logBlockedTracker(domainOrUrl: String) {
         _blockedTrackersCount.value += 1
@@ -460,13 +626,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             return "https://$trimmed"
         }
 
-        // Privacy-respecting search fallback
+        // Search fallback using selected engine
         val encoded = try {
             java.net.URLEncoder.encode(trimmed, "UTF-8")
         } catch (_: Exception) {
             trimmed
         }
-        return "https://duckduckgo.com/?q=$encoded"
+        return "${_searchEngine.value.baseUrl}$encoded"
     }
 
     fun updateCurrentUrl(newUrl: String) {
@@ -670,6 +836,20 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             database.trafficAuditDao().clearAudits()
             _statusMessage.value = "Audit logs cleared."
+        }
+    }
+
+    fun clearBrowsingData(context: android.content.Context) {
+        viewModelScope.launch {
+            // 1. Clear Database History
+            database.historyDao().clearAll()
+            // 2. Clear System Cookies
+            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+            android.webkit.CookieManager.getInstance().flush()
+            // 3. Clear Web Storage (LocalStorage, IndexedDB)
+            android.webkit.WebStorage.getInstance().deleteAllData()
+            
+            _statusMessage.value = "All browsing data, cookies, and cache cleared"
         }
     }
 
