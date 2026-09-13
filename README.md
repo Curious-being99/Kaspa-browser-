@@ -1,5 +1,5 @@
-# KaspaBrowser 🚀
-### Next-Generation Decentralized Android Web Browser & Mesh-Integrated Ecosystem
+# KaspaBrowser 🌐
+## Decentralized Android Web Browser & Mesh-Integrated Ecosystem
 
 **KaspaBrowser** is an Android web browser and decentralized network gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It unifies standard Web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and native **Kaspa BlockDAG (KAS)** wallet utilities into a streamlined mobile client.
 
@@ -10,24 +10,6 @@
 ![KaspaBrowser Architecture Diagram](architecture_diagram.jpg)
 
 ---
-
-## 🎨 Component Visual Identity & Brand Logo Color Palette
-
-![KaspaBrowser Brand Palette](brand_palette.jpg)
-
-KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's signature tea turquoise brand palette:
-
-| Component / Token | Hex Code | Visual Sample | Usage & UI Mapping |
-| :--- | :--- | :--- | :--- |
-| **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | App Logo, Primary Action Buttons, Active Navigation Tab, KAS Balance Counters, Verified Badges |
-| **Cyan Glow** (Mesh Accent) | `#49A89A` | `#49A89A` | Mesh Radar Pulse Rings, Active Peer Nodes, Encryption Status Beacon |
-| **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | Root Application Background, Status Bar Scrim, Fullscreen WebView Backdrop |
-| **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Card Containers, Sheet Headers |
-| **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
-| **Violet Bridge** (Identity/zk) | `#6366F1` | `#6366F1` | Decentralized ID (DID) Badges, Ed25519 Keys, IPFS Gateway Indicators |
-| **Amber Central** (Warning) | `#F59E0B` | `#F59E0B` | Medium-Latency Nodes, Pending BlockDAG Transactions, Unsigned Warnings |
-| **Red Tamper** (Shield/Alert) | `#EF4444` | `#EF4444` | Blocked Tracker Ledger, Dropped Packets, Offline Status Alerts |
-| **Text Primary** (High Contrast) | `#F3F4F6` | `#F3F4F6` | URL Typography, Headings, Primary Interactive Labels |
 
 ---
 
@@ -60,6 +42,8 @@ KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's
 
 ---
 
+
+
 ## 🌐 Browser Rendering Engine & Gateway Architecture
 
 KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, local micro-node routing, and content shields.
@@ -76,11 +60,13 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 
 ---
 
-## 🔄 End-to-End Connection & Rendering Flow Diagram
+## 🔄 End-to-End Connection & Flow Diagram
 
 The following diagram illustrates how user input, network resolution, peer discovery, protocol fallback, and DOM rendering flow through the KaspaBrowser subsystems:
 
 ```
+
+## 
 +----------------------------------------------------------------------------------------------------+
 |                                         USER INTERFACE (Jetpack Compose)                          |
 |  [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Kaspa Wallet ]   [ Account DID Pill ] |
@@ -209,21 +195,24 @@ The following diagram illustrates how user input, network resolution, peer disco
 
 ---
 
+
 ## 🎨 Component Visual Identity & Brand Logo Color Palette
 
-KaspaBrowser features a sleek **Cyber-Minimalist Dark Canvas** accented with Kaspa's signature tea turquoise brand palette:
+![KaspaBrowser Brand Palette](brand_palette.jpg)
+
+KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's signature tea turquoise brand palette:
 
 | Component / Token | Hex Code | Visual Sample | Usage & UI Mapping |
-|---|---|---|---|
-| **Kaspa Tea (Brand Primary)** | `#70C7BA` | ![#70C7BA](https://via.placeholder.com/15/70C7BA/000000?text=+) `rgb(112, 199, 186)` | App Logo, Primary Action Buttons, Active Navigation Tab, KAS Balance Counters, Verified Badges |
-| **Cyan Glow (Mesh Accent)** | `#49A89A` | ![#49A89A](https://via.placeholder.com/15/49A89A/000000?text=+) `rgb(73, 168, 154)` | Mesh Radar Pulse Rings, Active Peer Nodes, Encryption Status Beacon |
-| **Obsidian Dark (Canvas)** | `#0C0D10` | ![#0C0D10](https://via.placeholder.com/15/0C0D10/000000?text=+) `rgb(12, 13, 16)` | Root Application Background, Status Bar Scrim, Fullscreen WebView Backdrop |
-| **Surface Dark (Header/Bar)** | `#14161C` | ![#14161C](https://via.placeholder.com/15/14161C/000000?text=+) `rgb(20, 22, 28)` | Browser Address Bar, Navigation Bar, Card Containers, Sheet Headers |
-| **Surface Elevated (Border)** | `#282C37` | ![#282C37](https://via.placeholder.com/15/282C37/000000?text=+) `rgb(40, 44, 55)` | Card Borders, URL Search Bar Outline, Tab Dividers |
-| **Violet Bridge (Identity/zk)** | `#6366F1` | ![#6366F1](https://via.placeholder.com/15/6366F1/000000?text=+) `rgb(99, 102, 241)` | Decentralized ID (DID) Badges, Ed25519 Keys, IPFS Gateway Indicators |
-| **Amber Central (Warning)** | `#F59E0B` | ![#F59E0B](https://via.placeholder.com/15/F59E0B/000000?text=+) `rgb(245, 158, 11)` | Medium-Latency Nodes, Pending BlockDAG Transactions, Unsigned Warnings |
-| **Red Tamper (Shield/Alert)** | `#EF4444` | ![#EF4444](https://via.placeholder.com/15/EF4444/000000?text=+) `rgb(239, 68, 68)` | Blocked Tracker Ledger, Dropped Packets, Offline Status Alerts |
-| **Text Primary (High Contrast)**| `#F3F4F6` | ![#F3F4F6](https://via.placeholder.com/15/F3F4F6/000000?text=+) `rgb(243, 244, 246)` | URL Typography, Headings, Primary Interactive Labels |
+| :--- | :--- | :--- | :--- |
+| **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | App Logo, Primary Action Buttons, Active Navigation Tab, KAS Balance Counters, Verified Badges |
+| **Cyan Glow** (Mesh Accent) | `#49A89A` | `#49A89A` | Mesh Radar Pulse Rings, Active Peer Nodes, Encryption Status Beacon |
+| **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | Root Application Background, Status Bar Scrim, Fullscreen WebView Backdrop |
+| **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Card Containers, Sheet Headers |
+| **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
+| **Violet Bridge** (Identity/zk) | `#6366F1` | `#6366F1` | Decentralized ID (DID) Badges, Ed25519 Keys, IPFS Gateway Indicators |
+| **Amber Central** (Warning) | `#F59E0B` | `#F59E0B` | Medium-Latency Nodes, Pending BlockDAG Transactions, Unsigned Warnings |
+| **Red Tamper** (Shield/Alert) | `#EF4444` | `#EF4444` | Blocked Tracker Ledger, Dropped Packets, Offline Status Alerts |
+| **Text Primary** (High Contrast) | `#F3F4F6` | `#F3F4F6` | URL Typography, Headings, Primary Interactive Labels |
 
 ---
 
