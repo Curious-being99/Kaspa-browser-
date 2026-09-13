@@ -15,6 +15,20 @@
 
 ![KaspaBrowser Brand Palette](brand_palette.jpg)
 
+KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's signature tea turquoise brand palette:
+
+| Component / Token | Hex Code | Visual Sample | Usage & UI Mapping |
+| :--- | :--- | :--- | :--- |
+| **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | App Logo, Primary Action Buttons, Active Navigation Tab, KAS Balance Counters, Verified Badges |
+| **Cyan Glow** (Mesh Accent) | `#49A89A` | `#49A89A` | Mesh Radar Pulse Rings, Active Peer Nodes, Encryption Status Beacon |
+| **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | Root Application Background, Status Bar Scrim, Fullscreen WebView Backdrop |
+| **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Card Containers, Sheet Headers |
+| **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
+| **Violet Bridge** (Identity/zk) | `#6366F1` | `#6366F1` | Decentralized ID (DID) Badges, Ed25519 Keys, IPFS Gateway Indicators |
+| **Amber Central** (Warning) | `#F59E0B` | `#F59E0B` | Medium-Latency Nodes, Pending BlockDAG Transactions, Unsigned Warnings |
+| **Red Tamper** (Shield/Alert) | `#EF4444` | `#EF4444` | Blocked Tracker Ledger, Dropped Packets, Offline Status Alerts |
+| **Text Primary** (High Contrast) | `#F3F4F6` | `#F3F4F6` | URL Typography, Headings, Primary Interactive Labels |
+
 ---
 
 ## ✨ Newly Added Production Features
