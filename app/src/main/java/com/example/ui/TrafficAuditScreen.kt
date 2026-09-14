@@ -112,6 +112,9 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
+    val uBlockRulesCount by viewModel.uBlockRulesCount.collectAsState()
+    val uBlockIsUpdating by viewModel.uBlockIsUpdating.collectAsState()
+    val uBlockStatus by viewModel.uBlockStatus.collectAsState()
     val activeDownloads by viewModel.activeDownloads.collectAsState()
 
     var filterMode by remember { mutableStateOf("ALL") }
@@ -196,12 +199,70 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     Spacer(modifier = Modifier.height(12.dp))
 
                     PrivacyToggleRow(
-                        title = "Kaspa Tracker & Ad Blocker",
-                        desc = "KaspaPrivacyEngine intercepts tracking scripts, ad pixels & telemetry ($blockedTrackersCount blocked)",
+                        title = "uBlock Tracker & Ad Blocker",
+                        desc = if (uBlockRulesCount > 0) {
+                            "uBlock filtering engine active ($uBlockRulesCount rules, $blockedTrackersCount blocked). Intercepts tracking scripts, ad pixels & telemetry"
+                        } else {
+                            "uBlock engine active ($blockedTrackersCount blocked). Intercepts tracking scripts, ad pixels & telemetry"
+                        },
                         icon = Icons.Default.Shield,
                         checked = blockTrackers,
                         onCheckedChange = { viewModel.toggleBlockTrackers(it) }
                     )
+
+                    if (blockTrackers) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(EmeraldMesh, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (uBlockRulesCount > 0) "$uBlockRulesCount rules active" else "Filters active",
+                                    fontSize = 11.sp,
+                                    color = EmeraldMesh,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.updateUBlockFilters() },
+                                enabled = !uBlockIsUpdating,
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .testTag("update_ublock_filters_button"),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (uBlockIsUpdating) TextMuted else ElectricCyan.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                if (uBlockIsUpdating) {
+                                    androidx.compose.material3.CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = ElectricCyan
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Updating...", fontSize = 10.sp, color = TextMuted)
+                                } else {
+                                    Icon(Icons.Default.Security, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Update Filters", fontSize = 10.sp, color = ElectricCyan)
+                                }
+                            }
+                        }
+                    }
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
 
@@ -381,7 +442,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "INTERCEPTED TRACKER LOGS (${blockedTrackerLogs.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                            Text(text = "UBLOCK INTERCEPTED LOGS (${blockedTrackerLogs.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
                             Text(
                                 text = "Clear Log",
                                 fontSize = 11.sp,
@@ -629,19 +690,19 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                                 color = TextMuted
                                             )
 
-                                            val formattedDownloaded = if (download.bytesDownloaded > 0) {
+                                             val formattedDownloaded = if (download.bytesDownloaded > 0) {
                                                 if (download.bytesDownloaded > 1024 * 1024) {
-                                                    String.format("%.1f MB", download.bytesDownloaded.toDouble() / (1024 * 1024))
+                                                    String.format(java.util.Locale.US, "%.1f MB", download.bytesDownloaded.toDouble() / (1024 * 1024))
                                                 } else {
-                                                    String.format("%.1f KB", download.bytesDownloaded.toDouble() / 1024)
+                                                    String.format(java.util.Locale.US, "%.1f KB", download.bytesDownloaded.toDouble() / 1024)
                                                 }
                                             } else "0 KB"
 
                                             val formattedTotal = if (download.bytesTotal > 0) {
                                                 if (download.bytesTotal > 1024 * 1024) {
-                                                    String.format("%.1f MB", download.bytesTotal.toDouble() / (1024 * 1024))
+                                                    String.format(java.util.Locale.US, "%.1f MB", download.bytesTotal.toDouble() / (1024 * 1024))
                                                 } else {
-                                                    String.format("%.1f KB", download.bytesTotal.toDouble() / 1024)
+                                                    String.format(java.util.Locale.US, "%.1f KB", download.bytesTotal.toDouble() / 1024)
                                                 }
                                             } else "Unknown"
 

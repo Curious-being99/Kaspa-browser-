@@ -47,6 +47,11 @@ class KaspaWebAuthnBridge(
             return
         }
 
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) {
+            rejectCallback(callbackId, "Passkeys require Android 9 (API 28) or higher")
+            return
+        }
+
         scope.launch(Dispatchers.Main) {
             try {
                 viewModel.setStatusMessage("FIDO2 / WebAuthn passkey registration requested...")
@@ -83,6 +88,11 @@ class KaspaWebAuthnBridge(
             return
         }
 
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.P) {
+            rejectCallback(callbackId, "Passkeys require Android 9 (API 28) or higher")
+            return
+        }
+
         scope.launch(Dispatchers.Main) {
             try {
                 viewModel.setStatusMessage("FIDO2 / WebAuthn passkey assertion requested...")
@@ -100,6 +110,10 @@ class KaspaWebAuthnBridge(
                 } else {
                     rejectCallback(callbackId, "No matching public key credential found")
                 }
+            } catch (e: androidx.credentials.exceptions.NoCredentialException) {
+                Log.w(tag, "WebAuthn no credential available: ${e.message}", e)
+                rejectCallback(callbackId, "No credential available")
+                viewModel.setStatusMessage("No passkey credential available on this device")
             } catch (e: Exception) {
                 Log.w(tag, "WebAuthn getCredential failed: ${e.message}", e)
                 val userMsg = e.message ?: "Verification error or user cancelled"

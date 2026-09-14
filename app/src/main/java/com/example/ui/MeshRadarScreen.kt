@@ -640,7 +640,7 @@ fun BridgeTopologyOverviewCard(daemonPort: Int = 8080) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Open Source Internet Configuration & Routing",
+                text = "Decentralized Internet Configuration & Routing",
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
                 fontSize = 14.sp

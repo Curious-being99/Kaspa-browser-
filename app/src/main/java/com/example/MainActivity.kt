@@ -52,6 +52,41 @@ class MainActivity : ComponentActivity() {
 
     enableEdgeToEdge()
 
+    // Pre-create and sanitize WebView cache & code-cache directories to prevent Chromium opendir and index errors
+    try {
+      val webViewCacheDir = File(cacheDir, "WebView/Default")
+      val httpCache = File(webViewCacheDir, "HTTP Cache")
+      val codeCacheHttp = File(httpCache, "Code Cache")
+      val jsHttpDir = File(codeCacheHttp, "js")
+      val wasmHttpDir = File(codeCacheHttp, "wasm")
+      val defaultCodeCache = File(webViewCacheDir, "Code Cache")
+      val jsDefaultDir = File(defaultCodeCache, "js")
+      val wasmDefaultDir = File(defaultCodeCache, "wasm")
+
+      jsHttpDir.mkdirs()
+      wasmHttpDir.mkdirs()
+      jsDefaultDir.mkdirs()
+      wasmDefaultDir.mkdirs()
+      File(httpCache, "index-dir").mkdirs()
+      File(cacheDir, "WebView/Crashpad/attachments").mkdirs()
+
+      // Clean up orphaned or broken zero-length temp cache entries that cause SimpleCache index reconstruction failures
+      val cleanupDirs = listOf(jsHttpDir, wasmHttpDir, jsDefaultDir, wasmDefaultDir)
+      for (dir in cleanupDirs) {
+        if (dir.exists() && dir.isDirectory) {
+          dir.listFiles()?.forEach { file ->
+            try {
+              if (!file.canRead() || file.length() == 0L) {
+                file.delete()
+              }
+            } catch (_: Exception) {}
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.w("MainActivity", "WebView directory init: ${e.message}")
+    }
+
     // Initialize Cronet Engine safely
     try {
       com.example.network.CronetClientFactory.initialize(applicationContext)

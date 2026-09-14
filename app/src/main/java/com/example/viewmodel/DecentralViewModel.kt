@@ -23,12 +23,14 @@ import com.example.network.DomainConstants
 import com.example.network.DualStackResolver
 import com.example.network.KaspaWalletService
 import com.example.network.LocalNodeManager
+import com.example.network.UBlockEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 enum class AppTab {
     BROWSER_GATEWAY,
@@ -295,6 +297,15 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _blockedTrackerLogs = MutableStateFlow<List<String>>(emptyList())
     val blockedTrackerLogs: StateFlow<List<String>> = _blockedTrackerLogs.asStateFlow()
 
+    // Real uBlock Engine state
+    val uBlockRulesCount: StateFlow<Int> = UBlockEngine.rulesCount
+    val uBlockIsUpdating: StateFlow<Boolean> = UBlockEngine.isUpdating
+    val uBlockStatus: StateFlow<String> = UBlockEngine.lastUpdateStatus
+
+    fun updateUBlockFilters(onResult: ((Boolean, String) -> Unit)? = null) {
+        UBlockEngine.updateFilters(getApplication(), onResult)
+    }
+
     private val pwaPrefs by lazy {
         getApplication<Application>().getSharedPreferences("browser_installed_pwas", android.content.Context.MODE_PRIVATE)
     }
@@ -408,9 +419,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun logBlockedTracker(domainOrUrl: String) {
-        _blockedTrackersCount.value += 1
-        val updated = (listOf(domainOrUrl) + _blockedTrackerLogs.value).take(50)
-        _blockedTrackerLogs.value = updated
+        viewModelScope.launch(Dispatchers.Default) {
+            _blockedTrackersCount.value += 1
+            val current = _blockedTrackerLogs.value
+            if (current.firstOrNull() != domainOrUrl) {
+                _blockedTrackerLogs.value = (listOf(domainOrUrl) + current).take(50)
+            }
+        }
     }
 
     fun clearBlockedTrackerLogs() {
@@ -419,6 +434,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     init {
+        // Initialize uBlock Engine with rules and local cache
+        UBlockEngine.init(getApplication())
+
         // Delete any legacy mock accounts so user has clean slate
         viewModelScope.launch {
             try {

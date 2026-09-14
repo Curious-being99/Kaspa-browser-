@@ -85,11 +85,11 @@ object KaspaPrivacyEngine {
 
     /**
      * Checks if a given request URL matches any known tracker, ad network, or telemetry domain.
-     * Uses microsecond-fast substring matching and O(1) set lookups to prevent WebView loading delays.
+     * Evaluates against the uBlock Origin rule engine with microsecond sub-domain suffix lookups.
      */
     fun isTrackerOrAd(url: String): Boolean {
         if (url.length < 4) return false
-        
+
         // Fast skip for data:, blob:, about:, javascript:
         val firstChar = url[0]
         if (firstChar == 'd' || firstChar == 'b' || firstChar == 'a' || firstChar == 'j') {
@@ -100,7 +100,24 @@ object KaspaPrivacyEngine {
                 return false
             }
         }
-        
+
+        // Never block images, image videos (thumbnails/posters), or video/audio media streams
+        val lower = url.lowercase()
+        val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
+        if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+            path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".svg") ||
+            path.endsWith(".ico") || path.endsWith(".bmp") || path.endsWith(".avif") ||
+            path.endsWith(".mp4") || path.endsWith(".webm") || path.endsWith(".m4v") ||
+            path.endsWith(".m4s") || path.endsWith(".m4a") || path.endsWith(".mp3") ||
+            path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
+            path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
+            path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
+            lower.contains("videoplayback") || lower.contains("googlevideo.com") ||
+            lower.contains("ytimg.com") || lower.contains("/thumb") || lower.contains("/poster")
+        ) {
+            return false
+        }
+
         // Never block decentralized Kaspa schemes or localhost nodes
         if (url.startsWith("kaspa://", ignoreCase = true) ||
             url.startsWith("dnet://", ignoreCase = true) ||
@@ -112,9 +129,14 @@ object KaspaPrivacyEngine {
             return false
         }
 
+        // 1. Evaluate via real uBlock Engine
+        if (UBlockEngine.shouldBlock(url)) {
+            return true
+        }
+
         val host = extractHostFast(url) ?: return false
         if (TRACKER_AND_AD_DOMAINS.contains(host)) return true
-        
+
         // Check parent domains (e.g. adservice.google.com -> google.com)
         var dotIndex = host.indexOf('.')
         while (dotIndex != -1 && dotIndex < host.length - 1) {
@@ -197,6 +219,11 @@ object KaspaPrivacyEngine {
                         return new OrigRTC(config, constraints);
                     };
                 }
+
+                // 4. WebGL Virtual GPU context lost recovery
+                window.addEventListener('webglcontextlost', function(e) {
+                    try { e.preventDefault(); } catch (_) {}
+                }, true);
             } catch (e) {}
         })();
     """

@@ -62,6 +62,9 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.automirrored.filled.Article
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
@@ -172,6 +175,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -214,7 +218,7 @@ data class BrowserTab(
 )
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "WrongConstant", "NewApi")
 @Composable
 fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
     val tabs by viewModel.browserTabs.collectAsState()
@@ -837,7 +841,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Reader Mode", color = TextPrimary) },
-                                    leadingIcon = { Icon(Icons.Default.Article, contentDescription = null, tint = TextMuted) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null, tint = TextMuted) },
                                     onClick = {
                                         showBrowserMenu = false
                                         webViewInstance?.evaluateJavascript(com.example.network.KaspaReaderMode.JS_EXTRACT_CONTENT) { result ->
@@ -871,7 +875,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Library (History & Bookmarks)", color = TextPrimary) },
-                                    leadingIcon = { Icon(Icons.Default.LibraryBooks, contentDescription = null, tint = ElectricCyan) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
                                         viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY)
@@ -1001,12 +1005,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(false)
+                                @Suppress("DEPRECATION")
                                 databaseEnabled = true
                                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
-                                // Modern Dark Mode support using AndroidX Webkit
+                                // Restore original rendering without forced dark mode color inversion
+                                @Suppress("DEPRECATION")
                                 if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                    androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_ON)
+                                    androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF)
                                 }
 
                                 // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit
@@ -1142,7 +1148,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setAcceptCookie(true)
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
-                            setBackgroundColor(android.graphics.Color.parseColor("#0B0F17"))
+                            setBackgroundColor(android.graphics.Color.WHITE)
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onJsAlert(
@@ -1360,10 +1366,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.addToHistory(it, view?.title ?: it)
                                         }
                                     }
-                                    view?.evaluateJavascript(
-                                        "try { if(!document.getElementById('kaspa-tap-style')) { var s = document.createElement('style'); s.id = 'kaspa-tap-style'; s.innerHTML = 'html, body { -webkit-tap-highlight-color: transparent !important; scrollbar-width: none !important; -ms-overflow-style: none !important; } ::-webkit-scrollbar { display: none !important; width: 0px !important; height: 0px !important; }'; (document.head || document.documentElement).appendChild(s); } } catch(e){}",
-                                        null
-                                    )
 
                                     view?.evaluateJavascript(
                                         KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
@@ -1373,6 +1375,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (webAuthEnabled) {
                                         view?.evaluateJavascript(
                                             com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
+                                            null
+                                        )
+                                    }
+
+                                    if (blockTrackers) {
+                                        view?.evaluateJavascript(
+                                            com.example.network.UBlockEngine.getCosmeticHidingCss(),
                                             null
                                         )
                                     }
@@ -1438,7 +1447,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
-                                    val didCrash = detail?.didCrash() == true
+                                    val didCrash = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        detail?.didCrash() == true
+                                    } else {
+                                        true
+                                    }
                                     android.util.Log.w("BrowserGatewayScreen", "WebView renderer process gone (didCrash=$didCrash)")
                                     try {
                                         (view?.parent as? ViewGroup)?.removeView(view)
@@ -1447,7 +1460,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     webViewInstance = null
 
                                     val now = System.currentTimeMillis()
-                                    if (now - lastCrashTimestamp < 15_000L) {
+                                    if (now - lastCrashTimestamp < 30_000L) {
                                         rendererCrashCount++
                                     } else {
                                         rendererCrashCount = 1
@@ -1456,29 +1469,99 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                     if (rendererCrashCount >= 2) {
                                         viewModel.setStatusMessage("Heavy graphics halted to prevent crash loop")
-                                        viewModel.setUrlInput("about:blank")
+                                        viewModel.resolveUrl("about:blank")
                                     } else {
-                                        viewModel.setStatusMessage("Graphics rendering process restored")
+                                        viewModel.setStatusMessage("Graphics rendering process restored in Safe Mode")
                                     }
                                     webViewRecreateKey++
                                     return true
                                 }
 
-                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                                    val reqUrl = request?.url?.toString() ?: return super.shouldInterceptRequest(view, request)
-                                    if (blockTrackers && KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
-                                        val host = request.url.host ?: reqUrl
+                                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                    if (request == null) return null
+
+                                    // CRITICAL: NEVER block the main frame navigation (the website itself).
+                                    // The main document must always be allowed to load and render at original scale and speed.
+                                    if (request.isForMainFrame) {
+                                        return null
+                                    }
+
+                                    val reqUrl = request.url?.toString() ?: return null
+                                    val reqUrlLower = reqUrl.lowercase()
+                                    val path = request.url?.path?.lowercase() ?: ""
+
+                                    // CRITICAL: Never block styles, fonts, images, image videos (thumbnails/posters), or video/audio media streams
+                                    val isStyleOrFont = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
+                                        path.endsWith(".ttf") || path.endsWith(".otf") || path.endsWith(".eot")
+                                    val isImageOrGraphic = path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+                                        path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".svg") ||
+                                        path.endsWith(".ico") || path.endsWith(".bmp") || path.endsWith(".avif") ||
+                                        path.endsWith(".heic") || path.endsWith(".heif") || path.endsWith(".tiff")
+                                    val isVideoOrAudioStream = path.endsWith(".mp4") || path.endsWith(".webm") || path.endsWith(".m4v") ||
+                                        path.endsWith(".m4a") || path.endsWith(".m4s") || path.endsWith(".mp3") ||
+                                        path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
+                                        path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".flv") ||
+                                        path.endsWith(".avi") || path.endsWith(".mov") || path.endsWith(".wav") ||
+                                        path.endsWith(".aac")
+
+                                    val acceptHeader = request.requestHeaders?.get("Accept")?.lowercase()
+                                        ?: request.requestHeaders?.get("accept")?.lowercase()
+                                    val isMediaAccept = acceptHeader?.contains("image/") == true ||
+                                        acceptHeader?.contains("video/") == true ||
+                                        acceptHeader?.contains("audio/") == true ||
+                                        acceptHeader?.contains("media") == true
+
+                                    val isMediaStreamEndpoint = reqUrlLower.contains("videoplayback") ||
+                                        reqUrlLower.contains("googlevideo.com") ||
+                                        reqUrlLower.contains("ytimg.com") ||
+                                        reqUrlLower.contains("/thumb") ||
+                                        reqUrlLower.contains("/poster") ||
+                                        reqUrlLower.contains("/video/") ||
+                                        reqUrlLower.contains("/videos/") ||
+                                        reqUrlLower.contains("/images/") ||
+                                        reqUrlLower.contains("/img/") ||
+                                        reqUrlLower.contains("stream") ||
+                                        reqUrlLower.contains("blob:")
+
+                                    if (isStyleOrFont || isImageOrGraphic || isVideoOrAudioStream || isMediaAccept || isMediaStreamEndpoint) {
+                                        return null
+                                    }
+
+                                    if (reqUrlLower.contains("undefined") || reqUrlLower.contains("null")) {
+                                        return null
+                                    }
+
+                                    // Thread-safe first-party detection without calling view.url on the background thread
+                                    val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer")
+                                    val pageHost = referer?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
+                                        ?: viewModel.urlInput.value.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
+                                    val resourceHost = request.url?.host?.lowercase()
+
+                                    val pageRoot = pageHost?.let { h ->
+                                        val parts = h.split('.')
+                                        if (parts.size >= 2) "${parts[parts.size - 2]}.${parts[parts.size - 1]}" else h
+                                    }
+                                    val resourceRoot = resourceHost?.let { h ->
+                                        val parts = h.split('.')
+                                        if (parts.size >= 2) "${parts[parts.size - 2]}.${parts[parts.size - 1]}" else h
+                                    }
+
+                                    val isFirstParty = pageHost != null && resourceHost != null &&
+                                        (resourceHost == pageHost || resourceHost.endsWith(".$pageHost") || (pageRoot != null && pageRoot == resourceRoot))
+
+                                    if (blockTrackers && !isFirstParty && KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
+                                        val host = resourceHost ?: reqUrl
                                         viewModel.logBlockedTracker(host)
                                         return WebResourceResponse(
                                             "text/plain",
                                             "UTF-8",
                                             403,
-                                            "Blocked by Kaspa Privacy Engine",
+                                            "Blocked by uBlock Engine",
                                             mapOf("Access-Control-Allow-Origin" to "*"),
                                             java.io.ByteArrayInputStream(ByteArray(0))
                                         )
                                     }
-                                    return super.shouldInterceptRequest(view, request)
+                                    return null
                                 }
 
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -2547,7 +2630,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(12.dp))
                         Text("Open in Background Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
@@ -3397,17 +3480,133 @@ fun KaskadLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 36.dp) {
     }
 }
 
+data class CustomShortcut(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val url: String
+)
+
+object CustomShortcutManager {
+    private const val PREFS_NAME = "browser_custom_shortcuts"
+    private const val KEY_SHORTCUTS = "shortcuts_list"
+
+    fun loadShortcuts(context: android.content.Context): List<CustomShortcut> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        val rawJson = prefs.getString(KEY_SHORTCUTS, null) ?: return emptyList()
+        val list = mutableListOf<CustomShortcut>()
+        try {
+            val array = org.json.JSONArray(rawJson)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    CustomShortcut(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        name = obj.optString("name", "Shortcut"),
+                        url = obj.optString("url", "https://")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun saveShortcuts(context: android.content.Context, shortcuts: List<CustomShortcut>) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        val array = org.json.JSONArray()
+        for (item in shortcuts) {
+            val obj = org.json.JSONObject().apply {
+                put("id", item.id)
+                put("name", item.name)
+                put("url", item.url)
+            }
+            array.put(obj)
+        }
+        prefs.edit().putString(KEY_SHORTCUTS, array.toString()).apply()
+    }
+}
+
+@Composable
+fun CustomShortcutLogo(
+    url: String,
+    name: String,
+    modifier: Modifier = Modifier,
+    iconSize: androidx.compose.ui.unit.Dp = 30.dp
+) {
+    val cleanUrl = remember(url) {
+        val trimmed = url.trim()
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "https://$trimmed"
+        } else {
+            trimmed
+        }
+    }
+    val domain = remember(cleanUrl) {
+        try {
+            val host = android.net.Uri.parse(cleanUrl).host ?: cleanUrl
+            host.removePrefix("www.")
+        } catch (e: Exception) {
+            cleanUrl
+        }
+    }
+    val faviconUrl = remember(domain) {
+        if (domain.isNotBlank()) "https://www.google.com/s2/favicons?domain=$domain&sz=128" else ""
+    }
+
+    var loadFailed by remember(url) { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier.size(48.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!loadFailed && faviconUrl.isNotEmpty()) {
+            AsyncImage(
+                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                    .data(faviconUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = name,
+                contentScale = ContentScale.Fit,
+                onError = { loadFailed = true },
+                onSuccess = { loadFailed = false },
+                modifier = Modifier.size(iconSize)
+            )
+        } else {
+            val initial = (name.firstOrNull() ?: domain.firstOrNull() ?: '?')
+                .uppercaseChar().toString()
+            Text(
+                text = initial,
+                color = Color(0xFF70C7BA),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SpeedDialCircleItem(
     label: String,
     iconColor: Color,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     iconContent: @Composable () -> Unit
 ) {
+    val clickModifier = if (onLongClick != null) {
+        Modifier.combinedClickable(
+            onClick = onClick,
+            onLongClick = onLongClick
+        )
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .then(clickModifier)
             .width(68.dp)
     ) {
         Box(
@@ -3488,6 +3687,15 @@ fun BrowserSpeedDial(
     viewModel: DecentralViewModel,
     onNavigate: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    var customShortcuts by remember {
+        mutableStateOf(CustomShortcutManager.loadShortcuts(context))
+    }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var shortcutToDelete by remember { mutableStateOf<CustomShortcut?>(null) }
+    var addShortcutName by remember { mutableStateOf("") }
+    var addShortcutUrl by remember { mutableStateOf("https://") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3587,6 +3795,52 @@ fun BrowserSpeedDial(
                 ) {
                     KasplayLogoIcon(iconSize = 36.dp)
                 }
+
+                // Custom User Shortcuts
+                customShortcuts.forEach { shortcut ->
+                    SpeedDialCircleItem(
+                        label = shortcut.name,
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate(shortcut.url) },
+                        onLongClick = { shortcutToDelete = shortcut }
+                    ) {
+                        CustomShortcutLogo(
+                            url = shortcut.url,
+                            name = shortcut.name,
+                            iconSize = 30.dp
+                        )
+                    }
+                }
+
+                // Item: Add New
+                SpeedDialCircleItem(
+                    label = "Add new",
+                    iconColor = Color(0xFF70C7BA),
+                    onClick = {
+                        addShortcutName = ""
+                        addShortcutUrl = "https://"
+                        showAddDialog = true
+                    }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(Color(0xFF161D2B), CircleShape)
+                            .border(
+                                width = 1.5.dp,
+                                color = Color(0xFF70C7BA).copy(alpha = 0.6f),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add new shortcut",
+                            tint = Color(0xFF70C7BA),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -3599,6 +3853,234 @@ fun BrowserSpeedDial(
         ) {
             KaspaNewsSection(onNavigate = onNavigate)
         }
+    }
+
+    // Add Shortcut Dialog
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showAddDialog = false
+                addShortcutName = ""
+                addShortcutUrl = "https://"
+            },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color(0xFF70C7BA).copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = Color(0xFF70C7BA),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Add Shortcut",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Enter a name and URL for your custom website shortcut.",
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+
+                    OutlinedTextField(
+                        value = addShortcutName,
+                        onValueChange = { addShortcutName = it },
+                        label = { Text("Name") },
+                        placeholder = { Text("e.g., Kaspa BlockDAG") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_shortcut_name_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF70C7BA),
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedContainerColor = SurfaceDark,
+                            unfocusedContainerColor = SurfaceDark,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = Color(0xFF70C7BA),
+                            unfocusedLabelColor = TextSecondary
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = addShortcutUrl,
+                        onValueChange = { addShortcutUrl = it },
+                        label = { Text("URL") },
+                        placeholder = { Text("https://...") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Done
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("custom_shortcut_url_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF70C7BA),
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedContainerColor = SurfaceDark,
+                            unfocusedContainerColor = SurfaceDark,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = Color(0xFF70C7BA),
+                            unfocusedLabelColor = TextSecondary
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    // Real-time Logo Preview (30dp)
+                    val trimmedPreviewUrl = addShortcutUrl.trim()
+                    if (trimmedPreviewUrl.length > 8 && trimmedPreviewUrl != "https://") {
+                        Surface(
+                            color = SurfaceDark,
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CustomShortcutLogo(
+                                    url = trimmedPreviewUrl,
+                                    name = addShortcutName.ifBlank { "Site" },
+                                    iconSize = 30.dp
+                                )
+                                Text(
+                                    text = if (addShortcutName.isNotBlank()) addShortcutName else trimmedPreviewUrl,
+                                    fontSize = 13.sp,
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                val trimmedUrl = addShortcutUrl.trim()
+                val isValid = trimmedUrl.length > 8 && trimmedUrl != "https://"
+                Button(
+                    onClick = {
+                        val formattedUrl = if (!trimmedUrl.startsWith("http://") && !trimmedUrl.startsWith("https://")) {
+                            "https://$trimmedUrl"
+                        } else {
+                            trimmedUrl
+                        }
+                        val formattedName = addShortcutName.trim().ifEmpty {
+                            try {
+                                val host = android.net.Uri.parse(formattedUrl).host ?: ""
+                                host.removePrefix("www.").substringBefore(".").replaceFirstChar { it.uppercase() }
+                            } catch (e: Exception) {
+                                "Shortcut"
+                            }.ifEmpty { "Shortcut" }
+                        }
+                        val newShortcut = CustomShortcut(
+                            name = formattedName,
+                            url = formattedUrl
+                        )
+                        val updated = customShortcuts + newShortcut
+                        customShortcuts = updated
+                        CustomShortcutManager.saveShortcuts(context, updated)
+                        showAddDialog = false
+                        addShortcutName = ""
+                        addShortcutUrl = "https://"
+                    },
+                    enabled = isValid,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF70C7BA),
+                        contentColor = Color(0xFF0F111A),
+                        disabledContainerColor = Color(0xFF70C7BA).copy(alpha = 0.3f),
+                        disabledContentColor = Color.White.copy(alpha = 0.4f)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.testTag("confirm_add_shortcut_button")
+                ) {
+                    Text("Add Shortcut", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showAddDialog = false
+                        addShortcutName = ""
+                        addShortcutUrl = "https://"
+                    }
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Delete Shortcut Confirmation Dialog
+    shortcutToDelete?.let { shortcut ->
+        AlertDialog(
+            onDismissRequest = { shortcutToDelete = null },
+            containerColor = SurfaceCard,
+            shape = RoundedCornerShape(16.dp),
+            title = {
+                Text(
+                    text = "Remove Shortcut",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Do you want to remove '${shortcut.name}' from your shortcuts?",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = customShortcuts.filterNot { it.id == shortcut.id }
+                        customShortcuts = updated
+                        CustomShortcutManager.saveShortcuts(context, updated)
+                        shortcutToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RedTamper,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Remove", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { shortcutToDelete = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
     }
 }
 
@@ -4100,13 +4582,15 @@ fun parseDateToEpoch(dateStr: String): Long {
 }
 
 fun extractYouTubeVideoId(url: String): String? {
-    if (url.matches(Regex("^[a-zA-Z0-9_-]{11}$"))) return url
-    val vMatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(url)
-    if (vMatch != null) return vMatch.groupValues[1]
-    val beMatch = Regex("youtu\\.be/([a-zA-Z0-9_-]{11})").find(url)
-    if (beMatch != null) return beMatch.groupValues[1]
-    val embedMatch = Regex("embed/([a-zA-Z0-9_-]{11})").find(url)
-    if (embedMatch != null) return embedMatch.groupValues[1]
+    val clean = url.trim()
+    if (clean.isBlank() || clean.equals("undefined", ignoreCase = true) || clean.equals("null", ignoreCase = true)) return null
+    if (clean.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && !clean.equals("undefined", ignoreCase = true)) return clean
+    val vMatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(clean)
+    if (vMatch != null && !vMatch.groupValues[1].equals("undefined", ignoreCase = true)) return vMatch.groupValues[1]
+    val beMatch = Regex("youtu\\.be/([a-zA-Z0-9_-]{11})").find(clean)
+    if (beMatch != null && !beMatch.groupValues[1].equals("undefined", ignoreCase = true)) return beMatch.groupValues[1]
+    val embedMatch = Regex("embed/([a-zA-Z0-9_-]{11})").find(clean)
+    if (embedMatch != null && !embedMatch.groupValues[1].equals("undefined", ignoreCase = true)) return embedMatch.groupValues[1]
     return null
 }
 
@@ -4160,8 +4644,10 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
             if (author.isEmpty()) author = extractTagContent(itemXml, "source")
             if (author.isEmpty() && defaultCategory == "News") author = "Kaspa News"
 
-            var videoId: String? = extractTagContent(itemXml, "yt:videoId").ifBlank { null }
-            if (videoId.isNullOrBlank() && link.isNotEmpty()) {
+            var videoId: String? = extractTagContent(itemXml, "yt:videoId").trim().takeIf {
+                it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
+            }
+            if (videoId == null && link.isNotEmpty() && !link.equals("undefined", ignoreCase = true)) {
                 videoId = extractYouTubeVideoId(link)
             }
 
@@ -4806,12 +5292,18 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
     }
 }
 
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun YouTubeVideoCard(
     item: KaspaNewsItem,
     onNavigate: (String) -> Unit
 ) {
-    val effectiveVideoId = item.videoId ?: extractYouTubeVideoId(item.url) ?: "By_Zw58PN6o"
+    val rawId = item.videoId?.trim()?.takeIf {
+        it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
+    } ?: extractYouTubeVideoId(item.url)
+    val effectiveVideoId = rawId?.takeIf {
+        it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
+    } ?: "By_Zw58PN6o"
     var isPlaying by remember { mutableStateOf(false) }
     
     var pendingPermissionRequest by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
@@ -4883,12 +5375,14 @@ fun YouTubeVideoCard(
                                     offscreenPreRaster = false
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
+                                    @Suppress("DEPRECATION")
                                     databaseEnabled = true
                                     domStorageEnabled = true
                                     mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                    // Modern Dark Mode support using AndroidX Webkit
+                                    // Restore original rendering without forced dark mode color inversion
+                                    @Suppress("DEPRECATION")
                                     if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                        androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_ON)
+                                        androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF)
                                     }
                                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                                 }
