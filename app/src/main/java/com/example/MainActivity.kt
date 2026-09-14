@@ -33,6 +33,10 @@ class MainActivity : ComponentActivity() {
           thread.name.contains("OkHttp", ignoreCase = true) ||
           thread.name.contains("DefaultDispatcher", ignoreCase = true) ||
           msg.contains("rendernode") ||
+          msg.contains("render_node") ||
+          msg.contains("mesa") ||
+          msg.contains("gallium") ||
+          msg.contains("dri") ||
           msg.contains("gles2") ||
           msg.contains("texture") ||
           msg.contains("egl") ||
@@ -42,7 +46,9 @@ class MainActivity : ComponentActivity() {
           stack.contains("org.chromium") ||
           stack.contains("cronet") ||
           stack.contains("cursorwindow") ||
-          stack.contains("blobtoobig")
+          stack.contains("blobtoobig") ||
+          stack.contains("mesa") ||
+          stack.contains("rendernode")
       if (isNonFatalInternalError) {
         Log.w("CrashHandler", "Suppressed non-fatal internal WebView/Renderer error on ${thread.name}")
         return@setDefaultUncaughtExceptionHandler

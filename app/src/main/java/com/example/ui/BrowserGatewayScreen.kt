@@ -248,10 +248,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
     var pendingGeoCallback by remember { mutableStateOf<android.webkit.GeolocationPermissions.Callback?>(null) }
+    var uploadCallback by remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
     var isInputFocused by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
+            try {
+                jsAlertResult?.cancel()
+                jsConfirmResult?.cancel()
+                jsPromptResult?.cancel()
+                pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+                uploadCallback?.onReceiveValue(null)
+            } catch (_: Exception) {}
             try {
                 webViewInstance?.apply {
                     stopLoading()
@@ -332,6 +340,30 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
+    LaunchedEffect(isWebLoading, navigationSessionId) {
+        if (isWebLoading) {
+            kotlinx.coroutines.delay(18_000L)
+            if (isWebLoading) {
+                isWebLoading = false
+                webProgress = 1.0f
+                viewModel.setIsLoading(false)
+            }
+        }
+    }
+
+    LaunchedEffect(navigationSessionId) {
+        // Clear old modal prompts on fresh navigation to prevent background dialog deadlock
+        jsAlertResult?.cancel()
+        jsAlertResult = null
+        jsAlertMessage = null
+        jsConfirmResult?.cancel()
+        jsConfirmResult = null
+        jsConfirmMessage = null
+        jsPromptResult?.cancel()
+        jsPromptResult = null
+        jsPromptMessage = null
+    }
+
     val isLoading by viewModel.isLoading.collectAsState()
     val pinnedContents by viewModel.pinnedContents.collectAsState()
 
@@ -381,7 +413,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         pendingPermissionRequest = null
     }
 
-    var uploadCallback by remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
     val fileChooserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -558,9 +589,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             val input = textFieldValue.text.trim()
                                             if (input.isNotBlank()) {
                                                 val normalized = viewModel.normalizeUrlOrQuery(input)
-                                                if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                                    webViewInstance?.loadUrl(normalized)
-                                                }
                                                 viewModel.resolveUrl(normalized)
                                             }
                                         }),
@@ -983,6 +1011,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
                                 setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                            setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
@@ -1184,6 +1213,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     jsPromptDefaultValue = defaultValue ?: ""
                                     jsPromptInputText = defaultValue ?: ""
                                     jsPromptResult = result
+                                    return true
+                                }
+
+                                override fun onJsBeforeUnload(
+                                    view: WebView?,
+                                    url: String?,
+                                    message: String?,
+                                    result: android.webkit.JsResult?
+                                ): Boolean {
+                                    result?.confirm()
                                     return true
                                 }
 
@@ -1778,9 +1817,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             } else {
                                 "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                             }
-                            if (webView.settings.userAgentString != desiredUa) {
+                            val uaChanged = webView.settings.userAgentString != desiredUa
+                            if (uaChanged) {
                                 webView.settings.userAgentString = desiredUa
-                                webView.reload()
                             }
                             
                             val loadKey = resource.url
@@ -1793,8 +1832,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val tagId = currentTag?.second as? Int
                             val tagPair = Pair(loadKey, navigationSessionId)
 
-                            val isSameSession = (tagId == navigationSessionId && normWv.isNotEmpty())
-                            if (!isSameSession && (tagUrl != loadKey || tagId != navigationSessionId)) {
+                            val needsNavigation = (tagUrl != loadKey || tagId != navigationSessionId)
+                            if (needsNavigation) {
                                 if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
                                     val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
                                         resource.url.replaceFirst("http://", "https://", ignoreCase = true)
@@ -1806,7 +1845,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } else {
                                     webView.tag = tagPair
                                 }
-                            } else if (isSameSession) {
+                            } else if (uaChanged && normWv.isNotEmpty()) {
+                                webView.reload()
+                            } else {
                                 webView.tag = Pair(currentWvUrl.ifEmpty { loadKey }, navigationSessionId)
                             }
                         } else {
@@ -2028,9 +2069,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             selection = androidx.compose.ui.text.TextRange(pasted.length)
                                         )
                                         val normalized = viewModel.normalizeUrlOrQuery(pasted)
-                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                            webViewInstance?.loadUrl(normalized)
-                                        }
                                         viewModel.resolveUrl(normalized)
                                         isInputFocused = false
                                         focusManager.clearFocus()
@@ -2154,9 +2192,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         )
                                         viewSourceMode = false
                                         val normalized = viewModel.normalizeUrlOrQuery(target)
-                                        if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                            webViewInstance?.loadUrl(normalized)
-                                        }
                                         viewModel.resolveUrl(normalized)
                                         isInputFocused = false
                                         focusManager.clearFocus()
