@@ -699,6 +699,15 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateCurrentUrl(newUrl: String) {
         if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:")) return
         _urlInput.value = newUrl
+        val activeId = _activeTabId.value
+        if (activeId != null) {
+            viewModelScope.launch {
+                val tab = database.browserTabDao().getTabById(activeId)
+                if (tab != null && tab.url != newUrl) {
+                    database.browserTabDao().insert(tab.copy(url = newUrl, lastAccessed = System.currentTimeMillis()))
+                }
+            }
+        }
         val current = _currentResource.value
         if (current == null) {
             if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {

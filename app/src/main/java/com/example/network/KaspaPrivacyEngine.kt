@@ -101,7 +101,7 @@ object KaspaPrivacyEngine {
             }
         }
 
-        // Never block images, image videos (thumbnails/posters), or video/audio media streams
+        // Never block images, media streams, or video platform streaming infrastructure
         val lower = url.lowercase()
         val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
         if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
@@ -113,7 +113,10 @@ object KaspaPrivacyEngine {
             path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
             path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
             lower.contains("videoplayback") || lower.contains("googlevideo.com") ||
-            lower.contains("ytimg.com") || lower.contains("/thumb") || lower.contains("/poster")
+            lower.contains("ytimg.com") || lower.contains("ggpht.com") ||
+            lower.contains("youtube.com") || lower.contains("youtu.be") ||
+            lower.contains("jnn-pa.googleapis.com") ||
+            lower.contains("/thumb") || lower.contains("/poster")
         ) {
             return false
         }
@@ -192,38 +195,50 @@ object KaspaPrivacyEngine {
             window.__kaspa_shield_injected = true;
             try {
                 // 1. Global Privacy Control & DNT
-                Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: false });
-                Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: false });
+                try {
+                    Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
+                } catch(e) {}
+                try {
+                    Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
+                } catch(e) {}
                 
                 // 2. Protect Battery API Fingerprinting
                 if (navigator.getBattery) {
-                    navigator.getBattery = function() {
-                        return Promise.resolve({
-                            charging: true,
-                            chargingTime: 0,
-                            dischargingTime: Infinity,
-                            level: 1.0,
-                            addEventListener: function() {},
-                            removeEventListener: function() {}
-                        });
-                    };
+                    try {
+                        navigator.getBattery = function() {
+                            return Promise.resolve({
+                                charging: true,
+                                chargingTime: 0,
+                                dischargingTime: Infinity,
+                                level: 1.0,
+                                addEventListener: function() {},
+                                removeEventListener: function() {}
+                            });
+                        };
+                    } catch(e) {}
                 }
 
                 // 3. WebRTC Local IP Leak Mitigation
                 if (window.RTCPeerConnection) {
-                    const OrigRTC = window.RTCPeerConnection;
-                    window.RTCPeerConnection = function(config, constraints) {
-                        if (config && config.iceServers) {
-                            config.iceTransportPolicy = 'relay'; // Force relay mode to hide local LAN IP
-                        }
-                        return new OrigRTC(config, constraints);
-                    };
+                    try {
+                        const OrigRTC = window.RTCPeerConnection;
+                        window.RTCPeerConnection = function(config, constraints) {
+                            try {
+                                if (config && config.iceServers) {
+                                    config.iceTransportPolicy = 'relay';
+                                }
+                            } catch(_) {}
+                            return new OrigRTC(config, constraints);
+                        };
+                    } catch(e) {}
                 }
 
                 // 4. WebGL Virtual GPU context lost recovery
-                window.addEventListener('webglcontextlost', function(e) {
-                    try { e.preventDefault(); } catch (_) {}
-                }, true);
+                try {
+                    window.addEventListener('webglcontextlost', function(e) {
+                        try { e.preventDefault(); } catch (_) {}
+                    }, true);
+                } catch(e) {}
             } catch (e) {}
         })();
     """

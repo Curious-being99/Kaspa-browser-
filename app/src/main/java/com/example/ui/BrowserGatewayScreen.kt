@@ -152,6 +152,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -249,6 +250,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
     var pendingGeoCallback by remember { mutableStateOf<android.webkit.GeolocationPermissions.Callback?>(null) }
     var uploadCallback by remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
+    var customVideoView by remember { mutableStateOf<android.view.View?>(null) }
+    var customVideoCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
     var isInputFocused by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -259,6 +262,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 jsPromptResult?.cancel()
                 pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
                 uploadCallback?.onReceiveValue(null)
+                try {
+                    customVideoCallback?.onCustomViewHidden()
+                } catch (_: Throwable) {}
+                customVideoView = null
+                customVideoCallback = null
             } catch (_: Exception) {}
             try {
                 webViewInstance?.apply {
@@ -1021,7 +1029,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
                                 allowFileAccess = false
-                                allowContentAccess = false
+                                allowContentAccess = true
                                 @Suppress("DEPRECATION")
                                 allowFileAccessFromFileURLs = false
                                 @Suppress("DEPRECATION")
@@ -1036,7 +1044,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setSupportMultipleWindows(false)
                                 @Suppress("DEPRECATION")
                                 databaseEnabled = true
-                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
                                 // Restore original rendering without forced dark mode color inversion
                                 @Suppress("DEPRECATION")
@@ -1070,7 +1078,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                                 } else {
-                                    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                    "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                                 }
                             }
 
@@ -1320,6 +1328,34 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         false
                                     }
                                 }
+
+                                override fun onShowCustomView(
+                                    view: android.view.View?,
+                                    callback: WebChromeClient.CustomViewCallback?
+                                ) {
+                                    if (customVideoView != null) {
+                                        callback?.onCustomViewHidden()
+                                        return
+                                    }
+                                    customVideoView = view
+                                    customVideoCallback = callback
+                                }
+
+                                override fun onHideCustomView() {
+                                    try {
+                                        customVideoCallback?.onCustomViewHidden()
+                                    } catch (_: Throwable) {}
+                                    customVideoView = null
+                                    customVideoCallback = null
+                                }
+
+                                override fun getDefaultVideoPoster(): android.graphics.Bitmap? {
+                                    return try {
+                                        android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                }
                             }
 
                             setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
@@ -1419,10 +1455,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     if (blockTrackers) {
-                                        view?.evaluateJavascript(
-                                            com.example.network.UBlockEngine.getCosmeticHidingCss(),
-                                            null
-                                        )
+                                        val curHost = url?.let { runCatching { android.net.Uri.parse(it).host?.lowercase() }.getOrNull() } ?: ""
+                                        if (!curHost.contains("youtube.com") && !curHost.contains("youtu.be")) {
+                                            view?.evaluateJavascript(
+                                                com.example.network.UBlockEngine.getCosmeticHidingCss(),
+                                                null
+                                            )
+                                        }
                                     }
 
                                     // Automatic PWA Manifest and Metadata extraction for Device Installation
@@ -1553,6 +1592,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val isMediaStreamEndpoint = reqUrlLower.contains("videoplayback") ||
                                         reqUrlLower.contains("googlevideo.com") ||
                                         reqUrlLower.contains("ytimg.com") ||
+                                        reqUrlLower.contains("ggpht.com") ||
+                                        reqUrlLower.contains("youtube.com") ||
+                                        reqUrlLower.contains("youtu.be") ||
+                                        reqUrlLower.contains("jnn-pa.googleapis.com") ||
+                                        reqUrlLower.contains("vimeocdn.com") ||
+                                        reqUrlLower.contains("dailymotion.com") ||
                                         reqUrlLower.contains("/thumb") ||
                                         reqUrlLower.contains("/poster") ||
                                         reqUrlLower.contains("/video/") ||
@@ -1575,6 +1620,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val pageHost = referer?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
                                         ?: viewModel.urlInput.value.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
                                     val resourceHost = request.url?.host?.lowercase()
+
+                                    // Never intercept any requests if current browsing context or resource is YouTube / video player
+                                    val isVideoPlatformContext = (pageHost != null && (pageHost.contains("youtube.com") || pageHost.contains("youtu.be") || pageHost.contains("vimeo.com") || pageHost.contains("dailymotion.com"))) ||
+                                        (resourceHost != null && (resourceHost.contains("youtube.com") || resourceHost.contains("youtu.be") || resourceHost.contains("googlevideo.com") || resourceHost.contains("ytimg.com") || resourceHost.contains("ggpht.com") || resourceHost.contains("jnn-pa.googleapis.com")))
+                                    if (isVideoPlatformContext) {
+                                        return null
+                                    }
 
                                     val pageRoot = pageHost?.let { h ->
                                         val parts = h.split('.')
@@ -1815,7 +1867,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val desiredUa = if (desktopModeEnabled || isWebStore) {
                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                             } else {
-                                "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                             }
                             val uaChanged = webView.settings.userAgentString != desiredUa
                             if (uaChanged) {
@@ -1834,16 +1886,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                             val needsNavigation = (tagUrl != loadKey || tagId != navigationSessionId)
                             if (needsNavigation) {
-                                if (normWv.isEmpty() || (normWv != normRes && !normWv.startsWith(normRes) && !normRes.startsWith(normWv))) {
+                                webView.tag = tagPair
+                                if (normWv != normRes || tagId != navigationSessionId) {
                                     val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
                                         resource.url.replaceFirst("http://", "https://", ignoreCase = true)
                                     } else {
                                         resource.url
                                     }
-                                    webView.tag = tagPair
                                     webView.loadUrl(finalUrl)
-                                } else {
-                                    webView.tag = tagPair
                                 }
                             } else if (uaChanged && normWv.isNotEmpty()) {
                                 webView.reload()
@@ -2407,6 +2457,49 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 viewModel.signOutActiveAccount()
             }
         )
+    }
+
+    // HTML5 FULLSCREEN VIDEO CONTAINER OVERLAY
+    if (customVideoView != null) {
+        androidx.activity.compose.BackHandler {
+            try {
+                customVideoCallback?.onCustomViewHidden()
+            } catch (_: Throwable) {}
+            customVideoView = null
+            customVideoCallback = null
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .zIndex(9999f)
+        ) {
+            AndroidView(
+                factory = { _ ->
+                    customVideoView ?: android.view.View(context)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            IconButton(
+                onClick = {
+                    try {
+                        customVideoCallback?.onCustomViewHidden()
+                    } catch (_: Throwable) {}
+                    customVideoView = null
+                    customVideoCallback = null
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close Fullscreen Video",
+                    tint = Color.White
+                )
+            }
+        }
     }
 
     // CUSTOM IN-BROWSER JS ALERTS, CONFIRMS, PROMPTS & LOCATION OVERLAYS

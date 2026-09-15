@@ -62,7 +62,23 @@ object UBlockEngine {
         "s.w.org",
         "w3.org",
         "kaspa.org",
-        "kas.pa"
+        "kas.pa",
+        "youtube.com",
+        "m.youtube.com",
+        "www.youtube.com",
+        "youtu.be",
+        "googlevideo.com",
+        "ytimg.com",
+        "i.ytimg.com",
+        "jnn-pa.googleapis.com",
+        "play.google.com",
+        "ggpht.com",
+        "yt3.ggpht.com",
+        "yt4.ggpht.com",
+        "youtube-nocookie.com",
+        "vimeo.com",
+        "vimeocdn.com",
+        "dailymotion.com"
     )
 
     // High performance O(1) exact domain blocklist
