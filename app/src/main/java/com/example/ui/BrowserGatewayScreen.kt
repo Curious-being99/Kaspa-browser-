@@ -1093,12 +1093,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 )
             } else if (isHtml && !viewSourceMode) {
                 // IN-APP WEB VIEW: Renders full web pages inside the browser itself!
-                val isSystemInDark = androidx.compose.foundation.isSystemInDarkTheme()
                 androidx.compose.runtime.key(webViewRecreateKey) {
                     AndroidView(
                         factory = { ctx ->
-                        val isSystemDarkNow = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-                        val browserBgColor = if (isSystemDarkNow) android.graphics.Color.parseColor("#0B0E14") else android.graphics.Color.WHITE
+                        val browserBgColor = android.graphics.Color.WHITE
 
                         android.widget.FrameLayout(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
@@ -1112,12 +1110,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                val hasRendernode = java.io.File("/dev/dri").exists()
-                                val forceSoftwareMode = !hasRendernode || rendererCrashCount > 0
-                                if (forceSoftwareMode) {
+                                if (rendererCrashCount > 0) {
                                     setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                                 } else {
-                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                                 }
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
@@ -1141,6 +1137,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
+                                databaseEnabled = true
+                                mediaPlaybackRequiresUserGesture = false
+                                safeBrowsingEnabled = false
+                                setGeolocationEnabled(true)
                                 allowFileAccess = false
                                 allowContentAccess = true
                                 @Suppress("DEPRECATION")
@@ -1159,24 +1159,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 databaseEnabled = true
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
-                                // Dynamic theme rendering based on device light / dark mode
-                                @Suppress("DEPRECATION")
-                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                    val forceDarkSetting = if (isSystemDarkNow) {
-                                        androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
-                                    } else {
-                                        androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
-                                    }
-                                    try {
-                                        androidx.webkit.WebSettingsCompat.setForceDark(this, forceDarkSetting)
-                                    } catch (_: Throwable) {}
-                                }
-                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
-                                    try {
-                                        androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(this, isSystemDarkNow)
-                                    } catch (_: Throwable) {}
-                                }
-
+                                // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
+                                // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
+                                
                                 // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit
                                 if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
                                     val supportLevel = if (webAuthEnabled) {
@@ -1203,7 +1188,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                                 } else {
-                                    "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                                 }
                             }
 
@@ -1212,7 +1197,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 try {
                                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
                                         this,
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = forceSoftwareMode),
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
                                         setOf("*")
                                     )
                                 } catch (_: Throwable) {}
@@ -1251,58 +1236,31 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
 
                             // Touch & Gesture navigation (Edge swipe Back/Forward)
-                            var touchStartX = 0f
-                            var touchStartY = 0f
-                            var touchStartTime = 0L
-                            var isEdgeSwipe = false
-
-                            @android.annotation.SuppressLint("ClickableViewAccessibility")
-                            setOnTouchListener { v, event ->
-                                when (event.action) {
-                                    android.view.MotionEvent.ACTION_DOWN -> {
-                                        touchStartX = event.x
-                                        touchStartY = event.y
-                                        touchStartTime = System.currentTimeMillis()
-                                        val edgeZoneWidth = (v.width * 0.04f).coerceIn(16f, 48f)
-                                        isEdgeSwipe = (touchStartX <= edgeZoneWidth) || (touchStartX >= v.width - edgeZoneWidth)
-                                        false
-                                    }
-                                    android.view.MotionEvent.ACTION_MOVE -> {
-                                        false
-                                    }
-                                    android.view.MotionEvent.ACTION_UP -> {
-                                        if (isEdgeSwipe) {
-                                            val deltaX = event.x - touchStartX
-                                            val deltaY = event.y - touchStartY
-                                            val deltaTime = System.currentTimeMillis() - touchStartTime
-                                            val absX = kotlin.math.abs(deltaX)
-                                            val absY = kotlin.math.abs(deltaY)
-                                            val minDistance = (v.width * 0.20f).coerceIn(100f, 250f)
-
-                                            // Swipe right from left edge -> Back
-                                            if (touchStartX <= (v.width * 0.25f) && deltaX > minDistance && absX > absY * 1.3f && deltaTime < 800) {
-                                                if (canGoBack()) {
-                                                    goBack()
-                                                    return@setOnTouchListener true
-                                                }
+                            val gestureDetector = android.view.GestureDetector(ctx, object : android.view.GestureDetector.SimpleOnGestureListener() {
+                                override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                                    if (e1 == null) return false
+                                    val deltaX = e2.x - e1.x
+                                    val deltaY = e2.y - e1.y
+                                    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 150 && Math.abs(velocityX) > 150) {
+                                        if (deltaX > 0) {
+                                            if (canGoBack()) {
+                                                goBack()
+                                                return true
                                             }
-                                            // Swipe left from right edge -> Forward
-                                            else if (touchStartX >= (v.width * 0.75f) && deltaX < -minDistance && absX > absY * 1.3f && deltaTime < 800) {
-                                                if (canGoForward()) {
-                                                    goForward()
-                                                    return@setOnTouchListener true
-                                                }
+                                        } else {
+                                            if (canGoForward()) {
+                                                goForward()
+                                                return true
                                             }
                                         }
-                                        isEdgeSwipe = false
-                                        false
                                     }
-                                    android.view.MotionEvent.ACTION_CANCEL -> {
-                                        isEdgeSwipe = false
-                                        false
-                                    }
-                                    else -> false
+                                    return false
                                 }
+                            })
+                            @android.annotation.SuppressLint("ClickableViewAccessibility")
+                            setOnTouchListener { _, event ->
+                                gestureDetector.onTouchEvent(event)
+                                false
                             }
 
                             val wv = this
@@ -1310,7 +1268,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setAcceptCookie(true)
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
-                            setBackgroundColor(browserBgColor)
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
 
                             val handleDeepLinkOrNavigate: (WebView?, String, Boolean) -> Boolean = { targetWv, rawUrl, hasGesture ->
                                 val targetView = targetWv ?: wv
@@ -1708,7 +1666,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = !java.io.File("/dev/dri").exists() || rendererCrashCount > 0),
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
                                         null
                                     )
 
@@ -1747,7 +1705,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = !java.io.File("/dev/dri").exists() || rendererCrashCount > 0),
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
                                         null
                                     )
 
@@ -1871,15 +1829,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                  override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                                     if (request == null) return null
 
-                                    // CRITICAL: NEVER block the main frame navigation (the website itself).
-                                    // The main document must always be allowed to load and render at original scale and speed.
-                                    if (request.isForMainFrame) {
-                                        return null
-                                    }
-
                                     val reqUrl = request.url?.toString() ?: return null
                                     val reqUrlLower = reqUrl.lowercase()
                                     val path = request.url?.path?.lowercase() ?: ""
+
+                                    // CRITICAL: NEVER block the main frame navigation (the website itself).
+                                    if (request.isForMainFrame) {
+                                        return null
+                                    }
 
                                     // CRITICAL: Never block styles, fonts, images, image videos (thumbnails/posters), or video/audio media streams
                                     val isStyleOrFont = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
@@ -1900,7 +1857,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val isMediaAccept = acceptHeader?.contains("image/") == true ||
                                         acceptHeader?.contains("video/") == true ||
                                         acceptHeader?.contains("audio/") == true ||
-                                        acceptHeader?.contains("media") == true
+                                        acceptHeader?.contains("media") == true ||
+                                        acceptHeader?.contains("text/css") == true
 
                                     val isMediaStreamEndpoint = reqUrlLower.contains("videoplayback") ||
                                         reqUrlLower.contains("/thumb") ||
@@ -1916,53 +1874,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return null
                                     }
 
-                                    // CRITICAL: Explicitly intercept and fix MIME types for WebAssembly and ES modules
-                                    // even if they bypass the LRU cache (e.g. no-cache headers).
-                                    if (path.endsWith(".wasm") || path.endsWith(".mjs")) {
-                                        try {
-                                            val reqBuilder = okhttp3.Request.Builder().url(reqUrl)
-                                            request.requestHeaders?.forEach { (k, v) ->
-                                                if (!k.equals("Host", ignoreCase = true)) {
-                                                    reqBuilder.addHeader(k, v)
-                                                }
-                                            }
-                                            val cookies = android.webkit.CookieManager.getInstance().getCookie(reqUrl)
-                                            if (!cookies.isNullOrEmpty()) {
-                                                reqBuilder.addHeader("Cookie", cookies)
-                                            }
-                                            val client = okhttp3.OkHttpClient.Builder()
-                                                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                                                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                                                .build()
-                                            val response = client.newCall(reqBuilder.build()).execute()
-                                            if (response.isSuccessful) {
-                                                val body = response.body
-                                                if (body != null) {
-                                                    val mimeType = if (path.endsWith(".wasm")) "application/wasm" else "application/javascript"
-                                                    val headers = mutableMapOf<String, String>()
-                                                    response.headers.names().forEach { name ->
-                                                        val valStr = response.header(name)
-                                                        if (valStr != null && !name.equals("content-type", ignoreCase = true)) {
-                                                            headers[name] = valStr
-                                                        }
-                                                    }
-                                                    headers["Content-Type"] = mimeType
-                                                    headers["Access-Control-Allow-Origin"] = "*"
-                                                    
-                                                    return WebResourceResponse(
-                                                        mimeType,
-                                                        null,
-                                                        200,
-                                                        "OK",
-                                                        headers,
-                                                        java.io.ByteArrayInputStream(body.bytes())
-                                                    )
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("BrowserGateway", "WASM intercept failed: ${e.message}")
-                                        }
-                                    }
+
 
                                     if (com.example.network.WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
                                         val cachedResponse = com.example.network.WebViewAssetLruCache.fetchAndCache(reqUrl, request.requestHeaders)
@@ -2174,28 +2086,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         canGoBack = webView.canGoBack()
                         canGoForward = webView.canGoForward()
 
-                        // Dynamically update browser background color & force dark based on device light/dark mode
-                        val isSystemDarkNow = isSystemInDark || (containerLayout.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-                        val currentBgColor = if (isSystemDarkNow) android.graphics.Color.parseColor("#0B0E14") else android.graphics.Color.WHITE
-                        containerLayout.setBackgroundColor(currentBgColor)
-                        webView.setBackgroundColor(currentBgColor)
-
-                        @Suppress("DEPRECATION")
-                        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                            val forceDarkSetting = if (isSystemDarkNow) {
-                                androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
-                            } else {
-                                androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
-                            }
-                            try {
-                                androidx.webkit.WebSettingsCompat.setForceDark(webView.settings, forceDarkSetting)
-                            } catch (_: Throwable) {}
-                        }
-                        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
-                            try {
-                                androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, isSystemDarkNow)
-                            } catch (_: Throwable) {}
-                        }
+                        // Ensure browser background remains white for consistent website rendering
+                        containerLayout.setBackgroundColor(android.graphics.Color.WHITE)
+                        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        // Algorithmic darkening removed to prevent "black page" issues.
 
                         val currentUrl = resource.url
                         val isGoogleAccountSession = KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(currentUrl)
@@ -5845,12 +5739,7 @@ fun YouTubeVideoCard(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                val hasRendernode = java.io.File("/dev/dri").exists()
-                                if (!hasRendernode) {
-                                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                                } else {
-                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
-                                }
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 overScrollMode = android.view.View.OVER_SCROLL_NEVER
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -5884,19 +5773,7 @@ fun YouTubeVideoCard(
                                     databaseEnabled = true
                                     domStorageEnabled = true
                                     mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                    // Dynamic theme rendering based on device light / dark mode
-                                    val isSysDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-                                    @Suppress("DEPRECATION")
-                                    if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                        val forceDarkSetting = if (isSysDark) {
-                                            androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
-                                        } else {
-                                            androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
-                                        }
-                                        try {
-                                            androidx.webkit.WebSettingsCompat.setForceDark(this, forceDarkSetting)
-                                        } catch (_: Throwable) {}
-                                    }
+                                    // Dark mode forcing removed to prevent rendering issues
                                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                                 }
                                 webChromeClient = object : android.webkit.WebChromeClient() {

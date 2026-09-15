@@ -25,9 +25,9 @@ object WebViewAssetLruCache {
 
     private const val TAG = "WebViewAssetLruCache"
 
-    // Default Cache Config: 50 MB max size, 1,000 max entries
-    private const val DEFAULT_MAX_SIZE_BYTES = 50L * 1024L * 1024L // 50MB
-    private const val DEFAULT_MAX_ENTRIES = 1000
+    // Default Cache Config: 256 MB max size, 5,000 max entries
+    private const val DEFAULT_MAX_SIZE_BYTES = 256L * 1024L * 1024L // 256MB
+    private const val DEFAULT_MAX_ENTRIES = 5000
 
     private var cacheDir: File? = null
     private var maxSizeBytes: Long = DEFAULT_MAX_SIZE_BYTES
@@ -120,17 +120,20 @@ object WebViewAssetLruCache {
 
         val isStaticExtension = path.endsWith(".css") || path.endsWith(".js") || path.endsWith(".mjs") ||
                 path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
-                path.endsWith(".otf") || path.endsWith(".eot") || path.endsWith(".wasm") ||
+                path.endsWith(".otf") || path.endsWith(".eot") ||
                 path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
                 path.endsWith(".webp") || path.endsWith(".svg") || path.endsWith(".ico") ||
                 path.endsWith(".gif") || path.endsWith(".avif") || path.endsWith(".json")
 
-        val isDecentralizedNodeAsset = lowerUrl.contains("/ipfs/") || lowerUrl.contains("/ipns/") ||
-                lowerUrl.contains("/kns/") || lowerUrl.contains(".kas/") ||
-                lowerUrl.contains("kaspa") || lowerUrl.contains("dnet") ||
-                lowerUrl.contains("cdn") || lowerUrl.contains("static") || lowerUrl.contains("assets")
+        // Never cache WASM or Kaspa API/dynamic nodes to ensure real-time data flows
+        if (path.endsWith(".wasm") || lowerUrl.contains("/api/") || lowerUrl.contains("kaspa") ||
+            lowerUrl.contains("linktr.ee") || lowerUrl.contains("mykai") || lowerUrl.contains("igralabs")) return false
 
-        return isStaticExtension || isDecentralizedNodeAsset
+        val isDecentralizedStaticAsset = lowerUrl.contains("/ipfs/") || lowerUrl.contains("/ipns/") ||
+                lowerUrl.contains("/kns/") || lowerUrl.contains(".kas/") ||
+                lowerUrl.contains("/static/") || lowerUrl.contains("/assets/")
+
+        return isStaticExtension || isDecentralizedStaticAsset
     }
 
     /**
@@ -271,7 +274,7 @@ object WebViewAssetLruCache {
         data: ByteArray
     ) {
         val dir = cacheDir ?: return
-        if (data.isEmpty() || data.size > (maxSizeBytes / 4)) return // Skip huge single files > 12.5MB
+        if (data.isEmpty() || data.size > (maxSizeBytes / 4)) return // Skip huge single files > 64MB (at 256MB max)
 
         val key = CryptoUtils.sha256(url)
 

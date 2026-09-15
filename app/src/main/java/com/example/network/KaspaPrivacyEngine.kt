@@ -12,9 +12,7 @@ import java.net.URI
 object KaspaPrivacyEngine {
 
     private val TRACKER_AND_AD_DOMAINS = setOf(
-        // Analytics & Tracking Beacons
-        "google-analytics.com",
-        "googletagmanager.com",
+        // Ad Networks & Pixels
         "doubleclick.net",
         "googleadservices.com",
         "connect.facebook.net",
@@ -126,10 +124,11 @@ object KaspaPrivacyEngine {
             path.endsWith(".m4s") || path.endsWith(".m4a") || path.endsWith(".mp3") ||
             path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
             path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
+            path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".wasm") ||
             path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
             path.contains("/video/") || path.contains("/audio/") || path.contains("/media/") ||
             lower.contains("videoplayback") || lower.contains("stream") ||
-            path.contains("/thumb") || path.contains("/poster")
+            lower.contains("kaspa") || path.contains("/thumb") || path.contains("/poster")
         ) {
             return false
         }
@@ -221,44 +220,6 @@ object KaspaPrivacyEngine {
             if (window.__kaspa_shield_injected) return;
             window.__kaspa_shield_injected = true;
             try {
-                // 0. WebAssembly MIME Type Fallback (CRITICAL for dotk.name and Cloudflare blocked nodes)
-                if (typeof WebAssembly !== 'undefined' && WebAssembly.instantiateStreaming) {
-                    const originalInstantiateStreaming = WebAssembly.instantiateStreaming;
-                    WebAssembly.instantiateStreaming = async function(source, importObject) {
-                        try {
-                            return await originalInstantiateStreaming(source, importObject);
-                        } catch (e) {
-                            if (e && e.message && (e.message.includes('MIME type') || e.message.includes('expected'))) {
-                                let resolvedSource = source;
-                                if (source instanceof Promise) resolvedSource = await source;
-                                if (resolvedSource instanceof Response) {
-                                    const buffer = await resolvedSource.arrayBuffer();
-                                    return await WebAssembly.instantiate(buffer, importObject);
-                                }
-                            }
-                            throw e;
-                        }
-                    };
-                    if (WebAssembly.compileStreaming) {
-                        const originalCompileStreaming = WebAssembly.compileStreaming;
-                        WebAssembly.compileStreaming = async function(source) {
-                            try {
-                                return await originalCompileStreaming(source);
-                            } catch (e) {
-                                if (e && e.message && (e.message.includes('MIME type') || e.message.includes('expected'))) {
-                                    let resolvedSource = source;
-                                    if (source instanceof Promise) resolvedSource = await source;
-                                    if (resolvedSource instanceof Response) {
-                                        const buffer = await resolvedSource.arrayBuffer();
-                                        return await WebAssembly.compile(buffer);
-                                    }
-                                }
-                                throw e;
-                            }
-                        };
-                    }
-                }
-
                 // 1. Global Privacy Control & DNT
                 try {
                     Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
@@ -283,120 +244,32 @@ object KaspaPrivacyEngine {
                     } catch(e) {}
                 }
 
-                // 3. WebRTC Local IP Leak Mitigation
+                // 3. WebRTC Privacy (Relay-only is too aggressive for many DApps, use safer mitigation)
                 if (window.RTCPeerConnection) {
                     try {
                         const OrigRTC = window.RTCPeerConnection;
                         window.RTCPeerConnection = function(config, constraints) {
                             try {
-                                if (config && config.iceServers) {
+                                if (config && config.iceServers && window.__kaspa_software_rendering) {
                                     config.iceTransportPolicy = 'relay';
                                 }
                             } catch(_) {}
                             return new OrigRTC(config, constraints);
                         };
+                        window.RTCPeerConnection.prototype = OrigRTC.prototype;
                     } catch(e) {}
                 }
 
-                // 4. WebGL Virtual GPU context lost recovery & rendernode crash mitigation
+                // 4. WebGL Virtual GPU context recovery
                 try {
                     window.addEventListener('webglcontextlost', function(e) {
                         try { e.preventDefault(); } catch (_) {}
                     }, true);
                 } catch(e) {}
 
-                try {
-                    const origGetContext = HTMLCanvasElement.prototype.getContext;
-                    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-                        if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
-                            if (window.__kaspa_software_rendering || !window.WebGLRenderingContext) {
-                                return null;
-                            }
-                            try {
-                                const ctx = origGetContext.apply(this, arguments);
-                                return ctx || null;
-                            } catch(glErr) {
-                                console.warn('WebGL init error suppressed:', glErr);
-                                return null;
-                            }
-                        }
-                        return origGetContext.apply(this, arguments);
-                    };
-                } catch(e) {}
-
-                // 5. Anti-Redirect Shield for TikTok & Aggressive Mobile Web Hijacking
-                try {
-                    function isBlockedRedirect(url) {
-                        if (!url) return false;
-                        try {
-                            const u = String(url).toLowerCase().trim();
-                            if (u.startsWith('snssdk') || u.startsWith('tiktok:') || u.startsWith('aweme:') ||
-                                u.startsWith('bytedance:') || u.startsWith('market:') || u.startsWith('intent:')) {
-                                return true;
-                            }
-                            if (u.includes('play.google.com') || u.includes('apps.apple.com') || u.includes('itunes.apple.com')) {
-                                return true;
-                            }
-                            if (u.includes('tiktok.onelink.me') || u.includes('link.tiktok.com') ||
-                                u.includes('tiktok.com/download') || u.includes('/download?') ||
-                                u.includes('tiktok.com/app') || u.includes('/redirect?')) {
-                                return true;
-                            }
-                        } catch(_) {}
-                        return false;
-                    }
-
-                    // Intercept window.open popups
-                    const origOpen = window.open;
-                    window.open = function(url) {
-                        if (isBlockedRedirect(url)) {
-                            return null;
-                        }
-                        return origOpen ? origOpen.apply(this, arguments) : null;
-                    };
-
-                    // Intercept location.assign & location.replace
-                    try {
-                        const origAssign = window.location.assign ? window.location.assign.bind(window.location) : null;
-                        if (origAssign) {
-                            window.location.assign = function(url) {
-                                if (isBlockedRedirect(url)) return;
-                                return origAssign(url);
-                            };
-                        }
-                        const origReplace = window.location.replace ? window.location.replace.bind(window.location) : null;
-                        if (origReplace) {
-                            window.location.replace = function(url) {
-                                if (isBlockedRedirect(url)) return;
-                                return origReplace(url);
-                            };
-                        }
-                    } catch(_) {}
-
-                    // Intercept programmatic click on app store/download anchor elements
-                    const origClick = HTMLAnchorElement.prototype.click;
-                    HTMLAnchorElement.prototype.click = function() {
-                        if (this.href && isBlockedRedirect(this.href)) {
-                            return;
-                        }
-                        return origClick.apply(this, arguments);
-                    };
-
-                    document.addEventListener('click', function(e) {
-                        let el = e.target;
-                        while (el && el.tagName !== 'A') {
-                            el = el.parentElement;
-                        }
-                        if (el && el.href && isBlockedRedirect(el.href)) {
-                            e.preventDefault();
-                            e.stopImmediatePropagation();
-                            return false;
-                        }
-                    }, true);
-
-                    // TikTok specific scroll unlock & modal banner dismisser
-                    const hostname = window.location.hostname || '';
-                    if (hostname.includes('tiktok.com') || hostname.includes('tiktokv.com')) {
+                // 5. TikTok specific scroll unlock & modal banner dismisser
+                const hostname = window.location.hostname || '';
+                if (hostname.includes('tiktok.com') || hostname.includes('tiktokv.com')) {
                         function unlockTikTokScroll() {
                             try {
                                 if (document.body) {
