@@ -40,8 +40,6 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          log-accepted-android-sdk-licenses: false
 
       - name: Accept Android SDK Licenses & Install API 36 Components
         run: |
