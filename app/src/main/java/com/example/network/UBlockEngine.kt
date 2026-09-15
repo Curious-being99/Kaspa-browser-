@@ -39,8 +39,52 @@ object UBlockEngine {
             .build()
     }
 
+    // Google Account & Authentication domains and infrastructure that must NEVER be blocked
+    val GOOGLE_ACCOUNT_DOMAINS = setOf(
+        "accounts.google.com",
+        "myaccount.google.com",
+        "accounts.youtube.com",
+        "apis.google.com",
+        "oauth2.googleapis.com",
+        "identitytoolkit.googleapis.com",
+        "securetoken.googleapis.com",
+        "clients6.google.com",
+        "content.googleapis.com",
+        "ogs.google.com",
+        "passwords.google.com",
+        "families.google.com",
+        "gds.google.com",
+        "id.google.com",
+        "recaptcha.net",
+        "www.recaptcha.net",
+        "ssl.gstatic.com",
+        "www.gstatic.com",
+        "gstatic.com",
+        "googleusercontent.com"
+    )
+
     // Essential CDN, font, and web infrastructure domains that must NEVER be blocked
     private val ESSENTIAL_WEB_DOMAINS = setOf(
+        "accounts.google.com",
+        "myaccount.google.com",
+        "accounts.youtube.com",
+        "apis.google.com",
+        "oauth2.googleapis.com",
+        "identitytoolkit.googleapis.com",
+        "securetoken.googleapis.com",
+        "clients6.google.com",
+        "content.googleapis.com",
+        "ogs.google.com",
+        "passwords.google.com",
+        "families.google.com",
+        "gds.google.com",
+        "id.google.com",
+        "ssl.gstatic.com",
+        "www.gstatic.com",
+        "gstatic.com",
+        "googleusercontent.com",
+        "recaptcha.net",
+        "www.recaptcha.net",
         "fonts.googleapis.com",
         "fonts.gstatic.com",
         "cdnjs.cloudflare.com",
@@ -80,6 +124,51 @@ object UBlockEngine {
         "vimeocdn.com",
         "dailymotion.com"
     )
+
+    /**
+     * Checks if a host belongs to Google Account login, profile, authentication or identity services.
+     */
+    fun isGoogleAccountDomain(host: String): Boolean {
+        val h = host.lowercase().trim()
+        if (GOOGLE_ACCOUNT_DOMAINS.contains(h)) return true
+        if (h == "accounts.google.com" || h.endsWith(".accounts.google.com")) return true
+        if (h == "myaccount.google.com" || h.endsWith(".myaccount.google.com")) return true
+        if (h == "accounts.youtube.com" || h.endsWith(".accounts.youtube.com")) return true
+        if (h.startsWith("accounts.google.")) return true
+        if (h == "apis.google.com" || h.endsWith(".apis.google.com")) return true
+        if (h.endsWith(".gstatic.com")) return true
+        if (h.endsWith(".googleusercontent.com")) return true
+        if (h.endsWith(".recaptcha.net")) return true
+        if (h == "oauth2.googleapis.com" || h == "identitytoolkit.googleapis.com" || h == "securetoken.googleapis.com") return true
+        return false
+    }
+
+    /**
+     * Checks if a URL is part of Google Account login, OAuth, account management, or authentication.
+     */
+    fun isGoogleAccountOrAuthUrl(url: String): Boolean {
+        if (url.length < 5) return false
+        val lower = url.lowercase()
+        val host = extractHost(url)
+        if (host != null && isGoogleAccountDomain(host)) return true
+
+        // Check Google Account authentication paths on google domains
+        if (host != null && (host == "google.com" || host.endsWith(".google.com") || host.contains("google."))) {
+            val path = runCatching { Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
+            if (path.startsWith("/accounts/") || path.startsWith("/account/") ||
+                path.startsWith("/servicelogin") || path.startsWith("/checkcookie") ||
+                path.startsWith("/signin") || path.startsWith("/o/oauth2/") ||
+                path.startsWith("/gsi/") || path.startsWith("/recaptcha/") ||
+                path.startsWith("/_/signin/")
+            ) {
+                return true
+            }
+            if (lower.contains("client_id=") && (lower.contains("accounts.google") || lower.contains("oauth2"))) {
+                return true
+            }
+        }
+        return false
+    }
 
     // High performance O(1) exact domain blocklist
     private val blockedDomains = ConcurrentHashMap.newKeySet<String>()
@@ -314,6 +403,9 @@ object UBlockEngine {
     }
 
     private suspend fun loadRules(context: Context) = withContext(Dispatchers.IO) {
+        // Pre-populate whitelisted domains with all Google Account & authentication domains
+        whitelistedDomains.addAll(GOOGLE_ACCOUNT_DOMAINS)
+
         // 1. Parse Baseline Rules
         for (rule in BASELINE_UBLOCK_RULES) {
             parseRule(rule)
@@ -342,6 +434,13 @@ object UBlockEngine {
             return false
         }
         val lower = selector.lowercase()
+        // Never hide Google Sign-In buttons, account UI, OAuth, or authentication widgets
+        if (lower.contains("account") || lower.contains("signin") || lower.contains("login") ||
+            lower.contains("auth") || lower.contains("gsi") || lower.contains("google-signin") ||
+            lower.contains("recaptcha") || lower.contains("identity") || lower.contains("google_id")
+        ) {
+            return false
+        }
         return lower.startsWith(".adsbygoogle") ||
                lower.startsWith("ins.adsbygoogle") ||
                lower.startsWith("[id^=google_ads") ||
@@ -398,8 +497,8 @@ object UBlockEngine {
                 .trim()
                 .lowercase()
 
-            // Guard: ensure not an essential CDN or infrastructure domain and has a valid domain structure
-            if (domain.length > 3 && domain.contains('.') && !ESSENTIAL_WEB_DOMAINS.contains(domain)) {
+            // Guard: ensure not an essential CDN, Google Account, or infrastructure domain and has a valid domain structure
+            if (domain.length > 3 && domain.contains('.') && !ESSENTIAL_WEB_DOMAINS.contains(domain) && !isGoogleAccountDomain(domain)) {
                 blockedDomains.add(domain)
             }
             return
@@ -436,7 +535,17 @@ object UBlockEngine {
             return false
         }
 
+        // Never block Google Account login, OAuth, account management, or identity endpoints
+        if (isGoogleAccountOrAuthUrl(url)) {
+            return false
+        }
+
         val host = extractHost(url) ?: return false
+
+        // Never block Google Account domains
+        if (isGoogleAccountDomain(host)) {
+            return false
+        }
 
         // Check if explicitly whitelisted or an essential web infrastructure domain (O(1))
         if (whitelistedDomains.contains(host) || ESSENTIAL_WEB_DOMAINS.contains(host)) return false
@@ -572,6 +681,14 @@ object UBlockEngine {
         return """
             (function() {
                 try {
+                    var host = (window.location.hostname || '').toLowerCase();
+                    // Never hide UI elements on Google Account, login, or identity management pages
+                    if (host === 'accounts.google.com' || host.endsWith('.accounts.google.com') ||
+                        host === 'myaccount.google.com' || host.endsWith('.myaccount.google.com') ||
+                        host.startsWith('accounts.google.') || host.includes('accounts.youtube.com') ||
+                        host === 'apis.google.com') {
+                        return;
+                    }
                     var styleId = '__ublock_cosmetic_style';
                     if (document.getElementById(styleId)) return;
                     var style = document.createElement('style');

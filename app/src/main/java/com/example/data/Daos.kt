@@ -113,3 +113,33 @@ interface AccountDao {
     suspend fun deleteLegacyMockAccounts()
 }
 
+@Dao
+interface DomainDao {
+    @Query("SELECT * FROM kab_domains ORDER BY registeredAt DESC")
+    fun getAllDomains(): Flow<List<DomainEntity>>
+
+    @Query("SELECT * FROM kab_domains WHERE domain = :domain LIMIT 1")
+    suspend fun getDomainByName(domain: String): DomainEntity?
+
+    @Query("SELECT * FROM kab_domains WHERE ownerAddress = :address ORDER BY registeredAt DESC")
+    fun getDomainsByOwner(address: String): Flow<List<DomainEntity>>
+
+    @Query("SELECT * FROM kab_domains WHERE ownerAddress = :address ORDER BY registeredAt DESC")
+    suspend fun getDomainsByOwnerList(address: String): List<DomainEntity>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertDomain(domain: DomainEntity)
+
+    @Update
+    suspend fun updateDomain(domain: DomainEntity)
+
+    @Delete
+    suspend fun deleteDomain(domain: DomainEntity)
+
+    @Query("SELECT COUNT(*) FROM kab_domains WHERE domain = :domain")
+    suspend fun countDomain(domain: String): Int
+
+    @Query("DELETE FROM kab_domains WHERE txId LIKE 'local%' OR txId LIKE '%claim%' OR length(txId) < 32")
+    suspend fun deleteLegacyMockDomains()
+}
+

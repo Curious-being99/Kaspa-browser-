@@ -11,6 +11,9 @@ import com.example.data.TrafficAuditEntity
 import com.example.data.HistoryEntity
 import com.example.data.BookmarkEntity
 import com.example.data.BrowserTabEntity
+import com.example.data.DomainEntity
+import com.example.network.kaspa.KaspaDomainRegistry
+import com.example.network.kaspa.DomainAvailability
 import kotlinx.coroutines.flow.combine
 
 import com.example.model.KaspaWalletState
@@ -63,6 +66,23 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     val metrics: StateFlow<NetworkMetrics> = nodeManager.metrics
     val nsdState = nodeManager.discoveryManager.nsdState
+    val bluetoothMeshManager = com.example.network.BluetoothMeshManager(application, database, viewModelScope)
+
+    val isBluetoothMeshRunning: StateFlow<Boolean> = bluetoothMeshManager.isMeshRunning
+    val isBluetoothEnabled: StateFlow<Boolean> = bluetoothMeshManager.isBluetoothEnabled
+    val discoveredBtPeersCount: StateFlow<Int> = bluetoothMeshManager.discoveredBtPeersCount
+
+    fun startBluetoothMesh(): Boolean {
+        return bluetoothMeshManager.startMesh()
+    }
+
+    fun stopBluetoothMesh() {
+        bluetoothMeshManager.stopMesh()
+    }
+
+    fun updateBluetoothState() {
+        bluetoothMeshManager.updateBluetoothState()
+    }
 
     val pinnedContents: StateFlow<List<ContentEntity>> = database.contentDao()
         .getAllContents()
@@ -87,6 +107,54 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     val browserTabs: StateFlow<List<BrowserTabEntity>> = database.browserTabDao()
         .getAllTabs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
+
+    private val _hasWalletPassword = MutableStateFlow(securityPrefs.contains("wallet_pwd_hash"))
+    val hasWalletPassword = _hasWalletPassword.asStateFlow()
+
+    private val _isWalletLocked = MutableStateFlow(securityPrefs.contains("wallet_pwd_hash"))
+    val isWalletLocked = _isWalletLocked.asStateFlow()
+
+    private val _biometricsEnabled = MutableStateFlow(securityPrefs.getBoolean("biometrics_enabled", true))
+    val biometricsEnabled = _biometricsEnabled.asStateFlow()
+
+    fun setWalletPassword(password: String, enableBiometrics: Boolean = true) {
+        if (password.isBlank()) return
+        val pwdHash = CryptoUtils.sha256(password + "_kaspa_salt_v1")
+        securityPrefs.edit()
+            .putString("wallet_pwd_hash", pwdHash)
+            .putBoolean("biometrics_enabled", enableBiometrics)
+            .apply()
+
+        _hasWalletPassword.value = true
+        _biometricsEnabled.value = enableBiometrics
+        _isWalletLocked.value = false
+    }
+
+    fun unlockWalletWithPassword(password: String): Boolean {
+        val storedHash = securityPrefs.getString("wallet_pwd_hash", "") ?: ""
+        if (storedHash.isBlank()) {
+            _isWalletLocked.value = false
+            return true
+        }
+        val inputHash = CryptoUtils.sha256(password + "_kaspa_salt_v1")
+        if (inputHash == storedHash) {
+            _isWalletLocked.value = false
+            return true
+        }
+        return false
+    }
+
+    fun unlockWalletWithBiometric() {
+        _isWalletLocked.value = false
+    }
+
+    fun lockWallet() {
+        if (_hasWalletPassword.value) {
+            _isWalletLocked.value = true
+        }
+    }
 
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
@@ -117,14 +185,15 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun createNewTab(url: String = "", title: String = if (url.isBlank()) "Home" else "New Tab") {
+    fun createNewTab(url: String = "", title: String = if (url.isBlank()) "Home" else "New Tab", isExternal: Boolean = false) {
         viewModelScope.launch {
             val newId = java.util.UUID.randomUUID().toString()
             val newTab = BrowserTabEntity(
                 id = newId,
                 url = url,
                 title = title,
-                lastAccessed = System.currentTimeMillis()
+                lastAccessed = System.currentTimeMillis(),
+                isExternal = isExternal
             )
             database.browserTabDao().insert(newTab)
             _activeTabId.value = newId
@@ -172,8 +241,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val existing = database.browserTabDao().getTabById(id)
             val isSuspended = existing?.isSuspended ?: false
+            val isExternal = existing?.isExternal ?: false
             database.browserTabDao().insert(
-                BrowserTabEntity(id = id, url = url, title = title, lastAccessed = System.currentTimeMillis(), isSuspended = isSuspended)
+                BrowserTabEntity(id = id, url = url, title = title, lastAccessed = System.currentTimeMillis(), isSuspended = isSuspended, isExternal = isExternal)
             )
         }
     }
@@ -212,6 +282,18 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val kaspaWalletService = KaspaWalletService()
+    val domainRegistry = KaspaDomainRegistry(database, kaspaWalletService)
+
+    val allDomains: StateFlow<List<DomainEntity>> = database.domainDao()
+        .getAllDomains()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _domainAvailability = MutableStateFlow<DomainAvailability>(DomainAvailability.Idle)
+    val domainAvailability: StateFlow<DomainAvailability> = _domainAvailability.asStateFlow()
+
+    private val _isRegisteringDomain = MutableStateFlow(false)
+    val isRegisteringDomain: StateFlow<Boolean> = _isRegisteringDomain.asStateFlow()
+
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
@@ -235,6 +317,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    private val _isGoogleSessionActive = MutableStateFlow(false)
+    val isGoogleSessionActive: StateFlow<Boolean> = _isGoogleSessionActive.asStateFlow()
+
+    private val _zkVerificationResult = MutableStateFlow<String?>(null)
+    val zkVerificationResult: StateFlow<String?> = _zkVerificationResult.asStateFlow()
 
     // Granular Web Extensions & Security Settings
     private val _kaspaVerifierEnabled = MutableStateFlow(true)
@@ -441,18 +529,25 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 database.accountDao().deleteLegacyMockAccounts()
+                database.domainDao().deleteLegacyMockDomains()
                 val allAccounts = database.accountDao().getAllAccountsList()
                 if (allAccounts.isNotEmpty()) {
                     for (acc in allAccounts) {
-                        if (!CryptoUtils.isValidKaspaAddress(acc.kaspaAddress)) {
+                        val cleanHandle = if (acc.handle.contains(".k") || acc.handle.contains(".kab") || acc.handle.startsWith("@kas")) {
+                            "Kaspa Wallet (${acc.kaspaAddress.takeLast(6)})"
+                        } else {
+                            acc.handle
+                        }
+
+                        if (!CryptoUtils.isValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
                             val refreshedAcc = if (acc.accountType == "GOOGLE_ZK_BRIDGE" && acc.googleEmail != null) {
                                 CryptoUtils.deriveGoogleBridgeAccount(
                                     email = acc.googleEmail,
-                                    displayName = acc.googleDisplayName ?: acc.handle
+                                    displayName = acc.googleDisplayName ?: cleanHandle
                                 ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
                             } else {
                                 CryptoUtils.deriveDecentralizedAccount(
-                                    customHandle = acc.handle.removePrefix("@"),
+                                    customHandle = cleanHandle,
                                     seedMnemonic = acc.seedPhrase
                                 ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
                             }
@@ -522,31 +617,108 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     isSending = false,
                     balanceKas = updatedBalance,
                     balanceUsd = updatedBalance * _kaspaWalletState.value.priceUsd,
+                    lastBroadcastTxId = txItem.txId,
                     recentTransactions = updatedTxs,
-                    statusNotice = "Sent %.4f KAS to ${recipientAddress.take(14)}...".format(amountKas)
+                    statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId})".format(amountKas)
                 )
             }.onFailure { err ->
                 _statusMessage.value = "Transaction failed: ${err.message}"
                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                     isSending = false,
+                    lastBroadcastTxId = null,
                     statusNotice = "Error: ${err.message}"
                 )
             }
         }
     }
 
-    fun createDecentralizedAccount(handle: String, customMnemonic: String? = null) {
+    fun checkDomainAvailability(rawInput: String) {
+        val clean = rawInput.trim()
+        if (clean.isBlank()) {
+            _domainAvailability.value = DomainAvailability.Idle
+            return
+        }
+        viewModelScope.launch {
+            _domainAvailability.value = DomainAvailability.Checking(clean)
+            val result = domainRegistry.checkAvailability(clean, activeAccount.value?.kaspaAddress)
+            _domainAvailability.value = result
+        }
+    }
+
+    fun registerKabDomain(
+        domainName: String,
+        targetCid: String? = null,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        val account = activeAccount.value
+        if (account == null) {
+            val msg = "Please activate or create a Kaspa wallet before registering a .k domain."
+            _statusMessage.value = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+
+        viewModelScope.launch {
+            _isRegisteringDomain.value = true
+            try {
+                val result = domainRegistry.claimDomainOnChain(domainName, account, targetCid)
+                result.onSuccess { domainEntity ->
+                    _statusMessage.value = "Registered ${domainEntity.domain} on-chain! Tx: ${domainEntity.txId.take(16)}..."
+                    refreshKaspaWallet(account.kaspaAddress)
+                    _domainAvailability.value = DomainAvailability.OwnedByYou(
+                        domain = domainEntity.domain,
+                        txId = domainEntity.txId,
+                        registeredAt = domainEntity.registeredAt,
+                        targetCid = domainEntity.targetCid
+                    )
+                    onResult?.invoke(true, "Claimed ${domainEntity.domain} on Kaspa BlockDAG! Tx: ${domainEntity.txId.take(16)}...")
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Failed to claim domain on-chain"
+                    _statusMessage.value = "Registration failed: $errorMsg"
+                    onResult?.invoke(false, errorMsg)
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Error during domain claim"
+                _statusMessage.value = "Registration error: $errorMsg"
+                onResult?.invoke(false, errorMsg)
+            } finally {
+                _isRegisteringDomain.value = false
+            }
+        }
+    }
+
+    fun deleteDomain(domain: DomainEntity) {
         viewModelScope.launch {
             try {
+                database.domainDao().deleteDomain(domain)
+                _statusMessage.value = "Removed domain record: ${domain.domain}"
+            } catch (e: Exception) {
+                _statusMessage.value = "Failed to remove domain: ${e.message}"
+            }
+        }
+    }
+
+    fun createDecentralizedAccount(
+        walletLabel: String,
+        customMnemonic: String? = null,
+        password: String? = null,
+        enableBiometric: Boolean = true
+    ) {
+        viewModelScope.launch {
+            try {
+                if (!password.isNullOrBlank()) {
+                    setWalletPassword(password, enableBiometric)
+                }
                 val newAcc = CryptoUtils.deriveDecentralizedAccount(
-                    customHandle = handle.ifBlank { null },
+                    customHandle = walletLabel.ifBlank { null },
                     seedMnemonic = customMnemonic?.ifBlank { null }
                 )
                 database.accountDao().deactivateAll()
                 database.accountDao().insertAccount(newAcc)
-                _statusMessage.value = "Created decentralized account: ${newAcc.handle}"
+
+                _statusMessage.value = "Created Kaspa wallet: ${newAcc.handle}"
             } catch (e: Exception) {
-                _statusMessage.value = "Failed to create account: ${e.message}"
+                _statusMessage.value = "Failed to create wallet: ${e.message}"
             }
         }
     }
@@ -603,10 +775,70 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
 
-    fun openUrlInBrowser(url: String) {
-        _urlInput.value = url
-        _activeTab.value = AppTab.BROWSER_GATEWAY
-        resolveUrl(url)
+    fun openUrlInBrowser(url: String, isExternal: Boolean = true) {
+        viewModelScope.launch {
+            _activeTab.value = AppTab.BROWSER_GATEWAY
+            val tabs = database.browserTabDao().getAllTabsList()
+            val activeId = _activeTabId.value
+            val activeTab = tabs.find { it.id == activeId }
+            val host = try { java.net.URI(url).host ?: url } catch (_: Exception) { url }
+            val tabTitle = if (!host.isNullOrBlank()) host else "External Link"
+
+            if (activeTab != null && activeTab.url.isBlank()) {
+                val updatedTab = activeTab.copy(
+                    url = url,
+                    title = tabTitle,
+                    lastAccessed = System.currentTimeMillis(),
+                    isExternal = isExternal
+                )
+                database.browserTabDao().insert(updatedTab)
+                _urlInput.value = url
+                resolveUrl(url)
+            } else {
+                val newId = java.util.UUID.randomUUID().toString()
+                val newTab = BrowserTabEntity(
+                    id = newId,
+                    url = url,
+                    title = tabTitle,
+                    lastAccessed = System.currentTimeMillis(),
+                    isExternal = isExternal
+                )
+                database.browserTabDao().insert(newTab)
+                _activeTabId.value = newId
+                _urlInput.value = url
+                resolveUrl(url)
+            }
+        }
+    }
+
+    fun onUserSubmitUrl(rawUrl: String? = null) {
+        viewModelScope.launch {
+            val target = normalizeUrlOrQuery(rawUrl ?: _urlInput.value)
+            if (target.isBlank()) return@launch
+
+            val activeId = _activeTabId.value
+            val activeTab = if (activeId != null) database.browserTabDao().getTabById(activeId) else null
+
+            if (activeTab != null && activeTab.isExternal) {
+                // When open link from another platforms it opens in our browser, not to persist when typing another link it moves to a new tab
+                val host = try { java.net.URI(target).host ?: target } catch (_: Exception) { target }
+                val newId = java.util.UUID.randomUUID().toString()
+                val newTab = BrowserTabEntity(
+                    id = newId,
+                    url = target,
+                    title = if (!host.isNullOrBlank()) host else "New Tab",
+                    lastAccessed = System.currentTimeMillis(),
+                    isExternal = false
+                )
+                database.browserTabDao().insert(newTab)
+                _activeTabId.value = newId
+                _urlInput.value = target
+                resolveUrl(target)
+            } else {
+                _urlInput.value = target
+                resolveUrl(target)
+            }
+        }
     }
 
     fun setTab(tab: AppTab) {
@@ -796,7 +1028,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                         result
                     }
                     _currentResource.value = finalResult
-                    verifyResourceIntegrity()
+                    verifyResourceIntegrity(notifyUser = false)
                     
                     val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
                     nodeManager.recordBrowserTraffic(bytesTransferred, target)
@@ -875,17 +1107,21 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun verifyResourceIntegrity() {
+    fun verifyResourceIntegrity(notifyUser: Boolean = true) {
         val current = _currentResource.value ?: return
         val contentToHash = if (current.content.isNotEmpty()) current.content else current.url
         val calculatedHash = com.example.network.CryptoUtils.sha256(contentToHash)
         val isMatch = calculatedHash.equals(current.cryptographicHash, ignoreCase = true)
 
         if (isMatch) {
-            _statusMessage.value = "Cryptographic Verification Passed: SHA-256 matches Merkle root ($calculatedHash)."
+            if (notifyUser) {
+                _statusMessage.value = "Cryptographic Verification Passed: SHA-256 matches Merkle root ($calculatedHash)."
+            }
             nodeManager.incrementCrossVerifications()
         } else {
-            _statusMessage.value = "Warning: Hash mismatch detected between payload and Merkle root."
+            if (notifyUser) {
+                _statusMessage.value = "Warning: Hash mismatch detected between payload and Merkle root."
+            }
         }
     }
 

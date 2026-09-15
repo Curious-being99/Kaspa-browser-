@@ -56,7 +56,22 @@ data class AccountEntity(
     val accountType: String, // "DECENTRALIZED_NATIVE" or "GOOGLE_ZK_BRIDGE"
     val googleEmail: String? = null,
     val googleDisplayName: String? = null,
+    val zkProofJson: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val isActive: Boolean = true
+)
+
+@Entity(tableName = "kab_domains")
+data class DomainEntity(
+    @PrimaryKey val domain: String, // Normalized, e.g. "alice.kab"
+    val ownerAddress: String, // "kaspa:q..."
+    val ownerDid: String, // "did:key:..."
+    val ownerPublicKey: String,
+    val txId: String, // On-chain Kaspa BlockDAG transaction ID
+    val registrationFeeKas: Double = 1.0,
+    val registeredAt: Long = System.currentTimeMillis(),
+    val targetCid: String? = null,
+    val customDnsRecord: String? = null,
+    val signature: String = ""
 )
 

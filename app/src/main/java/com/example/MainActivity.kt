@@ -62,22 +62,26 @@ class MainActivity : ComponentActivity() {
     try {
       val webViewCacheDir = File(cacheDir, "WebView/Default")
       val httpCache = File(webViewCacheDir, "HTTP Cache")
-      val codeCacheHttp = File(httpCache, "Code Cache")
-      val jsHttpDir = File(codeCacheHttp, "js")
-      val wasmHttpDir = File(codeCacheHttp, "wasm")
-      val defaultCodeCache = File(webViewCacheDir, "Code Cache")
-      val jsDefaultDir = File(defaultCodeCache, "js")
-      val wasmDefaultDir = File(defaultCodeCache, "wasm")
+      
+      // Clean up misplaced directories inside HTTP Cache that corrupt Chromium SimpleCache
+      val misplacedCodeCache = File(httpCache, "Code Cache")
+      if (misplacedCodeCache.exists()) {
+        misplacedCodeCache.deleteRecursively()
+      }
+      val indexDir = File(httpCache, "index-dir")
+      val realIndex = File(indexDir, "the-real-index")
+      if (indexDir.exists() && (!realIndex.exists() || realIndex.length() == 0L)) {
+        indexDir.deleteRecursively()
+      }
 
-      jsHttpDir.mkdirs()
-      wasmHttpDir.mkdirs()
-      jsDefaultDir.mkdirs()
-      wasmDefaultDir.mkdirs()
-      File(httpCache, "index-dir").mkdirs()
+      // Ensure proper Code Cache directories exist in standard WebView/Default location
+      val defaultCodeCache = File(webViewCacheDir, "Code Cache")
+      File(defaultCodeCache, "js").mkdirs()
+      File(defaultCodeCache, "wasm").mkdirs()
       File(cacheDir, "WebView/Crashpad/attachments").mkdirs()
 
-      // Clean up orphaned or broken zero-length temp cache entries that cause SimpleCache index reconstruction failures
-      val cleanupDirs = listOf(jsHttpDir, wasmHttpDir, jsDefaultDir, wasmDefaultDir)
+      // Clean up orphaned or broken zero-length temp cache entries
+      val cleanupDirs = listOf(File(defaultCodeCache, "js"), File(defaultCodeCache, "wasm"))
       for (dir in cleanupDirs) {
         if (dir.exists() && dir.isDirectory) {
           dir.listFiles()?.forEach { file ->
@@ -93,11 +97,19 @@ class MainActivity : ComponentActivity() {
       Log.w("MainActivity", "WebView directory init: ${e.message}")
     }
 
-    // Initialize Cronet Engine safely
+    // Initialize Cronet Engine and Disk LRU Asset Cache safely
     try {
       com.example.network.CronetClientFactory.initialize(applicationContext)
+      com.example.network.WebViewAssetLruCache.initialize(applicationContext)
     } catch (e: Exception) {
-      Log.w("MainActivity", "Failed to initialize Cronet: ${e.message}")
+      Log.w("MainActivity", "Failed to initialize network services: ${e.message}")
+    }
+
+    // Enable Chrome Developer Tools (chrome://inspect) debugging for all WebViews
+    try {
+      android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+    } catch (e: Exception) {
+      Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
     }
 
     handleIncomingIntent(intent)
@@ -118,7 +130,7 @@ class MainActivity : ComponentActivity() {
   private fun handleIncomingIntent(intent: Intent?) {
     val pwaUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
     if (!pwaUrl.isNullOrBlank()) {
-      viewModel.openUrlInBrowser(pwaUrl)
+      viewModel.openUrlInBrowser(pwaUrl, isExternal = true)
     }
   }
 }

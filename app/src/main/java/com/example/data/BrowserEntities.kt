@@ -24,7 +24,8 @@ data class BrowserTabEntity(
     val url: String,
     val title: String,
     val lastAccessed: Long = System.currentTimeMillis(),
-    val isSuspended: Boolean = false
+    val isSuspended: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val isExternal: Boolean = false
 )
 
 @Dao

@@ -10,6 +10,7 @@ data class KaspaWalletState(
     val isLoading: Boolean = false,
     val isSending: Boolean = false,
     val statusNotice: String? = null,
+    val lastBroadcastTxId: String? = null,
     val recentTransactions: List<KaspaTransactionItem> = emptyList(),
     val networkStatus: String = "Kaspa BlockDAG Mainnet"
 )

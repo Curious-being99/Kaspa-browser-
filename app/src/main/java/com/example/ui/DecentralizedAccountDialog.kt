@@ -50,6 +50,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -85,7 +86,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Warning
 import com.example.data.AccountEntity
+import com.example.data.DomainEntity
+import com.example.network.kaspa.DomainAvailability
 import com.example.model.KaspaWalletState
 import com.example.network.CryptoUtils
 import com.example.network.DomainConstants
@@ -111,7 +117,7 @@ fun DecentralizedAccountDialog(
     activeAccount: AccountEntity?,
     allAccounts: List<AccountEntity>,
     onDismiss: () -> Unit,
-    onCreateAccount: (handle: String, mnemonic: String?) -> Unit,
+    onCreateAccount: (handle: String, mnemonic: String?, password: String?, enableBiometric: Boolean) -> Unit,
     onLinkGoogle: (email: String, displayName: String) -> Unit,
     onOpenGoogleLogin: () -> Unit,
     onSwitchAccount: (did: String) -> Unit,
@@ -121,7 +127,19 @@ fun DecentralizedAccountDialog(
     onSendKaspa: (recipient: String, amount: Double) -> Unit = { _, _ -> },
     onOpenUrl: (url: String) -> Unit = {},
     onSignOut: () -> Unit = {},
-    initialTab: Int = 0
+    initialTab: Int = 0,
+    registeredDomains: List<DomainEntity> = emptyList(),
+    domainAvailability: DomainAvailability = DomainAvailability.Idle,
+    isRegisteringDomain: Boolean = false,
+    onCheckDomainAvailability: (String) -> Unit = {},
+    onRegisterDomain: (domain: String, targetCid: String?, onComplete: (Boolean, String) -> Unit) -> Unit = { _, _, _ -> },
+    onDeleteDomain: (DomainEntity) -> Unit = {},
+    isWalletLocked: Boolean = false,
+    hasWalletPassword: Boolean = false,
+    biometricEnabled: Boolean = true,
+    onUnlockWalletWithPassword: (password: String) -> Boolean = { false },
+    onUnlockWalletWithBiometric: () -> Unit = {},
+    onLockWallet: () -> Unit = {}
 ) {
     val clipboardManager = LocalClipboardManager.current
     var selectedTab by remember { mutableIntStateOf(initialTab) }
@@ -189,7 +207,10 @@ fun DecentralizedAccountDialog(
                                 color = TextPrimary
                             )
                             Text(
-                                text = activeAccount?.handle ?: "No Active Wallet",
+                                text = activeAccount?.let { acc ->
+                                    if (acc.accountType == "GOOGLE_ZK_BRIDGE") acc.googleEmail ?: acc.handle
+                                    else "${acc.handle} • ${acc.kaspaAddress.take(14)}..."
+                                } ?: "No Active Wallet",
                                 fontSize = 11.sp,
                                 color = if (activeAccount != null) EmeraldMesh else TextMuted,
                                 fontFamily = FontFamily.Monospace
@@ -211,7 +232,7 @@ fun DecentralizedAccountDialog(
                 }
 
                 // Tab Navigation
-                val tabTitles = listOf("Kaspa Wallet", "Active Profile", "Create / Import Wallet", "Google Login", "All Accounts (${allAccounts.size})")
+                val tabTitles = listOf("Kaspa Wallet", ".k Domains (${registeredDomains.size})", "Active Profile", "Create / Import Wallet", "Google Login", "All Accounts (${allAccounts.size})")
                 ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = SurfaceDark,
@@ -276,22 +297,44 @@ fun DecentralizedAccountDialog(
                             onRefresh = onRefreshWallet,
                             onSendKaspa = onSendKaspa,
                             onOpenUrl = onOpenUrl,
-                            onNavigateToCreateOrImport = { selectedTab = 2 },
-                            onSignOut = onSignOut
+                            onNavigateToCreateOrImport = { selectedTab = 3 },
+                            onNavigateToDomains = { selectedTab = 1 },
+                            onSignOut = onSignOut,
+                            isWalletLocked = isWalletLocked,
+                            hasWalletPassword = hasWalletPassword,
+                            biometricEnabled = biometricEnabled,
+                            onUnlockWalletWithPassword = onUnlockWalletWithPassword,
+                            onUnlockWalletWithBiometric = onUnlockWalletWithBiometric,
+                            onLockWallet = onLockWallet
                         )
-                        1 -> ActiveProfileTab(
+                        1 -> KabDomainsTab(
+                            activeAccount = activeAccount,
+                            walletState = walletState,
+                            registeredDomains = registeredDomains,
+                            domainAvailability = domainAvailability,
+                            isRegistering = isRegisteringDomain,
+                            onCheckAvailability = onCheckDomainAvailability,
+                            onRegisterDomain = onRegisterDomain,
+                            onDeleteDomain = onDeleteDomain,
+                            onOpenUrl = onOpenUrl,
+                            onCopy = { label, text ->
+                                clipboardManager.setText(AnnotatedString(text))
+                                copiedNotice = label
+                            }
+                        )
+                        2 -> ActiveProfileTab(
                             account = activeAccount,
                             onCopy = { label, text ->
                                 clipboardManager.setText(AnnotatedString(text))
                                 copiedNotice = label
                             },
-                            onNavigateToCreate = { selectedTab = 2 },
-                            onNavigateToGoogle = { selectedTab = 3 },
+                            onNavigateToCreate = { selectedTab = 3 },
+                            onNavigateToGoogle = { selectedTab = 4 },
                             onNavigateToWallet = { selectedTab = 0 }
                         )
-                        2 -> CreateAccountTab(
-                            onCreateAccount = { handle, mnemonic ->
-                                onCreateAccount(handle, mnemonic)
+                        3 -> CreateAccountTab(
+                            onCreateAccount = { walletLabel, mnemonic, password, enableBiometric ->
+                                onCreateAccount(walletLabel, mnemonic, password, enableBiometric)
                                 selectedTab = 0
                             },
                             onCopy = { label, text ->
@@ -299,7 +342,7 @@ fun DecentralizedAccountDialog(
                                 copiedNotice = label
                             }
                         )
-                        3 -> GoogleBridgeTab(
+                        4 -> GoogleBridgeTab(
                             activeAccount = activeAccount,
                             onOpenGoogleLogin = onOpenGoogleLogin,
                             onLinkGoogle = { email, name ->
@@ -307,7 +350,7 @@ fun DecentralizedAccountDialog(
                                 selectedTab = 0
                             }
                         )
-                        4 -> AllAccountsTab(
+                        5 -> AllAccountsTab(
                             accounts = allAccounts,
                             activeAccount = activeAccount,
                             onSwitch = { did ->
@@ -317,7 +360,7 @@ fun DecentralizedAccountDialog(
                             onDelete = { acc ->
                                 onDeleteAccount(acc)
                             },
-                            onAddNew = { selectedTab = 2 }
+                            onAddNew = { selectedTab = 3 }
                         )
                     }
                 }
@@ -594,6 +637,127 @@ private fun ActiveProfileTab(
             }
         }
 
+        // Mathematical Zero-Knowledge Proof of Knowledge (Sigma Protocol with Fiat-Shamir on secp256k1)
+        if (!account.zkProofJson.isNullOrBlank()) {
+            var showZkProofDetails by remember { mutableStateOf(false) }
+            var zkVerificationMessage by remember { mutableStateOf<String?>(null) }
+            var isZkValid by remember { mutableStateOf<Boolean?>(null) }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (isZkValid == true) EmeraldMesh.copy(alpha = 0.6f) else SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Security,
+                                contentDescription = null,
+                                tint = if (isZkValid == true) EmeraldMesh else ElectricCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text("Zero-Knowledge Proof (NIZKP)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text("Schnorr-Sigma Fiat-Shamir (secp256k1)", fontSize = 10.sp, color = TextMuted)
+                            }
+                        }
+
+                        Row {
+                            IconButton(
+                                onClick = { showZkProofDetails = !showZkProofDetails },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (showZkProofDetails) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle ZK Details",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onCopy("ZK Proof JSON", account.zkProofJson) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy ZK Proof",
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Button(
+                            onClick = {
+                                try {
+                                    val json = org.json.JSONObject(account.zkProofJson)
+                                    val proof = com.example.network.zk.ZkProofEngine.ZkProof.fromJson(json)
+                                    val result = com.example.network.zk.ZkProofEngine.verifyZkProof(proof)
+                                    isZkValid = result.isValid
+                                    zkVerificationMessage = result.message
+                                } catch (e: Exception) {
+                                    isZkValid = false
+                                    zkVerificationMessage = "Verification error: ${e.message}"
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isZkValid == true) EmeraldMesh else SurfaceDark),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(
+                                if (isZkValid == true) Icons.Default.CheckCircle else Icons.Default.Security,
+                                contentDescription = null,
+                                tint = if (isZkValid == true) ObsidianBg else ElectricCyan,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                if (isZkValid == true) "ZK Proof Verified (s·G == R + e·P)" else "Verify Real ZK Proof",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isZkValid == true) ObsidianBg else ElectricCyan
+                            )
+                        }
+                    }
+
+                    if (zkVerificationMessage != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = zkVerificationMessage ?: "",
+                            fontSize = 10.sp,
+                            color = if (isZkValid == true) EmeraldMesh else AmberCentral
+                        )
+                    }
+
+                    if (showZkProofDetails) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = account.zkProofJson,
+                            fontSize = 9.sp,
+                            color = TextMuted,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(6.dp))
     }
 }
@@ -661,15 +825,20 @@ private fun IdentityFieldCard(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CreateAccountTab(
-    onCreateAccount: (handle: String, mnemonic: String?) -> Unit,
+    onCreateAccount: (walletLabel: String, mnemonic: String?, password: String?, enableBiometric: Boolean) -> Unit,
     onCopy: (label: String, text: String) -> Unit = { _, _ -> }
 ) {
     var isImportMode by remember { mutableStateOf(false) }
-    var handleInput by remember { mutableStateOf("") }
+    var walletLabelInput by remember { mutableStateOf("") }
     var importMnemonicInput by remember { mutableStateOf("") }
+
+    var passwordInput by remember { mutableStateOf("") }
+    var confirmPasswordInput by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var enableBiometric by remember { mutableStateOf(true) }
+    var errorNotice by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -710,27 +879,27 @@ private fun CreateAccountTab(
         }
 
         Text(
-            text = if (isImportMode) "Import Existing Kaspa Wallet & Seed Phrase" else "Generate Self-Sovereign Identity & Kaspa Wallet",
+            text = if (isImportMode) "Import Existing Kaspa Wallet & Seed Phrase" else "Generate Non-Custodial Kaspa Wallet",
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary
         )
         Text(
             text = if (isImportMode)
-                "Enter your existing 12-word seed phrase to restore your Kaspa L1 address and decentralized handle."
+                "Enter your existing 12-word recovery seed phrase to restore your Kaspa L1 address, secp256k1 keys, and decentralized identity."
             else
-                "Keys and seed phrases are generated 100% locally on this device via SHA-256 BlockDAG entropy. No seed phrase is exposed or transmitted during creation.",
+                "Keys and seed phrases are generated 100% locally on this device via SHA-256 BlockDAG entropy. No seed phrase is ever transmitted over the network.",
             fontSize = 11.sp,
             color = TextMuted,
             lineHeight = 15.sp
         )
 
-        // Handle Input
+        // Wallet Label Input
         OutlinedTextField(
-            value = handleInput,
-            onValueChange = { handleInput = it },
-            label = { Text("Custom Handle / Domain (${DomainConstants.PRIMARY_DOMAIN_SUFFIX})", fontSize = 12.sp) },
-            placeholder = { Text("e.g. alice.kab or satoshi.kab", fontSize = 12.sp) },
+            value = walletLabelInput,
+            onValueChange = { walletLabelInput = it },
+            label = { Text("Wallet Name / Label (Optional)", fontSize = 12.sp) },
+            placeholder = { Text("e.g. Main Wallet or Personal Account", fontSize = 12.sp) },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
@@ -745,6 +914,137 @@ private fun CreateAccountTab(
             ),
             shape = RoundedCornerShape(10.dp)
         )
+
+        // Security Password & PIN Section
+        Card(
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Lock, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Wallet Access Password & Biometric Lock",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+                Text(
+                    text = "Create a password to lock/protect your private key and seed phrase locally.",
+                    fontSize = 10.sp,
+                    color = TextMuted
+                )
+
+                // Password Field
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = {
+                        passwordInput = it
+                        errorNotice = null
+                    },
+                    label = { Text("Set Wallet Password / PIN", fontSize = 11.sp) },
+                    placeholder = { Text("Enter a secure password (min 4 chars)...", fontSize = 11.sp) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(
+                                if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = null,
+                                tint = TextMuted,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("wallet_password_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricCyan,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedContainerColor = SurfaceCard,
+                        unfocusedContainerColor = SurfaceCard
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                // Confirm Password Field
+                OutlinedTextField(
+                    value = confirmPasswordInput,
+                    onValueChange = {
+                        confirmPasswordInput = it
+                        errorNotice = null
+                    },
+                    label = { Text("Confirm Wallet Password", fontSize = 11.sp) },
+                    placeholder = { Text("Re-enter password...", fontSize = 11.sp) },
+                    singleLine = true,
+                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("wallet_confirm_password_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricCyan,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedContainerColor = SurfaceCard,
+                        unfocusedContainerColor = SurfaceCard
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                // Biometric Toggle
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = SurfaceCard,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { enableBiometric = !enableBiometric }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("Biometric / System Lock", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text("Allow unlocking via Fingerprint, Face ID, or Device PIN", fontSize = 9.sp, color = TextMuted)
+                            }
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = enableBiometric,
+                            onCheckedChange = { enableBiometric = it },
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        if (errorNotice != null) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = RedTamper.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, RedTamper),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = errorNotice ?: "",
+                    fontSize = 11.sp,
+                    color = RedTamper,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+        }
 
         if (isImportMode) {
             // Import Seed Input Field
@@ -774,20 +1074,34 @@ private fun CreateAccountTab(
         // Action Button
         Button(
             onClick = {
+                val password = passwordInput.trim()
+                val confirmPwd = confirmPasswordInput.trim()
+
+                if (password.length < 4) {
+                    errorNotice = "Wallet access password must be at least 4 characters."
+                    return@Button
+                }
+                if (password != confirmPwd) {
+                    errorNotice = "Passwords do not match. Please re-enter."
+                    return@Button
+                }
+
                 val seedToUse = if (isImportMode) importMnemonicInput.trim() else null
-                onCreateAccount(handleInput.trim(), seedToUse)
+                onCreateAccount(walletLabelInput.trim(), seedToUse, password, enableBiometric)
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp)
                 .testTag("submit_create_account_button"),
-            colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ElectricCyan
+            ),
             shape = RoundedCornerShape(12.dp)
         ) {
             Icon(Icons.Default.VpnKey, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (isImportMode) "Import Wallet & Restore Identity" else "Create Kaspa Wallet",
+                text = if (isImportMode) "Import Kaspa Wallet" else "Create Kaspa Wallet",
                 color = ObsidianBg,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp
@@ -1088,6 +1402,537 @@ private fun AllAccountsTab(
                                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RedTamper, modifier = Modifier.size(14.dp))
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun KabDomainsTab(
+    activeAccount: AccountEntity?,
+    walletState: KaspaWalletState,
+    registeredDomains: List<DomainEntity>,
+    domainAvailability: DomainAvailability,
+    isRegistering: Boolean,
+    onCheckAvailability: (String) -> Unit,
+    onRegisterDomain: (domain: String, targetCid: String?, onComplete: (Boolean, String) -> Unit) -> Unit,
+    onDeleteDomain: (DomainEntity) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onCopy: (String, String) -> Unit
+) {
+    var domainInput by remember { mutableStateOf("") }
+    var targetCidInput by remember { mutableStateOf("") }
+    var registrationStatusMessage by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(domainInput) {
+        if (domainInput.isNotBlank()) {
+            onCheckAvailability(domainInput)
+        }
+    }
+
+    val myDomains = remember(registeredDomains, activeAccount?.kaspaAddress) {
+        val addr = activeAccount?.kaspaAddress
+        if (addr.isNullOrEmpty()) emptyList()
+        else registeredDomains.filter { it.ownerAddress.equals(addr, ignoreCase = true) }
+    }
+
+    val filteredDomains = remember(registeredDomains, searchQuery) {
+        if (searchQuery.isBlank()) registeredDomains
+        else registeredDomains.filter {
+            it.domain.contains(searchQuery.trim(), ignoreCase = true) ||
+            it.ownerAddress.contains(searchQuery.trim(), ignoreCase = true)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Hero Header
+        Card(
+            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = CircleShape,
+                        color = EmeraldMesh.copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("🌐", fontSize = 16.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Kaspa Naming Service (.k)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Global on-chain domain uniqueness on Kaspa BlockDAG",
+                            fontSize = 10.sp,
+                            color = EmeraldMesh
+                        )
+                    }
+                }
+                Text(
+                    text = "Once claimed with real on-chain KAS, a .k handle is cryptographically locked to your Schnorr key and permanently unavailable to anyone else across the network.",
+                    fontSize = 11.sp,
+                    color = TextMuted,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+
+        // Register New Domain Section
+        Card(
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Register / Claim .k Domain",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ElectricCyan
+                )
+
+                OutlinedTextField(
+                    value = domainInput,
+                    onValueChange = { domainInput = it },
+                    label = { Text("Domain Name (.k)", fontSize = 11.sp) },
+                    placeholder = { Text("e.g. satoshi, mybrand, meshnode", fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("kab_domain_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricCyan,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                OutlinedTextField(
+                    value = targetCidInput,
+                    onValueChange = { targetCidInput = it },
+                    label = { Text("Linked IPFS / Mesh CID or Peer DID (Optional)", fontSize = 11.sp) },
+                    placeholder = { Text("e.g. bafybei... or did:kaspa:...", fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("kab_target_cid_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricCyan,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                // Live Availability Card
+                if (domainInput.isNotBlank()) {
+                    when (domainAvailability) {
+                        is DomainAvailability.Checking -> {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = SurfaceCard,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ElectricCyan, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Checking on-chain BlockDAG registry for availability...", fontSize = 11.sp, color = TextMuted)
+                                }
+                            }
+                        }
+                        is DomainAvailability.Available -> {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = EmeraldMesh.copy(alpha = 0.12f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "${domainAvailability.domain} is AVAILABLE to claim!",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = EmeraldMesh
+                                        )
+                                    }
+                                    val regPayloadEst = 120
+                                    val regEstMass = com.example.network.kaspa.KaspaTransactionEngine.estimateTransactionMass(inputsCount = 1, outputsCount = 2, payloadByteCount = regPayloadEst)
+                                    val regEstFeeSompis = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(regEstMass)
+                                    val regEstFeeKas = com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(regEstFeeSompis)
+                                    val regEstFeeFormatted = com.example.network.kaspa.KaspaTransactionEngine.formatKas(regEstFeeKas)
+                                    Text(
+                                        text = "Cost: ${domainAvailability.feeKas} KAS + $regEstFeeFormatted KAS Miner Fee | Protocol: Kaspa BlockDAG L1 KNS",
+                                        fontSize = 10.sp,
+                                        color = TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                        is DomainAvailability.ClaimedByOther -> {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = RedTamper.copy(alpha = 0.12f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, RedTamper),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Warning, contentDescription = null, tint = RedTamper, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "⛔ ${domainAvailability.domain} is ALREADY CLAIMED",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = RedTamper
+                                        )
+                                    }
+                                    val regDateStr = try {
+                                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(domainAvailability.registeredAt))
+                                    } catch (e: Exception) { "On-chain" }
+                                    Text(
+                                        text = "Owner: ${domainAvailability.ownerAddress}\nTx: ${domainAvailability.txId.take(16)}...\nRegistered: $regDateStr\n\nStrict Rule: Once claimed on Kaspa BlockDAG, names are permanent and cannot be claimed by anyone else.",
+                                        fontSize = 10.sp,
+                                        color = TextSecondary,
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                        is DomainAvailability.OwnedByYou -> {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ElectricCyan.copy(alpha = 0.12f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "👑 ${domainAvailability.domain} is OWNED BY YOU",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ElectricCyan
+                                        )
+                                    }
+                                    Text(
+                                        text = "Tx: ${domainAvailability.txId.take(16)}... | CID: ${domainAvailability.targetCid ?: "None"}",
+                                        fontSize = 10.sp,
+                                        color = TextMuted
+                                    )
+                                    Button(
+                                        onClick = { onOpenUrl("kns://${domainAvailability.domain}") },
+                                        shape = RoundedCornerShape(6.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Text("Open in Browser (kns://${domainAvailability.domain})", fontSize = 10.sp, color = ObsidianBg, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        is DomainAvailability.Invalid -> {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = AmberCentral.copy(alpha = 0.12f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AmberCentral),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Info, contentDescription = null, tint = AmberCentral, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = domainAvailability.reason, fontSize = 11.sp, color = AmberCentral)
+                                }
+                            }
+                        }
+                        is DomainAvailability.Idle -> {}
+                    }
+                }
+
+                // Registration Status Toast Message
+                if (registrationStatusMessage != null) {
+                    val (isSuccess, msg) = registrationStatusMessage!!
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSuccess) EmeraldMesh.copy(alpha = 0.2f) else RedTamper.copy(alpha = 0.2f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSuccess) EmeraldMesh else RedTamper),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (isSuccess) EmeraldMesh else RedTamper,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = msg, fontSize = 11.sp, color = if (isSuccess) EmeraldMesh else RedTamper)
+                        }
+                    }
+                }
+
+                // Claim Button
+                val isClaimButtonEnabled = activeAccount != null &&
+                        domainInput.isNotBlank() &&
+                        domainAvailability is DomainAvailability.Available &&
+                        !isRegistering
+
+                Button(
+                    onClick = {
+                        if (activeAccount == null) {
+                            registrationStatusMessage = Pair(false, "No active wallet. Please create or import a Kaspa wallet first.")
+                            return@Button
+                        }
+                        onRegisterDomain(domainInput.trim(), targetCidInput.trim().ifEmpty { null }) { success, message ->
+                            registrationStatusMessage = Pair(success, message)
+                            if (success) {
+                                domainInput = ""
+                                targetCidInput = ""
+                            }
+                        }
+                    },
+                    enabled = isClaimButtonEnabled,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("claim_kab_domain_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EmeraldMesh,
+                        disabledContainerColor = SurfaceCardBorder
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    if (isRegistering) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = ObsidianBg, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Broadcasting to Kaspa DAG Nodes...", color = ObsidianBg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        val claimFeeKas = (domainAvailability as? DomainAvailability.Available)?.feeKas ?: 1.0
+                        Icon(Icons.Default.Dns, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (domainAvailability is DomainAvailability.ClaimedByOther) "Unavailable (Claimed on BlockDAG)" else "Claim Trustless Name KAS On-Chain",
+                            color = ObsidianBg,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section: My Claimed Domains
+        Text(
+            text = "My Claimed .k Domains (${myDomains.size})",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary
+        )
+
+        if (myDomains.isEmpty()) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = SurfaceDark,
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("No .k domains claimed yet for this wallet.", fontSize = 12.sp, color = TextMuted)
+                    Text("Enter a name above and claim it on the Kaspa BlockDAG.", fontSize = 10.sp, color = TextMuted)
+                }
+            }
+        } else {
+            myDomains.forEach { domain ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = domain.domain,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldMesh
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = EmeraldMesh.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = "ON-CHAIN",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldMesh,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { onCopy("Domain", domain.domain) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = TextMuted, modifier = Modifier.size(13.dp))
+                            }
+                        }
+
+                        Text(
+                            text = "Tx: ${domain.txId.take(24)}... (Fee: ${domain.registrationFeeKas} KAS)",
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = TextMuted
+                        )
+                        if (!domain.targetCid.isNullOrBlank()) {
+                            Text(
+                                text = "CID: ${domain.targetCid}",
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = ElectricCyan
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { onOpenUrl("kns://${domain.domain}") },
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).height(32.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Open in Browser", fontSize = 11.sp, color = ObsidianBg, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = { onCopy("Transaction ID", domain.txId) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(32.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                            ) {
+                                Text("Copy Tx ID", fontSize = 11.sp, color = TextPrimary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: All Network Domains
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Kaspa BlockDAG Network Registry (${registeredDomains.size})",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+        }
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search network registry...", fontSize = 11.sp) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = ElectricCyan,
+                unfocusedBorderColor = SurfaceCardBorder,
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                focusedContainerColor = SurfaceDark,
+                unfocusedContainerColor = SurfaceDark
+            ),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        filteredDomains.forEach { domain ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = SurfaceDark,
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(domain.domain, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            if (domain.ownerAddress.equals(activeAccount?.kaspaAddress, ignoreCase = true)) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = ElectricCyan.copy(alpha = 0.2f)
+                                ) {
+                                    Text("YOU", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = ElectricCyan, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                }
+                            }
+                        }
+                        Text("Owner: ${domain.ownerAddress.take(20)}...", fontSize = 10.sp, color = TextMuted, fontFamily = FontFamily.Monospace)
+                        Text("Tx: ${domain.txId.take(16)}...", fontSize = 9.sp, color = TextMuted, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Button(
+                        onClick = { onOpenUrl("kns://${domain.domain}") },
+                        shape = RoundedCornerShape(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceCard),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text("Resolve", fontSize = 10.sp, color = ElectricCyan)
                     }
                 }
             }

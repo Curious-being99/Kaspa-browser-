@@ -837,15 +837,19 @@ object CryptoUtils {
         val did = "did:key:z6Mku" + kaspaKey.publicKeyHex.take(38)
         val peerId = "12D3KooW" + kaspaKey.publicKeyHex.take(24)
         
-        val rawHandle = customHandle?.trim()?.ifBlank { null } ?: "kaspa_${kaspaKey.publicKeyHex.take(6)}"
-        val cleanHandle = DomainConstants.formatDomain(rawHandle)
-        val handle = if (cleanHandle.startsWith("@")) cleanHandle else "@$cleanHandle"
+        val handle = customHandle?.trim()?.ifBlank { null }
+            ?: "Kaspa Wallet (${kaspaKey.kaspaAddress.takeLast(6)})"
 
         val encryptedMnemonic = encryptAes256(plainMnemonic)
 
+        val zkProof = com.example.network.zk.ZkProofEngine.generateZkProof(
+            privateKey = kaspaKey.privateKey,
+            statement = "zk-identity:${did}|kaspa:${kaspaKey.kaspaAddress}|wallet:$handle"
+        )
+
         return com.example.data.AccountEntity(
             did = did,
-            handle = if (handle.startsWith("@")) handle else "@$handle",
+            handle = handle,
             kaspaAddress = kaspaKey.kaspaAddress,
             peerId = peerId,
             publicKeyHex = kaspaKey.publicKeyHex,
@@ -853,6 +857,7 @@ object CryptoUtils {
             accountType = "DECENTRALIZED_NATIVE",
             googleEmail = null,
             googleDisplayName = null,
+            zkProofJson = zkProof.toJson().toString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
         )
@@ -876,6 +881,12 @@ object CryptoUtils {
 
         val encryptedMnemonic = encryptAes256(mnemonic)
 
+        val zkProof = com.example.network.zk.ZkProofEngine.generateGoogleBridgeZkProof(
+            privateKey = kaspaKey.privateKey,
+            googleEmail = cleanEmail,
+            did = did
+        )
+
         return com.example.data.AccountEntity(
             did = did,
             handle = handle,
@@ -886,6 +897,7 @@ object CryptoUtils {
             accountType = "GOOGLE_ZK_BRIDGE",
             googleEmail = cleanEmail,
             googleDisplayName = displayName.ifBlank { cleanEmail.substringBefore("@") },
+            zkProofJson = zkProof.toJson().toString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
         )

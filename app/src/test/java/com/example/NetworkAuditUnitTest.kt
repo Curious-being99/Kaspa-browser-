@@ -205,6 +205,24 @@ class NetworkAuditUnitTest {
         assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://kaspa.org"))
         assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://wikipedia.org/wiki/Kaspa"))
 
+        // Google Account login, OAuth, profile, and authentication endpoints must NEVER be blocked
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://accounts.google.com/signin/v2/identifier"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://myaccount.google.com/"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://apis.google.com/js/platform.js"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://oauth2.googleapis.com/token"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://identitytoolkit.googleapis.com/v1/accounts"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://ssl.gstatic.com/accounts/ui/avatar_2x.png"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://accounts.google.com/gsi/client"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://www.google.com/recaptcha/api.js"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://lh3.googleusercontent.com/a/default-user"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://accounts.google.co.uk/signin"))
+
+        assertFalse(com.example.network.UBlockEngine.shouldBlock("https://accounts.google.com/ServiceLogin"))
+        assertFalse(com.example.network.UBlockEngine.shouldBlock("https://myaccount.google.com/security"))
+        assertFalse(com.example.network.UBlockEngine.shouldBlock("https://apis.google.com/js/api.js"))
+        assertFalse(com.example.network.UBlockEngine.shouldBlock("https://oauth2.googleapis.com/token"))
+        assertFalse(com.example.network.UBlockEngine.shouldBlock("https://ssl.gstatic.com/accounts/ui/avatar.png"))
+
         val headers = com.example.network.KaspaPrivacyEngine.getPrivacyHeaders()
         assertEquals("1", headers["DNT"])
         assertEquals("1", headers["Sec-GPC"])
@@ -299,4 +317,210 @@ class NetworkAuditUnitTest {
         assertTrue("Data extraction rules must exclude decentralnet_db from cloud", extractionContent.contains("path=\"decentralnet_db\""))
         assertTrue("Data extraction rules must exclude kaspa_node_prefs.xml from device transfer", extractionContent.contains("path=\"kaspa_node_prefs.xml\""))
     }
+
+    @Test
+    fun testMathematicalZeroKnowledgeProofEngine() {
+        val mnemonic = "cat dog elephant fox giraffe horse jaguar koala lion monkey nest owl"
+        val keyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(mnemonic)
+
+        // 1. Generate Non-Interactive Zero-Knowledge Proof (NIZKP)
+        val statement = "zk-identity:test|kaspa:${keyPair.kaspaAddress}"
+        val zkProof = com.example.network.zk.ZkProofEngine.generateZkProof(keyPair.privateKey, statement)
+
+        assertEquals(64, zkProof.publicKeyHex.length)
+        assertEquals(64, zkProof.commitmentRxHex.length)
+        assertEquals(64, zkProof.commitmentRyHex.length)
+        assertEquals(64, zkProof.challengeHex.length)
+        assertEquals(64, zkProof.responseHex.length)
+        assertEquals(statement, zkProof.statement)
+
+        // 2. Verify mathematically: s·G == R + e·P
+        val verifyResult = com.example.network.zk.ZkProofEngine.verifyZkProof(zkProof)
+        assertTrue("ZK Proof must verify mathematically valid", verifyResult.isValid)
+
+        // 3. Verify that tampered challenge or response fails verification
+        val tamperedProof = zkProof.copy(responseHex = zkProof.responseHex.dropLast(1) + if (zkProof.responseHex.takeLast(1) == "0") "1" else "0")
+        val tamperedResult = com.example.network.zk.ZkProofEngine.verifyZkProof(tamperedProof)
+        assertFalse("Tampered ZK proof must fail verification", tamperedResult.isValid)
+
+        // 4. Test Google zk-Bridge proof generation and verification
+        val googleZkProof = com.example.network.zk.ZkProofEngine.generateGoogleBridgeZkProof(
+            privateKey = keyPair.privateKey,
+            googleEmail = "satoshi@gmail.com",
+            did = "did:key:z6MkgTest"
+        )
+        val googleVerifyResult = com.example.network.zk.ZkProofEngine.verifyZkProof(googleZkProof)
+        assertTrue("Google zk-bridge proof must verify mathematically valid", googleVerifyResult.isValid)
+    }
+
+    @Test
+    fun testKabDomainNormalizationAndValidation() {
+        // Test suffix formatting and normalization
+        assertEquals("satoshi.k", com.example.network.DomainConstants.formatDomain("satoshi"))
+        assertEquals("satoshi.k", com.example.network.DomainConstants.formatDomain("satoshi.k"))
+        assertEquals("mesh-node-1.k", com.example.network.DomainConstants.formatDomain("mesh-node-1"))
+
+        // Test custom domain suffix detection
+        assertTrue(com.example.network.DomainConstants.isCustomDomain("satoshi.k"))
+        assertTrue(com.example.network.DomainConstants.isCustomDomain("alice-123.k"))
+        assertTrue(com.example.network.DomainConstants.isCustomDomain("node.kasbrowser"))
+
+        // Test non-custom domains
+        assertFalse(com.example.network.DomainConstants.isCustomDomain("google.com"))
+        assertFalse(com.example.network.DomainConstants.isCustomDomain("wikipedia.org"))
+    }
+
+    @Test
+    fun testKabDomainPayloadAndSchnorrSignature() {
+        val mnemonic = "cat dog elephant fox giraffe horse jaguar koala lion monkey nest owl"
+        val keyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(mnemonic)
+        val domain = "satoshi.k"
+
+        // Construct KNS JSON payload
+        val knsJson = org.json.JSONObject().apply {
+            put("protocol", "kns-k")
+            put("op", "register")
+            put("domain", domain)
+            put("owner", keyPair.kaspaAddress)
+            put("pubkey", keyPair.publicKeyHex)
+            put("timestamp", 1700000000000L)
+        }
+        val payloadStr = knsJson.toString()
+        val payloadHash = CryptoUtils.sha256Raw(payloadStr.toByteArray(Charsets.UTF_8))
+        val signature = CryptoUtils.signSchnorr(keyPair.privateKey, payloadHash)
+
+        assertTrue(CryptoUtils.verifySchnorrSignature(signature, payloadHash, keyPair.publicKeyBytes))
+    }
+
+    @Test
+    fun testKaspaMassCalculationEngine() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val keyPair = CryptoUtils.deriveKaspaKeyPair(mnemonic)
+        val senderAddress = keyPair.kaspaAddress
+        val recipientAddress = "kaspa:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkx9awp4e"
+        
+        val senderScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
+        val recipientScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(recipientAddress)
+
+        val outpoint1 = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint("a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90", 0L)
+        val outpoint2 = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint("b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a1", 1L)
+
+        val input1 = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = outpoint1, sigOpCount = 1)
+        val input2 = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = outpoint2, sigOpCount = 1)
+
+        val output1 = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(amount = 200_000_000L, scriptPublicKey = recipientScript)
+        val output2 = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(amount = 299_900_000L, scriptPublicKey = senderScript)
+
+        val tx = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransaction(
+            version = 0,
+            inputs = listOf(input1, input2),
+            outputs = listOf(output1, output2),
+            lockTime = 0L,
+            payload = "7b2270726f746f636f6c223a226b6e732d6b227d" // 20 bytes payload
+        )
+
+        // 1. Verify compute mass calculation: 2 sigops * 1000 + 2 inputs * 100 + 2 outputs * 100 = 2400
+        val computeMass = com.example.network.kaspa.KaspaTransactionEngine.calculateComputeMass(
+            inputsCount = 2,
+            outputsCount = 2,
+            totalSigOps = 2
+        )
+        assertEquals(2400L, computeMass)
+
+        // 2. Verify serialized size calculation
+        val serializedBytes = com.example.network.kaspa.KaspaTransactionEngine.calculateSerializedByteSize(tx)
+        assertTrue("Serialized byte size must be > 300 bytes", serializedBytes > 300L)
+
+        // 3. Verify total mass calculation (at least max(compute, serialized))
+        val totalMass = com.example.network.kaspa.KaspaTransactionEngine.calculateMass(tx)
+        assertTrue("Total mass must be >= 2400", totalMass >= 2400L)
+    }
+
+    @Test
+    fun testKaspaDynamicFeeCalculation() {
+        // Test standard 1 sompi/mass fee calculation
+        val mass1 = 1200L
+        val fee1 = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(mass1, sompiPerMass = 1L)
+        assertEquals(1200L, fee1)
+
+        // Test fee in KAS (0.00001200 KAS)
+        val feeKas1 = fee1 / 100_000_000.0
+        assertEquals(0.000012, feeKas1, 0.000000001)
+
+        // Test priority fee (2 sompis/mass)
+        val feePriority = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(mass1, sompiPerMass = 2L)
+        assertEquals(2400L, feePriority)
+
+        // Test minimum fee threshold (1000 Sompi)
+        val smallMass = 500L
+        val minFee = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(smallMass, sompiPerMass = 1L)
+        assertEquals(1000L, minFee)
+    }
+
+    @Test
+    fun testKaspaUtxoSelectionAndTransactionPlanner() {
+        val senderScript = com.example.network.kaspa.KaspaTransactionEngine.KaspaScriptPublicKey(0, "20abcdefac")
+        
+        val utxo1 = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxo(
+            outpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint("tx1", 0L),
+            utxoEntry = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(100_000_000L, senderScript) // 1.0 KAS
+        )
+        val utxo2 = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxo(
+            outpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint("tx2", 0L),
+            utxoEntry = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(50_000_000L, senderScript) // 0.5 KAS
+        )
+
+        // Target: 1.2 KAS (120,000,000 Sompi) -> needs both UTXOs
+        val plan = com.example.network.kaspa.KaspaTransactionEngine.selectUtxosAndPlanTransaction(
+            availableUtxos = listOf(utxo1, utxo2),
+            targetAmountSompis = 120_000_000L,
+            payloadByteCount = 0
+        )
+
+        assertTrue("Plan must be sufficient", plan.isSufficient)
+        assertEquals(2, plan.selectedUtxos.size)
+        assertEquals(150_000_000L, plan.accumulatedSompis)
+        assertTrue("Calculated mass must be >= 1000", plan.calculatedMass >= 1000L)
+        assertTrue("Dynamic fee must be > 0 and calculated from mass", plan.feeSompis == plan.calculatedMass * plan.sompiPerMass)
+        assertEquals(plan.feeSompis / 100_000_000.0, plan.feeKas, 0.000000001)
+        assertEquals(150_000_000L - 120_000_000L - plan.feeSompis, plan.changeSompis)
+    }
+
+    @Test
+    fun testAuthenticKaspaDomainTransactionIdGeneration() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val keyPair = CryptoUtils.deriveKaspaKeyPair(mnemonic)
+        val senderAddress = keyPair.kaspaAddress
+        val domain = "alice.k"
+
+        val senderScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
+        val outpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint("1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff", 0L)
+        val utxoEntry = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(200_000_000L, senderScript)
+
+        val knsJson = org.json.JSONObject().apply {
+            put("protocol", "kns-k")
+            put("op", "register")
+            put("domain", domain)
+            put("owner", senderAddress)
+            put("pubkey", keyPair.publicKeyHex)
+            put("timestamp", 1700000000000L)
+        }
+        val payloadHex = knsJson.toString().toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }
+
+        val tx = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransaction(
+            version = 0,
+            inputs = listOf(com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = outpoint)),
+            outputs = listOf(com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(amount = 100_000_000L, scriptPublicKey = senderScript)),
+            lockTime = 0L,
+            payload = payloadHex
+        )
+
+        val signedTx = com.example.network.kaspa.KaspaTransactionEngine.signTransaction(tx, listOf(utxoEntry), keyPair.privateKey)
+        val txId = com.example.network.kaspa.KaspaTransactionEngine.calcTransactionId(signedTx)
+
+        assertEquals("On-chain transaction ID must be 64 hexadecimal characters", 64, txId.length)
+        assertTrue("Transaction ID must be valid lowercase hex", txId.matches(Regex("^[0-9a-f]{64}$")))
+        assertFalse("TxID must not contain mock prefix", txId.startsWith("mock") || txId.startsWith("kas_") || txId.contains("local"))
+    }
 }
+

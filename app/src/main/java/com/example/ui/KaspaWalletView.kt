@@ -2,6 +2,10 @@ package com.example.ui
 
 import com.example.ui.theme.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,10 +36,13 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Visibility
@@ -80,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.AccountEntity
 import com.example.model.KaspaWalletState
 import com.example.network.CryptoUtils
+import com.example.network.kaspa.KaspaTransactionEngine
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -93,7 +101,14 @@ fun KaspaWalletView(
     onSendKaspa: (recipient: String, amount: Double) -> Unit,
     onOpenUrl: (url: String) -> Unit,
     onNavigateToCreateOrImport: () -> Unit = {},
+    onNavigateToDomains: () -> Unit = {},
     onSignOut: () -> Unit = {},
+    isWalletLocked: Boolean = false,
+    hasWalletPassword: Boolean = false,
+    biometricEnabled: Boolean = true,
+    onUnlockWalletWithPassword: (password: String) -> Boolean = { false },
+    onUnlockWalletWithBiometric: () -> Unit = {},
+    onLockWallet: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -168,6 +183,150 @@ fun KaspaWalletView(
                     }
                 }
             }
+        } else if (isWalletLocked) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var unlockPasswordInput by remember { mutableStateOf("") }
+            var unlockError by remember { mutableStateOf<String?>(null) }
+            var passwordVisible by remember { mutableStateOf(false) }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = SurfaceDark,
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, ElectricCyan),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Kaspa Wallet Locked",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Enter your password or use biometric verification to access non-custodial keys, balances, and transfer funds.",
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 15.sp
+                    )
+
+                    // Password Field
+                    OutlinedTextField(
+                        value = unlockPasswordInput,
+                        onValueChange = {
+                            unlockPasswordInput = it
+                            unlockError = null
+                        },
+                        label = { Text("Enter Wallet Password / PIN", fontSize = 11.sp) },
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("unlock_wallet_password_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ElectricCyan,
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedContainerColor = SurfaceDark,
+                            unfocusedContainerColor = SurfaceDark
+                        ),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+
+                    if (unlockError != null) {
+                        Text(
+                            text = unlockError ?: "",
+                            fontSize = 11.sp,
+                            color = RedTamper,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    // Unlock Button
+                    Button(
+                        onClick = {
+                            val success = onUnlockWalletWithPassword(unlockPasswordInput.trim())
+                            if (!success) {
+                                unlockError = "Incorrect wallet password. Try again."
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("submit_unlock_wallet_button")
+                    ) {
+                        Icon(Icons.Default.LockOpen, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Unlock Wallet with Password", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+
+                    if (biometricEnabled) {
+                        OutlinedButton(
+                            onClick = {
+                                val activity = context as? android.app.Activity
+                                if (activity != null) {
+                                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                        activity = activity,
+                                        title = "Unlock Kaspa Wallet",
+                                        subtitle = "Use fingerprint, face, or device PIN",
+                                        onSuccess = {
+                                            onUnlockWalletWithBiometric()
+                                        },
+                                        onError = { err ->
+                                            unlockError = err
+                                        }
+                                    )
+                                } else {
+                                    onUnlockWalletWithBiometric()
+                                }
+                            },
+                            border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("unlock_biometric_button")
+                        ) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Unlock with Biometric / Device PIN", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
         } else {
             // Copy notification toast
             if (copyToast != null) {
@@ -226,23 +385,43 @@ fun KaspaWalletView(
                 }
             }
 
-            Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = SurfaceCard,
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (hasWalletPassword) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = SurfaceCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.clickable { onLockWallet() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, tint = TextMuted, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Lock Wallet", fontSize = 9.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = SurfaceCard,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(ElectricCyan)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("BlockDAG L1", fontSize = 9.sp, color = ElectricCyan, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(ElectricCyan)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("BlockDAG L1", fontSize = 9.sp, color = ElectricCyan, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -402,66 +581,118 @@ fun KaspaWalletView(
             }
         }
 
-        // Quick Actions Row (Send, Receive, Seed, Explorer)
+        // Quick Actions Row (Send, Receive, .kab Domains, Explorer)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Button(
                 onClick = { activeModal = if (activeModal == WalletModalType.SEND) WalletModalType.NONE else WalletModalType.SEND },
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp)
+                    .height(42.dp)
                     .testTag("wallet_send_button"),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (activeModal == WalletModalType.SEND) ElectricCyan else SurfaceCard
                 ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                 shape = RoundedCornerShape(10.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
             ) {
-                Icon(
-                    Icons.Default.ArrowUpward,
-                    contentDescription = null,
-                    tint = if (activeModal == WalletModalType.SEND) ObsidianBg else ElectricCyan,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    "Send",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (activeModal == WalletModalType.SEND) ObsidianBg else TextPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Default.ArrowUpward,
+                        contentDescription = null,
+                        tint = if (activeModal == WalletModalType.SEND) ObsidianBg else ElectricCyan,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        "Send",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (activeModal == WalletModalType.SEND) ObsidianBg else TextPrimary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
 
             Button(
                 onClick = { activeModal = if (activeModal == WalletModalType.RECEIVE) WalletModalType.NONE else WalletModalType.RECEIVE },
                 modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
+                    .weight(1.1f)
+                    .height(42.dp)
                     .testTag("wallet_receive_button"),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (activeModal == WalletModalType.RECEIVE) ElectricCyan else SurfaceCard
                 ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                 shape = RoundedCornerShape(10.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
             ) {
-                Icon(
-                    Icons.Default.ArrowDownward,
-                    contentDescription = null,
-                    tint = if (activeModal == WalletModalType.RECEIVE) ObsidianBg else ElectricCyan,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    "Receive",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (activeModal == WalletModalType.RECEIVE) ObsidianBg else TextPrimary
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Default.ArrowDownward,
+                        contentDescription = null,
+                        tint = if (activeModal == WalletModalType.RECEIVE) ObsidianBg else ElectricCyan,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        "Receive",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (activeModal == WalletModalType.RECEIVE) ObsidianBg else TextPrimary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
 
-            OutlinedButton(
+            Button(
+                onClick = onNavigateToDomains,
+                modifier = Modifier
+                    .weight(1.1f)
+                    .height(42.dp)
+                    .testTag("wallet_kab_domains_button"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = SurfaceCard
+                ),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        Icons.Default.Language,
+                        contentDescription = null,
+                        tint = ElectricCyan,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text(
+                        ".k",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Button(
                 onClick = {
                     val addr = activeAccount?.kaspaAddress ?: walletState.kaspaAddress
                     if (addr.isNotEmpty()) {
@@ -469,14 +700,21 @@ fun KaspaWalletView(
                     }
                 },
                 modifier = Modifier
-                    .height(44.dp)
+                    .height(42.dp)
                     .testTag("wallet_explorer_button"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = SurfaceCard
+                ),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                 shape = RoundedCornerShape(10.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
             ) {
-                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Explorer", fontSize = 12.sp, color = TextPrimary)
+                Icon(
+                    Icons.Default.OpenInBrowser,
+                    contentDescription = "Kaspa Explorer",
+                    tint = ElectricCyan,
+                    modifier = Modifier.size(15.dp)
+                )
             }
         }
 
@@ -488,8 +726,17 @@ fun KaspaWalletView(
                     balanceKas = walletState.balanceKas,
                     priceUsd = walletState.priceUsd,
                     isSending = walletState.isSending,
+                    lastBroadcastTxId = walletState.lastBroadcastTxId,
+                    statusNotice = walletState.statusNotice,
                     onSend = { recipient, amount ->
                         onSendKaspa(recipient, amount)
+                    },
+                    onCopyTx = { txId ->
+                        clipboardManager.setText(AnnotatedString(txId))
+                        copyToast = "Transaction ID"
+                    },
+                    onOpenExplorer = { txId ->
+                        onOpenUrl("https://explorer.kaspa.org/txs/$txId")
                     },
                     onClose = { activeModal = WalletModalType.NONE }
                 )
@@ -611,13 +858,16 @@ private fun SendKaspaSection(
     balanceKas: Double,
     priceUsd: Double,
     isSending: Boolean,
+    lastBroadcastTxId: String? = null,
+    statusNotice: String? = null,
     onSend: (recipient: String, amount: Double) -> Unit,
+    onCopyTx: (String) -> Unit,
+    onOpenExplorer: (String) -> Unit,
     onClose: () -> Unit
 ) {
     var recipientInput by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var sendError by remember { mutableStateOf<String?>(null) }
-    var sendSuccessTx by remember { mutableStateOf<String?>(null) }
 
     val isValidAddress = remember(recipientInput) {
         recipientInput.isBlank() || CryptoUtils.isValidKaspaAddress(recipientInput.trim())
@@ -677,6 +927,17 @@ private fun SendKaspaSection(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            val parsedAmount = amountInput.toDoubleOrNull() ?: 0.0
+            val estMass = remember(recipientInput, parsedAmount) {
+                KaspaTransactionEngine.estimateTransactionMass(inputsCount = 1, outputsCount = 2, payloadByteCount = 0)
+            }
+            val estFeeSompis = remember(estMass) {
+                KaspaTransactionEngine.calculateFeeForMass(estMass)
+            }
+            val estFeeKas = remember(estFeeSompis) {
+                estFeeSompis / 100_000_000.0
+            }
+
             // Amount Input
             OutlinedTextField(
                 value = amountInput,
@@ -691,8 +952,8 @@ private fun SendKaspaSection(
                 trailingIcon = {
                     OutlinedButton(
                         onClick = {
-                            val max = (balanceKas - 0.0001).coerceAtLeast(0.0)
-                            amountInput = "%.4f".format(max)
+                            val max = (balanceKas - estFeeKas).coerceAtLeast(0.0)
+                            amountInput = "%.8f".format(max).trimEnd('0').let { if (it.endsWith('.')) "${it}0" else it }
                         },
                         modifier = Modifier.height(28.dp).padding(end = 4.dp),
                         shape = RoundedCornerShape(6.dp)
@@ -712,11 +973,11 @@ private fun SendKaspaSection(
                 shape = RoundedCornerShape(10.dp)
             )
 
-            val parsedAmount = amountInput.toDoubleOrNull() ?: 0.0
             val amountUsd = parsedAmount * priceUsd
             if (parsedAmount > 0.0) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("≈ $%.2f USD (Network Fee: 0.0001 KAS / 10,000 Sompi)".format(amountUsd), fontSize = 10.sp, color = TextSecondary)
+                val estFeeFormatted = com.example.network.kaspa.KaspaTransactionEngine.formatKas(estFeeKas)
+                Text("≈ $%.2f USD (Network Fee: $estFeeFormatted KAS)".format(amountUsd), fontSize = 10.sp, color = TextSecondary)
             }
 
             if (sendError != null) {
@@ -724,17 +985,50 @@ private fun SendKaspaSection(
                 Text(sendError ?: "", fontSize = 11.sp, color = Color(0xFFEF4444))
             }
 
-            if (sendSuccessTx != null) {
+            if (!lastBroadcastTxId.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = SurfaceDark,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Text("Transaction broadcast to Kaspa BlockDAG!", fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.Bold)
-                        Text("TxID: $sendSuccessTx", fontSize = 9.sp, color = TextSecondary, fontFamily = FontFamily.Monospace)
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Transaction Broadcasted to Kaspa L1 DAG!", fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "TxID: $lastBroadcastTxId",
+                            fontSize = 9.sp,
+                            color = TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { onCopyTx(lastBroadcastTxId) },
+                                modifier = Modifier.height(26.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(10.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Copy TxID", fontSize = 9.sp, color = ElectricCyan)
+                            }
+                            OutlinedButton(
+                                onClick = { onOpenExplorer(lastBroadcastTxId) },
+                                modifier = Modifier.height(26.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(10.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Kaspa Explorer", fontSize = 9.sp, color = EmeraldMesh)
+                            }
+                        }
                     }
                 }
             }
@@ -758,7 +1052,6 @@ private fun SendKaspaSection(
                         return@Button
                     }
                     onSend(target, amt)
-                    sendSuccessTx = CryptoUtils.sha256("kas_${System.currentTimeMillis()}").take(24)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -861,43 +1154,33 @@ private fun ReceiveKaspaSection(
 
 @Composable
 private fun KaspaAddressQrCanvas(address: String) {
-    Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-        val gridSize = 21
-        val cellSize = size.width / gridSize
-        val hash = CryptoUtils.sha256(address)
-        
-        // Draw position detection patterns (corners)
-        fun drawFinderPattern(startX: Float, startY: Float) {
-            drawRect(color = Color.Black, topLeft = Offset(startX, startY), size = Size(cellSize * 7, cellSize * 7))
-            drawRect(color = Color.White, topLeft = Offset(startX + cellSize, startY + cellSize), size = Size(cellSize * 5, cellSize * 5))
-            drawRect(color = Color.Black, topLeft = Offset(startX + cellSize * 2, startY + cellSize * 2), size = Size(cellSize * 3, cellSize * 3))
-        }
-
-        drawFinderPattern(0f, 0f)
-        drawFinderPattern(size.width - cellSize * 7, 0f)
-        drawFinderPattern(0f, size.height - cellSize * 7)
-
-        // Draw internal data matrix based on address hash
-        for (row in 0 until gridSize) {
-            for (col in 0 until gridSize) {
-                // Skip finder patterns
-                val inTopLeft = row < 7 && col < 7
-                val inTopRight = row < 7 && col >= gridSize - 7
-                val inBottomLeft = row >= gridSize - 7 && col < 7
-                if (inTopLeft || inTopRight || inBottomLeft) continue
-
-                val charIndex = (row * gridSize + col) % hash.length
-                val hexChar = hash[charIndex]
-                val isFilled = hexChar.digitToInt(16) % 2 == 1 || (row + col) % 3 == 0
-
-                if (isFilled) {
-                    drawRect(
-                        color = Color.Black,
-                        topLeft = Offset(col * cellSize, row * cellSize),
-                        size = Size(cellSize * 0.95f, cellSize * 0.95f)
-                    )
+    val bitmap = remember(address) {
+        try {
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(address, BarcodeFormat.QR_CODE, 512, 512)
+            val width = bitMatrix.width
+            val height = bitMatrix.height
+            val bmp = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bmp.setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
                 }
             }
+            bmp
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Kaspa Address QR Code",
+            modifier = Modifier.fillMaxSize()
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Text("QR Generation Error", fontSize = 10.sp, color = Color.Red)
         }
     }
 }

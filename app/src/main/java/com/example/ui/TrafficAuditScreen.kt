@@ -88,6 +88,7 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VioletBridge
 import com.example.viewmodel.DecentralViewModel
+import androidx.compose.material.icons.filled.Sensors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -97,6 +98,62 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val context = androidx.compose.ui.platform.LocalContext.current
     val audits by viewModel.trafficAudits.collectAsState()
     val metrics by viewModel.metrics.collectAsState()
+
+    val isBluetoothMeshRunning by viewModel.isBluetoothMeshRunning.collectAsState()
+    val isBluetoothEnabled by viewModel.isBluetoothEnabled.collectAsState()
+    val discoveredBtPeersCount by viewModel.discoveredBtPeersCount.collectAsState()
+
+    // Activity Result Launcher to prompt user to enable Bluetooth
+    val bluetoothLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            viewModel.startBluetoothMesh()
+            viewModel.setStatusMessage("Bluetooth enabled. Bluetooth Mesh swarm active!")
+        } else {
+            viewModel.setStatusMessage("Bluetooth was not enabled. Cannot start Bluetooth Mesh.")
+        }
+    }
+
+    // Activity Result Launcher to request required Bluetooth permissions
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        val allGranted = perms.values.all { it }
+        if (allGranted) {
+            // Permissions granted, check if Bluetooth is enabled
+            val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            if (adapter != null && !adapter.isEnabled) {
+                val enableBtIntent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                bluetoothLauncher.launch(enableBtIntent)
+            } else {
+                viewModel.startBluetoothMesh()
+                viewModel.setStatusMessage("Bluetooth Mesh swarm active!")
+            }
+        } else {
+            viewModel.setStatusMessage("Bluetooth permissions denied. Cannot start mesh.")
+        }
+    }
+
+    val onBluetoothToggle: (Boolean) -> Unit = { enable ->
+        if (enable) {
+            if (viewModel.bluetoothMeshManager.hasRequiredPermissions()) {
+                val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                if (adapter != null && !adapter.isEnabled) {
+                    val enableBtIntent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE)
+                    bluetoothLauncher.launch(enableBtIntent)
+                } else {
+                    viewModel.startBluetoothMesh()
+                    viewModel.setStatusMessage("Bluetooth Mesh swarm active!")
+                }
+            } else {
+                permissionLauncher.launch(viewModel.bluetoothMeshManager.getRequiredPermissions().toTypedArray())
+            }
+        } else {
+            viewModel.stopBluetoothMesh()
+            viewModel.setStatusMessage("Bluetooth Mesh swarm stopped.")
+        }
+    }
 
     val blockTrackers by viewModel.blockTrackers.collectAsState()
     val enableDownloads by viewModel.enableDownloads.collectAsState()
@@ -398,6 +455,20 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         icon = Icons.Default.Devices,
                         checked = desktopModeEnabled,
                         onCheckedChange = { viewModel.toggleDesktopMode(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Bluetooth Mesh Discovery",
+                        desc = if (isBluetoothMeshRunning) {
+                            "Mesh Swarm Active: $discoveredBtPeersCount nearby node(s) found via BLE."
+                        } else {
+                            "Establish off-grid local connections with nearby nodes without internet using real Bluetooth Low Energy (BLE)"
+                        },
+                        icon = Icons.Default.Sensors,
+                        checked = isBluetoothMeshRunning,
+                        onCheckedChange = { onBluetoothToggle(it) }
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))

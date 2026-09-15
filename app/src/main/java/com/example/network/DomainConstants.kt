@@ -1,8 +1,8 @@
 package com.example.network
 
 object DomainConstants {
-    /** Primary web domain extension for decentralized nodes & handles (.kab) */
-    const val PRIMARY_DOMAIN_SUFFIX = ".kab"
+    /** Primary web domain extension for decentralized nodes & handles (.k) */
+    const val PRIMARY_DOMAIN_SUFFIX = ".k"
 
     /** Legacy domain extensions supported for backwards compatibility */
     const val KASBROWSER_DOMAIN_SUFFIX = ".kasbrowser"
@@ -15,7 +15,7 @@ object DomainConstants {
     )
 
     /**
-     * Checks if a domain/URL string ends with any supported decentralized web extension (.kab, .kasbrowser, .kas).
+     * Checks if a domain/URL string ends with any supported decentralized web extension (.k, .kasbrowser, .kas).
      */
     fun isCustomDomain(url: String): Boolean {
         val clean = url.trim().lowercase()
@@ -36,7 +36,7 @@ object DomainConstants {
     }
 
     /**
-     * Formats a clean handle or slug into the standard .kab domain name.
+     * Formats a clean handle or slug into the standard .k domain name.
      */
     fun formatDomain(handleOrSlug: String): String {
         val clean = removeDomainSuffix(handleOrSlug.trim())

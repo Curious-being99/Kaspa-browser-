@@ -84,6 +84,21 @@ object KaspaPrivacyEngine {
     )
 
     /**
+     * Checks if a host belongs to Google Account login, profile, authentication or identity services.
+     */
+    fun isGoogleAccountDomain(host: String): Boolean = UBlockEngine.isGoogleAccountDomain(host)
+
+    /**
+     * Checks if a URL is part of Google Account login, OAuth, account management, or authentication.
+     */
+    fun isGoogleAccountOrAuthUrl(url: String): Boolean = UBlockEngine.isGoogleAccountOrAuthUrl(url)
+
+    /**
+     * Backward-compatible alias for checking Google Account URLs
+     */
+    fun isGoogleAccountUrl(url: String): Boolean = isGoogleAccountOrAuthUrl(url)
+
+    /**
      * Checks if a given request URL matches any known tracker, ad network, or telemetry domain.
      * Evaluates against the uBlock Origin rule engine with microsecond sub-domain suffix lookups.
      */
@@ -101,7 +116,7 @@ object KaspaPrivacyEngine {
             }
         }
 
-        // Never block images, media streams, or video platform streaming infrastructure
+        // Never block images, media streams, fonts, or stylesheets
         val lower = url.lowercase()
         val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
         if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
@@ -112,11 +127,9 @@ object KaspaPrivacyEngine {
             path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
             path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
             path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
-            lower.contains("videoplayback") || lower.contains("googlevideo.com") ||
-            lower.contains("ytimg.com") || lower.contains("ggpht.com") ||
-            lower.contains("youtube.com") || lower.contains("youtu.be") ||
-            lower.contains("jnn-pa.googleapis.com") ||
-            lower.contains("/thumb") || lower.contains("/poster")
+            path.contains("/video/") || path.contains("/audio/") || path.contains("/media/") ||
+            lower.contains("videoplayback") || lower.contains("stream") ||
+            path.contains("/thumb") || path.contains("/poster")
         ) {
             return false
         }
@@ -132,18 +145,32 @@ object KaspaPrivacyEngine {
             return false
         }
 
+        // Never block Google Account login, OAuth, account management, or identity endpoints
+        if (isGoogleAccountOrAuthUrl(url)) {
+            return false
+        }
+
+        val host = extractHostFast(url)
+        if (host != null && isGoogleAccountDomain(host)) {
+            return false
+        }
+
         // 1. Evaluate via real uBlock Engine
         if (UBlockEngine.shouldBlock(url)) {
             return true
         }
 
-        val host = extractHostFast(url) ?: return false
+        if (host == null) return false
         if (TRACKER_AND_AD_DOMAINS.contains(host)) return true
 
         // Check parent domains (e.g. adservice.google.com -> google.com)
         var dotIndex = host.indexOf('.')
         while (dotIndex != -1 && dotIndex < host.length - 1) {
             val parentDomain = host.substring(dotIndex + 1)
+            // Never flag if parentDomain is a Google Account domain or top-level infrastructure
+            if (isGoogleAccountDomain(parentDomain) || parentDomain == "google.com" || parentDomain == "googleapis.com" || parentDomain == "gstatic.com") {
+                break
+            }
             if (TRACKER_AND_AD_DOMAINS.contains(parentDomain)) return true
             dotIndex = host.indexOf('.', dotIndex + 1)
         }
@@ -233,13 +260,165 @@ object KaspaPrivacyEngine {
                     } catch(e) {}
                 }
 
-                // 4. WebGL Virtual GPU context lost recovery
+                // 4. WebGL Virtual GPU context lost recovery & rendernode crash mitigation
                 try {
                     window.addEventListener('webglcontextlost', function(e) {
                         try { e.preventDefault(); } catch (_) {}
                     }, true);
                 } catch(e) {}
+
+                try {
+                    const origGetContext = HTMLCanvasElement.prototype.getContext;
+                    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+                        if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
+                            if (window.__kaspa_software_rendering || !window.WebGLRenderingContext) {
+                                return null;
+                            }
+                            try {
+                                const ctx = origGetContext.apply(this, arguments);
+                                return ctx || null;
+                            } catch(glErr) {
+                                console.warn('WebGL init error suppressed:', glErr);
+                                return null;
+                            }
+                        }
+                        return origGetContext.apply(this, arguments);
+                    };
+                } catch(e) {}
+
+                // 5. Anti-Redirect Shield for TikTok & Aggressive Mobile Web Hijacking
+                try {
+                    function isBlockedRedirect(url) {
+                        if (!url) return false;
+                        try {
+                            const u = String(url).toLowerCase().trim();
+                            if (u.startsWith('snssdk') || u.startsWith('tiktok:') || u.startsWith('aweme:') ||
+                                u.startsWith('bytedance:') || u.startsWith('market:') || u.startsWith('intent:')) {
+                                return true;
+                            }
+                            if (u.includes('play.google.com') || u.includes('apps.apple.com') || u.includes('itunes.apple.com')) {
+                                return true;
+                            }
+                            if (u.includes('tiktok.onelink.me') || u.includes('link.tiktok.com') ||
+                                u.includes('tiktok.com/download') || u.includes('/download?') ||
+                                u.includes('tiktok.com/app') || u.includes('/redirect?')) {
+                                return true;
+                            }
+                        } catch(_) {}
+                        return false;
+                    }
+
+                    // Intercept window.open popups
+                    const origOpen = window.open;
+                    window.open = function(url) {
+                        if (isBlockedRedirect(url)) {
+                            return null;
+                        }
+                        return origOpen ? origOpen.apply(this, arguments) : null;
+                    };
+
+                    // Intercept location.assign & location.replace
+                    try {
+                        const origAssign = window.location.assign ? window.location.assign.bind(window.location) : null;
+                        if (origAssign) {
+                            window.location.assign = function(url) {
+                                if (isBlockedRedirect(url)) return;
+                                return origAssign(url);
+                            };
+                        }
+                        const origReplace = window.location.replace ? window.location.replace.bind(window.location) : null;
+                        if (origReplace) {
+                            window.location.replace = function(url) {
+                                if (isBlockedRedirect(url)) return;
+                                return origReplace(url);
+                            };
+                        }
+                    } catch(_) {}
+
+                    // Intercept programmatic click on app store/download anchor elements
+                    const origClick = HTMLAnchorElement.prototype.click;
+                    HTMLAnchorElement.prototype.click = function() {
+                        if (this.href && isBlockedRedirect(this.href)) {
+                            return;
+                        }
+                        return origClick.apply(this, arguments);
+                    };
+
+                    document.addEventListener('click', function(e) {
+                        let el = e.target;
+                        while (el && el.tagName !== 'A') {
+                            el = el.parentElement;
+                        }
+                        if (el && el.href && isBlockedRedirect(el.href)) {
+                            e.preventDefault();
+                            e.stopImmediatePropagation();
+                            return false;
+                        }
+                    }, true);
+
+                    // TikTok specific scroll unlock & modal banner dismisser
+                    const hostname = window.location.hostname || '';
+                    if (hostname.includes('tiktok.com') || hostname.includes('tiktokv.com')) {
+                        function unlockTikTokScroll() {
+                            try {
+                                if (document.body) {
+                                    if (document.body.style.overflow === 'hidden') {
+                                        document.body.style.overflow = 'auto';
+                                    }
+                                }
+                                if (document.documentElement) {
+                                    if (document.documentElement.style.overflow === 'hidden') {
+                                        document.documentElement.style.overflow = 'auto';
+                                    }
+                                }
+                            } catch(_) {}
+                        }
+
+                        window.addEventListener('scroll', unlockTikTokScroll, { passive: true });
+                        window.addEventListener('touchmove', unlockTikTokScroll, { passive: true });
+                        window.addEventListener('DOMContentLoaded', unlockTikTokScroll);
+
+                        function dismissAppPrompts() {
+                            try {
+                                const closeButtons = [
+                                    '[data-e2e="modal-close-inner-button"]',
+                                    'button[aria-label="Close"]',
+                                    'div[class*="DivBanner"] button',
+                                    'div[class*="AppBanner"] button',
+                                    'div[class*="DownloadBar"] button'
+                                ];
+                                for (const sel of closeButtons) {
+                                    const btn = document.querySelector(sel);
+                                    if (btn && typeof btn.click === 'function') {
+                                        btn.click();
+                                    }
+                                }
+                                const overlayContainers = [
+                                    'div[class*="DivModalMask"]',
+                                    'div[class*="ModalMask"]',
+                                    'div[class*="DivBannerContainer"]',
+                                    'div[class*="AppBanner"]',
+                                    'div[class*="DivDownloadBar"]'
+                                ];
+                                for (const sel of overlayContainers) {
+                                    const el = document.querySelector(sel);
+                                    if (el && el.style.display !== 'none') {
+                                        el.style.display = 'none';
+                                    }
+                                }
+                                unlockTikTokScroll();
+                            } catch(_) {}
+                        }
+
+                        setInterval(dismissAppPrompts, 1000);
+                    }
+                } catch(e) {}
             } catch (e) {}
         })();
     """
+
+    fun getPrivacyShieldScript(safeGpuMode: Boolean = true): String {
+        val flag = if (safeGpuMode) "window.__kaspa_software_rendering = true;" else ""
+        return "$flag\n$JS_PRIVACY_SHIELD_INJECTION"
+    }
 }

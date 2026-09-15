@@ -16,6 +16,7 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import kotlin.coroutines.resume
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -233,6 +234,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val bookmarks by viewModel.bookmarks.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
 
+    val isWalletLocked by viewModel.isWalletLocked.collectAsState()
+    val hasWalletPassword by viewModel.hasWalletPassword.collectAsState()
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
     var showFindInPage by remember { mutableStateOf(false) }
     var findInPageQuery by remember { mutableStateOf("") }
 
@@ -283,6 +288,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var webViewRecreateKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var rendererCrashCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var lastCrashTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var lastProgressChangeTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var lastProgressValue by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var isRendererUnresponsive by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { mutableFloatStateOf(0f) }
@@ -331,6 +339,84 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     LaunchedEffect(urlInput, currentResource) {
         viewModel.updateActiveTabMetadata(urlInput, currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput)
+    }
+
+    LaunchedEffect(webViewInstance, webViewRecreateKey) {
+        val webView = webViewInstance ?: return@LaunchedEffect
+        lastProgressChangeTime = System.currentTimeMillis()
+
+        suspend fun pingWebView(wv: WebView): Boolean {
+            if (isRendererUnresponsive) {
+                android.util.Log.w("WebViewWatchdog", "Platform reported WebView render process UNRESPONSIVE via client!")
+                return false
+            }
+
+            return try {
+                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
+                        wv.post {
+                            try {
+                                wv.evaluateJavascript("(function(){ return 'ok'; })()") { result ->
+                                    if (continuation.isActive) {
+                                        continuation.resume(result == "\"ok\"")
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                if (continuation.isActive) {
+                                    continuation.resume(false)
+                                }
+                            }
+                        }
+                    }
+                } ?: false
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        while (true) {
+            kotlinx.coroutines.delay(10000L) // Check periodically every 10 seconds (fully non-blocking)
+
+            val currentUrl = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                try { webView.url } catch (_: Exception) { null }
+            }
+            if (currentUrl.isNullOrBlank() || currentUrl == "about:blank") {
+                continue
+            }
+
+            // A. Stuck Page Load Check
+            val isCurrentlyLoading = isWebLoading
+            val progressTime = lastProgressChangeTime
+            val now = System.currentTimeMillis()
+            if (isCurrentlyLoading && (now - progressTime > 15_000L)) {
+                android.util.Log.w("WebViewWatchdog", "Stuck loading progress detected (>= 15s). Forcing reload...")
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    try {
+                        viewModel.setStatusMessage("Page load unresponsive. Auto-recovering...")
+                        webView.stopLoading()
+                        webView.reload()
+                    } catch (_: Exception) {}
+                }
+                lastProgressChangeTime = System.currentTimeMillis() // Reset timer
+                continue
+            }
+
+            // B. Asynchronous Ping Check
+            val isResponsive = pingWebView(webView)
+            if (!isResponsive) {
+                android.util.Log.w("WebViewWatchdog", "WebView hung! Re-creating instance...")
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    viewModel.setStatusMessage("WebView unresponsive. Auto-recovering...")
+                    try {
+                        (webView.parent as? ViewGroup)?.removeView(webView)
+                        webView.destroy()
+                    } catch (_: Exception) {}
+                    webViewInstance = null
+                    webViewRecreateKey++
+                }
+                break // Exit loop as this WebView instance is destroyed
+            }
+        }
     }
 
     LaunchedEffect(currentResource) {
@@ -390,6 +476,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
     val kaspaWalletState by viewModel.kaspaWalletState.collectAsState()
+    val allDomains by viewModel.allDomains.collectAsState()
+    val domainAvailability by viewModel.domainAvailability.collectAsState()
+    val isRegisteringDomain by viewModel.isRegisteringDomain.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
 
@@ -597,7 +686,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             val input = textFieldValue.text.trim()
                                             if (input.isNotBlank()) {
                                                 val normalized = viewModel.normalizeUrlOrQuery(input)
-                                                viewModel.resolveUrl(normalized)
+                                                viewModel.onUserSubmitUrl(normalized)
                                             }
                                         }),
                                         textStyle = TextStyle(
@@ -778,7 +867,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
                                                     webViewInstance?.reload()
                                                 } else {
-                                                    viewModel.resolveUrl(normalized)
+                                                    viewModel.onUserSubmitUrl(normalized)
                                                 }
                                             },
                                             modifier = Modifier.size(24.dp)
@@ -1004,27 +1093,51 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 )
             } else if (isHtml && !viewSourceMode) {
                 // IN-APP WEB VIEW: Renders full web pages inside the browser itself!
+                val isSystemInDark = androidx.compose.foundation.isSystemInDarkTheme()
                 androidx.compose.runtime.key(webViewRecreateKey) {
                     AndroidView(
                         factory = { ctx ->
+                        val isSystemDarkNow = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                        val browserBgColor = if (isSystemDarkNow) android.graphics.Color.parseColor("#0B0E14") else android.graphics.Color.WHITE
+
                         android.widget.FrameLayout(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
+                            setBackgroundColor(browserBgColor)
 
                             val webView = WebView(ctx).apply {
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                val hasRendernode = java.io.File("/dev/dri").exists()
+                                val forceSoftwareMode = !hasRendernode || rendererCrashCount > 0
+                                if (forceSoftwareMode) {
+                                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                                } else {
+                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                }
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
                             isHorizontalScrollBarEnabled = false
                             scrollBarStyle = android.view.View.SCROLLBARS_INSIDE_OVERLAY
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
+                                    override fun onRenderProcessUnresponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
+                                        android.util.Log.w("BrowserGatewayScreen", "onRenderProcessUnresponsive triggered!")
+                                        isRendererUnresponsive = true
+                                    }
+
+                                    override fun onRenderProcessResponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
+                                        android.util.Log.i("BrowserGatewayScreen", "onRenderProcessResponsive triggered!")
+                                        isRendererUnresponsive = false
+                                    }
+                                }
+                            }
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
@@ -1040,16 +1153,28 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 textZoom = 100
-                                javaScriptCanOpenWindowsAutomatically = true
+                                javaScriptCanOpenWindowsAutomatically = false
                                 setSupportMultipleWindows(false)
                                 @Suppress("DEPRECATION")
                                 databaseEnabled = true
                                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
-                                // Restore original rendering without forced dark mode color inversion
+                                // Dynamic theme rendering based on device light / dark mode
                                 @Suppress("DEPRECATION")
                                 if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                    androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF)
+                                    val forceDarkSetting = if (isSystemDarkNow) {
+                                        androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
+                                    } else {
+                                        androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
+                                    }
+                                    try {
+                                        androidx.webkit.WebSettingsCompat.setForceDark(this, forceDarkSetting)
+                                    } catch (_: Throwable) {}
+                                }
+                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
+                                    try {
+                                        androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(this, isSystemDarkNow)
+                                    } catch (_: Throwable) {}
                                 }
 
                                 // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit
@@ -1087,7 +1212,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 try {
                                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
                                         this,
-                                        KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = forceSoftwareMode),
                                         setOf("*")
                                     )
                                 } catch (_: Throwable) {}
@@ -1185,7 +1310,126 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setAcceptCookie(true)
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
-                            setBackgroundColor(android.graphics.Color.WHITE)
+                            setBackgroundColor(browserBgColor)
+
+                            val handleDeepLinkOrNavigate: (WebView?, String, Boolean) -> Boolean = { targetWv, rawUrl, hasGesture ->
+                                val targetView = targetWv ?: wv
+                                val targetCtx = targetView?.context ?: context
+                                val cleanUrl = rawUrl.trim()
+                                val currentPageUrl = targetView?.url ?: viewModel.currentResource.value?.url ?: viewModel.urlInput.value
+                                val currentHost = runCatching { Uri.parse(currentPageUrl).host?.lowercase() }.getOrNull() ?: ""
+                                val targetUri = runCatching { Uri.parse(cleanUrl) }.getOrNull()
+                                val targetHost = targetUri?.host?.lowercase() ?: ""
+                                val targetPath = targetUri?.path?.lowercase() ?: ""
+                                val targetScheme = targetUri?.scheme?.lowercase() ?: ""
+                                val isTikTokSite = currentHost.contains("tiktok.com") || currentHost.contains("tiktokv.com")
+                                
+                                if (cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("mesh://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("dweb://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("p2p://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kas://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kaspa://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("dnet://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kns://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("hyper://", ignoreCase = true)
+                                ) {
+                                    viewModel.resolveUrl(cleanUrl)
+                                    true
+                                } else if ((cleanUrl.startsWith("market://", ignoreCase = true) ||
+                                    targetHost.contains("play.google.com") ||
+                                    cleanUrl.contains("play.google.com") ||
+                                    targetHost.contains("apps.apple.com") ||
+                                    targetHost.contains("itunes.apple.com")) &&
+                                    !KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(cleanUrl) &&
+                                    !KaspaPrivacyEngine.isGoogleAccountDomain(targetHost)
+                                ) {
+                                    // A web browser must NOT override navigation to open Google Play Store or App Store.
+                                    // TikTok.com and websites try to push app installs; suppress and stay on the web.
+                                    true
+                                } else if (targetScheme == "tiktok" || targetScheme.startsWith("snssdk") || targetScheme == "aweme" || targetScheme == "bytedance") {
+                                    // Suppress proprietary app deep links so the browser remains on TikTok.com website
+                                    true
+                                } else if (targetHost.contains("onelink.me") ||
+                                    targetHost.contains("link.tiktok.com") ||
+                                    targetHost.contains("adjust.com") ||
+                                    targetHost.contains("smart.link") ||
+                                    targetHost.contains("branch.io") ||
+                                    targetHost.contains("app.link")
+                                ) {
+                                    // Suppress app store/install tracking redirects
+                                    true
+                                } else if (isTikTokSite && (
+                                    targetPath == "/download" || targetPath.startsWith("/download/") || cleanUrl.contains("/download?") ||
+                                    targetPath == "/app" || targetPath.startsWith("/app/") || cleanUrl.contains("/app?") ||
+                                    targetPath == "/redirect" || targetPath.startsWith("/redirect/") || cleanUrl.contains("/redirect?") ||
+                                    (!hasGesture && (targetPath == "/login" || targetPath.startsWith("/login/") || targetPath == "/signup" || targetPath.startsWith("/signup/")))
+                                )) {
+                                    // Suppress TikTok scroll-triggered redirects so user stays on video stream
+                                    true
+                                } else if (cleanUrl.startsWith("intent://", ignoreCase = true)) {
+                                    try {
+                                        val parsedIntent = Intent.parseUri(cleanUrl, Intent.URI_INTENT_SCHEME)
+                                        if (parsedIntent != null) {
+                                            val appPkg = parsedIntent.`package`?.lowercase() ?: ""
+                                            val isTikTokOrPlayStore = isTikTokSite ||
+                                                appPkg.contains("musically") ||
+                                                appPkg.contains("tiktok") ||
+                                                appPkg.contains("android.vending") ||
+                                                cleanUrl.contains("snssdk", ignoreCase = true) ||
+                                                cleanUrl.contains("aweme", ignoreCase = true) ||
+                                                cleanUrl.contains("bytedance", ignoreCase = true)
+
+                                            if (isTikTokOrPlayStore) {
+                                                // TikTok.com does not override to open Play Store. It is a website like x.com.
+                                                true
+                                            } else {
+                                                val pm = targetCtx.packageManager
+                                                val info = pm.resolveActivity(parsedIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                                                if (info != null && appPkg != "com.android.vending") {
+                                                    parsedIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    targetCtx.startActivity(parsedIntent)
+                                                } else {
+                                                    val fallbackUrl = parsedIntent.getStringExtra("browser_fallback_url")
+                                                    if (!fallbackUrl.isNullOrEmpty() &&
+                                                        !fallbackUrl.startsWith("market://", ignoreCase = true) &&
+                                                        !fallbackUrl.contains("play.google.com/store", ignoreCase = true)
+                                                    ) {
+                                                        viewModel.setUrlInput(fallbackUrl)
+                                                        targetView?.loadUrl(fallbackUrl)
+                                                    }
+                                                }
+                                                true
+                                            }
+                                        } else {
+                                            true
+                                        }
+                                    } catch (_: Exception) {
+                                        true
+                                    }
+                                } else if (!cleanUrl.startsWith("http://", ignoreCase = true) &&
+                                    !cleanUrl.startsWith("https://", ignoreCase = true) &&
+                                    !cleanUrl.startsWith("about:", ignoreCase = true) &&
+                                    !cleanUrl.startsWith("data:", ignoreCase = true) &&
+                                    !cleanUrl.startsWith("javascript:", ignoreCase = true) &&
+                                    !cleanUrl.startsWith("blob:", ignoreCase = true)
+                                ) {
+                                    if (targetScheme != "market" && !targetScheme.startsWith("snssdk") && targetScheme != "tiktok" && targetScheme != "aweme" && targetScheme != "bytedance") {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            val pm = targetCtx.packageManager
+                                            if (pm.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY) != null) {
+                                                targetCtx.startActivity(intent)
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
 
                             webChromeClient = object : WebChromeClient() {
                                 override fun onJsAlert(
@@ -1242,6 +1486,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     pendingGeoCallback = callback
                                 }
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    val now = System.currentTimeMillis()
+                                    if (newProgress != lastProgressValue) {
+                                        lastProgressValue = newProgress
+                                        lastProgressChangeTime = now
+                                    }
                                     webProgress = newProgress / 100f
                                     if (newProgress >= 95) {
                                         isWebLoading = false
@@ -1294,9 +1543,40 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     isUserGesture: Boolean,
                                     resultMsg: android.os.Message?
                                 ): Boolean {
-                                    val transport = resultMsg?.obj as? WebView.WebViewTransport
-                                    if (transport != null && view != null) {
-                                        transport.webView = view
+                                    if (resultMsg == null || view == null) return false
+                                    // Strictly reject automatic window opening without explicit user gesture (e.g. scroll popups)
+                                    if (!isUserGesture) return false
+
+                                    val tempWebView = WebView(view.context).apply {
+                                        settings.javaScriptEnabled = true
+                                        settings.setSupportMultipleWindows(false)
+                                        webViewClient = object : WebViewClient() {
+                                            override fun shouldOverrideUrlLoading(wv: WebView?, request: WebResourceRequest?): Boolean {
+                                                val target = request?.url?.toString() ?: return false
+                                                val gesture = request?.hasGesture() ?: isUserGesture
+                                                val intercepted = handleDeepLinkOrNavigate(view, target, gesture)
+                                                if (!intercepted) {
+                                                    viewModel.setUrlInput(target)
+                                                    view.loadUrl(target)
+                                                }
+                                                return true
+                                            }
+
+                                            @Deprecated("Deprecated in Java")
+                                            override fun shouldOverrideUrlLoading(wv: WebView?, url: String?): Boolean {
+                                                val target = url ?: return false
+                                                val intercepted = handleDeepLinkOrNavigate(view, target, isUserGesture)
+                                                if (!intercepted) {
+                                                    viewModel.setUrlInput(target)
+                                                    view.loadUrl(target)
+                                                }
+                                                return true
+                                            }
+                                        }
+                                    }
+                                    val transport = resultMsg.obj as? WebView.WebViewTransport
+                                    if (transport != null) {
+                                        transport.webView = tempWebView
                                         resultMsg.sendToTarget()
                                         return true
                                     }
@@ -1408,7 +1688,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
-                                        if (!it.startsWith("data:") && !it.startsWith("about:")) {
+                                        val isNavigableUrl = it.startsWith("http://", ignoreCase = true) ||
+                                            it.startsWith("https://", ignoreCase = true) ||
+                                            it.startsWith("kas://", ignoreCase = true) ||
+                                            it.startsWith("kaspa://", ignoreCase = true) ||
+                                            it.startsWith("ipfs://", ignoreCase = true) ||
+                                            it.startsWith("dnet://", ignoreCase = true) ||
+                                            it.startsWith("mesh://", ignoreCase = true) ||
+                                            it.startsWith("dweb://", ignoreCase = true) ||
+                                            it.startsWith("p2p://", ignoreCase = true) ||
+                                            it.startsWith("kns://", ignoreCase = true) ||
+                                            it.startsWith("hyper://", ignoreCase = true)
+
+                                        if (isNavigableUrl) {
                                             view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
@@ -1416,7 +1708,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = !java.io.File("/dev/dri").exists() || rendererCrashCount > 0),
                                         null
                                     )
 
@@ -1435,7 +1727,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
-                                         if (!it.startsWith("data:") && !it.startsWith("about:")) {
+                                        val isNavigableUrl = it.startsWith("http://", ignoreCase = true) ||
+                                            it.startsWith("https://", ignoreCase = true) ||
+                                            it.startsWith("kas://", ignoreCase = true) ||
+                                            it.startsWith("kaspa://", ignoreCase = true) ||
+                                            it.startsWith("ipfs://", ignoreCase = true) ||
+                                            it.startsWith("dnet://", ignoreCase = true) ||
+                                            it.startsWith("mesh://", ignoreCase = true) ||
+                                            it.startsWith("dweb://", ignoreCase = true) ||
+                                            it.startsWith("p2p://", ignoreCase = true) ||
+                                            it.startsWith("kns://", ignoreCase = true) ||
+                                            it.startsWith("hyper://", ignoreCase = true)
+
+                                        if (isNavigableUrl) {
                                             view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
@@ -1443,7 +1747,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = !java.io.File("/dev/dri").exists() || rendererCrashCount > 0),
                                         null
                                     )
 
@@ -1455,13 +1759,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     if (blockTrackers) {
-                                        val curHost = url?.let { runCatching { android.net.Uri.parse(it).host?.lowercase() }.getOrNull() } ?: ""
-                                        if (!curHost.contains("youtube.com") && !curHost.contains("youtu.be")) {
-                                            view?.evaluateJavascript(
-                                                com.example.network.UBlockEngine.getCosmeticHidingCss(),
-                                                null
-                                            )
-                                        }
+                                        view?.evaluateJavascript(
+                                            com.example.network.UBlockEngine.getCosmeticHidingCss(),
+                                            null
+                                        )
                                     }
 
                                     // Automatic PWA Manifest and Metadata extraction for Device Installation
@@ -1517,7 +1818,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
-                                         if (!it.startsWith("data:") && !it.startsWith("about:")) {
+                                        val isNavigableUrl = it.startsWith("http://", ignoreCase = true) ||
+                                            it.startsWith("https://", ignoreCase = true) ||
+                                            it.startsWith("kas://", ignoreCase = true) ||
+                                            it.startsWith("kaspa://", ignoreCase = true) ||
+                                            it.startsWith("ipfs://", ignoreCase = true) ||
+                                            it.startsWith("dnet://", ignoreCase = true) ||
+                                            it.startsWith("mesh://", ignoreCase = true) ||
+                                            it.startsWith("dweb://", ignoreCase = true) ||
+                                            it.startsWith("p2p://", ignoreCase = true) ||
+                                            it.startsWith("kns://", ignoreCase = true) ||
+                                            it.startsWith("hyper://", ignoreCase = true)
+
+                                        if (isNavigableUrl) {
                                             view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                         }
@@ -1545,7 +1858,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     lastCrashTimestamp = now
 
-                                    if (rendererCrashCount >= 2) {
+                                    if (rendererCrashCount >= 3) {
                                         viewModel.setStatusMessage("Heavy graphics halted to prevent crash loop")
                                         viewModel.resolveUrl("about:blank")
                                     } else {
@@ -1590,14 +1903,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         acceptHeader?.contains("media") == true
 
                                     val isMediaStreamEndpoint = reqUrlLower.contains("videoplayback") ||
-                                        reqUrlLower.contains("googlevideo.com") ||
-                                        reqUrlLower.contains("ytimg.com") ||
-                                        reqUrlLower.contains("ggpht.com") ||
-                                        reqUrlLower.contains("youtube.com") ||
-                                        reqUrlLower.contains("youtu.be") ||
-                                        reqUrlLower.contains("jnn-pa.googleapis.com") ||
-                                        reqUrlLower.contains("vimeocdn.com") ||
-                                        reqUrlLower.contains("dailymotion.com") ||
                                         reqUrlLower.contains("/thumb") ||
                                         reqUrlLower.contains("/poster") ||
                                         reqUrlLower.contains("/video/") ||
@@ -1607,7 +1912,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         reqUrlLower.contains("stream") ||
                                         reqUrlLower.contains("blob:")
 
-                                    if (isStyleOrFont || isImageOrGraphic || isVideoOrAudioStream || isMediaAccept || isMediaStreamEndpoint) {
+                                    if (isVideoOrAudioStream || isMediaStreamEndpoint) {
+                                        return null
+                                    }
+
+                                    if (com.example.network.WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
+                                        val cachedResponse = com.example.network.WebViewAssetLruCache.fetchAndCache(reqUrl, request.requestHeaders)
+                                        if (cachedResponse != null) {
+                                            return cachedResponse
+                                        }
+                                    }
+
+                                    if (isStyleOrFont || isImageOrGraphic || isMediaAccept) {
                                         return null
                                     }
 
@@ -1621,13 +1937,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         ?: viewModel.urlInput.value.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
                                     val resourceHost = request.url?.host?.lowercase()
 
-                                    // Never intercept any requests if current browsing context or resource is YouTube / video player
-                                    val isVideoPlatformContext = (pageHost != null && (pageHost.contains("youtube.com") || pageHost.contains("youtu.be") || pageHost.contains("vimeo.com") || pageHost.contains("dailymotion.com"))) ||
-                                        (resourceHost != null && (resourceHost.contains("youtube.com") || resourceHost.contains("youtu.be") || resourceHost.contains("googlevideo.com") || resourceHost.contains("ytimg.com") || resourceHost.contains("ggpht.com") || resourceHost.contains("jnn-pa.googleapis.com")))
-                                    if (isVideoPlatformContext) {
-                                        return null
-                                    }
-
                                     val pageRoot = pageHost?.let { h ->
                                         val parts = h.split('.')
                                         if (parts.size >= 2) "${parts[parts.size - 2]}.${parts[parts.size - 1]}" else h
@@ -1639,6 +1948,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                     val isFirstParty = pageHost != null && resourceHost != null &&
                                         (resourceHost == pageHost || resourceHost.endsWith(".$pageHost") || (pageRoot != null && pageRoot == resourceRoot))
+
+                                    // Never block Google Account login, OAuth tokens, user profiles, or authentication requests
+                                    val isGoogleAccountRequest = KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(reqUrl) ||
+                                        (resourceHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(resourceHost)) ||
+                                        (pageHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(pageHost))
+
+                                    if (isGoogleAccountRequest) {
+                                        return null
+                                    }
 
                                     if (blockTrackers && !isFirstParty && KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
                                         val host = resourceHost ?: reqUrl
@@ -1657,6 +1975,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                     val targetUrl = request?.url?.toString() ?: return false
+                                    val hasGesture = request?.hasGesture() ?: false
 
                                     if (strictDecentralizedMode && targetUrl.startsWith("http://", ignoreCase = true)) {
                                         viewModel.setStatusMessage("Blocked unencrypted http:// URL under Strict Pure Decentralized Mode")
@@ -1669,94 +1988,58 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return true
                                     }
 
-                                    // Intercept decentralized protocols to route via resolver
-                                    if (targetUrl.startsWith("mesh://", ignoreCase = true) ||
-                                        targetUrl.startsWith("ipfs://", ignoreCase = true) ||
-                                        targetUrl.startsWith("dweb://", ignoreCase = true) ||
-                                        targetUrl.startsWith("p2p://", ignoreCase = true) ||
-                                        targetUrl.startsWith("kas://", ignoreCase = true) ||
-                                        targetUrl.startsWith("kaspa://", ignoreCase = true) ||
-                                        targetUrl.startsWith("dnet://", ignoreCase = true) ||
-                                        targetUrl.startsWith("kns://", ignoreCase = true) ||
-                                        targetUrl.startsWith("hyper://", ignoreCase = true)
-                                    ) {
-                                        viewModel.resolveUrl(targetUrl)
+                                    val handled = handleDeepLinkOrNavigate(view, targetUrl, hasGesture)
+                                    if (handled) {
                                         return true
                                     }
 
-                                    val isStandardWebScheme = targetUrl.startsWith("http://", ignoreCase = true) ||
-                                            targetUrl.startsWith("https://", ignoreCase = true) ||
-                                            targetUrl.startsWith("about:", ignoreCase = true) ||
-                                            targetUrl.startsWith("data:", ignoreCase = true) ||
-                                            targetUrl.startsWith("javascript:", ignoreCase = true) ||
-                                            targetUrl.startsWith("blob:", ignoreCase = true)
+                                    viewModel.setUrlInput(targetUrl)
+                                    return false
+                                }
 
-                                    if (!isStandardWebScheme) {
-                                        val context = view?.context
-                                        if (context != null) {
-                                            try {
-                                                if (targetUrl.startsWith("intent://", ignoreCase = true)) {
-                                                    val intent = Intent.parseUri(targetUrl, Intent.URI_INTENT_SCHEME)
-                                                    if (intent != null) {
-                                                        val packageManager = context.packageManager
-                                                        val info = packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
-                                                        if (info != null) {
-                                                            context.startActivity(intent)
-                                                        } else {
-                                                            val fallbackUrl = intent.getStringExtra("browser_fallback_url")
-                                                            if (!fallbackUrl.isNullOrEmpty()) {
-                                                                view?.loadUrl(fallbackUrl)
-                                                            } else {
-                                                                val appPackage = intent.`package`
-                                                                if (!appPackage.isNullOrEmpty()) {
-                                                                    try {
-                                                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$appPackage")))
-                                                                    } catch (_: Exception) {}
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                } else {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
-                                                    val packageManager = context.packageManager
-                                                    val info = packageManager.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
-                                                    if (info != null) {
-                                                        context.startActivity(intent)
-                                                    } else {
-                                                        if (targetUrl.startsWith("tg://resolve?domain=", ignoreCase = true)) {
-                                                            val domain = targetUrl.substringAfter("tg://resolve?domain=")
-                                                            view?.loadUrl("https://t.me/$domain")
-                                                        } else if (targetUrl.startsWith("tg://", ignoreCase = true)) {
-                                                            view?.loadUrl("https://t.me/")
-                                                        } else if (targetUrl.startsWith("twitter://", ignoreCase = true)) {
-                                                            view?.loadUrl("https://x.com/")
-                                                        } else {
-                                                            viewModel.setStatusMessage("No app installed for link: $targetUrl")
-                                                        }
-                                                    }
-                                                }
-                                            } catch (e: Exception) {
-                                                e.printStackTrace()
-                                            }
-                                        }
+                                @Deprecated("Deprecated in Java")
+                                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                    val targetUrl = url ?: return false
+
+                                    if (strictDecentralizedMode && targetUrl.startsWith("http://", ignoreCase = true)) {
+                                        viewModel.setStatusMessage("Blocked unencrypted http:// URL under Strict Pure Decentralized Mode")
                                         return true
                                     }
 
-                                    // Keep all HTTP/HTTPS links inside this WebView natively without opening external apps or abort loops
-                                    if (targetUrl.startsWith("http://", ignoreCase = true) || targetUrl.startsWith("https://", ignoreCase = true)) {
-                                        viewModel.setUrlInput(targetUrl)
-                                        return false
+                                    if (httpsOnlyMode && targetUrl.startsWith("http://", ignoreCase = true)) {
+                                        val httpsUrl = targetUrl.replaceFirst("http://", "https://", ignoreCase = true)
+                                        view?.loadUrl(httpsUrl)
+                                        return true
                                     }
+
+                                    val handled = handleDeepLinkOrNavigate(view, targetUrl, false)
+                                    if (handled) {
+                                        return true
+                                    }
+
                                     viewModel.setUrlInput(targetUrl)
                                     return false
                                 }
 
                                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                                     super.onReceivedError(view, request, error)
+                                    val failingUrl = request?.url?.toString() ?: ""
+                                    if (failingUrl.startsWith("market://", ignoreCase = true) ||
+                                        failingUrl.startsWith("intent://", ignoreCase = true) ||
+                                        failingUrl.startsWith("snssdk", ignoreCase = true) ||
+                                        failingUrl.startsWith("tiktok:", ignoreCase = true) ||
+                                        failingUrl.startsWith("aweme:", ignoreCase = true) ||
+                                        failingUrl.startsWith("bytedance:", ignoreCase = true) ||
+                                        failingUrl.contains("play.google.com") ||
+                                        failingUrl.contains("apps.apple.com") ||
+                                        failingUrl.contains("onelink.me") ||
+                                        failingUrl.contains("adjust.com")
+                                    ) {
+                                        return
+                                    }
                                     if (request?.isForMainFrame == true) {
                                         isWebLoading = false
-                                        val failingUrl = request.url?.toString() ?: ""
-                                        if (failingUrl.startsWith("http://") || failingUrl.startsWith("https://")) {
+                                        if (failingUrl.startsWith("http://", ignoreCase = true) || failingUrl.startsWith("https://", ignoreCase = true)) {
                                             val errorMsg = error?.description?.toString() ?: "Network error or connection timed out"
                                             val errorPage = """
                                                 <!DOCTYPE html>
@@ -1843,7 +2126,32 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         canGoBack = webView.canGoBack()
                         canGoForward = webView.canGoForward()
 
-                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
+                        // Dynamically update browser background color & force dark based on device light/dark mode
+                        val isSystemDarkNow = isSystemInDark || (containerLayout.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                        val currentBgColor = if (isSystemDarkNow) android.graphics.Color.parseColor("#0B0E14") else android.graphics.Color.WHITE
+                        containerLayout.setBackgroundColor(currentBgColor)
+                        webView.setBackgroundColor(currentBgColor)
+
+                        @Suppress("DEPRECATION")
+                        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
+                            val forceDarkSetting = if (isSystemDarkNow) {
+                                androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
+                            } else {
+                                androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
+                            }
+                            try {
+                                androidx.webkit.WebSettingsCompat.setForceDark(webView.settings, forceDarkSetting)
+                            } catch (_: Throwable) {}
+                        }
+                        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
+                            try {
+                                androidx.webkit.WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, isSystemDarkNow)
+                            } catch (_: Throwable) {}
+                        }
+
+                        val currentUrl = resource.url
+                        val isGoogleAccountSession = KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(currentUrl)
+                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies || isGoogleAccountSession)
 
                         // Sync WebAuthn support state with settings safely
                         if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
@@ -2119,7 +2427,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             selection = androidx.compose.ui.text.TextRange(pasted.length)
                                         )
                                         val normalized = viewModel.normalizeUrlOrQuery(pasted)
-                                        viewModel.resolveUrl(normalized)
+                                        viewModel.onUserSubmitUrl(normalized)
                                         isInputFocused = false
                                         focusManager.clearFocus()
                                     }
@@ -2242,7 +2550,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         )
                                         viewSourceMode = false
                                         val normalized = viewModel.normalizeUrlOrQuery(target)
-                                        viewModel.resolveUrl(normalized)
+                                        viewModel.onUserSubmitUrl(normalized)
                                         isInputFocused = false
                                         focusManager.clearFocus()
                                     }
@@ -2426,10 +2734,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             allAccounts = allAccounts,
             walletState = kaspaWalletState,
             initialTab = accountDialogInitialTab,
+            registeredDomains = allDomains,
+            domainAvailability = domainAvailability,
+            isRegisteringDomain = isRegisteringDomain,
             onDismiss = { showAccountDialog = false },
-            onCreateAccount = { handle, mnemonic ->
-                viewModel.createDecentralizedAccount(handle, mnemonic)
+            onCheckDomainAvailability = { viewModel.checkDomainAvailability(it) },
+            onRegisterDomain = { domain, cid, onComplete ->
+                viewModel.registerKabDomain(domain, cid, onComplete)
             },
+            onDeleteDomain = { domain ->
+                viewModel.deleteDomain(domain)
+            },
+            onCreateAccount = { handle, mnemonic, password, enableBiometric ->
+                viewModel.createDecentralizedAccount(handle, mnemonic, password, enableBiometric)
+            },
+            isWalletLocked = isWalletLocked,
+            hasWalletPassword = hasWalletPassword,
+            biometricEnabled = biometricsEnabled,
+            onUnlockWalletWithPassword = { password -> viewModel.unlockWalletWithPassword(password) },
+            onUnlockWalletWithBiometric = { viewModel.unlockWalletWithBiometric() },
+            onLockWallet = { viewModel.lockWallet() },
             onLinkGoogle = { email, displayName ->
                 viewModel.linkGoogleDecentralizedAccount(email, displayName)
             },
@@ -5473,7 +5797,12 @@ fun YouTubeVideoCard(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                val hasRendernode = java.io.File("/dev/dri").exists()
+                                if (!hasRendernode) {
+                                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                                } else {
+                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                }
                                 overScrollMode = android.view.View.OVER_SCROLL_NEVER
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -5507,10 +5836,18 @@ fun YouTubeVideoCard(
                                     databaseEnabled = true
                                     domStorageEnabled = true
                                     mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                    // Restore original rendering without forced dark mode color inversion
+                                    // Dynamic theme rendering based on device light / dark mode
+                                    val isSysDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
                                     @Suppress("DEPRECATION")
                                     if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.FORCE_DARK)) {
-                                        androidx.webkit.WebSettingsCompat.setForceDark(this, androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF)
+                                        val forceDarkSetting = if (isSysDark) {
+                                            androidx.webkit.WebSettingsCompat.FORCE_DARK_ON
+                                        } else {
+                                            androidx.webkit.WebSettingsCompat.FORCE_DARK_OFF
+                                        }
+                                        try {
+                                            androidx.webkit.WebSettingsCompat.setForceDark(this, forceDarkSetting)
+                                        } catch (_: Throwable) {}
                                     }
                                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                                 }
