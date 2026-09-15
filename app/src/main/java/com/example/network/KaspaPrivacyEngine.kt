@@ -221,6 +221,44 @@ object KaspaPrivacyEngine {
             if (window.__kaspa_shield_injected) return;
             window.__kaspa_shield_injected = true;
             try {
+                // 0. WebAssembly MIME Type Fallback (CRITICAL for dotk.name and Cloudflare blocked nodes)
+                if (typeof WebAssembly !== 'undefined' && WebAssembly.instantiateStreaming) {
+                    const originalInstantiateStreaming = WebAssembly.instantiateStreaming;
+                    WebAssembly.instantiateStreaming = async function(source, importObject) {
+                        try {
+                            return await originalInstantiateStreaming(source, importObject);
+                        } catch (e) {
+                            if (e && e.message && (e.message.includes('MIME type') || e.message.includes('expected'))) {
+                                let resolvedSource = source;
+                                if (source instanceof Promise) resolvedSource = await source;
+                                if (resolvedSource instanceof Response) {
+                                    const buffer = await resolvedSource.arrayBuffer();
+                                    return await WebAssembly.instantiate(buffer, importObject);
+                                }
+                            }
+                            throw e;
+                        }
+                    };
+                    if (WebAssembly.compileStreaming) {
+                        const originalCompileStreaming = WebAssembly.compileStreaming;
+                        WebAssembly.compileStreaming = async function(source) {
+                            try {
+                                return await originalCompileStreaming(source);
+                            } catch (e) {
+                                if (e && e.message && (e.message.includes('MIME type') || e.message.includes('expected'))) {
+                                    let resolvedSource = source;
+                                    if (source instanceof Promise) resolvedSource = await source;
+                                    if (resolvedSource instanceof Response) {
+                                        const buffer = await resolvedSource.arrayBuffer();
+                                        return await WebAssembly.compile(buffer);
+                                    }
+                                }
+                                throw e;
+                            }
+                        };
+                    }
+                }
+
                 // 1. Global Privacy Control & DNT
                 try {
                     Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });

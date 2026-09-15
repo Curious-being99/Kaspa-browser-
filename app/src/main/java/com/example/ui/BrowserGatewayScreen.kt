@@ -1916,6 +1916,54 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return null
                                     }
 
+                                    // CRITICAL: Explicitly intercept and fix MIME types for WebAssembly and ES modules
+                                    // even if they bypass the LRU cache (e.g. no-cache headers).
+                                    if (path.endsWith(".wasm") || path.endsWith(".mjs")) {
+                                        try {
+                                            val reqBuilder = okhttp3.Request.Builder().url(reqUrl)
+                                            request.requestHeaders?.forEach { (k, v) ->
+                                                if (!k.equals("Host", ignoreCase = true)) {
+                                                    reqBuilder.addHeader(k, v)
+                                                }
+                                            }
+                                            val cookies = android.webkit.CookieManager.getInstance().getCookie(reqUrl)
+                                            if (!cookies.isNullOrEmpty()) {
+                                                reqBuilder.addHeader("Cookie", cookies)
+                                            }
+                                            val client = okhttp3.OkHttpClient.Builder()
+                                                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                                                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                                                .build()
+                                            val response = client.newCall(reqBuilder.build()).execute()
+                                            if (response.isSuccessful) {
+                                                val body = response.body
+                                                if (body != null) {
+                                                    val mimeType = if (path.endsWith(".wasm")) "application/wasm" else "application/javascript"
+                                                    val headers = mutableMapOf<String, String>()
+                                                    response.headers.names().forEach { name ->
+                                                        val valStr = response.header(name)
+                                                        if (valStr != null && !name.equals("content-type", ignoreCase = true)) {
+                                                            headers[name] = valStr
+                                                        }
+                                                    }
+                                                    headers["Content-Type"] = mimeType
+                                                    headers["Access-Control-Allow-Origin"] = "*"
+                                                    
+                                                    return WebResourceResponse(
+                                                        mimeType,
+                                                        null,
+                                                        200,
+                                                        "OK",
+                                                        headers,
+                                                        java.io.ByteArrayInputStream(body.bytes())
+                                                    )
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("BrowserGateway", "WASM intercept failed: ${e.message}")
+                                        }
+                                    }
+
                                     if (com.example.network.WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
                                         val cachedResponse = com.example.network.WebViewAssetLruCache.fetchAndCache(reqUrl, request.requestHeaders)
                                         if (cachedResponse != null) {

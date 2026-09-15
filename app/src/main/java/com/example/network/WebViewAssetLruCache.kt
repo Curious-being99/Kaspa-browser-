@@ -159,12 +159,28 @@ object WebViewAssetLruCache {
 
             return try {
                 val inputStream = FileInputStream(dataFile)
+                
+                // CRITICAL: Overwrite MIME type for .wasm and .mjs on cache hit, 
+                // in case it was previously cached with a bad MIME type (e.g. application/octet-stream)
+                var resolvedMime = meta.mimeType
+                val path = try { java.net.URI(url).path?.lowercase() ?: "" } catch (_: Exception) { url.lowercase() }
+                if (path.endsWith(".wasm")) {
+                    resolvedMime = "application/wasm"
+                } else if (path.endsWith(".mjs")) {
+                    resolvedMime = "application/javascript"
+                }
+
+                val resolvedEncoding = if (resolvedMime == "application/wasm") null else meta.encoding
+                val finalHeaders = meta.responseHeaders.toMutableMap()
+                finalHeaders.keys.removeAll { it.equals("content-type", ignoreCase = true) }
+                finalHeaders["Content-Type"] = if (resolvedEncoding != null) "$resolvedMime; charset=$resolvedEncoding" else resolvedMime
+
                 WebResourceResponse(
-                    meta.mimeType,
-                    meta.encoding,
+                    resolvedMime,
+                    resolvedEncoding,
                     200,
                     "OK",
-                    meta.responseHeaders,
+                    finalHeaders,
                     inputStream
                 )
             } catch (e: Exception) {
@@ -185,10 +201,17 @@ object WebViewAssetLruCache {
         return try {
             val reqBuilder = okhttp3.Request.Builder().url(url)
             requestHeaders?.forEach { (k, v) ->
-                if (!k.equals("Host", ignoreCase = true) && !k.equals("Accept-Encoding", ignoreCase = true)) {
+                if (!k.equals("Host", ignoreCase = true) && !k.equals("Accept-Encoding", ignoreCase = true) && !k.equals("Cookie", ignoreCase = true)) {
                     reqBuilder.addHeader(k, v)
                 }
             }
+            
+            // Inject Webview cookies to bypass Cloudflare Bot Management and other auth gates
+            val cookies = android.webkit.CookieManager.getInstance().getCookie(url)
+            if (!cookies.isNullOrEmpty()) {
+                reqBuilder.addHeader("Cookie", cookies)
+            }
+
             val response = httpClient.newCall(reqBuilder.build()).execute()
             if (!response.isSuccessful) {
                 response.close()
@@ -211,16 +234,22 @@ object WebViewAssetLruCache {
 
             response.headers.names().forEach { name ->
                 response.header(name)?.let { valStr ->
-                    headers[name] = valStr
+                    if (!name.equals("content-type", ignoreCase = true)) {
+                        headers[name] = valStr
+                    }
                 }
             }
+            val finalEncoding = if (mimeType == "application/wasm") null else encoding
+            // CRITICAL: Ensure the Content-Type header matches our corrected mimeType, 
+            // because Chromium WebAssembly compiler checks the header map, not just the WebResourceResponse mimeType argument.
+            headers["Content-Type"] = if (finalEncoding != null) "$mimeType; charset=$finalEncoding" else mimeType
 
             // Store in disk LRU cache
-            put(url, mimeType, encoding, headers, bytes)
+            put(url, mimeType, finalEncoding, headers, bytes)
 
             WebResourceResponse(
                 mimeType,
-                encoding,
+                finalEncoding,
                 200,
                 "OK",
                 headers,
@@ -381,7 +410,17 @@ object WebViewAssetLruCache {
 
     private fun parseContentType(contentType: String, url: String): Pair<String, String?> {
         val parts = contentType.split(";").map { it.trim() }
-        val mime = parts.firstOrNull()?.ifEmpty { null } ?: deduceMimeType(url)
+        var mime = parts.firstOrNull()?.ifEmpty { null } ?: deduceMimeType(url)
+        
+        // CRITICAL: Force strict mime types for specialized web modules like WebAssembly.
+        // Many web servers mistakenly serve .wasm files as application/octet-stream, which breaks WebAssembly.instantiateStreaming.
+        val path = try { java.net.URI(url).path?.lowercase() ?: "" } catch (_: Exception) { url.lowercase() }
+        if (path.endsWith(".wasm")) {
+            mime = "application/wasm"
+        } else if (path.endsWith(".mjs")) {
+            mime = "application/javascript"
+        }
+
         var encoding: String? = null
         for (part in parts.drop(1)) {
             if (part.startsWith("charset=", ignoreCase = true)) {
