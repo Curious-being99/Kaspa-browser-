@@ -3,7 +3,7 @@ package com.example
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -12,7 +12,7 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.DecentralViewModel
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
   private val viewModel: DecentralViewModel by viewModels()
 
   override fun onCreate(savedInstanceState: Bundle?) {

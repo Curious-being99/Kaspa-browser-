@@ -16,6 +16,7 @@ object KaspaTransactionEngine {
     val KEY_TRANSACTION_SIGNING_HASH: ByteArray = "TransactionSigningHash".toByteArray(Charsets.UTF_8)
     val KEY_TRANSACTION_HASH: ByteArray = "TransactionHash".toByteArray(Charsets.UTF_8)
     val KEY_PERSONAL_MESSAGE_HASH: ByteArray = "PersonalMessageSigningHash".toByteArray(Charsets.UTF_8)
+    val KEY_COVENANT_ID_HASH: ByteArray = "CovenantIDHash".toByteArray(Charsets.UTF_8)
 
     // Kaspa Sighash Flags
     const val SIGHASH_ALL = 0x01
@@ -55,13 +56,13 @@ object KaspaTransactionEngine {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("version", version)
-            put("script", script)
+            put("scriptPublicKey", script)
         }
 
         companion object {
             fun fromJson(json: JSONObject): KaspaScriptPublicKey {
                 val version = json.optInt("version", 0)
-                val script = json.optString("script", "")
+                val script = json.optString("scriptPublicKey", json.optString("script", ""))
                 return KaspaScriptPublicKey(version, script)
             }
         }

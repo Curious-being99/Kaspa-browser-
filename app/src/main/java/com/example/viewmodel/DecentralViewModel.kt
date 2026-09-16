@@ -61,7 +61,8 @@ data class ActiveDownload(
 class DecentralViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AppDatabase.getDatabase(application)
-    private val resolver = DualStackResolver(database)
+    private val kaspaWalletService = KaspaWalletService()
+    private val resolver = DualStackResolver(database, kaspaWalletService)
     val nodeManager = LocalNodeManager(application, database, viewModelScope)
 
     val metrics: StateFlow<NetworkMetrics> = nodeManager.metrics
@@ -281,7 +282,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         .getAllAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val kaspaWalletService = KaspaWalletService()
     val domainRegistry = KaspaDomainRegistry(database, kaspaWalletService)
 
     val allDomains: StateFlow<List<DomainEntity>> = database.domainDao()

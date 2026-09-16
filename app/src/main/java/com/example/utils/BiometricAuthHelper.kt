@@ -1,79 +1,78 @@
 package com.example.utils
 
-import android.app.Activity
-import android.app.KeyguardManager
 import android.content.Context
-import android.os.Build
-import android.os.CancellationSignal
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.fragment.app.FragmentActivity
+import androidx.core.content.ContextCompat
 
+/**
+ * Expert Biometric Authentication Helper.
+ * Utilizes standard Android BiometricPrompt (via AndroidX) to interact directly with hardware 
+ * fingerprint, face, or iris sensors, or fallback to device PIN/Pattern/Password.
+ */
 object BiometricAuthHelper {
 
+    /**
+     * Checks if any secure hardware biometric or device lock is configured on the device.
+     */
     fun isDeviceLockAvailable(context: Context): Boolean {
-        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        return keyguardManager?.isDeviceSecure == true
+        val biometricManager = BiometricManager.from(context)
+        val result = biometricManager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or 
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        )
+        return result == BiometricManager.BIOMETRIC_SUCCESS
     }
 
+    /**
+     * Triggers the official Android Biometric / Hardware authentication prompt.
+     * This is the real hardware-backed security flow.
+     */
     fun authenticateWithBiometricOrDeviceLock(
-        activity: Activity,
+        activity: FragmentActivity,
         title: String = "Unlock Kaspa Wallet",
         subtitle: String = "Authenticate using fingerprint, face, or device PIN",
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
-        val keyguardManager = activity.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        if (keyguardManager == null || !keyguardManager.isDeviceSecure) {
-            // If device credential isn't set, allow direct unlock as fallback
-            onSuccess()
-            return
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val biometricPrompt = android.hardware.biometrics.BiometricPrompt.Builder(activity)
-                    .setTitle(title)
-                    .setSubtitle(subtitle)
-                    .setAllowedAuthenticators(
-                        android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG or
-                                android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                    )
-                    .build()
-
-                val cancellationSignal = CancellationSignal()
-                biometricPrompt.authenticate(
-                    cancellationSignal,
-                    activity.mainExecutor,
-                    object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult?) {
-                            super.onAuthenticationSucceeded(result)
-                            onSuccess()
-                        }
-
-                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
-                            super.onAuthenticationError(errorCode, errString)
-                            onError(errString?.toString() ?: "Authentication cancelled")
-                        }
-
-                        override fun onAuthenticationFailed() {
-                            super.onAuthenticationFailed()
-                            onError("Biometric verification failed")
-                        }
-                    }
-                )
-            } catch (e: Exception) {
-                onError("Biometric authentication error: ${e.message}")
+        val executor = ContextCompat.getMainExecutor(activity)
+        
+        val callback = object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                // If user cancels or if hardware isn't available, report the error
+                onError(errString.toString())
             }
-        } else {
-            try {
-                val intent = keyguardManager.createConfirmDeviceCredentialIntent(title, subtitle)
-                if (intent != null) {
-                    activity.startActivity(intent)
-                    onSuccess()
-                } else {
-                    onSuccess()
-                }
-            } catch (e: Exception) {
+
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                // Hardware verification successful!
                 onSuccess()
             }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                // Fingerprint/Face scanned but not recognized
+                onError("Biometric verification failed. Please try again.")
+            }
+        }
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or 
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            // Note: If DEVICE_CREDENTIAL is included, setNegativeButtonText MUST NOT be called.
+            .build()
+
+        try {
+            val biometricPrompt = BiometricPrompt(activity, executor, callback)
+            biometricPrompt.authenticate(promptInfo)
+        } catch (e: Exception) {
+            onError("Biometric engine error: ${e.message}")
         }
     }
 }

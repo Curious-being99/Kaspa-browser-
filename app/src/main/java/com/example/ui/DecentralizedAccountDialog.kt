@@ -80,6 +80,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -330,7 +332,10 @@ fun DecentralizedAccountDialog(
                             },
                             onNavigateToCreate = { selectedTab = 3 },
                             onNavigateToGoogle = { selectedTab = 4 },
-                            onNavigateToWallet = { selectedTab = 0 }
+                            onNavigateToWallet = { selectedTab = 0 },
+                            hasWalletPassword = hasWalletPassword,
+                            biometricEnabled = biometricEnabled,
+                            onUnlockWalletWithPassword = onUnlockWalletWithPassword
                         )
                         3 -> CreateAccountTab(
                             onCreateAccount = { walletLabel, mnemonic, password, enableBiometric ->
@@ -360,6 +365,7 @@ fun DecentralizedAccountDialog(
                             onDelete = { acc ->
                                 onDeleteAccount(acc)
                             },
+                            onVerifyPassword = onUnlockWalletWithPassword,
                             onAddNew = { selectedTab = 3 }
                         )
                     }
@@ -375,7 +381,10 @@ private fun ActiveProfileTab(
     onCopy: (label: String, text: String) -> Unit,
     onNavigateToCreate: () -> Unit,
     onNavigateToGoogle: () -> Unit,
-    onNavigateToWallet: () -> Unit
+    onNavigateToWallet: () -> Unit,
+    hasWalletPassword: Boolean,
+    biometricEnabled: Boolean,
+    onUnlockWalletWithPassword: (password: String) -> Boolean
 ) {
     if (account == null) {
         Column(
@@ -409,6 +418,10 @@ private fun ActiveProfileTab(
     }
 
     var showMnemonic by remember { mutableStateOf(false) }
+    var showSeedVerify by remember { mutableStateOf(false) }
+    var seedVerifyPasswordInput by remember { mutableStateOf("") }
+    var seedVerifyError by remember { mutableStateOf<String?>(null) }
+    var isSeedVerifyPasswordVisible by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -570,7 +583,17 @@ private fun ActiveProfileTab(
 
                     Row {
                         IconButton(
-                            onClick = { showMnemonic = !showMnemonic },
+                            onClick = { 
+                                if (!showMnemonic) {
+                                    if (hasWalletPassword) {
+                                        showSeedVerify = true
+                                    } else {
+                                        showMnemonic = true
+                                    }
+                                } else {
+                                    showMnemonic = false
+                                }
+                            },
                             modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
@@ -759,6 +782,164 @@ private fun ActiveProfileTab(
         }
 
         Spacer(modifier = Modifier.height(6.dp))
+
+        if (showSeedVerify) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Dialog(onDismissRequest = { 
+                showSeedVerify = false
+                seedVerifyPasswordInput = ""
+                seedVerifyError = null
+            }) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = SurfaceDark,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = ElectricCyan.copy(alpha = 0.1f),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Security Verification",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        Text(
+                            text = "To view your 12-word recovery seed phrase, please verify your identity. Never share this phrase with anyone.",
+                            fontSize = 12.sp,
+                            color = TextMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        if (seedVerifyError != null) {
+                            Text(
+                                text = seedVerifyError!!,
+                                color = Color(0xFFFF5555),
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = seedVerifyPasswordInput,
+                            onValueChange = {
+                                seedVerifyPasswordInput = it
+                                seedVerifyError = null
+                            },
+                            label = { Text("Wallet Password", fontSize = 11.sp) },
+                            singleLine = true,
+                            visualTransformation = if (isSeedVerifyPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { isSeedVerifyPasswordVisible = !isSeedVerifyPasswordVisible }) {
+                                    Icon(
+                                        if (isSeedVerifyPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null,
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ElectricCyan,
+                                unfocusedBorderColor = SurfaceCardBorder,
+                                focusedLabelColor = ElectricCyan,
+                                unfocusedLabelColor = TextMuted,
+                                cursorColor = ElectricCyan
+                            )
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { 
+                                    showSeedVerify = false
+                                    seedVerifyPasswordInput = ""
+                                    seedVerifyError = null
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                            ) {
+                                Text("Cancel", color = TextSecondary, fontSize = 12.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (onUnlockWalletWithPassword(seedVerifyPasswordInput)) {
+                                        showSeedVerify = false
+                                        showMnemonic = true
+                                    } else {
+                                        seedVerifyError = "Incorrect wallet password"
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan)
+                            ) {
+                                Text("Verify", color = ObsidianBg, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (biometricEnabled) {
+                            HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
+                            
+                            OutlinedButton(
+                                onClick = {
+                                    val activity = context as? androidx.fragment.app.FragmentActivity
+                                    if (activity != null) {
+                                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                            activity = activity,
+                                            title = "Reveal Recovery Phrase",
+                                            subtitle = "Verify identity to view seed phrase",
+                                            onSuccess = {
+                                                showSeedVerify = false
+                                                showMnemonic = true
+                                            },
+                                            onError = { err ->
+                                                seedVerifyError = err
+                                            }
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan)
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp), tint = ElectricCyan)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Unlock with Biometric", color = ElectricCyan, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1276,8 +1457,18 @@ private fun AllAccountsTab(
     activeAccount: AccountEntity?,
     onSwitch: (did: String) -> Unit,
     onDelete: (account: AccountEntity) -> Unit,
+    onVerifyPassword: (String) -> Boolean,
     onAddNew: () -> Unit
 ) {
+    var accountToDelete by remember { mutableStateOf<AccountEntity?>(null) }
+    var showDeleteVerify by remember { mutableStateOf(false) }
+    var deleteVerifyPasswordInput by remember { mutableStateOf("") }
+    var deleteVerifyError by remember { mutableStateOf<String?>(null) }
+    var isDeletePasswordVisible by remember { mutableStateOf(false) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val biometricEnabled = true 
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1396,11 +1587,179 @@ private fun AllAccountsTab(
                             }
                             Spacer(modifier = Modifier.width(4.dp))
                             IconButton(
-                                onClick = { onDelete(acc) },
+                                onClick = { 
+                                    accountToDelete = acc
+                                    showDeleteVerify = true
+                                    deleteVerifyPasswordInput = ""
+                                    deleteVerifyError = null
+                                },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RedTamper, modifier = Modifier.size(14.dp))
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showDeleteVerify && accountToDelete != null) {
+        Dialog(onDismissRequest = { 
+            showDeleteVerify = false
+            accountToDelete = null
+            deleteVerifyPasswordInput = ""
+            deleteVerifyError = null
+        }) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = SurfaceDark,
+                border = androidx.compose.foundation.BorderStroke(1.dp, RedTamper.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = RedTamper.copy(alpha = 0.1f),
+                        modifier = Modifier.size(64.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = RedTamper,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Confirm Sign Out",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = "Are you sure you want to sign out and remove '${accountToDelete?.handle}'? You must have your recovery seed phrase to restore access later.",
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp
+                    )
+
+                    if (deleteVerifyError != null) {
+                        Text(
+                            text = deleteVerifyError!!,
+                            color = RedTamper,
+                            fontSize = 11.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = deleteVerifyPasswordInput,
+                        onValueChange = {
+                            deleteVerifyPasswordInput = it
+                            deleteVerifyError = null
+                        },
+                        label = { Text("Enter Wallet Password to Confirm", fontSize = 11.sp) },
+                        singleLine = true,
+                        visualTransformation = if (isDeletePasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { isDeletePasswordVisible = !isDeletePasswordVisible }) {
+                                Icon(
+                                    if (isDeletePasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RedTamper,
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedLabelColor = RedTamper,
+                            unfocusedLabelColor = TextMuted,
+                            cursorColor = RedTamper
+                        )
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { 
+                                showDeleteVerify = false
+                                accountToDelete = null
+                                deleteVerifyPasswordInput = ""
+                                deleteVerifyError = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                        ) {
+                            Text("Cancel", color = TextSecondary, fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (onVerifyPassword(deleteVerifyPasswordInput)) {
+                                    onDelete(accountToDelete!!)
+                                    showDeleteVerify = false
+                                    accountToDelete = null
+                                    deleteVerifyPasswordInput = ""
+                                    deleteVerifyError = null
+                                } else {
+                                    deleteVerifyError = "Incorrect wallet password"
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = RedTamper)
+                        ) {
+                            Text("Sign Out", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (biometricEnabled) {
+                        HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
+                        
+                        OutlinedButton(
+                            onClick = {
+                                val activity = context as? androidx.fragment.app.FragmentActivity
+                                if (activity != null) {
+                                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                        activity = activity,
+                                        title = "Confirm Sign Out",
+                                        subtitle = "Verify identity to remove account",
+                                        onSuccess = {
+                                            onDelete(accountToDelete!!)
+                                            showDeleteVerify = false
+                                            accountToDelete = null
+                                        },
+                                        onError = { err ->
+                                            deleteVerifyError = err
+                                        }
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, RedTamper)
+                        ) {
+                            Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp), tint = RedTamper)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Confirm with Biometric", color = RedTamper, fontSize = 12.sp)
                         }
                     }
                 }

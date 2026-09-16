@@ -82,6 +82,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AccountEntity
@@ -115,6 +116,11 @@ fun KaspaWalletView(
     var activeModal by remember { mutableStateOf<WalletModalType>(WalletModalType.NONE) }
     var copyToast by remember { mutableStateOf<String?>(null) }
     var showExposedSeed by remember { mutableStateOf(false) }
+
+    var showSignOutConfirm by remember { mutableStateOf(false) }
+    var signOutPasswordInput by remember { mutableStateOf("") }
+    var signOutError by remember { mutableStateOf<String?>(null) }
+    var isSignOutPasswordVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(activeAccount?.kaspaAddress) {
         onRefresh()
@@ -296,7 +302,7 @@ fun KaspaWalletView(
                     if (biometricEnabled) {
                         OutlinedButton(
                             onClick = {
-                                val activity = context as? android.app.Activity
+                                val activity = context as? androidx.fragment.app.FragmentActivity
                                 if (activity != null) {
                                     com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
                                         activity = activity,
@@ -559,7 +565,13 @@ fun KaspaWalletView(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
-                    onClick = { onSignOut() },
+                    onClick = { 
+                        if (hasWalletPassword) {
+                            showSignOutConfirm = true 
+                        } else {
+                            onSignOut()
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(36.dp)
@@ -842,6 +854,164 @@ fun KaspaWalletView(
                                     fontSize = 9.sp,
                                     color = TextMuted
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showSignOutConfirm) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Dialog(onDismissRequest = { 
+                showSignOutConfirm = false
+                signOutPasswordInput = ""
+                signOutError = null
+            }) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = SurfaceDark,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0x1AFF5555),
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF5555),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Confirm Sign Out",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+
+                        Text(
+                            text = "For your security, please verify your identity before signing out and disconnecting your decentralized keys.",
+                            fontSize = 12.sp,
+                            color = TextMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        if (signOutError != null) {
+                            Text(
+                                text = signOutError!!,
+                                color = Color(0xFFFF5555),
+                                fontSize = 11.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = signOutPasswordInput,
+                            onValueChange = {
+                                signOutPasswordInput = it
+                                signOutError = null
+                            },
+                            label = { Text("Wallet Password", fontSize = 11.sp) },
+                            singleLine = true,
+                            visualTransformation = if (isSignOutPasswordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { isSignOutPasswordVisible = !isSignOutPasswordVisible }) {
+                                    Icon(
+                                        if (isSignOutPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null,
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ElectricCyan,
+                                unfocusedBorderColor = SurfaceCardBorder,
+                                focusedLabelColor = ElectricCyan,
+                                unfocusedLabelColor = TextMuted,
+                                cursorColor = ElectricCyan
+                            )
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { 
+                                    showSignOutConfirm = false
+                                    signOutPasswordInput = ""
+                                    signOutError = null
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                            ) {
+                                Text("Cancel", color = TextSecondary, fontSize = 12.sp)
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (onUnlockWalletWithPassword(signOutPasswordInput)) {
+                                        showSignOutConfirm = false
+                                        onSignOut()
+                                    } else {
+                                        signOutError = "Incorrect wallet password"
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5555))
+                            ) {
+                                Text("Confirm", color = Color.White, fontSize = 12.sp)
+                            }
+                        }
+
+                        if (biometricEnabled) {
+                            HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
+                            
+                            OutlinedButton(
+                                onClick = {
+                                    val activity = context as? androidx.fragment.app.FragmentActivity
+                                    if (activity != null) {
+                                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                            activity = activity,
+                                            title = "Confirm Sign Out",
+                                            subtitle = "Verify identity to disconnect wallet",
+                                            onSuccess = {
+                                                showSignOutConfirm = false
+                                                onSignOut()
+                                            },
+                                            onError = { err ->
+                                                signOutError = err
+                                            }
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan)
+                            ) {
+                                Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp), tint = ElectricCyan)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Unlock with Biometric", color = ElectricCyan, fontSize = 12.sp)
                             }
                         }
                     }

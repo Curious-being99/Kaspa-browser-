@@ -14,7 +14,10 @@ import java.net.InetAddress
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
-class DualStackResolver(private val database: AppDatabase) {
+class DualStackResolver(
+    private val database: AppDatabase,
+    private val walletService: KaspaWalletService
+) {
 
     private val okHttpClient = CronetClientFactory.buildClient(
         OkHttpClient.Builder()
@@ -190,9 +193,20 @@ class DualStackResolver(private val database: AppDatabase) {
                     val nameStr = json.optString("name", baseSlug)
                     val addressStr = json.optString("address", "")
                     val deedAddressStr = json.optString("deedAddress", "")
+                    val registryCovenantId = json.optString("registryCovenantId", null)
+                    
                     if (addressStr.isNotEmpty()) {
+                        // MANDATORY: Verify the answer against Kaspa BlockDAG consensus
+                        // strictly following dotk.name/integrators specification.
+                        val isVerifiedOnChain = walletService.verifyKnsNameOnChain(
+                            address = addressStr,
+                            deedAddress = deedAddressStr,
+                            registryCovenantId = registryCovenantId
+                        )
+                        
                         val fee = com.example.network.kaspa.KaspaDomainRegistry.calculateRegistrationFeeKas(nameStr)
                         val txIdVal = json.optJSONObject("card")?.optString("outpointTxid", "") ?: "api_resolved"
+                        
                         apiResolvedDomain = com.example.data.DomainEntity(
                             domain = if (nameStr.endsWith(".k")) nameStr else "$nameStr.k",
                             ownerAddress = addressStr,
@@ -202,7 +216,7 @@ class DualStackResolver(private val database: AppDatabase) {
                             registrationFeeKas = fee,
                             registeredAt = System.currentTimeMillis(),
                             targetCid = json.optJSONObject("card")?.optJSONObject("records")?.optString("url", null),
-                            customDnsRecord = "kns:v1|owner:$addressStr|deed:$deedAddressStr"
+                            customDnsRecord = "kns:v1|owner:$addressStr|deed:$deedAddressStr|verified:$isVerifiedOnChain"
                         )
                     }
                 }
@@ -286,6 +300,8 @@ class DualStackResolver(private val database: AppDatabase) {
                 registeredDomain.signature
             )
 
+            val isVerifiedOnChain = registeredDomain.customDnsRecord?.contains("verified:true") ?: false
+
             return@withContext ResolvedResource(
                 url = url,
                 resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
@@ -300,11 +316,13 @@ class DualStackResolver(private val database: AppDatabase) {
                 centralizedIp = "Kaspa BlockDAG KNS Node",
                 decentralizedPeersCount = 18,
                 decentralizedLatencyMs = latency,
-                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                verificationStatus = if (isVerifiedOnChain) VerificationStatus.VERIFIED_TAMPER_PROOF else VerificationStatus.UNVERIFIED,
                 cryptographicHash = hash,
                 routedVia = "Kaspa BlockDAG KNS Registry -> Tx ${registeredDomain.txId.take(12)}... -> Owner (${registeredDomain.ownerAddress.take(16)}...)",
                 kaspaProof = kProof,
-                kaspaVerificationSummary = "Kaspa DAG Tx ${registeredDomain.txId.take(12)}... | Owner: ${registeredDomain.ownerAddress.take(14)}..."
+                kaspaVerificationSummary = if (isVerifiedOnChain) 
+                    "Kaspa BlockDAG Consensus Verified | Tx ${registeredDomain.txId.take(12)}..." 
+                    else "KNS Resolution Unverified On-Chain"
             )
         }
 

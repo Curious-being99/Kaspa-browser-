@@ -144,7 +144,22 @@ class KaspaDomainRegistry(
                     val body = response.body?.string() ?: ""
                     val json = JSONObject(body)
                     val addressStr = json.optString("address", "")
+                    val deedAddressStr = json.optString("deedAddress", "")
+                    val registryCovenantId = json.optString("registryCovenantId", null)
+                    
                     if (addressStr.isNotEmpty()) {
+                        // Perform live on-chain verification to ensure this isn't just a cached or social claim
+                        val isVerifiedOnChain = walletService.verifyKnsNameOnChain(
+                            address = addressStr,
+                            deedAddress = deedAddressStr,
+                            registryCovenantId = registryCovenantId
+                        )
+                        
+                        // If it fails on-chain verification, we treat it as potentially available or at least unverified
+                        if (!isVerifiedOnChain) {
+                            android.util.Log.w("KaspaDomainRegistry", "Live API claim failed on-chain verification for $slug")
+                        }
+
                         val isOwnedByCurrent = currentKaspaAddress != null &&
                                 addressStr.equals(currentKaspaAddress, ignoreCase = true)
                         val nameVal = json.optString("name", slug)

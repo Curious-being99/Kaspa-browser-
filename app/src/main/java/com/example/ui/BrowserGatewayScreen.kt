@@ -22,6 +22,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -155,6 +156,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.paint
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -227,6 +229,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val activeTabId by viewModel.activeTabId.collectAsState()
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
+    var browserTheme by remember { mutableStateOf("classic_dark") }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var isReaderMode by remember { mutableStateOf(false) }
     var longPressedLinkUrl by remember { mutableStateOf<String?>(null) }
     var showLinkContextMenu by remember { mutableStateOf(false) }
@@ -584,10 +588,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
+    val backgroundModifier = when (browserTheme) {
+        "oled_obsidian" -> Modifier.background(Color(0xFF090A0F))
+        "aurora_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF090A0F))))
+        "cyber_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0B0F17), Color(0xFF042F2E), Color(0xFF090A0F))))
+        else -> Modifier.background(Color(0xFF12141C)) // Classic Dark Slate (Chrome/Brave style)
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .then(backgroundModifier)
     ) {
         // TOP BROWSER BAR: Directly starting with the search/URL bar
         Surface(
@@ -981,7 +992,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
                                 )
-                                HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
+                                                                 DropdownMenuItem(
+                                     text = { Text("Customize Background", color = TextPrimary) },
+                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan) },
+                                     onClick = {
+                                         showBrowserMenu = false
+                                         showThemeDialog = true
+                                     }
+                                 )
+                                 HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
                                 DropdownMenuItem(
                                     text = { Text("Network (Mesh Radar)", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Hub, contentDescription = null, tint = ElectricCyan) },
@@ -2725,6 +2744,63 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         )
     }
 
+    // Browser Background Theme Customization Dialog (Chrome & Brave Style)
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            containerColor = SurfaceDark,
+            title = { Text("Customize Browser Background", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Choose a curated browser theme, just like Chrome and Brave:", color = TextSecondary, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    ThemeOptionCard(
+                        title = "Classic Dark Slate",
+                        subtitle = "Standard clean browser dark theme",
+                        isSelected = browserTheme == "classic_dark",
+                        onClick = {
+                            browserTheme = "classic_dark"
+                            showThemeDialog = false
+                        }
+                    )
+                    ThemeOptionCard(
+                        title = "OLED Obsidian Black",
+                        subtitle = "Deep pure black for high contrast",
+                        isSelected = browserTheme == "oled_obsidian",
+                        onClick = {
+                            browserTheme = "oled_obsidian"
+                            showThemeDialog = false
+                        }
+                    )
+                    ThemeOptionCard(
+                        title = "Aurora Gradient",
+                        subtitle = "Subtle deep blue and indigo gradient",
+                        isSelected = browserTheme == "aurora_gradient",
+                        onClick = {
+                            browserTheme = "aurora_gradient"
+                            showThemeDialog = false
+                        }
+                    )
+                    ThemeOptionCard(
+                        title = "Cyber Tech Gradient",
+                        subtitle = "Modern tech teal and slate gradient",
+                        isSelected = browserTheme == "cyber_gradient",
+                        onClick = {
+                            browserTheme = "cyber_gradient"
+                            showThemeDialog = false
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) {
+                    Text("Done", color = ElectricCyan, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
     // HTML5 FULLSCREEN VIDEO CONTAINER OVERLAY
     if (customVideoView != null) {
         androidx.activity.compose.BackHandler {
@@ -4090,12 +4166,28 @@ fun BrowserSpeedDial(
     var addShortcutName by remember { mutableStateOf("") }
     var addShortcutUrl by remember { mutableStateOf("https://") }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F111A)) // Dark Obsidian Bg
-            .verticalScroll(rememberScrollState())
     ) {
+        Image(
+            painter = painterResource(id = R.drawable.curated_browser_wallpaper_1789516978789),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        // Dark translucent overlay for card readability (Chrome/Brave style)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
         // 1. HORIZONTAL SPEED DIAL SHORTCUTS CONTAINER (Edge to edge, zero top gap, no write up)
         Surface(
             shape = androidx.compose.ui.graphics.RectangleShape,
@@ -4247,6 +4339,30 @@ fun BrowserSpeedDial(
         ) {
             KaspaNewsSection(onNavigate = onNavigate)
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Photo Attribution badge (Brave / Chrome style)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.Start
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = "Photo by Curated Art Collection",
+                    color = Color.White.copy(alpha = 0.8f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
     }
 
     // Add Shortcut Dialog
@@ -4475,6 +4591,7 @@ fun BrowserSpeedDial(
                 }
             }
         )
+    }
     }
 }
 
@@ -6144,6 +6261,44 @@ fun FindInPageBar(
             }
             IconButton(onClick = onNext) {
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", tint = TextMuted)
+            }
+        }
+    }
+}
+
+@Composable
+fun ThemeOptionCard(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (isSelected) SurfaceCard else SurfaceDark,
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, if (isSelected) ElectricCyan else SurfaceCardBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = subtitle, color = TextMuted, fontSize = 12.sp)
+            }
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = ElectricCyan,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
