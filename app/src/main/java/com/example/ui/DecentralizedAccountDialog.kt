@@ -1047,7 +1047,10 @@ private fun CreateAccountTab(
             )
             FilterChip(
                 selected = isImportMode,
-                onClick = { isImportMode = true },
+                onClick = { 
+                    isImportMode = true 
+                    isImportMnemonicVisible = false
+                },
                 label = { Text("Import Wallet", fontSize = 12.sp, fontWeight = FontWeight.Bold) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = ElectricCyan,

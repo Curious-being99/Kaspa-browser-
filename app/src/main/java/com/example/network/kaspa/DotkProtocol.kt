@@ -222,8 +222,8 @@ object DotkProtocol {
 
     private fun getDirectoryClient(client: OkHttpClient): OkHttpClient {
         return client.newBuilder()
-            .connectTimeout(2500, java.util.concurrent.TimeUnit.MILLISECONDS)
-            .readTimeout(2500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .connectTimeout(2000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(2000, java.util.concurrent.TimeUnit.MILLISECONDS)
             .build()
     }
 
@@ -491,22 +491,7 @@ object DotkProtocol {
         )
 
         // Query Kaspa node for live UTXO at this derived gap P2SH address
-        val utxo = fetchUtxoForAddress(gapAddress, client)
-            ?: KaspaTransactionEngine.KaspaUtxo(
-                outpoint = KaspaTransactionEngine.KaspaOutpoint(
-                    transactionId = "0000000000000000000000000000000000000000000000000000000000000000",
-                    index = 0L
-                ),
-                utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry(
-                    amount = GAP_VALUE,
-                    scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
-                        version = 0,
-                        script = p2shScriptPubKey(buildGapRedeemScript(buildGapState(keyInfo.coveringLo, keyInfo.coveringHi), bytecodes.gapPrefix, bytecodes.gapSuffix)).joinToString("") { "%02x".format(it) }
-                    ),
-                    blockDaaScore = 0L,
-                    isCoinbase = false
-                )
-            )
+        val utxo = fetchUtxoForAddress(gapAddress, client) ?: return null
 
         return CoveringGapInfo(
             lo = keyInfo.coveringLo,

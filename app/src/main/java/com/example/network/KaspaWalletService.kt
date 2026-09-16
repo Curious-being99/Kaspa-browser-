@@ -306,18 +306,25 @@ class KaspaWalletService(
         val apiBase = getApiBase(address)
         val broadcastEndpoints = if (apiBase == API_MAINNET) {
             listOf(
-                "$API_MAINNET/transactions"
+                "$API_MAINNET/transactions",
+                "https://api-mainnet.kaspanet.io/transactions"
             )
         } else {
             listOf(
-                "$API_TESTNET/transactions"
+                "$API_TESTNET/transactions",
+                "https://api-tn10.kaspanet.io/transactions"
             )
         }
+
+        val fastBroadcastClient = client.newBuilder()
+            .connectTimeout(2000, TimeUnit.MILLISECONDS)
+            .readTimeout(2000, TimeUnit.MILLISECONDS)
+            .build()
 
         for ((index, endpoint) in broadcastEndpoints.withIndex()) {
             try {
                 val req = Request.Builder().url(endpoint).post(jsonBody).build()
-                client.newCall(req).execute().use { resp ->
+                fastBroadcastClient.newCall(req).execute().use { resp ->
                     val respBody = resp.body?.string() ?: ""
                     if (resp.isSuccessful) {
                         broadcastConfirmed = true
@@ -333,7 +340,7 @@ class KaspaWalletService(
                     } else {
                         lastBroadcastError = "Node ($endpoint) returned HTTP ${resp.code}: ${respBody.take(150)}"
                         if (index < broadcastEndpoints.size - 1) {
-                            delay(150L * (index + 1))
+                            delay(100L * (index + 1))
                         }
                     }
                 }
@@ -341,7 +348,7 @@ class KaspaWalletService(
             } catch (e: Exception) {
                 lastBroadcastError = "Failed to connect to $endpoint: ${e.message}"
                 if (index < broadcastEndpoints.size - 1) {
-                    delay(150L * (index + 1))
+                    delay(100L * (index + 1))
                 }
             }
         }
@@ -473,6 +480,14 @@ class KaspaWalletService(
                     "Invalid domain name format: $cleanName"
                 }
 
+                // 0. Pre-flight check: Verify sender wallet has live UTXOs immediately
+                val availableUtxos = fetchLiveUtxos(senderAddress)
+                if (availableUtxos.isEmpty()) {
+                    return@withLock Result.failure(
+                        IllegalStateException("No UTXOs available to fund registration in wallet ($senderAddress). Please fund your wallet with KAS first.")
+                    )
+                }
+
                 // 1. Fetch bytecodes and keyPair
                 val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
                 val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed)
@@ -484,7 +499,7 @@ class KaspaWalletService(
                 var lastCommitError = ""
 
                 // Operational retry loop for Commit step (handles concurrent gap-split conflicts)
-                val maxCommitAttempts = 2
+                val maxCommitAttempts = 1
                 for (attempt in 1..maxCommitAttempts) {
                     val keyLookup = DotkProtocol.fetchNameKey(cleanName, client)
                     if (keyLookup != null && !keyLookup.isFree) {
@@ -513,13 +528,8 @@ class KaspaWalletService(
                     }
 
                     if (gapInfo == null) {
-                        lastCommitError = "No covering gap found for domain: $cleanName"
+                        lastCommitError = "No active covering gap found for domain: $cleanName"
                         break // Fallback immediately to direct deed on-chain registration
-                    }
-
-                    val availableUtxos = fetchLiveUtxos(senderAddress)
-                    if (availableUtxos.isEmpty()) {
-                        return@withLock Result.failure(IllegalStateException("No UTXOs available to fund registration in wallet $senderAddress"))
                     }
 
                     val splitResult = buildSplitTransaction(
@@ -544,32 +554,26 @@ class KaspaWalletService(
                         break
                     } else {
                         lastCommitError = commitResult.errorMessage
-                        if (attempt < maxCommitAttempts) {
-                            delay(1000)
-                        }
+                        break // Fast failover to direct registration
                     }
                 }
 
                 if (!commitSucceeded) {
                     // Fallback to direct on-chain deed registration on the Kaspa BlockDAG
-                    val availableUtxos = fetchLiveUtxos(senderAddress)
-                    if (availableUtxos.isEmpty()) {
-                        return@withLock Result.failure(IllegalStateException("No UTXOs available to fund registration in wallet $senderAddress"))
-                    }
-
+                    val currentUtxos = fetchLiveUtxos(senderAddress).ifEmpty { availableUtxos }
                     val (directTx, directUtxos) = buildDirectDeedRegistrationTransaction(
                         senderAddress = senderAddress,
                         keyPair = keyPair,
                         cleanName = cleanName,
                         bytecodes = bytecodes,
                         targetCid = targetCid,
-                        availableUtxos = availableUtxos
+                        availableUtxos = currentUtxos
                     )
                     KaspaTransactionEngine.signTransaction(directTx, directUtxos, keyPair.privateKey)
                     val directTxId = KaspaTransactionEngine.calcTransactionId(directTx)
                     val directResult = broadcastTransactionWithFailover(directTx, directTxId, senderAddress)
                     if (!directResult.isConfirmed) {
-                        return@withLock Result.failure(IllegalStateException("Direct registration transaction rejected: ${directResult.errorMessage}"))
+                        return@withLock Result.failure(IllegalStateException("Registration transaction rejected by Kaspa nodes: ${directResult.errorMessage}"))
                     }
 
                     return@withLock Result.success(KaspaTransactionItem(
@@ -584,7 +588,7 @@ class KaspaWalletService(
                 }
 
                 // Confirm PENDING deed UTXO is visible on the node before broadcasting reveal
-                val maxDeedPollAttempts = 10
+                val maxDeedPollAttempts = 3
                 for (poll in 1..maxDeedPollAttempts) {
                     delay(1000)
                     if (lastPendingDeedAddr.isNotBlank()) {
@@ -689,7 +693,8 @@ class KaspaWalletService(
             outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = change, scriptPublicKey = senderSpk))
         }
 
-        val payload = "kns:v1|claim:$cleanName.k|owner:$senderAddress|cid:${targetCid ?: ""}"
+        val payloadPlain = "kns:v1|claim:$cleanName.k|owner:$senderAddress|cid:${targetCid ?: ""}"
+        val payloadHex = payloadPlain.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }
         val tx = KaspaTransactionEngine.KaspaTransaction(
             version = 0,
             inputs = inputs,
@@ -697,8 +702,8 @@ class KaspaWalletService(
             lockTime = 0L,
             subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID,
             gas = 0L,
-            payload = payload,
-            mass = KaspaTransactionEngine.estimateTransactionMass(inputs.size, outputs.size, payload.toByteArray().size)
+            payload = payloadHex,
+            mass = KaspaTransactionEngine.estimateTransactionMass(inputs.size, outputs.size, payloadPlain.toByteArray().size)
         )
 
         val utxoEntries = selectedUtxos.map { it.utxoEntry }
