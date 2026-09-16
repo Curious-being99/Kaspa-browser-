@@ -22,6 +22,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -299,6 +302,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { mutableFloatStateOf(0f) }
     var isWebLoading by remember { mutableStateOf(false) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
+    var pullOffsetY by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var viewSourceMode by remember { mutableStateOf(false) }
     val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -600,17 +605,47 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             .fillMaxSize()
             .then(backgroundModifier)
     ) {
-        // TOP BROWSER BAR: Directly starting with the search/URL bar
+        // TOP BROWSER BAR: Directly starting with the search/URL bar with Sticky Head Pull-To-Refresh
+        val scope = rememberCoroutineScope()
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("browser_address_bar"),
+                .testTag("browser_address_bar")
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0f || pullOffsetY > 0f) {
+                                change.consume()
+                                pullOffsetY = (pullOffsetY + dragAmount * 0.45f).coerceIn(0f, 90f)
+                            }
+                        },
+                        onDragEnd = {
+                            if (pullOffsetY >= 40f) {
+                                isPullRefreshing = true
+                                scope.launch {
+                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
+                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                        webViewInstance?.reload()
+                                    } else {
+                                        viewModel.resolveUrl()
+                                    }
+                                    viewModel.refreshKaspaWallet()
+                                    kotlinx.coroutines.delay(1200L)
+                                    isPullRefreshing = false
+                                }
+                            }
+                            pullOffsetY = 0f
+                        },
+                        onDragCancel = {
+                            pullOffsetY = 0f
+                        }
+                    )
+                },
             color = SurfaceDark,
             tonalElevation = 4.dp
         ) {
-            Box {
-                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    if (isInputFocused) {
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
+                if (isInputFocused) {
                     // FOCUSED SEARCH HEADER (Industry Standard Chrome/Safari/Brave UX)
                     Row(
                         modifier = Modifier
@@ -1059,8 +1094,39 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 }
 
+                // PULL TO REFRESH (Frameless inline banner directly after search bar)
+                AnimatedVisibility(
+                    visible = pullOffsetY > 0f || isPullRefreshing,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isPullRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = ElectricCyan
+                            )
+                        } else {
+                            val rotation = (pullOffsetY * 4f) % 360f
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Pull to refresh",
+                                tint = ElectricCyan,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .graphicsLayer(rotationZ = rotation)
+                            )
+                        }
+                    }
                 }
-                
+
                 // Find in Page Bar
                 if (showFindInPage) {
                     FindInPageBar(
@@ -1084,7 +1150,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     LinearProgressIndicator(
                         progress = { if (webProgress > 0f) webProgress else 0.5f },
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
                             .fillMaxWidth()
                             .height(2.dp),
                         color = ElectricCyan,
@@ -2567,7 +2632,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
             }
         }
-    }
 
     // Install Sheet (matching download UL pattern, with Install, Shortcut, and Button)
     if (showInstallSheet) {
@@ -3319,6 +3383,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             }
         }
     }
+}
 }
 
 

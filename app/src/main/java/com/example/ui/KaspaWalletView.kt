@@ -1,5 +1,13 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
 import com.example.ui.theme.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -122,6 +130,15 @@ fun KaspaWalletView(
     var signOutError by remember { mutableStateOf<String?>(null) }
     var isSignOutPasswordVisible by remember { mutableStateOf(false) }
 
+    var pullOffsetY by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(walletState.isLoading) {
+        if (!walletState.isLoading) {
+            isPullRefreshing = false
+        }
+    }
+
     LaunchedEffect(activeAccount?.kaspaAddress) {
         onRefresh()
     }
@@ -129,9 +146,75 @@ fun KaspaWalletView(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        if (dragAmount > 0f || pullOffsetY > 0f) {
+                            change.consume()
+                            pullOffsetY = (pullOffsetY + dragAmount * 0.45f).coerceIn(0f, 90f)
+                        }
+                    },
+                    onDragEnd = {
+                        if (pullOffsetY >= 40f) {
+                            isPullRefreshing = true
+                            onRefresh()
+                        }
+                        pullOffsetY = 0f
+                    },
+                    onDragCancel = {
+                        pullOffsetY = 0f
+                    }
+                )
+            }
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Sticky Top Pull To Refresh (Frameless at top)
+        AnimatedVisibility(
+            visible = pullOffsetY > 0f || isPullRefreshing || walletState.isLoading,
+            enter = fadeIn() + slideInVertically(),
+            exit = fadeOut() + slideOutVertically()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (isPullRefreshing || walletState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = ElectricCyan
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Updating Kaspa balance & UTXOs...",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ElectricCyan
+                    )
+                } else {
+                    val rotation = (pullOffsetY * 4f) % 360f
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Pull to refresh",
+                        tint = ElectricCyan,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .graphicsLayer(rotationZ = rotation)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (pullOffsetY >= 40f) "Release to refresh balance" else "Pull down to refresh",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (pullOffsetY >= 40f) ElectricCyan else TextMuted
+                    )
+                }
+            }
+        }
         if (activeAccount == null) {
             // Un-initialized Wallet Onboarding Card
             Card(

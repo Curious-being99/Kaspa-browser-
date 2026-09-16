@@ -684,6 +684,20 @@ class DotkProtocolUnitTest {
         assertEquals(150_000_000L - 15_000L, txBatch.outputs[0].amount)
         assertNull(txBatch.outputs[0].covenant)
     }
+
+    @Test
+    fun testSeedPhraseImportAndKaspaAddressDerivation() {
+        val rawSeedWithCommas = "abandon, ability, able, about, above, absent, absorb, abstract, absurd, abuse, access, accident"
+        val decrypted = CryptoUtils.getDecryptedSeed(rawSeedWithCommas)
+        val words = decrypted.split(" ")
+        assertEquals(12, words.size)
+        assertEquals("abandon", words[0])
+        assertEquals("accident", words[11])
+
+        val kaspaKey = CryptoUtils.deriveKaspaKeyPair(rawSeedWithCommas)
+        assertTrue(kaspaKey.kaspaAddress.startsWith("kaspa:q"))
+        assertTrue(CryptoUtils.isValidKaspaAddress(kaspaKey.kaspaAddress))
+    }
 }
 
 

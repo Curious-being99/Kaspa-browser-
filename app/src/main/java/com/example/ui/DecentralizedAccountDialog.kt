@@ -1328,6 +1328,21 @@ private fun CreateAccountTab(
                     return@Button
                 }
 
+                if (isImportMode) {
+                    val cleanWords = importMnemonicInput.trim()
+                        .replace(",", " ")
+                        .replace("\n", " ")
+                        .replace("\r", " ")
+                        .replace("\t", " ")
+                        .replace("\\s+".toRegex(), " ")
+                        .split(" ")
+                        .filter { it.isNotBlank() }
+                    if (cleanWords.size !in listOf(12, 15, 18, 21, 24)) {
+                        errorNotice = "Please enter a valid 12, 15, 18, 21, or 24-word recovery seed phrase (entered ${cleanWords.size} words)."
+                        return@Button
+                    }
+                }
+
                 val seedToUse = if (isImportMode) importMnemonicInput.trim() else null
                 onCreateAccount(walletLabelInput.trim(), seedToUse, password, enableBiometric)
             },

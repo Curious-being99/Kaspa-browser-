@@ -804,21 +804,41 @@ object CryptoUtils {
     }
 
     fun getDecryptedSeed(seedPhrase: String): String {
-        val trimmed = seedPhrase.trim()
-        val wordCount = trimmed.split("\\s+".toRegex()).size
-        if (wordCount in listOf(12, 24)) {
-            return trimmed
+        val rawTrimmed = seedPhrase.trim()
+        if (rawTrimmed.isBlank()) return ""
+
+        val cleaned = rawTrimmed
+            .replace(",", " ")
+            .replace("\n", " ")
+            .replace("\r", " ")
+            .replace("\t", " ")
+            .replace("\\s+".toRegex(), " ")
+            .lowercase()
+
+        val words = cleaned.split(" ").filter { it.isNotBlank() }
+
+        // If input is a raw seed phrase (12..24 words or plain alphabetic list), return directly
+        if (words.size in 12..24 || (words.isNotEmpty() && words.all { w -> w.all { c -> c in 'a'..'z' } })) {
+            return words.joinToString(" ")
         }
+
         return try {
-            val decrypted = decryptAes256(trimmed)
-            val decWordCount = decrypted.trim().split("\\s+".toRegex()).size
-            if (decWordCount in listOf(12, 24)) {
-                decrypted.trim()
+            val decrypted = decryptAes256(rawTrimmed)
+            val decCleaned = decrypted.trim()
+                .replace(",", " ")
+                .replace("\n", " ")
+                .replace("\r", " ")
+                .replace("\t", " ")
+                .replace("\\s+".toRegex(), " ")
+                .lowercase()
+            val decWords = decCleaned.split(" ").filter { it.isNotBlank() }
+            if (decWords.isNotEmpty()) {
+                decWords.joinToString(" ")
             } else {
-                throw SecurityException("Decrypted seed phrase is invalid")
+                if (words.isNotEmpty()) words.joinToString(" ") else rawTrimmed
             }
-        } catch (e: Exception) {
-            throw SecurityException("Decrypted seed phrase is invalid: ${e.message}", e)
+        } catch (_: Exception) {
+            if (words.isNotEmpty()) words.joinToString(" ") else rawTrimmed
         }
     }
 

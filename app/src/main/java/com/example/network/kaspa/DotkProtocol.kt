@@ -222,8 +222,8 @@ object DotkProtocol {
 
     private fun getDirectoryClient(client: OkHttpClient): OkHttpClient {
         return client.newBuilder()
-            .connectTimeout(2000, java.util.concurrent.TimeUnit.MILLISECONDS)
-            .readTimeout(2000, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .connectTimeout(1200, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(1200, java.util.concurrent.TimeUnit.MILLISECONDS)
             .build()
     }
 
