@@ -1933,7 +1933,10 @@ private fun KabDomainsTab(
 
                 OutlinedTextField(
                     value = domainInput,
-                    onValueChange = { domainInput = it },
+                    onValueChange = { 
+                        domainInput = it
+                        registrationStatusMessage = null
+                    },
                     label = { Text("Domain Name (.k)", fontSize = 11.sp) },
                     placeholder = { Text("e.g. satoshi, mybrand, meshnode", fontSize = 11.sp) },
                     singleLine = true,

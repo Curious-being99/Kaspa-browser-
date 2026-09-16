@@ -220,11 +220,19 @@ object DotkProtocol {
         "https://api.dotk.name"
     )
 
+    private fun getDirectoryClient(client: OkHttpClient): OkHttpClient {
+        return client.newBuilder()
+            .connectTimeout(2500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(2500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .build()
+    }
+
     // ---------------------------------------------------------------
     // Genesis Template Caching & Exact Parsing
     // ---------------------------------------------------------------
     fun getOrFetchBytecodes(client: OkHttpClient): DotkBytecodes {
         cachedBytecodes?.let { return it }
+        val fastClient = getDirectoryClient(client)
 
         for (base in DIRECTORY_ENDPOINTS) {
             val candidateUrls = listOf(
@@ -234,7 +242,7 @@ object DotkProtocol {
             for (url in candidateUrls) {
                 try {
                     val req = Request.Builder().url(url).get().build()
-                    client.newCall(req).execute().use { resp ->
+                    fastClient.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) return@use
                         val body = resp.body?.string() ?: return@use
                         val genesis = JSONObject(body)
@@ -352,6 +360,7 @@ object DotkProtocol {
     fun fetchNameKey(domain: String, client: OkHttpClient): DotkKeyLookupResult? {
         val clean = domain.lowercase().removeSuffix(".k").trim()
         val deedKey = CryptoUtils.blake3(clean.encodeToByteArray())
+        val fastClient = getDirectoryClient(client)
         for (base in DIRECTORY_ENDPOINTS) {
             val candidateUrls = listOf(
                 "$base/v1/names/$clean/key",
@@ -360,7 +369,7 @@ object DotkProtocol {
             for (url in candidateUrls) {
                 try {
                     val req = Request.Builder().url(url).get().build()
-                    client.newCall(req).execute().use { resp ->
+                    fastClient.newCall(req).execute().use { resp ->
                         if (!resp.isSuccessful) return@use
                         val body = resp.body?.string() ?: return@use
                         val json = JSONObject(body)

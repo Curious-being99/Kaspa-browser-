@@ -484,7 +484,7 @@ class KaspaWalletService(
                 var lastCommitError = ""
 
                 // Operational retry loop for Commit step (handles concurrent gap-split conflicts)
-                val maxCommitAttempts = 3
+                val maxCommitAttempts = 2
                 for (attempt in 1..maxCommitAttempts) {
                     val keyLookup = DotkProtocol.fetchNameKey(cleanName, client)
                     if (keyLookup != null && !keyLookup.isFree) {
@@ -514,8 +514,7 @@ class KaspaWalletService(
 
                     if (gapInfo == null) {
                         lastCommitError = "No covering gap found for domain: $cleanName"
-                        if (attempt < maxCommitAttempts) delay(1500)
-                        continue
+                        break // Fallback immediately to direct deed on-chain registration
                     }
 
                     val availableUtxos = fetchLiveUtxos(senderAddress)
@@ -544,15 +543,44 @@ class KaspaWalletService(
                         commitSucceeded = true
                         break
                     } else {
-                        lastCommitError = commitResult.errorMessage ?: "Commit transaction rejected"
+                        lastCommitError = commitResult.errorMessage
                         if (attempt < maxCommitAttempts) {
-                            delay(1500) // Backoff to allow competing split to settle before retrying
+                            delay(1000)
                         }
                     }
                 }
 
                 if (!commitSucceeded) {
-                    return@withLock Result.failure(IllegalStateException("Commit transaction rejected after $maxCommitAttempts attempts: $lastCommitError"))
+                    // Fallback to direct on-chain deed registration on the Kaspa BlockDAG
+                    val availableUtxos = fetchLiveUtxos(senderAddress)
+                    if (availableUtxos.isEmpty()) {
+                        return@withLock Result.failure(IllegalStateException("No UTXOs available to fund registration in wallet $senderAddress"))
+                    }
+
+                    val (directTx, directUtxos) = buildDirectDeedRegistrationTransaction(
+                        senderAddress = senderAddress,
+                        keyPair = keyPair,
+                        cleanName = cleanName,
+                        bytecodes = bytecodes,
+                        targetCid = targetCid,
+                        availableUtxos = availableUtxos
+                    )
+                    KaspaTransactionEngine.signTransaction(directTx, directUtxos, keyPair.privateKey)
+                    val directTxId = KaspaTransactionEngine.calcTransactionId(directTx)
+                    val directResult = broadcastTransactionWithFailover(directTx, directTxId, senderAddress)
+                    if (!directResult.isConfirmed) {
+                        return@withLock Result.failure(IllegalStateException("Direct registration transaction rejected: ${directResult.errorMessage}"))
+                    }
+
+                    return@withLock Result.success(KaspaTransactionItem(
+                        txId = directResult.txId,
+                        blockTime = System.currentTimeMillis(),
+                        amountKas = 1.0,
+                        type = "DOMAIN_REGISTER",
+                        isAccepted = true,
+                        feeKas = 0.0002,
+                        counterpartyAddress = "KNS Registry: $cleanName.k"
+                    ))
                 }
 
                 // Confirm PENDING deed UTXO is visible on the node before broadcasting reveal
@@ -608,6 +636,73 @@ class KaspaWalletService(
                 Result.failure(e)
             }
         }
+    }
+
+    private fun buildDirectDeedRegistrationTransaction(
+        senderAddress: String,
+        keyPair: CryptoUtils.KaspaKeyPair,
+        cleanName: String,
+        bytecodes: DotkProtocol.DotkBytecodes,
+        targetCid: String?,
+        availableUtxos: List<KaspaTransactionEngine.KaspaUtxo>
+    ): Pair<KaspaTransactionEngine.KaspaTransaction, List<KaspaTransactionEngine.KaspaUtxoEntry>> {
+        val ownerPubKey = keyPair.publicKeyBytes
+        val ownerType: Byte = 0x00.toByte()
+
+        // Derive active deed P2SH address
+        val deedAddress = DotkProtocol.deriveActiveDeedP2shAddress(
+            name = cleanName,
+            ownerType = ownerType,
+            ownerKey = ownerPubKey,
+            deedPrefix = bytecodes.deedPrefix,
+            deedSuffix = bytecodes.deedSuffix
+        )
+
+        val deedSpk = KaspaTransactionEngine.decodeAddressToScriptPublicKey(deedAddress)
+        val senderSpk = KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
+
+        val bondSompi = DotkProtocol.BOND_AMOUNT // 1 KAS
+        val estFee = 20_000L
+        val requiredSompi = bondSompi + estFee
+
+        val selectedUtxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+        var accumulated = 0L
+        for (u in availableUtxos.sortedByDescending { it.utxoEntry.amount }) {
+            selectedUtxos.add(u)
+            accumulated += u.utxoEntry.amount
+            if (accumulated >= requiredSompi) break
+        }
+
+        if (accumulated < requiredSompi) {
+            throw IllegalStateException("Insufficient funds: need at least ${(requiredSompi / 100_000_000.0)} KAS, available ${(accumulated / 100_000_000.0)} KAS")
+        }
+
+        val change = accumulated - requiredSompi
+        val inputs = selectedUtxos.map { KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = it.outpoint) }
+        val outputs = mutableListOf<KaspaTransactionEngine.KaspaTransactionOutput>()
+
+        // Output 0: Deed output locked to KNS covenant / Deed address
+        outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = bondSompi, scriptPublicKey = deedSpk))
+
+        // Output 1: Change output
+        if (change > 0L) {
+            outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = change, scriptPublicKey = senderSpk))
+        }
+
+        val payload = "kns:v1|claim:$cleanName.k|owner:$senderAddress|cid:${targetCid ?: ""}"
+        val tx = KaspaTransactionEngine.KaspaTransaction(
+            version = 0,
+            inputs = inputs,
+            outputs = outputs,
+            lockTime = 0L,
+            subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID,
+            gas = 0L,
+            payload = payload,
+            mass = KaspaTransactionEngine.estimateTransactionMass(inputs.size, outputs.size, payload.toByteArray().size)
+        )
+
+        val utxoEntries = selectedUtxos.map { it.utxoEntry }
+        return Pair(tx, utxoEntries)
     }
 
     private data class SplitTxResult(
