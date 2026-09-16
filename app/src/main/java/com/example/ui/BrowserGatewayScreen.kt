@@ -354,76 +354,33 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         val webView = webViewInstance ?: return@LaunchedEffect
         lastProgressChangeTime = System.currentTimeMillis()
 
-        suspend fun pingWebView(wv: WebView): Boolean {
-            if (isRendererUnresponsive) {
-                android.util.Log.w("WebViewWatchdog", "Platform reported WebView render process UNRESPONSIVE via client!")
-                return false
-            }
-
-            return try {
-                kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
-                        wv.post {
-                            try {
-                                wv.evaluateJavascript("(function(){ return 'ok'; })()") { result ->
-                                    if (continuation.isActive) {
-                                        continuation.resume(result == "\"ok\"")
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                if (continuation.isActive) {
-                                    continuation.resume(false)
-                                }
-                            }
-                        }
-                    }
-                } ?: false
-            } catch (e: Exception) {
-                false
-            }
-        }
-
         while (true) {
-            kotlinx.coroutines.delay(10000L) // Check periodically every 10 seconds (fully non-blocking)
+            kotlinx.coroutines.delay(15000L)
 
-            val currentUrl = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                try { webView.url } catch (_: Exception) { null }
-            }
-            if (currentUrl.isNullOrBlank() || currentUrl == "about:blank") {
-                continue
-            }
-
-            // A. Stuck Page Load Check
+            // Graceful loading indicator timeout (hides spinner without interrupting page load)
             val isCurrentlyLoading = isWebLoading
             val progressTime = lastProgressChangeTime
             val now = System.currentTimeMillis()
-            if (isCurrentlyLoading && (now - progressTime > 15_000L)) {
-                android.util.Log.w("WebViewWatchdog", "Stuck loading progress detected (>= 15s). Forcing reload...")
+            if (isCurrentlyLoading && (now - progressTime > 30_000L)) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    try {
-                        viewModel.setStatusMessage("Page load unresponsive. Auto-recovering...")
-                        webView.stopLoading()
-                        webView.reload()
-                    } catch (_: Exception) {}
+                    isWebLoading = false
+                    viewModel.setIsLoading(false)
                 }
-                lastProgressChangeTime = System.currentTimeMillis() // Reset timer
-                continue
             }
 
-            // B. Asynchronous Ping Check
-            val isResponsive = pingWebView(webView)
-            if (!isResponsive) {
-                android.util.Log.w("WebViewWatchdog", "WebView hung! Re-creating instance...")
+            // Check if system reported renderer process as unresponsive
+            if (isRendererUnresponsive) {
+                android.util.Log.w("WebViewWatchdog", "System reported renderer unresponsive. Recovering...")
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    viewModel.setStatusMessage("WebView unresponsive. Auto-recovering...")
                     try {
                         (webView.parent as? ViewGroup)?.removeView(webView)
                         webView.destroy()
                     } catch (_: Exception) {}
                     webViewInstance = null
+                    isRendererUnresponsive = false
                     webViewRecreateKey++
                 }
-                break // Exit loop as this WebView instance is destroyed
+                break
             }
         }
     }
@@ -1267,7 +1224,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = false
+                                offscreenPreRaster = true
                                 setGeolocationEnabled(false)
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -1961,7 +1918,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
 
                                     if (com.example.network.WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
-                                        val cachedResponse = com.example.network.WebViewAssetLruCache.fetchAndCache(reqUrl, request.requestHeaders)
+                                        val cachedResponse = com.example.network.WebViewAssetLruCache.get(reqUrl)
                                         if (cachedResponse != null) {
                                             return cachedResponse
                                         }
