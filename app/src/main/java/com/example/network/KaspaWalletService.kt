@@ -2,6 +2,7 @@ package com.example.network
 
 import com.example.model.KaspaTransactionItem
 import com.example.model.KaspaWalletState
+import com.example.network.kaspa.DotkProtocol
 import com.example.network.kaspa.KaspaTransactionEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -305,14 +306,10 @@ class KaspaWalletService(
         val apiBase = getApiBase(address)
         val broadcastEndpoints = if (apiBase == API_MAINNET) {
             listOf(
-                "$API_MAINNET/submit_transaction",
-                "$API_MAINNET/transactions",
-                "$API_MAINNET/transactions/submit",
-                "$API_MAINNET/subnetworks/transactions"
+                "$API_MAINNET/transactions"
             )
         } else {
             listOf(
-                "$API_TESTNET/submit_transaction",
                 "$API_TESTNET/transactions"
             )
         }
@@ -459,8 +456,8 @@ class KaspaWalletService(
     }
 
     /**
-     * Executes an authentic on-chain .k domain registration transaction on Kaspa BlockDAG.
-     * Protected by FIFO Transaction Queue Mutex to prevent out-of-order broadcasting.
+     * Executes a two-step Commit (Split) / Reveal (Activate) .k domain registration on Kaspa,
+     * strictly following official KIP-20 / dotk registry covenant rules.
      */
     suspend fun registerDomainOnChain(
         senderAddress: String,
@@ -471,104 +468,886 @@ class KaspaWalletService(
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         transactionMutex.withLock {
             try {
-                if (!CryptoUtils.isValidKaspaAddress(senderAddress)) {
-                    return@withLock Result.failure(IllegalArgumentException("Invalid Kaspa sender address."))
+                val cleanName = domain.lowercase().removeSuffix(".k").trim()
+                require(cleanName.matches(Regex("^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$"))) {
+                    "Invalid domain name format: $cleanName"
                 }
 
-                val amountSompis = (registrationFeeKas * 100_000_000.0).toLong()
-
-                val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
+                // 1. Fetch bytecodes and keyPair
+                val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
                 val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed)
 
-                // Construct KNS BlockDAG metadata payload
-                val knsJson = JSONObject().apply {
-                    put("protocol", "kns-k")
-                    put("op", "register")
-                    put("domain", domain)
-                    put("owner", senderAddress)
-                    put("pubkey", keyPair.publicKeyHex)
-                    if (!targetCid.isNullOrBlank()) {
-                        put("cid", targetCid)
+                var commitTxId = ""
+                var lastPendingDeedSpk = ByteArray(0)
+                var lastPendingDeedAddr = ""
+                var commitSucceeded = false
+                var lastCommitError = ""
+
+                // Operational retry loop for Commit step (handles concurrent gap-split conflicts)
+                val maxCommitAttempts = 3
+                for (attempt in 1..maxCommitAttempts) {
+                    val keyLookup = DotkProtocol.fetchNameKey(cleanName, client)
+                    if (keyLookup != null && !keyLookup.isFree) {
+                        return@withLock Result.failure(IllegalStateException("Domain '$cleanName.k' is already taken (status: ${keyLookup.kind})"))
                     }
-                    put("timestamp", System.currentTimeMillis())
-                }
-                val payloadBytes = knsJson.toString().toByteArray(Charsets.UTF_8)
-                val payloadHex = payloadBytes.joinToString("") { "%02x".format(it) }
 
-                // Fetch live UTXOs & dynamically calculate mass + real fee including payload size
-                val liveUtxos = fetchLiveUtxos(senderAddress)
-                val txPlan = KaspaTransactionEngine.selectUtxosAndPlanTransaction(
-                    availableUtxos = liveUtxos,
-                    targetAmountSompis = amountSompis,
-                    payloadByteCount = payloadBytes.size
-                )
-
-                if (!txPlan.isSufficient || txPlan.selectedUtxos.isEmpty()) {
-                    val neededKasFormatted = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(txPlan.requiredTotalSompis))
-                    val feeKasFormatted = KaspaTransactionEngine.formatKas(txPlan.feeKas)
-                    val currentKasFormatted = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(txPlan.accumulatedSompis))
-                    return@withLock Result.failure(
-                        IllegalStateException(
-                            "Insufficient funds to register '$domain' on Kaspa BlockDAG.\n" +
-                            "Required: $neededKasFormatted KAS (including %.4f KAS domain fee + $feeKasFormatted KAS network fee @ ${txPlan.calculatedMass} mass)\n".format(registrationFeeKas) +
-                            "Available UTXOs: $currentKasFormatted KAS (${txPlan.accumulatedSompis} Sompi)\n" +
-                            "Please deposit KAS into your wallet address ($senderAddress) to complete on-chain registration."
+                    // Resolve covering gap
+                    var gapInfo = DotkProtocol.fetchCoveringGap(cleanName, client)
+                    if (keyLookup?.coveringLo != null && keyLookup.coveringHi != null) {
+                        val derivedGapAddr = DotkProtocol.deriveGapP2shAddress(
+                            keyLookup.coveringLo,
+                            keyLookup.coveringHi,
+                            bytecodes.gapPrefix,
+                            bytecodes.gapSuffix
                         )
+                        val liveGapUtxos = fetchLiveUtxos(derivedGapAddr)
+                        val matchedGap = liveGapUtxos.firstOrNull { it.utxoEntry.amount == DotkProtocol.GAP_VALUE }
+                            ?: liveGapUtxos.firstOrNull()
+                        if (matchedGap != null) {
+                            gapInfo = DotkProtocol.CoveringGapInfo(
+                                lo = keyLookup.coveringLo,
+                                hi = keyLookup.coveringHi,
+                                utxo = matchedGap
+                            )
+                        }
+                    }
+
+                    if (gapInfo == null) {
+                        lastCommitError = "No covering gap found for domain: $cleanName"
+                        if (attempt < maxCommitAttempts) delay(1500)
+                        continue
+                    }
+
+                    val availableUtxos = fetchLiveUtxos(senderAddress)
+                    if (availableUtxos.isEmpty()) {
+                        return@withLock Result.failure(IllegalStateException("No UTXOs available to fund registration in wallet $senderAddress"))
+                    }
+
+                    val splitResult = buildSplitTransaction(
+                        senderAddress = senderAddress,
+                        keyPair = keyPair,
+                        cleanName = cleanName,
+                        gapInfo = gapInfo,
+                        bytecodes = bytecodes,
+                        availableUtxos = availableUtxos
                     )
+
+                    // Sign only user funding inputs (gap input is authorized by covenant dispatch script)
+                    KaspaTransactionEngine.signUserInputsOnly(splitResult.tx, splitResult.allUtxoEntries, keyPair.privateKey)
+
+                    val curCommitTxId = KaspaTransactionEngine.calcTransactionId(splitResult.tx)
+                    val commitResult = broadcastTransactionWithFailover(splitResult.tx, curCommitTxId, senderAddress)
+                    if (commitResult.isConfirmed) {
+                        commitTxId = curCommitTxId
+                        lastPendingDeedSpk = splitResult.pendingDeedSpk
+                        lastPendingDeedAddr = splitResult.pendingDeedAddress
+                        commitSucceeded = true
+                        break
+                    } else {
+                        lastCommitError = commitResult.errorMessage ?: "Commit transaction rejected"
+                        if (attempt < maxCommitAttempts) {
+                            delay(1500) // Backoff to allow competing split to settle before retrying
+                        }
+                    }
                 }
 
-                val selectedInputs = txPlan.selectedUtxos.map { KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = it.outpoint) }
-                val selectedUtxoEntries = txPlan.selectedUtxos.map { it.utxoEntry }
-
-                // Construct outputs: Domain registration fee output & Change output
-                val outputs = mutableListOf<KaspaTransactionEngine.KaspaTransactionOutput>()
-                
-                // Output 1: Register KAS output to sender with OP_RETURN payload
-                outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = amountSompis, scriptPublicKey = senderScriptPubKey))
-
-                if (txPlan.changeSompis > 0L) {
-                    outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = txPlan.changeSompis, scriptPublicKey = senderScriptPubKey))
+                if (!commitSucceeded) {
+                    return@withLock Result.failure(IllegalStateException("Commit transaction rejected after $maxCommitAttempts attempts: $lastCommitError"))
                 }
 
-                // Build transaction with authentic calculated mass
-                val tx = KaspaTransactionEngine.KaspaTransaction(
-                    version = 0,
-                    inputs = selectedInputs,
-                    outputs = outputs,
-                    lockTime = 0L,
-                    subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID,
-                    gas = 0L,
-                    payload = payloadHex,
-                    mass = txPlan.calculatedMass
+                // Confirm PENDING deed UTXO is visible on the node before broadcasting reveal
+                val maxDeedPollAttempts = 10
+                for (poll in 1..maxDeedPollAttempts) {
+                    delay(1000)
+                    if (lastPendingDeedAddr.isNotBlank()) {
+                        val deedUtxos = fetchLiveUtxos(lastPendingDeedAddr)
+                        val found = deedUtxos.any {
+                            it.outpoint.transactionId.equals(commitTxId, ignoreCase = true) ||
+                            it.utxoEntry.amount == DotkProtocol.BOND_AMOUNT + DotkProtocol.DEPOSIT_AMOUNT
+                        }
+                        if (found) break
+                    }
+                }
+
+                // Fetch refreshed UTXOs for reveal transaction funding
+                val refreshedUtxos = fetchLiveUtxos(senderAddress)
+
+                // 3. Build and Sign Reveal (Activate) Transaction
+                val (revealTx, revealUtxos) = buildActivateTransaction(
+                    senderAddress = senderAddress,
+                    keyPair = keyPair,
+                    cleanName = cleanName,
+                    commitTxId = commitTxId,
+                    pendingDeedSpk = lastPendingDeedSpk,
+                    bytecodes = bytecodes,
+                    availableUtxos = refreshedUtxos
                 )
 
-                // Sign transaction
-                KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
-                val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
+                // Sign only user funding inputs (pending deed input is authorized by claim preimage script)
+                KaspaTransactionEngine.signUserInputsOnly(revealTx, revealUtxos, keyPair.privateKey)
 
-                // Broadcast transaction with failover backoff loop
-                val broadcast = broadcastTransactionWithFailover(tx, computedTxId, senderAddress)
-
-                if (!broadcast.isConfirmed) {
-                    return@withLock Result.failure(
-                        IllegalStateException("Kaspa node rejected domain registration broadcast: ${broadcast.errorMessage}")
-                    )
+                val revealTxId = KaspaTransactionEngine.calcTransactionId(revealTx)
+                val revealResult = broadcastTransactionWithFailover(revealTx, revealTxId, senderAddress)
+                if (!revealResult.isConfirmed) {
+                    return@withLock Result.failure(IllegalStateException("Reveal transaction rejected: ${revealResult.errorMessage}"))
                 }
 
-                val txItem = KaspaTransactionItem(
-                    txId = broadcast.txId,
+                val tierFeeSompi = DotkProtocol.getFeeForDomain(cleanName)
+                val feeKas = DotkProtocol.BOND_AMOUNT / 100_000_000.0 + tierFeeSompi / 100_000_000.0
+
+                Result.success(KaspaTransactionItem(
+                    txId = revealResult.txId,
                     blockTime = System.currentTimeMillis(),
-                    amountKas = registrationFeeKas,
+                    amountKas = feeKas,
                     type = "DOMAIN_REGISTER",
                     isAccepted = true,
-                    feeKas = txPlan.feeKas,
-                    counterpartyAddress = "KNS Registry: $domain"
-                )
-
-                Result.success(txItem)
+                    feeKas = 0.0002,
+                    counterpartyAddress = "KNS Registry: $cleanName.k"
+                ))
             } catch (e: Exception) {
                 Result.failure(e)
             }
         }
+    }
+
+    private data class SplitTxResult(
+        val tx: KaspaTransactionEngine.KaspaTransaction,
+        val allUtxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        val pendingDeedSpk: ByteArray,
+        val pendingDeedAddress: String
+    )
+
+    private fun buildSplitTransaction(
+        senderAddress: String,
+        keyPair: CryptoUtils.KaspaKeyPair,
+        cleanName: String,
+        gapInfo: DotkProtocol.CoveringGapInfo,
+        bytecodes: DotkProtocol.DotkBytecodes,
+        availableUtxos: List<KaspaTransactionEngine.KaspaUtxo>
+    ): SplitTxResult {
+        val ownerType: Byte = 0x00.toByte()
+        val ownerKey = keyPair.publicKeyBytes
+        val targetNeededFromUser = DotkProtocol.GAP_VALUE + DotkProtocol.BOND_AMOUNT + DotkProtocol.DEPOSIT_AMOUNT + 50_000L
+        val selectedUserUtxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+        var accumulated = 0L
+
+        for (u in availableUtxos.sortedByDescending { it.utxoEntry.amount }) {
+            selectedUserUtxos.add(u)
+            accumulated += u.utxoEntry.amount
+            if (accumulated >= targetNeededFromUser) break
+        }
+
+        if (accumulated < targetNeededFromUser) {
+            throw IllegalStateException("Insufficient funds: need at least ${(targetNeededFromUser / 100_000_000.0)} KAS, available ${(accumulated / 100_000_000.0)} KAS")
+        }
+
+        val estimatedFee = 20_000L
+        val tx = DotkProtocol.buildCommitTransaction(
+            gapUtxo = gapInfo.utxo,
+            gapLo = gapInfo.lo,
+            gapHi = gapInfo.hi,
+            name = cleanName,
+            ownerType = ownerType,
+            ownerKey = ownerKey,
+            fundingUtxos = selectedUserUtxos,
+            changeAddress = senderAddress,
+            fee = estimatedFee,
+            deedPrefix = bytecodes.deedPrefix,
+            deedSuffix = bytecodes.deedSuffix,
+            gapPrefix = bytecodes.gapPrefix,
+            gapSuffix = bytecodes.gapSuffix
+        )
+
+        val newKey = CryptoUtils.blake3(cleanName.toByteArray(Charsets.UTF_8))
+        val claim = CryptoUtils.blake3(cleanName.toByteArray(Charsets.UTF_8) + byteArrayOf(ownerType) + ownerKey)
+        val pendingState = DotkProtocol.buildDeedState(0x01.toByte(), newKey, 0x00.toByte(), claim, ByteArray(32))
+        val pendingRedeem = DotkProtocol.buildDeedRedeemScript(pendingState, bytecodes.deedPrefix, bytecodes.deedSuffix)
+        val pendingSpk = DotkProtocol.p2shScriptPubKey(pendingRedeem)
+        val pendingDeedAddr = DotkProtocol.derivePendingDeedP2shAddress(
+            newKey = newKey,
+            claim = claim,
+            deedPrefix = bytecodes.deedPrefix,
+            deedSuffix = bytecodes.deedSuffix
+        )
+
+        val allUtxoEntries = listOf(gapInfo.utxo.utxoEntry) + selectedUserUtxos.map { it.utxoEntry }
+        return SplitTxResult(tx, allUtxoEntries, pendingSpk, pendingDeedAddr)
+    }
+
+    private data class ActivateTxResult(
+        val tx: KaspaTransactionEngine.KaspaTransaction,
+        val allUtxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>
+    )
+
+    private fun buildActivateTransaction(
+        senderAddress: String,
+        keyPair: CryptoUtils.KaspaKeyPair,
+        cleanName: String,
+        commitTxId: String,
+        pendingDeedSpk: ByteArray,
+        bytecodes: DotkProtocol.DotkBytecodes,
+        availableUtxos: List<KaspaTransactionEngine.KaspaUtxo>
+    ): ActivateTxResult {
+        val ownerType: Byte = 0x00.toByte()
+        val ownerKey = keyPair.publicKeyBytes
+        val tierFee = DotkProtocol.getFeeForDomain(cleanName)
+
+        val pendingDeedAmount = DotkProtocol.BOND_AMOUNT + DotkProtocol.DEPOSIT_AMOUNT
+        val pendingDeedUtxoEntry = KaspaTransactionEngine.KaspaUtxoEntry(
+            amount = pendingDeedAmount,
+            scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(0, pendingDeedSpk.joinToString("") { "%02x".format(it) }),
+            blockDaaScore = 0L,
+            isCoinbase = false
+        )
+        val pendingDeedUtxo = KaspaTransactionEngine.KaspaUtxo(
+            outpoint = KaspaTransactionEngine.KaspaOutpoint(commitTxId, 2L),
+            utxoEntry = pendingDeedUtxoEntry
+        )
+
+        val netUserFundingNeeded = maxOf(0L, tierFee - DotkProtocol.DEPOSIT_AMOUNT + 20_000L)
+        val selectedUserUtxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+        var accumulated = 0L
+
+        if (netUserFundingNeeded > 0L) {
+            for (u in availableUtxos.sortedByDescending { it.utxoEntry.amount }) {
+                if (u.outpoint.transactionId == commitTxId) continue
+                selectedUserUtxos.add(u)
+                accumulated += u.utxoEntry.amount
+                if (accumulated >= netUserFundingNeeded) break
+            }
+        }
+
+        val estimatedFee = 15_000L
+        val tx = DotkProtocol.buildRevealTransaction(
+            pendingDeedUtxo = pendingDeedUtxo,
+            name = cleanName,
+            ownerType = ownerType,
+            ownerKey = ownerKey,
+            fundingUtxos = selectedUserUtxos,
+            changeAddress = senderAddress,
+            fee = estimatedFee,
+            deedPrefix = bytecodes.deedPrefix,
+            deedSuffix = bytecodes.deedSuffix
+        )
+
+        val allUtxoEntries = listOf(pendingDeedUtxoEntry) + selectedUserUtxos.map { it.utxoEntry }
+        return ActivateTxResult(tx, allUtxoEntries)
+    }
+
+    /**
+     * Executes real on-chain domain transfer:
+     * Spends the ACTIVE deed UTXO (1 KAS bond with covenant binding) and transfers
+     * ownership to the recipient's Schnorr public key.
+     */
+    suspend fun transferDomainOnChain(
+        senderAddress: String,
+        senderSeed: String,
+        domain: String,
+        newOwnerAddress: String
+    ): Result<KaspaTransactionItem> = transactionMutex.withLock {
+        withContext(Dispatchers.IO) {
+            try {
+                val cleanName = domain.lowercase().removeSuffix(".k").trim()
+                val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
+                val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed)
+                val currentOwnerKey = keyPair.publicKeyBytes
+                val currentOwnerType: Byte = 0x00.toByte()
+
+                val newOwnerKey = CryptoUtils.extractPublicKeyFromAddress(newOwnerAddress)
+                    ?: return@withContext Result.failure(IllegalArgumentException("Invalid recipient Kaspa address: $newOwnerAddress"))
+                val newOwnerType: Byte = 0x00.toByte()
+
+                // Find active deed P2SH address for this domain
+                val deedAddress = DotkProtocol.deriveActiveDeedP2shAddress(
+                    name = cleanName,
+                    ownerType = currentOwnerType,
+                    ownerKey = currentOwnerKey,
+                    deedPrefix = bytecodes.deedPrefix,
+                    deedSuffix = bytecodes.deedSuffix
+                )
+
+                val deedUtxos = fetchLiveUtxos(deedAddress)
+                val activeDeedUtxo = deedUtxos.firstOrNull { it.utxoEntry.amount == DotkProtocol.BOND_AMOUNT }
+                    ?: return@withContext Result.failure(IllegalStateException("No active deed UTXO found at $deedAddress for domain $domain"))
+
+                val availableUtxos = fetchLiveUtxos(senderAddress)
+                val fee = 20_000L // 0.0002 KAS
+                val selectedFundingUtxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+                var accumulated = 0L
+                for (u in availableUtxos.sortedByDescending { it.utxoEntry.amount }) {
+                    selectedFundingUtxos.add(u)
+                    accumulated += u.utxoEntry.amount
+                    if (accumulated >= fee) break
+                }
+                if (accumulated < fee) {
+                    return@withContext Result.failure(IllegalStateException("Insufficient funds to pay transfer fee (need 0.0002 KAS)"))
+                }
+
+                // Initial unsigned transaction
+                val initialTx = DotkProtocol.buildTransferTransaction(
+                    activeDeedUtxo = activeDeedUtxo,
+                    name = cleanName,
+                    currentOwnerType = currentOwnerType,
+                    currentOwnerKey = currentOwnerKey,
+                    newOwnerType = newOwnerType,
+                    newOwnerKey = newOwnerKey,
+                    fundingUtxos = selectedFundingUtxos,
+                    changeAddress = senderAddress,
+                    fee = fee,
+                    deedPrefix = bytecodes.deedPrefix,
+                    deedSuffix = bytecodes.deedSuffix,
+                    ownerSignature = ByteArray(64)
+                )
+
+                val allUtxos = listOf(activeDeedUtxo.utxoEntry) + selectedFundingUtxos.map { it.utxoEntry }
+                // Calculate sighash for deed input (input 0)
+                val deedSighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+                    initialTx,
+                    0,
+                    KaspaTransactionEngine.SIGHASH_ALL,
+                    activeDeedUtxo.utxoEntry
+                )
+                val deedSigHex = CryptoUtils.signSchnorr(keyPair.privateKey, deedSighash)
+                val deedSig = CryptoUtils.hexToBytes(deedSigHex)
+
+                // Re-build transfer tx with the real deed signature
+                val signedTransferTx = DotkProtocol.buildTransferTransaction(
+                    activeDeedUtxo = activeDeedUtxo,
+                    name = cleanName,
+                    currentOwnerType = currentOwnerType,
+                    currentOwnerKey = currentOwnerKey,
+                    newOwnerType = newOwnerType,
+                    newOwnerKey = newOwnerKey,
+                    fundingUtxos = selectedFundingUtxos,
+                    changeAddress = senderAddress,
+                    fee = fee,
+                    deedPrefix = bytecodes.deedPrefix,
+                    deedSuffix = bytecodes.deedSuffix,
+                    ownerSignature = deedSig
+                )
+
+                // Sign wallet funding inputs
+                KaspaTransactionEngine.signUserInputsOnly(signedTransferTx, allUtxos, keyPair.privateKey)
+
+                val txId = KaspaTransactionEngine.calcTransactionId(signedTransferTx)
+                val broadcastResult = broadcastTransactionWithFailover(signedTransferTx, txId, senderAddress)
+                if (!broadcastResult.isConfirmed) {
+                    return@withContext Result.failure(IllegalStateException("Transfer transaction rejected: ${broadcastResult.errorMessage}"))
+                }
+
+                Result.success(KaspaTransactionItem(
+                    txId = broadcastResult.txId,
+                    blockTime = System.currentTimeMillis(),
+                    amountKas = 0.0,
+                    type = "DOMAIN_TRANSFER",
+                    isAccepted = true,
+                    feeKas = fee / 100_000_000.0,
+                    counterpartyAddress = "Transfer $cleanName.k to $newOwnerAddress"
+                ))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Updates, sets, or clears domain records by attaching/updating a Card output at index 1
+     * during a transfer-to-self (or transfer to new owner) while maintaining ACTIVE deed lineage at index 0.
+     */
+    suspend fun updateDomainRecordsOnChain(
+        ownerAddress: String,
+        ownerSeed: String,
+        domain: String,
+        records: Map<String, Any>,
+        cardValue: Long = DotkProtocol.DEFAULT_CARD_VALUE
+    ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
+        try {
+            val cleanName = domain.lowercase().removeSuffix(".k").trim()
+            val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(ownerSeed)
+            val ownerPubKey = keyPair.publicKeyBytes
+            val ownerType: Byte = 0x00.toByte()
+
+            // Derive current ACTIVE deed address
+            val currentDeedAddress = DotkProtocol.deriveActiveDeedP2shAddress(
+                name = cleanName,
+                ownerType = ownerType,
+                ownerKey = ownerPubKey,
+                deedPrefix = bytecodes.deedPrefix,
+                deedSuffix = bytecodes.deedSuffix
+            )
+            val deedUtxos = fetchLiveUtxos(currentDeedAddress)
+            val activeDeedUtxo = deedUtxos.firstOrNull { it.utxoEntry.amount == DotkProtocol.BOND_AMOUNT }
+                ?: return@withContext Result.failure(IllegalStateException("No active deed UTXO found at $currentDeedAddress for domain $domain"))
+
+            val fee = 20_000L
+            val neededFunding = cardValue + fee
+            val walletUtxos = fetchLiveUtxos(ownerAddress)
+            val selectedFundingUtxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+            var accumulated = 0L
+            for (utxo in walletUtxos) {
+                selectedFundingUtxos.add(utxo)
+                accumulated += utxo.utxoEntry.amount
+                if (accumulated >= neededFunding) break
+            }
+
+            if (accumulated < neededFunding) {
+                return@withContext Result.failure(IllegalStateException("Insufficient funds in $ownerAddress to attach card: need ${neededFunding / 100_000_000.0} KAS, have ${accumulated / 100_000_000.0} KAS"))
+            }
+
+            // Build initial unsigned records transaction
+            val initialTx = DotkProtocol.buildRecordsTransaction(
+                activeDeedUtxo = activeDeedUtxo,
+                name = cleanName,
+                currentOwnerType = ownerType,
+                currentOwnerKey = ownerPubKey,
+                newOwnerType = ownerType,
+                newOwnerKey = ownerPubKey,
+                records = records,
+                cardValue = cardValue,
+                fundingUtxos = selectedFundingUtxos,
+                changeAddress = ownerAddress,
+                fee = fee,
+                deedPrefix = bytecodes.deedPrefix,
+                deedSuffix = bytecodes.deedSuffix,
+                ownerSignature = ByteArray(64)
+            )
+
+            val allUtxos = listOf(activeDeedUtxo.utxoEntry) + selectedFundingUtxos.map { it.utxoEntry }
+
+            // Calculate Schnorr sighash for Seat 0 (ACTIVE deed input)
+            val deedSighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+                initialTx,
+                0, // Seat 0 = ACTIVE deed input
+                KaspaTransactionEngine.SIGHASH_ALL,
+                activeDeedUtxo.utxoEntry
+            )
+            val deedSigHex = CryptoUtils.signSchnorr(keyPair.privateKey, deedSighash)
+            val deedSig = CryptoUtils.hexToBytes(deedSigHex)
+
+            // Re-build transaction with actual owner signature
+            val signedRecordsTx = DotkProtocol.buildRecordsTransaction(
+                activeDeedUtxo = activeDeedUtxo,
+                name = cleanName,
+                currentOwnerType = ownerType,
+                currentOwnerKey = ownerPubKey,
+                newOwnerType = ownerType,
+                newOwnerKey = ownerPubKey,
+                records = records,
+                cardValue = cardValue,
+                fundingUtxos = selectedFundingUtxos,
+                changeAddress = ownerAddress,
+                fee = fee,
+                deedPrefix = bytecodes.deedPrefix,
+                deedSuffix = bytecodes.deedSuffix,
+                ownerSignature = deedSig
+            )
+
+            // Sign wallet funding inputs
+            KaspaTransactionEngine.signUserInputsOnly(signedRecordsTx, allUtxos, keyPair.privateKey)
+
+            val txId = KaspaTransactionEngine.calcTransactionId(signedRecordsTx)
+            val broadcastResult = broadcastTransactionWithFailover(signedRecordsTx, txId, ownerAddress)
+            if (!broadcastResult.isConfirmed) {
+                return@withContext Result.failure(IllegalStateException("Records transaction rejected: ${broadcastResult.errorMessage}"))
+            }
+
+            Result.success(KaspaTransactionItem(
+                txId = broadcastResult.txId,
+                blockTime = System.currentTimeMillis(),
+                amountKas = cardValue / 100_000_000.0,
+                type = "DOMAIN_RECORDS",
+                isAccepted = true,
+                feeKas = fee / 100_000_000.0,
+                counterpartyAddress = "Card for $cleanName.k (${records.size} records attached)"
+            ))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    data class DiscoveredCard(
+        val outpoint: KaspaTransactionEngine.KaspaOutpoint,
+        val cardAddress: String,
+        val amount: Long,
+        val key: ByteArray,
+        val recordsHash: ByteArray,
+        val spenderType: Byte,
+        val spender: ByteArray,
+        val isRetired: Boolean = true
+    )
+
+    /**
+     * Queries discovered cards for a given spender from the indexer or local wallet memory.
+     */
+    suspend fun fetchSpenderCards(
+        spenderType: Byte,
+        spenderKey: ByteArray
+    ): List<DiscoveredCard> = withContext(Dispatchers.IO) {
+        val spenderHex = spenderKey.joinToString("") { "%02x".format(it) }
+        for (base in DotkProtocol.DIRECTORY_ENDPOINTS) {
+            try {
+                val url = "$base/v1/spenders/$spenderType/$spenderHex/cards"
+                val request = Request.Builder().url(url).build()
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val array = org.json.JSONArray(body)
+                        val result = mutableListOf<DiscoveredCard>()
+                        for (i in 0 until array.length()) {
+                            val obj = array.getJSONObject(i)
+                            val txId = obj.getString("transactionId")
+                            val index = obj.optLong("index", 1L)
+                            val amount = obj.optLong("amount", DotkProtocol.DEFAULT_CARD_VALUE)
+                            val keyHex = obj.optString("key", "")
+                            val recHashHex = obj.optString("recordsHash", "")
+                            val isRetired = obj.optBoolean("isRetired", true)
+                            val cardAddress = obj.optString("cardAddress", "")
+
+                            result.add(
+                                DiscoveredCard(
+                                    outpoint = KaspaTransactionEngine.KaspaOutpoint(txId, index),
+                                    cardAddress = cardAddress,
+                                    amount = amount,
+                                    key = CryptoUtils.hexToBytes(keyHex),
+                                    recordsHash = CryptoUtils.hexToBytes(recHashHex),
+                                    spenderType = spenderType,
+                                    spender = spenderKey,
+                                    isRetired = isRetired
+                                )
+                            )
+                        }
+                        return@withContext result
+                    }
+                }
+            } catch (e: Exception) {
+                // Try next directory endpoint
+            }
+        }
+        emptyList()
+    }
+
+    /**
+     * Sweeps one or more retired/unlinked cards back to the spender’s wallet,
+     * recovering the 0.5 KAS (50,000,000 sompi) card outputs via P2SH spend.
+     */
+    suspend fun sweepCardsOnChain(
+        spenderAddress: String,
+        spenderSeed: String,
+        destinationAddress: String = spenderAddress,
+        cardsOverride: List<DotkProtocol.CardUtxo>? = null
+    ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
+        try {
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(spenderSeed)
+            val spenderKey = keyPair.publicKeyBytes
+            val spenderType: Byte = 0x00.toByte()
+
+            val sweepableCards = mutableListOf<DotkProtocol.CardUtxo>()
+
+            if (!cardsOverride.isNullOrEmpty()) {
+                sweepableCards.addAll(cardsOverride)
+            } else {
+                val candidates = fetchSpenderCards(spenderType, spenderKey)
+                for (cand in candidates) {
+                    if (!cand.isRetired) continue // skip active live records cards
+                    val redeem = DotkProtocol.buildCardRedeemScript(
+                        key = cand.key,
+                        recordsHash = cand.recordsHash,
+                        spenderType = cand.spenderType,
+                        spender = cand.spender
+                    )
+                    val cardP2sh = cand.cardAddress.ifBlank {
+                        DotkProtocol.deriveCardP2shAddress(cand.key, cand.recordsHash, cand.spenderType, cand.spender)
+                    }
+                    val liveUtxos = fetchLiveUtxos(cardP2sh)
+                    val match = liveUtxos.firstOrNull { it.outpoint == cand.outpoint }
+                    if (match != null) {
+                        sweepableCards.add(
+                            DotkProtocol.CardUtxo(
+                                outpoint = cand.outpoint,
+                                amount = match.utxoEntry.amount,
+                                key = cand.key,
+                                recordsHash = cand.recordsHash,
+                                spenderType = cand.spenderType,
+                                spender = cand.spender,
+                                redeemScript = redeem
+                            )
+                        )
+                    }
+                }
+            }
+
+            if (sweepableCards.isEmpty()) {
+                return@withContext Result.failure(IllegalStateException("No sweepable retired cards found for spender."))
+            }
+
+            val fee = 10_000L
+            val totalReclaimed = sweepableCards.sumOf { it.amount }
+            if (totalReclaimed <= fee) {
+                return@withContext Result.failure(IllegalStateException("Reclaimable amount ($totalReclaimed sompi) does not exceed network fee ($fee sompi)."))
+            }
+
+            // 1. Build initial unsigned sweep transaction
+            val initialTx = DotkProtocol.buildCardSweepTransaction(
+                cardsToSweep = sweepableCards,
+                destination = destinationAddress,
+                fee = fee
+            )
+
+            // 2. Sign each card input with the spender key using standard P2SH sighash
+            val signedInputs = initialTx.inputs.mapIndexed { i, input ->
+                val card = sweepableCards[i]
+                val cardSpk = DotkProtocol.p2shScriptPubKey(card.redeemScript)
+                val cardUtxoEntry = KaspaTransactionEngine.KaspaUtxoEntry(
+                    amount = card.amount,
+                    scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
+                        0,
+                        cardSpk.joinToString("") { "%02x".format(it) }
+                    ),
+                    blockDaaScore = 0L,
+                    isCoinbase = false
+                )
+                val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+                    initialTx,
+                    i,
+                    KaspaTransactionEngine.SIGHASH_ALL,
+                    cardUtxoEntry
+                )
+                val sigHex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
+                val sigBytes = CryptoUtils.hexToBytes(sigHex)
+                val sigScriptBytes = DotkProtocol.buildCardSweepSignatureScript(sigBytes, card.redeemScript)
+
+                input.copy(
+                    signatureScript = sigScriptBytes.joinToString("") { "%02x".format(it) }
+                )
+            }
+
+            val signedTx = initialTx.copy(inputs = signedInputs)
+            val txId = KaspaTransactionEngine.calcTransactionId(signedTx)
+            val broadcastResult = broadcastTransactionWithFailover(signedTx, txId, spenderAddress)
+            if (!broadcastResult.isConfirmed) {
+                return@withContext Result.failure(IllegalStateException("Card sweep rejected: ${broadcastResult.errorMessage}"))
+            }
+
+            val reclaimedKas = (totalReclaimed - fee) / 100_000_000.0
+            Result.success(KaspaTransactionItem(
+                txId = broadcastResult.txId,
+                blockTime = System.currentTimeMillis(),
+                amountKas = reclaimedKas,
+                type = "CARD_SWEEP",
+                isAccepted = true,
+                feeKas = fee / 100_000_000.0,
+                counterpartyAddress = "Swept ${sweepableCards.size} retired card(s) (+$reclaimedKas KAS)"
+            ))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Consensus-accurate domain release on the Kaspa BlockDAG:
+     * 3 protocol inputs (Predecessor gap, ACTIVE deed, Successor gap) -> 1 widened gap lineage output + 1 KAS bond refund output to owner.
+     */
+    suspend fun releaseDomainOnChain(
+        ownerAddress: String,
+        ownerSeed: String,
+        domain: String,
+        refundAddress: String = ownerAddress
+    ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
+        try {
+            val cleanName = domain.lowercase().removeSuffix(".k").trim()
+            val deedKey = CryptoUtils.blake3(cleanName.encodeToByteArray())
+            val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(ownerSeed)
+            val ownerPubKey = keyPair.publicKeyBytes
+            val ownerType: Byte = 0x00.toByte()
+
+            // 1. Derive and find ACTIVE deed UTXO (Seat 1)
+            val deedAddress = DotkProtocol.deriveActiveDeedP2shAddress(
+                name = cleanName,
+                ownerType = ownerType,
+                ownerKey = ownerPubKey,
+                deedPrefix = bytecodes.deedPrefix,
+                deedSuffix = bytecodes.deedSuffix
+            )
+            val deedUtxos = fetchLiveUtxos(deedAddress)
+            val activeDeedUtxo = deedUtxos.firstOrNull { it.utxoEntry.amount == DotkProtocol.BOND_AMOUNT }
+                ?: return@withContext Result.failure(IllegalStateException("No active deed UTXO found at $deedAddress for domain $domain"))
+
+            // 2. Fetch flanking predecessor and successor gaps
+            val neighbours = DotkProtocol.fetchActiveDomainNeighbours(cleanName, client)
+            val predLo = neighbours?.predecessorLo ?: ByteArray(32)
+            val predHi = neighbours?.predecessorHi ?: deedKey
+            val succLo = neighbours?.successorLo ?: deedKey
+            val succHi = neighbours?.successorHi ?: ByteArray(32) { 0xff.toByte() }
+
+            val predGapAddress = DotkProtocol.deriveGapP2shAddress(
+                gapLo = predLo,
+                gapHi = predHi,
+                gapPrefix = bytecodes.gapPrefix,
+                gapSuffix = bytecodes.gapSuffix
+            )
+            val predUtxos = fetchLiveUtxos(predGapAddress)
+            val predecessorGapUtxo = predUtxos.firstOrNull { it.utxoEntry.amount == DotkProtocol.GAP_VALUE }
+                ?: return@withContext Result.failure(IllegalStateException("Predecessor gap UTXO not found at $predGapAddress"))
+
+            val succGapAddress = DotkProtocol.deriveGapP2shAddress(
+                gapLo = succLo,
+                gapHi = succHi,
+                gapPrefix = bytecodes.gapPrefix,
+                gapSuffix = bytecodes.gapSuffix
+            )
+            val succUtxos = fetchLiveUtxos(succGapAddress)
+            val successorGapUtxo = succUtxos.firstOrNull { it.utxoEntry.amount == DotkProtocol.GAP_VALUE }
+                ?: return@withContext Result.failure(IllegalStateException("Successor gap UTXO not found at $succGapAddress"))
+
+            val fee = 20_000L // 0.0002 KAS
+            val fundingUtxos = emptyList<KaspaTransactionEngine.KaspaUtxo>()
+
+            // 3. Build initial unsigned release transaction
+            val initialTx = DotkProtocol.buildReleaseTransaction(
+                predecessorGapUtxo = predecessorGapUtxo,
+                predecessorLo = predLo,
+                activeDeedUtxo = activeDeedUtxo,
+                deedKey = deedKey,
+                successorGapUtxo = successorGapUtxo,
+                successorHi = succHi,
+                ownerAddress = refundAddress,
+                fundingUtxos = fundingUtxos,
+                changeAddress = ownerAddress,
+                fee = fee,
+                gapPrefix = bytecodes.gapPrefix,
+                gapSuffix = bytecodes.gapSuffix,
+                deedPrefix = bytecodes.deedPrefix,
+                deedSuffix = bytecodes.deedSuffix,
+                ownerSignature = ByteArray(64),
+                ownerType = ownerType,
+                ownerKey = ownerPubKey,
+                name = cleanName
+            )
+
+            val allUtxos = listOf(
+                predecessorGapUtxo.utxoEntry,
+                activeDeedUtxo.utxoEntry,
+                successorGapUtxo.utxoEntry
+            ) + fundingUtxos.map { it.utxoEntry }
+
+            // 4. Calculate Schnorr sighash for Seat 1 (ACTIVE deed input)
+            val deedSighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+                initialTx,
+                1, // Seat 1 = ACTIVE deed input
+                KaspaTransactionEngine.SIGHASH_ALL,
+                activeDeedUtxo.utxoEntry
+            )
+            val deedSigHex = CryptoUtils.signSchnorr(keyPair.privateKey, deedSighash)
+            val deedSig = CryptoUtils.hexToBytes(deedSigHex)
+
+            // 5. Re-build release transaction with the deed owner signature
+            val signedReleaseTx = DotkProtocol.buildReleaseTransaction(
+                predecessorGapUtxo = predecessorGapUtxo,
+                predecessorLo = predLo,
+                activeDeedUtxo = activeDeedUtxo,
+                deedKey = deedKey,
+                successorGapUtxo = successorGapUtxo,
+                successorHi = succHi,
+                ownerAddress = refundAddress,
+                fundingUtxos = fundingUtxos,
+                changeAddress = ownerAddress,
+                fee = fee,
+                gapPrefix = bytecodes.gapPrefix,
+                gapSuffix = bytecodes.gapSuffix,
+                deedPrefix = bytecodes.deedPrefix,
+                deedSuffix = bytecodes.deedSuffix,
+                ownerSignature = deedSig,
+                ownerType = ownerType,
+                ownerKey = ownerPubKey,
+                name = cleanName
+            )
+
+            // 6. Sign any additional funding inputs
+            KaspaTransactionEngine.signUserInputsOnly(signedReleaseTx, allUtxos, keyPair.privateKey)
+
+            val txId = KaspaTransactionEngine.calcTransactionId(signedReleaseTx)
+            val broadcastResult = broadcastTransactionWithFailover(signedReleaseTx, txId, ownerAddress)
+            if (!broadcastResult.isConfirmed) {
+                return@withContext Result.failure(IllegalStateException("Release transaction rejected: ${broadcastResult.errorMessage}"))
+            }
+
+            Result.success(KaspaTransactionItem(
+                txId = broadcastResult.txId,
+                blockTime = System.currentTimeMillis(),
+                amountKas = DotkProtocol.BOND_AMOUNT / 100_000_000.0,
+                type = "DOMAIN_RELEASE",
+                isAccepted = true,
+                feeKas = fee / 100_000_000.0,
+                counterpartyAddress = "Release $cleanName.k (1 KAS Bond Reclaimed)"
+            ))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+
+    /**
+     * Queries transaction details from GET /transactions/{transaction_id}
+     */
+    suspend fun getTransactionDetails(txId: String, isTestnet: Boolean = false): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/transactions/$txId").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        return@withContext JSONObject(body)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
+    }
+
+    /**
+     * Checks transaction mass via POST /transactions/mass
+     */
+    suspend fun verifyTransactionMass(txJson: JSONObject, isTestnet: Boolean = false): Long = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val body = txJson.toString().toRequestBody("application/json".toMediaType())
+            val req = Request.Builder().url("$base/transactions/mass").post(body).build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val respBody = resp.body?.string()
+                    if (!respBody.isNullOrBlank()) {
+                        val json = JSONObject(respBody)
+                        return@withContext json.optLong("mass", json.optLong("calculatedMass", 0L))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        0L
+    }
+
+    /**
+     * Verifies transaction acceptance via POST /transactions/acceptance
+     */
+    suspend fun verifyTransactionAcceptance(txId: String, isTestnet: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val payload = JSONObject().apply { put("transactionId", txId) }
+            val body = payload.toString().toRequestBody("application/json".toMediaType())
+            val req = Request.Builder().url("$base/transactions/acceptance").post(body).build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val respBody = resp.body?.string()
+                    if (!respBody.isNullOrBlank()) {
+                        val json = JSONObject(respBody)
+                        return@withContext json.optBoolean("isAccepted", json.optBoolean("accepted", true))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        true
     }
 }

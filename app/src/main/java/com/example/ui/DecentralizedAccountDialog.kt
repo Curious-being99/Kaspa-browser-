@@ -67,6 +67,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -135,6 +136,7 @@ fun DecentralizedAccountDialog(
     isRegisteringDomain: Boolean = false,
     onCheckDomainAvailability: (String) -> Unit = {},
     onRegisterDomain: (domain: String, targetCid: String?, onComplete: (Boolean, String) -> Unit) -> Unit = { _, _, _ -> },
+    onTransferDomain: (domain: String, newOwnerAddress: String, onComplete: (Boolean, String) -> Unit) -> Unit = { _, _, _ -> },
     onDeleteDomain: (DomainEntity) -> Unit = {},
     isWalletLocked: Boolean = false,
     hasWalletPassword: Boolean = false,
@@ -317,6 +319,7 @@ fun DecentralizedAccountDialog(
                             isRegistering = isRegisteringDomain,
                             onCheckAvailability = onCheckDomainAvailability,
                             onRegisterDomain = onRegisterDomain,
+                            onTransferDomain = onTransferDomain,
                             onDeleteDomain = onDeleteDomain,
                             onOpenUrl = onOpenUrl,
                             onCopy = { label, text ->
@@ -1011,6 +1014,7 @@ private fun CreateAccountTab(
     var isImportMode by remember { mutableStateOf(false) }
     var walletLabelInput by remember { mutableStateOf("") }
     var importMnemonicInput by remember { mutableStateOf("") }
+    var isImportMnemonicVisible by remember { mutableStateOf(false) }
 
     var passwordInput by remember { mutableStateOf("") }
     var confirmPasswordInput by remember { mutableStateOf("") }
@@ -1225,26 +1229,83 @@ private fun CreateAccountTab(
         }
 
         if (isImportMode) {
-            // Import Seed Input Field
-            OutlinedTextField(
-                value = importMnemonicInput,
-                onValueChange = { importMnemonicInput = it },
-                label = { Text("12-Word Recovery Seed Phrase", fontSize = 12.sp) },
-                placeholder = { Text("Enter 12 space-separated recovery words...", fontSize = 12.sp) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp)
-                    .testTag("import_seed_phrase_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ElectricCyan,
-                    unfocusedBorderColor = SurfaceCardBorder,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                    focusedContainerColor = SurfaceDark,
-                    unfocusedContainerColor = SurfaceDark
-                ),
-                shape = RoundedCornerShape(10.dp)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Shield, contentDescription = null, tint = AmberCentral, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "12-Word Recovery Seed Phrase",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { isImportMnemonicVisible = !isImportMnemonicVisible },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isImportMnemonicVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (isImportMnemonicVisible) "Hide Seed" else "Click to Reveal",
+                            tint = ElectricCyan,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isImportMnemonicVisible) "Hide Seed" else "Click to Reveal",
+                            fontSize = 11.sp,
+                            color = ElectricCyan,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // Import Seed Input Field (Hidden immediately by default, revealed only on click)
+                OutlinedTextField(
+                    value = importMnemonicInput,
+                    onValueChange = { importMnemonicInput = it },
+                    placeholder = { Text("Enter 12 space-separated recovery words...", fontSize = 12.sp) },
+                    visualTransformation = if (isImportMnemonicVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { isImportMnemonicVisible = !isImportMnemonicVisible }) {
+                            Icon(
+                                imageVector = if (isImportMnemonicVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isImportMnemonicVisible) "Hide Seed" else "Reveal Seed",
+                                tint = if (isImportMnemonicVisible) ElectricCyan else TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .testTag("import_seed_phrase_input"),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricCyan,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Text(
+                    text = if (isImportMnemonicVisible)
+                        "⚠️ Seed phrase is visible. Click 'Hide Seed' when done."
+                    else
+                        "🔒 Seed phrase is hidden immediately for security. Click to reveal.",
+                    fontSize = 10.sp,
+                    color = if (isImportMnemonicVisible) AmberCentral else TextMuted
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -1772,6 +1833,7 @@ private fun KabDomainsTab(
     isRegistering: Boolean,
     onCheckAvailability: (String) -> Unit,
     onRegisterDomain: (domain: String, targetCid: String?, onComplete: (Boolean, String) -> Unit) -> Unit,
+    onTransferDomain: (domain: String, newOwnerAddress: String, onComplete: (Boolean, String) -> Unit) -> Unit,
     onDeleteDomain: (DomainEntity) -> Unit,
     onOpenUrl: (String) -> Unit,
     onCopy: (String, String) -> Unit
@@ -1780,6 +1842,10 @@ private fun KabDomainsTab(
     var targetCidInput by remember { mutableStateOf("") }
     var registrationStatusMessage by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    var domainToTransfer by remember { mutableStateOf<DomainEntity?>(null) }
+    var transferRecipientInput by remember { mutableStateOf("") }
+    var transferError by remember { mutableStateOf<String?>(null) }
+    var isTransferring by remember { mutableStateOf(false) }
 
     LaunchedEffect(domainInput) {
         if (domainInput.isNotBlank()) {
@@ -2190,7 +2256,7 @@ private fun KabDomainsTab(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Button(
                                 onClick = { onOpenUrl("kns://${domain.domain}") },
@@ -2200,7 +2266,22 @@ private fun KabDomainsTab(
                             ) {
                                 Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Open in Browser", fontSize = 11.sp, color = ObsidianBg, fontWeight = FontWeight.Bold)
+                                Text("Open", fontSize = 11.sp, color = ObsidianBg, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    domainToTransfer = domain
+                                    transferRecipientInput = ""
+                                    transferError = null
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(32.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AmberCentral.copy(alpha = 0.7f))
+                            ) {
+                                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = AmberCentral, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Transfer", fontSize = 11.sp, color = AmberCentral)
                             }
 
                             OutlinedButton(
@@ -2209,12 +2290,141 @@ private fun KabDomainsTab(
                                 modifier = Modifier.height(32.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                             ) {
-                                Text("Copy Tx ID", fontSize = 11.sp, color = TextPrimary)
+                                Text("Copy Tx", fontSize = 11.sp, color = TextPrimary)
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Domain Transfer Dialog
+        if (domainToTransfer != null) {
+            val targetDomain = domainToTransfer!!
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isTransferring) {
+                        domainToTransfer = null
+                        transferRecipientInput = ""
+                        transferError = null
+                    }
+                },
+                containerColor = SurfaceDark,
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = AmberCentral)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Transfer .k Domain", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Transfer ownership of ${targetDomain.domain} to a new Kaspa address.",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Domain: ${targetDomain.domain}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = EmeraldMesh)
+                                Text("Current Owner: ${targetDomain.ownerAddress.take(24)}...", fontSize = 10.sp, color = TextMuted)
+                                Text("Refundable Bond: 1.0 KAS (preserved in covenant)", fontSize = 10.sp, color = ElectricCyan)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = transferRecipientInput,
+                            onValueChange = {
+                                transferRecipientInput = it
+                                transferError = null
+                            },
+                            label = { Text("Recipient Kaspa Address", fontSize = 11.sp) },
+                            placeholder = { Text("kaspa:qp...", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AmberCentral,
+                                unfocusedBorderColor = SurfaceCardBorder,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary,
+                                focusedContainerColor = SurfaceDark,
+                                unfocusedContainerColor = SurfaceDark
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+
+                        if (transferError != null) {
+                            Text(transferError!!, color = RedTamper, fontSize = 11.sp)
+                        }
+
+                        Text(
+                            text = "Note: Spends the ACTIVE deed covenant UTXO and assigns ownership to recipient's Schnorr key. Miner fee: ~0.0002 KAS.",
+                            fontSize = 10.sp,
+                            color = TextMuted,
+                            lineHeight = 14.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val cleanAddr = transferRecipientInput.trim()
+                            val prefix = if (cleanAddr.startsWith("kaspatest:")) "kaspatest" else "kaspa"
+                            if (!CryptoUtils.isValidKaspaAddress(cleanAddr, prefix)) {
+                                transferError = "Invalid Kaspa address format."
+                                return@Button
+                            }
+                            if (cleanAddr.equals(targetDomain.ownerAddress, ignoreCase = true)) {
+                                transferError = "Recipient address cannot be current owner."
+                                return@Button
+                            }
+
+                            isTransferring = true
+                            transferError = null
+                            onTransferDomain(targetDomain.domain, cleanAddr) { success, msg ->
+                                isTransferring = false
+                                if (success) {
+                                    registrationStatusMessage = true to msg
+                                    domainToTransfer = null
+                                    transferRecipientInput = ""
+                                } else {
+                                    transferError = msg
+                                }
+                            }
+                        },
+                        enabled = !isTransferring && transferRecipientInput.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberCentral),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isTransferring) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = ObsidianBg, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Transferring...", color = ObsidianBg, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text("Confirm Transfer", color = ObsidianBg, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            if (!isTransferring) {
+                                domainToTransfer = null
+                                transferRecipientInput = ""
+                                transferError = null
+                            }
+                        }
+                    ) {
+                        Text("Cancel", color = TextSecondary, fontSize = 11.sp)
+                    }
+                }
+            )
         }
 
         // Section: All Network Domains

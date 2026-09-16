@@ -14,6 +14,7 @@ object KaspaPrivacyEngine {
     private val TRACKER_AND_AD_DOMAINS = setOf(
         // Ad Networks & Pixels
         "doubleclick.net",
+        "google-analytics.com",
         "googleadservices.com",
         "connect.facebook.net",
         "facebook.com/tr",
@@ -124,7 +125,6 @@ object KaspaPrivacyEngine {
             path.endsWith(".m4s") || path.endsWith(".m4a") || path.endsWith(".mp3") ||
             path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
             path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
-            path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".wasm") ||
             path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
             path.contains("/video/") || path.contains("/audio/") || path.contains("/media/") ||
             lower.contains("videoplayback") || lower.contains("stream") ||

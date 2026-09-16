@@ -107,10 +107,10 @@ object CryptoUtils {
         return out.toByteArray()
     }
 
-    fun encodeRealKaspaAddress(pubKey32Bytes: ByteArray, prefix: String = "kaspa"): String {
-        val versionAndPayload = ByteArray(1 + pubKey32Bytes.size)
-        versionAndPayload[0] = 0x00 // PubKey 32-byte Schnorr / ECDSA
-        System.arraycopy(pubKey32Bytes, 0, versionAndPayload, 1, pubKey32Bytes.size)
+    fun encodeKaspaAddress(payload32Bytes: ByteArray, version: Byte = 0x00, prefix: String = "kaspa"): String {
+        val versionAndPayload = ByteArray(1 + payload32Bytes.size)
+        versionAndPayload[0] = version
+        System.arraycopy(payload32Bytes, 0, versionAndPayload, 1, payload32Bytes.size)
 
         val payload5Bits = convertBits(versionAndPayload, 8, 5, true)
         val payloadWithZeroChecksum = ByteArray(payload5Bits.size + 8)
@@ -131,6 +131,14 @@ object CryptoUtils {
         return "$prefix:$encoded"
     }
 
+    fun encodeRealKaspaAddress(pubKey32Bytes: ByteArray, prefix: String = "kaspa"): String {
+        return encodeKaspaAddress(pubKey32Bytes, version = 0x00, prefix = prefix)
+    }
+
+    fun encodeP2shAddress(scriptHash32Bytes: ByteArray, prefix: String = "kaspa"): String {
+        return encodeKaspaAddress(scriptHash32Bytes, version = 0x08.toByte(), prefix = prefix)
+    }
+
     fun isValidKaspaAddress(address: String, expectedPrefix: String = "kaspa"): Boolean {
         if (!address.startsWith("$expectedPrefix:")) return false
         val payloadPart = address.removePrefix("$expectedPrefix:")
@@ -142,6 +150,33 @@ object CryptoUtils {
             data5Bit[i] = idx.toByte()
         }
         return kaspaPolymod(expectedPrefix, data5Bit) == 0L
+    }
+
+    /**
+     * Extracts the 32-byte Schnorr public key payload from a standard Kaspa address (prefix:qp...).
+     */
+    fun extractPublicKeyFromAddress(address: String): ByteArray? {
+        return try {
+            val colonIdx = address.indexOf(':')
+            if (colonIdx == -1) return null
+            val prefix = address.substring(0, colonIdx)
+            val payloadPart = address.substring(colonIdx + 1)
+            if (payloadPart.length != 61) return null
+            val data5Bit = ByteArray(payloadPart.length)
+            for (i in payloadPart.indices) {
+                val idx = KASPA_CHARSET.indexOf(payloadPart[i])
+                if (idx < 0) return null
+                data5Bit[i] = idx.toByte()
+            }
+            if (kaspaPolymod(prefix, data5Bit) != 0L) return null
+            val payloadWithoutChecksum = data5Bit.copyOfRange(0, data5Bit.size - 8)
+            val decoded8Bit = convertBits(payloadWithoutChecksum, 5, 8, false)
+            if (decoded8Bit.size < 33) return null
+            // Byte 0 is version (0x00 for standard pubkey), bytes 1..32 is the 32-byte public key
+            decoded8Bit.copyOfRange(1, 33)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     fun generateCid(content: String): String {
@@ -539,6 +574,10 @@ object CryptoUtils {
         val b = Blake2b256(key)
         b.update(data)
         return b.digest()
+    }
+
+    fun blake3(data: ByteArray): ByteArray {
+        return Blake3.hash(data)
     }
 
     // Kaspa Rusty reference domain-separated personal message hash (KIP-5 / kaspa-hashes)

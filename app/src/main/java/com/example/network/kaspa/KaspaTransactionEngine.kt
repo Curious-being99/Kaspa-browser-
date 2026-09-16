@@ -100,7 +100,9 @@ object KaspaTransactionEngine {
     data class KaspaUtxo(
         val outpoint: KaspaOutpoint,
         val utxoEntry: KaspaUtxoEntry
-    )
+    ) {
+        val amount: Long get() = utxoEntry.amount
+    }
 
     data class KaspaTransactionInput(
         val previousOutpoint: KaspaOutpoint,
@@ -116,13 +118,27 @@ object KaspaTransactionEngine {
         }
     }
 
+    data class KaspaCovenantBinding(
+        val authorizingInput: Int = 0,
+        val covenantId: String
+    ) {
+        fun toJson(): JSONObject = JSONObject().apply {
+            put("authorizingInput", authorizingInput)
+            put("covenantId", covenantId)
+        }
+    }
+
     data class KaspaTransactionOutput(
         val amount: Long,
-        val scriptPublicKey: KaspaScriptPublicKey
+        val scriptPublicKey: KaspaScriptPublicKey,
+        val covenant: KaspaCovenantBinding? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount)
             put("scriptPublicKey", scriptPublicKey.toJson())
+            if (covenant != null) {
+                put("covenant", covenant.toJson())
+            }
         }
     }
 
@@ -201,6 +217,8 @@ object KaspaTransactionEngine {
      * P2PK ECDSA (version 1): 0x21 + 33-byte pubkey + 0xac (OP_CHECKSIG)
      * P2SH (version 8): 0xaa + 0x20 + 32-byte hash + 0x87 (OP_EQUAL)
      */
+    fun addressToScriptPublicKey(address: String): KaspaScriptPublicKey = decodeAddressToScriptPublicKey(address)
+
     fun decodeAddressToScriptPublicKey(address: String): KaspaScriptPublicKey {
         val trimmed = address.trim().lowercase()
         val colonIdx = trimmed.indexOf(':')
@@ -516,6 +534,29 @@ object KaspaTransactionEngine {
             // Kaspa P2PK Schnorr signature script format:
             // 0x41 (OP_DATA_65) + 64-byte Schnorr sig (128 hex chars) + 0x01 (SIGHASH_ALL)
             tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
+        }
+
+        tx.mass = calculateMass(tx)
+        return tx
+    }
+
+    /**
+     * Signs only user funding inputs (where signatureScript is empty), leaving covenant
+     * authorization scripts (such as Split or Activate dispatch scripts) intact.
+     */
+    fun signUserInputsOnly(
+        tx: KaspaTransaction,
+        utxoEntries: List<KaspaUtxoEntry>,
+        privateKey: BigInteger
+    ): KaspaTransaction {
+        require(utxoEntries.size == tx.inputs.size) { "UTXO entries list size must match transaction inputs size" }
+
+        for (i in tx.inputs.indices) {
+            if (tx.inputs[i].signatureScript.isEmpty()) {
+                val sighash = calcSchnorrSignatureHash(tx, i, SIGHASH_ALL, utxoEntries[i])
+                val sig64Hex = CryptoUtils.signSchnorr(privateKey, sighash)
+                tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
+            }
         }
 
         tx.mass = calculateMass(tx)

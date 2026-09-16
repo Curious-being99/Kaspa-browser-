@@ -2703,6 +2703,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             onRegisterDomain = { domain, cid, onComplete ->
                 viewModel.registerKabDomain(domain, cid, onComplete)
             },
+            onTransferDomain = { domain, newOwner, onComplete ->
+                viewModel.transferKabDomain(domain, newOwner, onComplete)
+            },
             onDeleteDomain = { domain ->
                 viewModel.deleteDomain(domain)
             },

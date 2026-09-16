@@ -295,4 +295,151 @@ class KaspaDomainRegistry(
             Result.failure(e)
         }
     }
+
+    /**
+     * Executes real on-chain .k domain transfer to a new recipient Kaspa address.
+     * Re-assigns ownership of the domain record in the local database upon confirmed broadcast.
+     */
+    suspend fun transferDomain(
+        rawName: String,
+        account: AccountEntity,
+        newOwnerAddress: String
+    ): Result<DomainEntity> = withContext(Dispatchers.IO) {
+        try {
+            val formattedDomain = normalizeDomainName(rawName)
+            val existingDomain = database.domainDao().getDomainByName(formattedDomain)
+                ?: return@withContext Result.failure(IllegalStateException("Domain '$formattedDomain' is not registered locally."))
+
+            if (!existingDomain.ownerAddress.equals(account.kaspaAddress, ignoreCase = true)) {
+                return@withContext Result.failure(IllegalStateException("You are not the owner of $formattedDomain"))
+            }
+
+            if (newOwnerAddress.equals(account.kaspaAddress, ignoreCase = true)) {
+                return@withContext Result.failure(IllegalArgumentException("Recipient address is the same as current owner."))
+            }
+
+            val seedPhrase = try {
+                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+            } catch (e: Exception) {
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+            }
+
+            val txResult = walletService.transferDomainOnChain(
+                senderAddress = account.kaspaAddress,
+                senderSeed = seedPhrase,
+                domain = formattedDomain,
+                newOwnerAddress = newOwnerAddress
+            )
+
+            if (txResult.isFailure) {
+                return@withContext Result.failure(
+                    txResult.exceptionOrNull() ?: Exception("On-chain domain transfer failed.")
+                )
+            }
+
+            val txItem = txResult.getOrThrow()
+            val updatedDomain = existingDomain.copy(
+                ownerAddress = newOwnerAddress,
+                txId = txItem.txId,
+                registeredAt = txItem.blockTime,
+                customDnsRecord = "kns:v1|owner:$newOwnerAddress|tx:${txItem.txId}"
+            )
+            database.domainDao().updateDomain(updatedDomain)
+
+            Result.success(updatedDomain)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun releaseDomain(
+        rawName: String,
+        account: AccountEntity,
+        refundAddress: String = account.kaspaAddress
+    ): Result<DomainEntity> = withContext(Dispatchers.IO) {
+        try {
+            val formattedDomain = normalizeDomainName(rawName)
+            val existingDomain = database.domainDao().getDomainByName(formattedDomain)
+                ?: return@withContext Result.failure(IllegalStateException("Domain '$formattedDomain' is not registered locally."))
+
+            if (!existingDomain.ownerAddress.equals(account.kaspaAddress, ignoreCase = true)) {
+                return@withContext Result.failure(IllegalStateException("You are not the owner of $formattedDomain"))
+            }
+
+            val seedPhrase = try {
+                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+            } catch (e: Exception) {
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+            }
+
+            val txResult = walletService.releaseDomainOnChain(
+                ownerAddress = account.kaspaAddress,
+                ownerSeed = seedPhrase,
+                domain = formattedDomain,
+                refundAddress = refundAddress
+            )
+
+            if (txResult.isFailure) {
+                return@withContext Result.failure(
+                    txResult.exceptionOrNull() ?: Exception("On-chain domain release failed.")
+                )
+            }
+
+            database.domainDao().deleteDomain(existingDomain)
+            Result.success(existingDomain)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateRecords(
+        rawName: String,
+        records: Map<String, Any>,
+        account: AccountEntity,
+        cardValue: Long = DotkProtocol.DEFAULT_CARD_VALUE
+    ): Result<DomainEntity> = withContext(Dispatchers.IO) {
+        try {
+            val formattedDomain = normalizeDomainName(rawName)
+            val existingDomain = database.domainDao().getDomainByName(formattedDomain)
+                ?: return@withContext Result.failure(IllegalStateException("Domain '$formattedDomain' is not registered locally."))
+
+            if (!existingDomain.ownerAddress.equals(account.kaspaAddress, ignoreCase = true)) {
+                return@withContext Result.failure(IllegalStateException("You are not the owner of $formattedDomain"))
+            }
+
+            val seedPhrase = try {
+                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+            } catch (e: Exception) {
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+            }
+
+            val txResult = walletService.updateDomainRecordsOnChain(
+                ownerAddress = account.kaspaAddress,
+                ownerSeed = seedPhrase,
+                domain = formattedDomain,
+                records = records,
+                cardValue = cardValue
+            )
+
+            if (txResult.isFailure) {
+                return@withContext Result.failure(
+                    txResult.exceptionOrNull() ?: Exception("On-chain record update failed.")
+                )
+            }
+
+            val txItem = txResult.getOrThrow()
+            val urlVal = records["url"] as? String ?: existingDomain.targetCid
+            val recordsSummary = records.entries.joinToString(";") { "${it.key}=${it.value}" }
+            val updatedDomain = existingDomain.copy(
+                targetCid = urlVal,
+                customDnsRecord = if (recordsSummary.isNotBlank()) recordsSummary else "empty",
+                txId = txItem.txId
+            )
+            database.domainDao().updateDomain(updatedDomain)
+            Result.success(updatedDomain)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }
+

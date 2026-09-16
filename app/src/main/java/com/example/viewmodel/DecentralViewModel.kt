@@ -698,6 +698,157 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun transferKabDomain(
+        domainName: String,
+        newOwnerAddress: String,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        val account = activeAccount.value
+        if (account == null) {
+            val msg = "Please activate or create a Kaspa wallet before transferring a domain."
+            _statusMessage.value = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+
+        viewModelScope.launch {
+            _statusMessage.value = "Transferring $domainName to ${newOwnerAddress.take(16)}... on Kaspa BlockDAG..."
+            try {
+                val result = domainRegistry.transferDomain(domainName, account, newOwnerAddress)
+                result.onSuccess { updatedDomain ->
+                    _statusMessage.value = "Transferred ${updatedDomain.domain}! New Owner: ${updatedDomain.ownerAddress.take(16)}..."
+                    refreshKaspaWallet(account.kaspaAddress)
+                    onResult?.invoke(true, "Transferred ${updatedDomain.domain} to ${newOwnerAddress.take(16)}... (Tx: ${updatedDomain.txId.take(16)}...)")
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Failed to transfer domain on-chain"
+                    _statusMessage.value = "Transfer failed: $errorMsg"
+                    onResult?.invoke(false, errorMsg)
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Error during domain transfer"
+                _statusMessage.value = "Transfer error: $errorMsg"
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
+
+    fun releaseKabDomain(
+        domainName: String,
+        refundAddress: String? = null,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        val account = activeAccount.value
+        if (account == null) {
+            val msg = "Please activate or create a Kaspa wallet before releasing a domain."
+            _statusMessage.value = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+
+        viewModelScope.launch {
+            _statusMessage.value = "Releasing $domainName and reclaiming 1 KAS bond on Kaspa BlockDAG..."
+            try {
+                val targetRefund = refundAddress?.ifBlank { null } ?: account.kaspaAddress
+                val result = domainRegistry.releaseDomain(domainName, account, targetRefund)
+                result.onSuccess { releasedDomain ->
+                    _statusMessage.value = "Released ${releasedDomain.domain}! 1 KAS Bond refunded to ${targetRefund.take(16)}..."
+                    refreshKaspaWallet(account.kaspaAddress)
+                    onResult?.invoke(true, "Released ${releasedDomain.domain}! 1 KAS bond refunded.")
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Failed to release domain on-chain"
+                    _statusMessage.value = "Release failed: $errorMsg"
+                    onResult?.invoke(false, errorMsg)
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Error during domain release"
+                _statusMessage.value = "Release error: $errorMsg"
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
+
+    fun updateKabDomainRecords(
+        domainName: String,
+        records: Map<String, Any>,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        val account = activeAccount.value
+        if (account == null) {
+            val msg = "Please activate or create a Kaspa wallet before updating records."
+            _statusMessage.value = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+
+        viewModelScope.launch {
+            _statusMessage.value = "Attaching Card with ${records.size} records to $domainName on Kaspa BlockDAG..."
+            try {
+                val result = domainRegistry.updateRecords(domainName, records, account)
+                result.onSuccess { updatedDomain ->
+                    _statusMessage.value = "Updated records for ${updatedDomain.domain}! Attached Card on-chain."
+                    refreshKaspaWallet(account.kaspaAddress)
+                    onResult?.invoke(true, "Updated records for ${updatedDomain.domain}!")
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Failed to update records on-chain"
+                    _statusMessage.value = "Record update failed: $errorMsg"
+                    onResult?.invoke(false, errorMsg)
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Error updating domain records"
+                _statusMessage.value = "Record update error: $errorMsg"
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
+
+    fun sweepRetiredCards(
+        destinationAddress: String? = null,
+        onResult: ((Boolean, String) -> Unit)? = null
+    ) {
+        val account = activeAccount.value
+        if (account == null) {
+            val msg = "Please activate or create a Kaspa wallet before sweeping cards."
+            _statusMessage.value = msg
+            onResult?.invoke(false, msg)
+            return
+        }
+
+        viewModelScope.launch {
+            _statusMessage.value = "Scanning and sweeping retired cards for ${account.kaspaAddress.take(16)}..."
+            try {
+                val seedPhrase = try {
+                    CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                } catch (e: Exception) {
+                    val msg = "Cannot decrypt seed phrase: ${e.message}"
+                    _statusMessage.value = msg
+                    onResult?.invoke(false, msg)
+                    return@launch
+                }
+
+                val target = destinationAddress?.ifBlank { null } ?: account.kaspaAddress
+                val result = kaspaWalletService.sweepCardsOnChain(
+                    spenderAddress = account.kaspaAddress,
+                    spenderSeed = seedPhrase,
+                    destinationAddress = target
+                )
+
+                result.onSuccess { txItem ->
+                    _statusMessage.value = "Successfully swept retired card(s)! Reclaimed ${txItem.amountKas} KAS."
+                    refreshKaspaWallet(account.kaspaAddress)
+                    onResult?.invoke(true, "Swept retired cards! Reclaimed ${txItem.amountKas} KAS.")
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Failed to sweep cards"
+                    _statusMessage.value = "Sweep failed: $errorMsg"
+                    onResult?.invoke(false, errorMsg)
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Error during card sweep"
+                _statusMessage.value = "Sweep error: $errorMsg"
+                onResult?.invoke(false, errorMsg)
+            }
+        }
+    }
+
     fun createDecentralizedAccount(
         walletLabel: String,
         customMnemonic: String? = null,
