@@ -349,15 +349,6 @@ class KaspaWalletService(
             }
         }
 
-        // Graceful Fallback: If transaction was successfully constructed and signed locally,
-        // but public node endpoints returned 404 or connectivity errors, treat as successfully broadcasted
-        // to ensure seamless user experience for decentralized domain registration and KAS transfers.
-        if (!broadcastConfirmed && computedTxId.isNotBlank()) {
-            broadcastConfirmed = true
-            confirmedTxId = computedTxId
-            lastBroadcastError = ""
-        }
-
         return BroadcastResult(broadcastConfirmed, confirmedTxId, lastBroadcastError)
     }
 

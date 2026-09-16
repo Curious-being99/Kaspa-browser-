@@ -4259,7 +4259,7 @@ fun BrowserSpeedDial(
                 SpeedDialCircleItem(
                     label = "KaChat",
                     iconColor = Color(0xFF70C7BA),
-                    onClick = { onNavigate("https://linktr.ee/kachat_") }
+                    onClick = { onNavigate("https://kachat.app/home/") }
                 ) {
                     KaChatLogoIcon(iconSize = 36.dp)
                 }
