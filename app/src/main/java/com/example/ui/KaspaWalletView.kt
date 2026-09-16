@@ -302,22 +302,17 @@ fun KaspaWalletView(
                     if (biometricEnabled) {
                         OutlinedButton(
                             onClick = {
-                                val activity = context as? androidx.fragment.app.FragmentActivity
-                                if (activity != null) {
-                                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                                        activity = activity,
-                                        title = "Unlock Kaspa Wallet",
-                                        subtitle = "Use fingerprint, face, or device PIN",
-                                        onSuccess = {
-                                            onUnlockWalletWithBiometric()
-                                        },
-                                        onError = { err ->
-                                            unlockError = err
-                                        }
-                                    )
-                                } else {
-                                    onUnlockWalletWithBiometric()
-                                }
+                                com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                    context = context,
+                                    title = "Unlock Kaspa Wallet",
+                                    subtitle = "Use fingerprint, face, or device PIN",
+                                    onSuccess = {
+                                        onUnlockWalletWithBiometric()
+                                    },
+                                    onError = { err ->
+                                        unlockError = err
+                                    }
+                                )
                             },
                             border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan),
                             shape = RoundedCornerShape(12.dp),
@@ -989,21 +984,18 @@ fun KaspaWalletView(
                             
                             OutlinedButton(
                                 onClick = {
-                                    val activity = context as? androidx.fragment.app.FragmentActivity
-                                    if (activity != null) {
-                                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                                            activity = activity,
-                                            title = "Confirm Sign Out",
-                                            subtitle = "Verify identity to disconnect wallet",
-                                            onSuccess = {
-                                                showSignOutConfirm = false
-                                                onSignOut()
-                                            },
-                                            onError = { err ->
-                                                signOutError = err
-                                            }
-                                        )
-                                    }
+                                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                        context = context,
+                                        title = "Confirm Sign Out",
+                                        subtitle = "Verify identity to disconnect wallet",
+                                        onSuccess = {
+                                            showSignOutConfirm = false
+                                            onSignOut()
+                                        },
+                                        onError = { err ->
+                                            signOutError = err
+                                        }
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),

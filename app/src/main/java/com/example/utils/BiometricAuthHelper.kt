@@ -1,6 +1,7 @@
 package com.example.utils
 
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.fragment.app.FragmentActivity
@@ -12,6 +13,15 @@ import androidx.core.content.ContextCompat
  * fingerprint, face, or iris sensors, or fallback to device PIN/Pattern/Password.
  */
 object BiometricAuthHelper {
+
+    fun Context.findFragmentActivity(): FragmentActivity? {
+        var ctx = this
+        while (ctx is ContextWrapper) {
+            if (ctx is FragmentActivity) return ctx
+            ctx = ctx.baseContext
+        }
+        return null
+    }
 
     /**
      * Checks if any secure hardware biometric or device lock is configured on the device.
@@ -30,12 +40,18 @@ object BiometricAuthHelper {
      * This is the real hardware-backed security flow.
      */
     fun authenticateWithBiometricOrDeviceLock(
-        activity: FragmentActivity,
+        context: Context,
         title: String = "Unlock Kaspa Wallet",
         subtitle: String = "Authenticate using fingerprint, face, or device PIN",
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
+        val activity = context.findFragmentActivity()
+        if (activity == null) {
+            onError("Hardware biometric prompt requires an active Activity context.")
+            return
+        }
+
         val executor = ContextCompat.getMainExecutor(activity)
         
         val callback = object : BiometricPrompt.AuthenticationCallback() {

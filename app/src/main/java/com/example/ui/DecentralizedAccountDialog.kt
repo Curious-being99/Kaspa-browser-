@@ -911,21 +911,18 @@ private fun ActiveProfileTab(
                             
                             OutlinedButton(
                                 onClick = {
-                                    val activity = context as? androidx.fragment.app.FragmentActivity
-                                    if (activity != null) {
-                                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                                            activity = activity,
-                                            title = "Reveal Recovery Phrase",
-                                            subtitle = "Verify identity to view seed phrase",
-                                            onSuccess = {
-                                                showSeedVerify = false
-                                                showMnemonic = true
-                                            },
-                                            onError = { err ->
-                                                seedVerifyError = err
-                                            }
-                                        )
-                                    }
+                                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                        context = context,
+                                        title = "Reveal Recovery Phrase",
+                                        subtitle = "Verify identity to view seed phrase",
+                                        onSuccess = {
+                                            showSeedVerify = false
+                                            showMnemonic = true
+                                        },
+                                        onError = { err ->
+                                            seedVerifyError = err
+                                        }
+                                    )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
@@ -1736,22 +1733,19 @@ private fun AllAccountsTab(
                         
                         OutlinedButton(
                             onClick = {
-                                val activity = context as? androidx.fragment.app.FragmentActivity
-                                if (activity != null) {
-                                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                                        activity = activity,
-                                        title = "Confirm Sign Out",
-                                        subtitle = "Verify identity to remove account",
-                                        onSuccess = {
-                                            onDelete(accountToDelete!!)
-                                            showDeleteVerify = false
-                                            accountToDelete = null
-                                        },
-                                        onError = { err ->
-                                            deleteVerifyError = err
-                                        }
-                                    )
-                                }
+                                com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                    context = context,
+                                    title = "Confirm Sign Out",
+                                    subtitle = "Verify identity to remove account",
+                                    onSuccess = {
+                                        onDelete(accountToDelete!!)
+                                        showDeleteVerify = false
+                                        accountToDelete = null
+                                    },
+                                    onError = { err ->
+                                        deleteVerifyError = err
+                                    }
+                                )
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
