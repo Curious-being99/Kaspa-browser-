@@ -2146,7 +2146,9 @@ private fun KabDomainsTab(
                 // Claim Button
                 val isClaimButtonEnabled = activeAccount != null &&
                         domainInput.isNotBlank() &&
-                        domainAvailability is DomainAvailability.Available &&
+                        domainAvailability !is DomainAvailability.ClaimedByOther &&
+                        domainAvailability !is DomainAvailability.OwnedByYou &&
+                        domainAvailability !is DomainAvailability.Invalid &&
                         !isRegistering
 
                 Button(

@@ -62,6 +62,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val database = AppDatabase.getDatabase(application)
     private val kaspaWalletService = KaspaWalletService()
+    val walletService: KaspaWalletService get() = kaspaWalletService
     private val resolver = DualStackResolver(database, kaspaWalletService)
     val nodeManager = LocalNodeManager(application, database, viewModelScope)
 

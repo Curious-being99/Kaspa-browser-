@@ -1233,12 +1233,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                             }
 
-                            // Early document-start JavaScript injection for WebGL stability and privacy shield
+                            // Early document-start JavaScript injection for WebGL stability, privacy shield, and Web3 wallet bridge
                             if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
                                 try {
                                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
                                         this,
                                         KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
+                                        setOf("*")
+                                    )
+                                    androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                                        this,
+                                        com.example.network.KaspaWalletBridge.getInjectionScript(),
                                         setOf("*")
                                     )
                                 } catch (_: Throwable) {}
@@ -1252,6 +1257,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 scope = scope
                             )
                             addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
+
+                            // Attach Universal Kaspa Web3 Wallet Bridge (window.kasware / window.kaspa)
+                            val kaspaWalletBridge = com.example.network.KaspaWalletBridge(
+                                context = ctx,
+                                webViewProvider = { webViewInstance },
+                                viewModel = viewModel,
+                                scope = scope
+                            )
+                            addJavascriptInterface(kaspaWalletBridge, "KaspaWalletBridge")
 
                             // Long-press context menu for links and images
                             setOnLongClickListener { v ->
@@ -1711,6 +1725,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
+                                    view?.evaluateJavascript(
+                                        com.example.network.KaspaWalletBridge.getInjectionScript(),
+                                        null
+                                    )
+
                                     if (webAuthEnabled) {
                                         view?.evaluateJavascript(
                                             com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
@@ -1747,6 +1766,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                     view?.evaluateJavascript(
                                         KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
+                                        null
+                                    )
+
+                                    view?.evaluateJavascript(
+                                        com.example.network.KaspaWalletBridge.getInjectionScript(),
                                         null
                                     )
 
