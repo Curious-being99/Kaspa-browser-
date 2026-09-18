@@ -1400,6 +1400,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun startDownload(context: android.content.Context, downloadId: Long, urlStr: String, fileName: String) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             var streamSuccess = false
+            val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                ?: context.filesDir
+            val targetFile = java.io.File(appDownloadsDir, fileName)
+
             try {
                 updateDownloadProgress(downloadId, 0.02f, 0L, 0L, "Downloading")
                 var currentUrl = urlStr
@@ -1432,10 +1436,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 val conn = connection
                 if (conn != null && conn.responseCode in 200..299) {
                     val totalBytes = conn.contentLengthLong.let { if (it > 0) it else 0L }
-                    val targetFile = java.io.File(
-                        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
-                        fileName
-                    )
                     
                     var bytesDownloaded = 0L
                     val buffer = ByteArray(32768)
@@ -1463,30 +1463,65 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     updateDownloadProgress(downloadId, 1.0f, bytesDownloaded, if (totalBytes > 0) totalBytes else bytesDownloaded, "Success")
                     streamSuccess = true
 
+                    // Export to public MediaStore downloads so file is visible in device system Downloads app
                     try {
-                        android.media.MediaScannerConnection.scanFile(
-                            context,
-                            arrayOf(targetFile.absolutePath),
-                            null,
-                            null
-                        )
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            val values = android.content.ContentValues().apply {
+                                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                            }
+                            val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                            if (uri != null) {
+                                context.contentResolver.openOutputStream(uri)?.use { os ->
+                                    java.io.FileInputStream(targetFile).use { isStream ->
+                                        isStream.copyTo(os)
+                                    }
+                                }
+                            }
+                        } else {
+                            val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                            if (publicDir.exists() || publicDir.mkdirs()) {
+                                val publicFile = java.io.File(publicDir, fileName)
+                                java.io.FileInputStream(targetFile).use { isStream ->
+                                    java.io.FileOutputStream(publicFile).use { os ->
+                                        isStream.copyTo(os)
+                                    }
+                                }
+                                android.media.MediaScannerConnection.scanFile(context, arrayOf(publicFile.absolutePath), null, null)
+                            }
+                        }
                     } catch (_: Exception) {}
                 }
             } catch (_: Exception) {
             }
 
             if (!streamSuccess) {
-                startMonitoringDownload(context, downloadId)
+                if (targetFile.exists() && targetFile.length() > 0) {
+                    val fileLength = targetFile.length()
+                    updateDownloadProgress(downloadId, 1.0f, fileLength, fileLength, "Success")
+                } else {
+                    startMonitoringDownload(context, downloadId, fileName)
+                }
             }
         }
     }
 
-    fun startMonitoringDownload(context: android.content.Context, downloadId: Long) {
+    fun startMonitoringDownload(context: android.content.Context, downloadId: Long, fileName: String = "") {
         viewModelScope.launch {
             val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
             var downloading = true
+            var attempts = 0
+            val maxAttempts = 15
+            val targetFile = if (fileName.isNotBlank()) {
+                java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                    fileName
+                )
+            } else null
+
             while (downloading) {
                 kotlinx.coroutines.delay(500)
+                attempts++
                 val query = android.app.DownloadManager.Query().setFilterById(downloadId)
                 val cursor = try { dm.query(query) } catch (e: Exception) { null }
                 if (cursor != null && cursor.moveToFirst()) {
@@ -1518,7 +1553,14 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     cursor.close()
                 } else {
                     cursor?.close()
-                    downloading = false
+                    if (targetFile != null && targetFile.exists() && targetFile.length() > 0) {
+                        val length = targetFile.length()
+                        updateDownloadProgress(downloadId, 1.0f, length, length, "Success")
+                        downloading = false
+                    } else if (attempts >= maxAttempts) {
+                        updateDownloadProgress(downloadId, 0f, 0L, 0L, "Failed")
+                        downloading = false
+                    }
                 }
             }
         }

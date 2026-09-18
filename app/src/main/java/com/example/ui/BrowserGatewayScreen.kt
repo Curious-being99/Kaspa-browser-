@@ -5117,11 +5117,16 @@ fun openDownloadedFile(context: android.content.Context, downloadId: Long, fileN
         var uri = try { dm.getUriForDownloadedFile(downloadId) } catch (e: Exception) { null }
         var mime = if (uri != null) dm.getMimeTypeForDownloadedFile(downloadId) else null
         
-        // 2. If null, try accessing physical file in public Downloads folder using FileProvider
+        // 2. If null, try accessing physical file in app Downloads or public Downloads folder using FileProvider
         if (uri == null && fileName.isNotEmpty()) {
-            val downloadFolder = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-            val physicalFile = java.io.File(downloadFolder, fileName)
-            if (physicalFile.exists()) {
+            val appDownloadFolder = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val publicDownloadFolder = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val physicalFile = listOfNotNull(
+                appDownloadFolder?.let { java.io.File(it, fileName) },
+                java.io.File(publicDownloadFolder, fileName)
+            ).firstOrNull { it.exists() }
+
+            if (physicalFile != null && physicalFile.exists()) {
                 val authority = "${context.packageName}.fileprovider"
                 uri = androidx.core.content.FileProvider.getUriForFile(context, authority, physicalFile)
                 val ext = physicalFile.extension.lowercase()
