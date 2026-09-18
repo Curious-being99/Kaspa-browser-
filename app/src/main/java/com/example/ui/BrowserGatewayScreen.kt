@@ -92,6 +92,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
@@ -228,13 +229,31 @@ data class BrowserTab(
 @SuppressLint("SetJavaScriptEnabled", "WrongConstant", "NewApi")
 @Composable
 fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
     val tabs by viewModel.browserTabs.collectAsState()
     val activeTabId by viewModel.activeTabId.collectAsState()
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
-    var browserTheme by remember { mutableStateOf("classic_dark") }
+
+    val themePrefs = remember { context.getSharedPreferences("kaspa_browser_theme", android.content.Context.MODE_PRIVATE) }
+    var browserTheme by remember { mutableStateOf(themePrefs.getString("selected_theme", "classic_dark") ?: "classic_dark") }
+    var customBgColorHex by remember { mutableStateOf(themePrefs.getString("custom_bg_hex", "#12141C") ?: "#12141C") }
     var showThemeDialog by remember { mutableStateOf(false) }
+
     var isReaderMode by remember { mutableStateOf(false) }
+    var originalPageUrl by remember { mutableStateOf("") }
+    var isExtractingOrLoadingReaderMode by remember { mutableStateOf(false) }
+    var readerTitle by remember { mutableStateOf("") }
+    var readerContent by remember { mutableStateOf("") }
+    var readerLeadImage by remember { mutableStateOf("") }
+    var readerFontSize by remember { mutableIntStateOf(themePrefs.getInt("reader_font_size", 18)) }
+
+    fun saveBrowserTheme(theme: String, hex: String = customBgColorHex) {
+        browserTheme = theme
+        customBgColorHex = hex
+        themePrefs.edit().putString("selected_theme", theme).putString("custom_bg_hex", hex).apply()
+    }
+
     var longPressedLinkUrl by remember { mutableStateOf<String?>(null) }
     var showLinkContextMenu by remember { mutableStateOf(false) }
 
@@ -345,6 +364,70 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         viewModel.updateActiveTabMetadata(urlInput, currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput)
     }
 
+    fun toggleReaderMode() {
+        if (isReaderMode) {
+            isReaderMode = false
+            isExtractingOrLoadingReaderMode = false
+            val restoreUrl = if (originalPageUrl.isNotBlank() && !originalPageUrl.startsWith("data:")) originalPageUrl else urlInput
+            if (restoreUrl.isNotBlank() && !restoreUrl.startsWith("data:")) {
+                webViewInstance?.loadUrl(restoreUrl)
+            } else {
+                webViewInstance?.reload()
+            }
+            viewModel.setStatusMessage("Exited Reader Mode")
+        } else {
+            val currentUrl = webViewInstance?.url ?: urlInput
+            if (currentUrl.isNotBlank() && !currentUrl.startsWith("data:")) {
+                originalPageUrl = currentUrl
+            }
+            viewModel.setStatusMessage("Extracting reader content...")
+            isExtractingOrLoadingReaderMode = true
+
+            webViewInstance?.evaluateJavascript(com.example.network.KaspaReaderMode.JS_EXTRACT_CONTENT) { rawResult ->
+                if (rawResult.isNullOrBlank() || rawResult == "null") {
+                    isExtractingOrLoadingReaderMode = false
+                    viewModel.setStatusMessage("Could not extract article content")
+                    return@evaluateJavascript
+                }
+                try {
+                    var clean = rawResult.trim()
+                    if (clean.startsWith("\"") && clean.endsWith("\"")) {
+                        clean = clean.substring(1, clean.length - 1)
+                    }
+                    val decodedJson = java.net.URLDecoder.decode(clean, "UTF-8")
+                    val json = org.json.JSONObject(decodedJson)
+                    val title = json.optString("title", "Reader View")
+                    val leadImage = json.optString("leadImage", "")
+                    val content = json.optString("content", "")
+
+                    if (content.isBlank() || content.length < 30) {
+                        isExtractingOrLoadingReaderMode = false
+                        viewModel.setStatusMessage("No article content found on page")
+                        return@evaluateJavascript
+                    }
+
+                    readerTitle = title
+                    readerContent = content
+                    readerLeadImage = leadImage
+                    isReaderMode = true
+
+                    val readerHtml = com.example.network.KaspaReaderMode.getReaderHtml(
+                        title = title,
+                        content = content,
+                        leadImage = leadImage,
+                        theme = "dark",
+                        fontSizeSp = readerFontSize
+                    )
+                    webViewInstance?.loadDataWithBaseURL(originalPageUrl.ifBlank { urlInput }, readerHtml, "text/html", "UTF-8", null)
+                    viewModel.setStatusMessage("Reader Mode Enabled")
+                } catch (e: Exception) {
+                    isExtractingOrLoadingReaderMode = false
+                    viewModel.setStatusMessage("Unable to format page into Reader Mode")
+                }
+            }
+        }
+    }
+
     LaunchedEffect(webViewInstance, webViewRecreateKey) {
         val webView = webViewInstance ?: return@LaunchedEffect
         lastProgressChangeTime = System.currentTimeMillis()
@@ -444,7 +527,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var showSecuritySheet by remember { mutableStateOf(false) }
@@ -545,11 +627,32 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    val backgroundModifier = when (browserTheme) {
-        "oled_obsidian" -> Modifier.background(Color(0xFF090A0F))
-        "aurora_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF090A0F))))
-        "cyber_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0B0F17), Color(0xFF042F2E), Color(0xFF090A0F))))
-        else -> Modifier.background(Color(0xFF12141C)) // Classic Dark Slate (Chrome/Brave style)
+    val currentBgColor: Color = remember(browserTheme, customBgColorHex) {
+        when (browserTheme) {
+            "oled_obsidian" -> Color(0xFF000000)
+            "aurora_gradient" -> Color(0xFF0F172A)
+            "cyber_gradient" -> Color(0xFF042F2E)
+            "warm_sepia" -> Color(0xFF292524)
+            "midnight_purple" -> Color(0xFF1E1035)
+            "soft_slate" -> Color(0xFF1E293B)
+            "pure_white" -> Color(0xFFFFFFFF)
+            "custom_hex" -> try {
+                val hex = customBgColorHex.trim().removePrefix("#")
+                val parseHex = if (hex.length == 6) "FF$hex" else hex
+                Color(android.graphics.Color.parseColor("#$parseHex"))
+            } catch (_: Exception) {
+                Color(0xFF12141C)
+            }
+            else -> Color(0xFF12141C) // "classic_dark"
+        }
+    }
+
+    val backgroundModifier = remember(browserTheme, currentBgColor) {
+        when (browserTheme) {
+            "aurora_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF090A0F))))
+            "cyber_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0B0F17), Color(0xFF042F2E), Color(0xFF090A0F))))
+            else -> Modifier.background(currentBgColor)
+        }
     }
 
     Column(
@@ -859,7 +962,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                         Spacer(modifier = Modifier.width(2.dp))
 
-                                        IconButton(
+                                         IconButton(
                                             onClick = {
                                                 val normalized = viewModel.normalizeUrlOrQuery(urlInput)
                                                 if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
@@ -874,6 +977,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 imageVector = Icons.Default.Refresh,
                                                 contentDescription = "Reload",
                                                 tint = TextMuted,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(2.dp))
+
+                                        IconButton(
+                                            onClick = { toggleReaderMode() },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Article,
+                                                contentDescription = if (isReaderMode) "Exit Reader Mode" else "Reader Mode",
+                                                tint = if (isReaderMode) ElectricCyan else TextMuted,
                                                 modifier = Modifier.size(14.dp)
                                             )
                                         }
@@ -963,30 +1080,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Reader Mode", color = TextPrimary) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null, tint = TextMuted) },
+                                    text = { Text(if (isReaderMode) "Exit Reader Mode" else "Reader Mode", color = TextPrimary) },
+                                    leadingIcon = { Icon(if (isReaderMode) Icons.Default.Close else Icons.AutoMirrored.Filled.Article, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
-                                        webViewInstance?.evaluateJavascript(com.example.network.KaspaReaderMode.JS_EXTRACT_CONTENT) { result ->
-                                            try {
-                                                val json = org.json.JSONObject(result.removePrefix("\"").removeSuffix("\"").replace("\\\"", "\""))
-                                                val title = json.getString("title")
-                                                val content = json.getString("content")
-                                                val readerHtml = com.example.network.KaspaReaderMode.getReaderHtml(title, content)
-                                                webViewInstance?.loadDataWithBaseURL(urlInput, readerHtml, "text/html", "UTF-8", null)
-                                                isReaderMode = true
-                                            } catch (_: Exception) {}
-                                        }
+                                        toggleReaderMode()
                                     }
                                 )
-                                                                 DropdownMenuItem(
-                                     text = { Text("Customize Background", color = TextPrimary) },
-                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan) },
-                                     onClick = {
-                                         showBrowserMenu = false
-                                         showThemeDialog = true
-                                     }
-                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Customize Background", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        showThemeDialog = true
+                                    }
+                                )
                                  HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
                                 DropdownMenuItem(
                                     text = { Text("Network (Mesh Radar)", color = TextPrimary) },
@@ -1108,6 +1216,97 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         trackColor = Color.Transparent
                     )
                 }
+
+                // Reader Mode Active Header Controls
+                AnimatedVisibility(
+                    visible = isReaderMode,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = SurfaceCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Article,
+                                    contentDescription = null,
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Reader View", color = ElectricCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        if (readerFontSize > 12) {
+                                            readerFontSize -= 2
+                                            themePrefs.edit().putInt("reader_font_size", readerFontSize).apply()
+                                            val html = com.example.network.KaspaReaderMode.getReaderHtml(
+                                                readerTitle, readerContent, readerLeadImage, "dark", readerFontSize
+                                            )
+                                            webViewInstance?.loadDataWithBaseURL(urlInput, html, "text/html", "UTF-8", null)
+                                        }
+                                    },
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Text("A-", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (readerFontSize < 34) {
+                                            readerFontSize += 2
+                                            themePrefs.edit().putInt("reader_font_size", readerFontSize).apply()
+                                            val html = com.example.network.KaspaReaderMode.getReaderHtml(
+                                                readerTitle, readerContent, readerLeadImage, "dark", readerFontSize
+                                            )
+                                            webViewInstance?.loadDataWithBaseURL(urlInput, html, "text/html", "UTF-8", null)
+                                        }
+                                    },
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Text("A+", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = SurfaceDark,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            toggleReaderMode()
+                                        }
+                                ) {
+                                    Text(
+                                        text = "Exit",
+                                        color = TextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1116,7 +1315,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
-                .background(Color(0xFF0B0F17))
+                .then(backgroundModifier)
         ) {
             val resource = currentResource
 
@@ -1701,7 +1900,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 }
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    isReaderMode = false
+                                    if (!isReaderMode && !isExtractingOrLoadingReaderMode) {
+                                        // normal page load
+                                    } else if (url != null && !url.startsWith("data:") && url != originalPageUrl) {
+                                        isReaderMode = false
+                                        isExtractingOrLoadingReaderMode = false
+                                    }
                                     isWebLoading = true
                                     webProgress = 0.15f
                                     viewModel.setIsLoading(true)
@@ -2157,6 +2361,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         webViewInstance = webView
                         canGoBack = webView.canGoBack()
                         canGoForward = webView.canGoForward()
+
+                        if (isReaderMode) {
+                            val readerBgInt = android.graphics.Color.parseColor("#0F172A")
+                            containerLayout.setBackgroundColor(readerBgInt)
+                            webView.setBackgroundColor(readerBgInt)
+                            return@AndroidView
+                        }
 
                         // Ensure browser background remains white for consistent website rendering
                         containerLayout.setBackgroundColor(android.graphics.Color.WHITE)
@@ -2800,52 +3011,149 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         )
     }
 
-    // Browser Background Theme Customization Dialog (Chrome & Brave Style)
+    // Browser Background Theme Customization Dialog & Color Selector
     if (showThemeDialog) {
         AlertDialog(
             onDismissRequest = { showThemeDialog = false },
             containerColor = SurfaceDark,
-            title = { Text("Customize Browser Background", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Palette, contentDescription = null, tint = ElectricCyan)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Customize Browser Background", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Choose a curated browser theme, just like Chrome and Brave:", color = TextSecondary, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.height(2.dp))
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Select a background color or curated theme for your browser:", color = TextSecondary, fontSize = 12.sp)
+
+                    Text("Quick Color Palette", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val colorSwatches = listOf(
+                            "#000000", "#12141C", "#0F172A", "#042F2E",
+                            "#1E1035", "#292524", "#0F2027", "#1E293B", "#FFFFFF"
+                        )
+                        colorSwatches.forEach { hex ->
+                            val parsedColor = try {
+                                Color(android.graphics.Color.parseColor(hex))
+                            } catch (_: Exception) { Color.DarkGray }
+
+                            val isSelected = browserTheme == "custom_hex" && customBgColorHex.equals(hex, ignoreCase = true)
+
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(parsedColor)
+                                    .border(
+                                        width = if (isSelected) 2.5.dp else 1.dp,
+                                        color = if (isSelected) ElectricCyan else SurfaceCardBorder,
+                                        shape = CircleShape
+                                    )
+                                    .clickable {
+                                        saveBrowserTheme("custom_hex", hex)
+                                    }
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = customBgColorHex,
+                            onValueChange = { newHex ->
+                                customBgColorHex = newHex
+                                if (newHex.length >= 6) {
+                                    saveBrowserTheme("custom_hex", newHex)
+                                }
+                            },
+                            label = { Text("Custom Color Hex", color = TextMuted, fontSize = 11.sp) },
+                            placeholder = { Text("#12141C", color = TextMuted) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ElectricCyan,
+                                unfocusedBorderColor = SurfaceCardBorder,
+                                focusedTextColor = TextPrimary,
+                                unfocusedTextColor = TextPrimary
+                            )
+                        )
+
+                        val previewColor = try {
+                            val h = customBgColorHex.trim().removePrefix("#")
+                            val p = if (h.length == 6) "FF$h" else h
+                            Color(android.graphics.Color.parseColor("#$p"))
+                        } catch (_: Exception) { Color.Transparent }
+
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(previewColor)
+                                .border(1.dp, SurfaceCardBorder, RoundedCornerShape(8.dp))
+                        )
+                    }
+
+                    HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 2.dp))
+
+                    Text("Curated Preset Themes", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
 
                     ThemeOptionCard(
                         title = "Classic Dark Slate",
-                        subtitle = "Standard clean browser dark theme",
+                        subtitle = "Standard clean dark background (#12141C)",
                         isSelected = browserTheme == "classic_dark",
-                        onClick = {
-                            browserTheme = "classic_dark"
-                            showThemeDialog = false
-                        }
+                        onClick = { saveBrowserTheme("classic_dark", "#12141C") }
                     )
                     ThemeOptionCard(
                         title = "OLED Obsidian Black",
-                        subtitle = "Deep pure black for high contrast",
+                        subtitle = "Deep pure black (#000000) for high contrast",
                         isSelected = browserTheme == "oled_obsidian",
-                        onClick = {
-                            browserTheme = "oled_obsidian"
-                            showThemeDialog = false
-                        }
+                        onClick = { saveBrowserTheme("oled_obsidian", "#000000") }
                     )
                     ThemeOptionCard(
-                        title = "Aurora Gradient",
-                        subtitle = "Subtle deep blue and indigo gradient",
+                        title = "Aurora Indigo Gradient",
+                        subtitle = "Subtle deep indigo and blue gradient",
                         isSelected = browserTheme == "aurora_gradient",
-                        onClick = {
-                            browserTheme = "aurora_gradient"
-                            showThemeDialog = false
-                        }
+                        onClick = { saveBrowserTheme("aurora_gradient", "#0F172A") }
                     )
                     ThemeOptionCard(
                         title = "Cyber Tech Gradient",
                         subtitle = "Modern tech teal and slate gradient",
                         isSelected = browserTheme == "cyber_gradient",
-                        onClick = {
-                            browserTheme = "cyber_gradient"
-                            showThemeDialog = false
-                        }
+                        onClick = { saveBrowserTheme("cyber_gradient", "#042F2E") }
+                    )
+                    ThemeOptionCard(
+                        title = "Warm Sepia Coffee",
+                        subtitle = "Relaxing warm dark sepia tone (#292524)",
+                        isSelected = browserTheme == "warm_sepia",
+                        onClick = { saveBrowserTheme("warm_sepia", "#292524") }
+                    )
+                    ThemeOptionCard(
+                        title = "Midnight Violet",
+                        subtitle = "Deep purple dark canvas (#1E1035)",
+                        isSelected = browserTheme == "midnight_purple",
+                        onClick = { saveBrowserTheme("midnight_purple", "#1E1035") }
+                    )
+                    ThemeOptionCard(
+                        title = "Soft Light Slate",
+                        subtitle = "Soft slate dark blue (#1E293B)",
+                        isSelected = browserTheme == "soft_slate",
+                        onClick = { saveBrowserTheme("soft_slate", "#1E293B") }
+                    )
+                    ThemeOptionCard(
+                        title = "Crisp Light Canvas",
+                        subtitle = "Clean light background (#FFFFFF)",
+                        isSelected = browserTheme == "pure_white",
+                        onClick = { saveBrowserTheme("pure_white", "#FFFFFF") }
                     )
                 }
             },
@@ -4007,6 +4315,108 @@ fun KaskadLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 36.dp) {
     }
 }
 
+@Composable
+fun DotkLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 36.dp) {
+    Canvas(modifier = modifier.size(iconSize)) {
+        val w = size.width
+        val h = size.height
+        val bgDark = Color(0xFF0B121C)
+        val mintTeal = Color(0xFF4EE0B5)
+        val strokeW = w * 0.085f
+
+        // Dark circular base
+        drawCircle(
+            color = bgDark,
+            radius = w * 0.48f
+        )
+
+        // Outer segmented circular ring (3 arcs with gaps)
+        val ringRect = androidx.compose.ui.geometry.Rect(
+            w * 0.10f,
+            h * 0.10f,
+            w * 0.90f,
+            h * 0.90f
+        )
+        val ringStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+            width = strokeW,
+            cap = StrokeCap.Round
+        )
+
+        // Arc 1: Top-Right
+        drawArc(
+            color = mintTeal,
+            startAngle = -40f,
+            sweepAngle = 105f,
+            useCenter = false,
+            topLeft = ringRect.topLeft,
+            size = ringRect.size,
+            style = ringStroke
+        )
+
+        // Arc 2: Bottom
+        drawArc(
+            color = mintTeal,
+            startAngle = 80f,
+            sweepAngle = 110f,
+            useCenter = false,
+            topLeft = ringRect.topLeft,
+            size = ringRect.size,
+            style = ringStroke
+        )
+
+        // Arc 3: Top-Left
+        drawArc(
+            color = mintTeal,
+            startAngle = 205f,
+            sweepAngle = 85f,
+            useCenter = false,
+            topLeft = ringRect.topLeft,
+            size = ringRect.size,
+            style = ringStroke
+        )
+
+        // Inner solid dot '.'
+        drawCircle(
+            color = mintTeal,
+            radius = w * 0.075f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.31f, h * 0.60f)
+        )
+
+        // Lowercase 'k'
+        val kStemX = w * 0.47f
+        val kStemTop = h * 0.33f
+        val kStemBot = h * 0.67f
+        val kJointY = h * 0.52f
+
+        // Stem
+        drawLine(
+            color = mintTeal,
+            start = androidx.compose.ui.geometry.Offset(kStemX, kStemTop),
+            end = androidx.compose.ui.geometry.Offset(kStemX, kStemBot),
+            strokeWidth = strokeW,
+            cap = StrokeCap.Square
+        )
+
+        // Upper arm
+        drawLine(
+            color = mintTeal,
+            start = androidx.compose.ui.geometry.Offset(kStemX, kJointY),
+            end = androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.42f),
+            strokeWidth = strokeW,
+            cap = StrokeCap.Round
+        )
+
+        // Lower arm
+        drawLine(
+            color = mintTeal,
+            start = androidx.compose.ui.geometry.Offset(kStemX, kJointY),
+            end = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.67f),
+            strokeWidth = strokeW,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
 data class CustomShortcut(
     val id: String = java.util.UUID.randomUUID().toString(),
     val name: String,
@@ -4119,6 +4529,7 @@ fun SpeedDialCircleItem(
     iconColor: Color,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    sublabel: String? = null,
     iconContent: @Composable () -> Unit
 ) {
     val clickModifier = if (onLongClick != null) {
@@ -4152,6 +4563,15 @@ fun SpeedDialCircleItem(
             color = TextPrimary,
             fontWeight = FontWeight.Medium
         )
+        if (!sublabel.isNullOrBlank()) {
+            Text(
+                text = sublabel,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = TextMuted
+            )
+        }
     }
 }
 
@@ -4337,6 +4757,15 @@ fun BrowserSpeedDial(
                     onClick = { onNavigate("https://kasplay.fun/") }
                 ) {
                     KasplayLogoIcon(iconSize = 36.dp)
+                }
+
+                // Item 9: Dotk
+                SpeedDialCircleItem(
+                    label = "Dotk",
+                    iconColor = Color(0xFF70C7BA),
+                    onClick = { onNavigate("https://dotk.name/") }
+                ) {
+                    DotkLogoIcon(iconSize = 36.dp)
                 }
 
                 // Custom User Shortcuts
