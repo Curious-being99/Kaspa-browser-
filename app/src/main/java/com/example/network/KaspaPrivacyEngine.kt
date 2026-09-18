@@ -267,7 +267,22 @@ object KaspaPrivacyEngine {
                     }, true);
                 } catch(e) {}
 
-                // 5. TikTok specific scroll unlock & modal banner dismisser
+                // 5. Remove click effect color and tap highlight color across all web elements
+                try {
+                    const removeClickEffect = function() {
+                        if (document.getElementById('__kaspa_no_click_effect')) return;
+                        const style = document.createElement('style');
+                        style.id = '__kaspa_no_click_effect';
+                        style.textContent = '*, *:focus, *:active, *:hover { -webkit-tap-highlight-color: transparent !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; outline: none !important; }';
+                        (document.head || document.documentElement || document.body)?.appendChild(style);
+                    };
+                    removeClickEffect();
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', removeClickEffect);
+                    }
+                } catch(_) {}
+
+                // 6. TikTok specific scroll unlock & modal banner dismisser
                 const hostname = window.location.hostname || '';
                 if (hostname.includes('tiktok.com') || hostname.includes('tiktokv.com')) {
                         function unlockTikTokScroll() {

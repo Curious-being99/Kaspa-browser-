@@ -930,35 +930,67 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun openUrlInBrowser(url: String, isExternal: Boolean = true) {
         viewModelScope.launch {
             _activeTab.value = AppTab.BROWSER_GATEWAY
+            val cleanTarget = url.trim()
+            if (cleanTarget.isBlank()) return@launch
+
             val tabs = database.browserTabDao().getAllTabsList()
             val activeId = _activeTabId.value
             val activeTab = tabs.find { it.id == activeId }
-            val host = try { java.net.URI(url).host ?: url } catch (_: Exception) { url }
+            val host = try { java.net.URI(cleanTarget).host ?: cleanTarget } catch (_: Exception) { cleanTarget }
             val tabTitle = if (!host.isNullOrBlank()) host else "External Link"
+            val normTarget = cleanTarget.removeSuffix("/").lowercase()
 
+            // 1. Check if the active tab is already on this exact URL or same page
+            if (activeTab != null && activeTab.url.trim().removeSuffix("/").equals(normTarget, ignoreCase = true)) {
+                _urlInput.value = activeTab.url
+                updateTabAccessTime(activeTab.id)
+                return@launch
+            }
+
+            // 2. Check if an existing open tab already matches this exact URL or site
+            val existingTab = tabs.find { tab ->
+                val tabNorm = tab.url.trim().removeSuffix("/").lowercase()
+                tabNorm.isNotEmpty() && tabNorm.equals(normTarget, ignoreCase = true)
+            } ?: tabs.find { tab ->
+                if (tab.url.isBlank()) return@find false
+                val tabHost = try { java.net.URI(tab.url).host ?: "" } catch (_: Exception) { "" }
+                tabHost.isNotEmpty() && tabHost.equals(host, ignoreCase = true) &&
+                    (tab.url.trim().removeSuffix("/").equals(normTarget, ignoreCase = true))
+            }
+
+            if (existingTab != null) {
+                _activeTabId.value = existingTab.id
+                _urlInput.value = existingTab.url
+                database.browserTabDao().insert(existingTab.copy(lastAccessed = System.currentTimeMillis()))
+                resolveUrl(existingTab.url)
+                return@launch
+            }
+
+            // 3. If active tab is blank, reuse it
             if (activeTab != null && activeTab.url.isBlank()) {
                 val updatedTab = activeTab.copy(
-                    url = url,
+                    url = cleanTarget,
                     title = tabTitle,
                     lastAccessed = System.currentTimeMillis(),
                     isExternal = isExternal
                 )
                 database.browserTabDao().insert(updatedTab)
-                _urlInput.value = url
-                resolveUrl(url)
+                _urlInput.value = cleanTarget
+                resolveUrl(cleanTarget)
             } else {
+                // 4. Create new tab
                 val newId = java.util.UUID.randomUUID().toString()
                 val newTab = BrowserTabEntity(
                     id = newId,
-                    url = url,
+                    url = cleanTarget,
                     title = tabTitle,
                     lastAccessed = System.currentTimeMillis(),
                     isExternal = isExternal
                 )
                 database.browserTabDao().insert(newTab)
                 _activeTabId.value = newId
-                _urlInput.value = url
-                resolveUrl(url)
+                _urlInput.value = cleanTarget
+                resolveUrl(cleanTarget)
             }
         }
     }

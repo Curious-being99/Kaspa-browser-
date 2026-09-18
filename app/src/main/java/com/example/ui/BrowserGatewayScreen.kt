@@ -266,6 +266,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var customVideoCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
     var isInputFocused by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var lastDownloadedUrl by remember { mutableStateOf<String?>(null) }
+    var lastDownloadTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
             try {
@@ -281,15 +283,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 customVideoCallback = null
             } catch (_: Exception) {}
             try {
-                webViewInstance?.apply {
-                    stopLoading()
-                    clearHistory()
-                    loadUrl("about:blank")
-                    onPause()
-                    destroy()
-                }
+                webViewInstance?.onPause()
             } catch (_: Exception) {}
-            webViewInstance = null
         }
     }
     var webViewRecreateKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -1324,8 +1319,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
                             setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            isHapticFeedbackEnabled = false
 
-                            val handleDeepLinkOrNavigate: (WebView?, String, Boolean) -> Boolean = { targetWv, rawUrl, hasGesture ->
+                            fun handleDeepLinkOrNavigate(targetWv: WebView?, rawUrl: String, hasGesture: Boolean): Boolean {
                                 val targetView = targetWv ?: wv
                                 val targetCtx = targetView?.context ?: context
                                 val cleanUrl = rawUrl.trim()
@@ -1337,7 +1333,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val targetScheme = targetUri?.scheme?.lowercase() ?: ""
                                 val isTikTokSite = currentHost.contains("tiktok.com") || currentHost.contains("tiktokv.com")
                                 
-                                if (cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
+                                return if (cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
                                     cleanUrl.startsWith("mesh://", ignoreCase = true) ||
                                     cleanUrl.startsWith("dweb://", ignoreCase = true) ||
                                     cleanUrl.startsWith("p2p://", ignoreCase = true) ||
@@ -1349,72 +1345,50 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 ) {
                                     viewModel.resolveUrl(cleanUrl)
                                     true
-                                } else if ((cleanUrl.startsWith("market://", ignoreCase = true) ||
+                                } else if (!hasGesture && (
+                                    cleanUrl.startsWith("market://", ignoreCase = true) ||
                                     targetHost.contains("play.google.com") ||
-                                    cleanUrl.contains("play.google.com") ||
                                     targetHost.contains("apps.apple.com") ||
-                                    targetHost.contains("itunes.apple.com")) &&
-                                    !KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(cleanUrl) &&
-                                    !KaspaPrivacyEngine.isGoogleAccountDomain(targetHost)
-                                ) {
-                                    // A web browser must NOT override navigation to open Google Play Store or App Store.
-                                    // TikTok.com and websites try to push app installs; suppress and stay on the web.
-                                    true
-                                } else if (targetScheme == "tiktok" || targetScheme.startsWith("snssdk") || targetScheme == "aweme" || targetScheme == "bytedance") {
-                                    // Suppress proprietary app deep links so the browser remains on TikTok.com website
-                                    true
-                                } else if (targetHost.contains("onelink.me") ||
+                                    targetHost.contains("itunes.apple.com") ||
+                                    targetHost.contains("onelink.me") ||
                                     targetHost.contains("link.tiktok.com") ||
                                     targetHost.contains("adjust.com") ||
                                     targetHost.contains("smart.link") ||
                                     targetHost.contains("branch.io") ||
                                     targetHost.contains("app.link")
-                                ) {
-                                    // Suppress app store/install tracking redirects
+                                )) {
+                                    // Suppress non-gesture background redirects attempting to force store downloads or install trackers
                                     true
-                                } else if (isTikTokSite && (
+                                } else if (isTikTokSite && !hasGesture && (
                                     targetPath == "/download" || targetPath.startsWith("/download/") || cleanUrl.contains("/download?") ||
                                     targetPath == "/app" || targetPath.startsWith("/app/") || cleanUrl.contains("/app?") ||
                                     targetPath == "/redirect" || targetPath.startsWith("/redirect/") || cleanUrl.contains("/redirect?") ||
-                                    (!hasGesture && (targetPath == "/login" || targetPath.startsWith("/login/") || targetPath == "/signup" || targetPath.startsWith("/signup/")))
+                                    targetPath == "/login" || targetPath.startsWith("/login/") || targetPath == "/signup" || targetPath.startsWith("/signup/")
                                 )) {
-                                    // Suppress TikTok scroll-triggered redirects so user stays on video stream
+                                    // Suppress TikTok scroll-triggered automatic redirects so user stays on video stream
                                     true
                                 } else if (cleanUrl.startsWith("intent://", ignoreCase = true)) {
                                     try {
-                                        val parsedIntent = Intent.parseUri(cleanUrl, Intent.URI_INTENT_SCHEME)
-                                        if (parsedIntent != null) {
-                                            val appPkg = parsedIntent.`package`?.lowercase() ?: ""
-                                            val isTikTokOrPlayStore = isTikTokSite ||
-                                                appPkg.contains("musically") ||
-                                                appPkg.contains("tiktok") ||
-                                                appPkg.contains("android.vending") ||
-                                                cleanUrl.contains("snssdk", ignoreCase = true) ||
-                                                cleanUrl.contains("aweme", ignoreCase = true) ||
-                                                cleanUrl.contains("bytedance", ignoreCase = true)
-
-                                            if (isTikTokOrPlayStore) {
-                                                // TikTok.com does not override to open Play Store. It is a website like x.com.
-                                                true
-                                            } else {
-                                                val pm = targetCtx.packageManager
-                                                val info = pm.resolveActivity(parsedIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
-                                                if (info != null && appPkg != "com.android.vending") {
-                                                    parsedIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                    targetCtx.startActivity(parsedIntent)
-                                                } else {
-                                                    val fallbackUrl = parsedIntent.getStringExtra("browser_fallback_url")
-                                                    if (!fallbackUrl.isNullOrEmpty() &&
-                                                        !fallbackUrl.startsWith("market://", ignoreCase = true) &&
-                                                        !fallbackUrl.contains("play.google.com/store", ignoreCase = true)
-                                                    ) {
-                                                        viewModel.setUrlInput(fallbackUrl)
-                                                        targetView?.loadUrl(fallbackUrl)
-                                                    }
-                                                }
-                                                true
+                                        val parsedIntent = Intent.parseUri(cleanUrl, Intent.URI_INTENT_SCHEME).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            component = null
+                                        }
+                                        parsedIntent.selector?.let {
+                                            it.component = null
+                                            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        try {
+                                            targetCtx.startActivity(parsedIntent)
+                                            true
+                                        } catch (_: Exception) {
+                                            val fallbackUrl = parsedIntent.getStringExtra("browser_fallback_url")
+                                            if (!fallbackUrl.isNullOrEmpty() &&
+                                                !fallbackUrl.startsWith("market://", ignoreCase = true) &&
+                                                !fallbackUrl.contains("play.google.com/store", ignoreCase = true)
+                                            ) {
+                                                viewModel.setUrlInput(fallbackUrl)
+                                                targetView?.loadUrl(fallbackUrl)
                                             }
-                                        } else {
                                             true
                                         }
                                     } catch (_: Exception) {
@@ -1427,20 +1401,44 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     !cleanUrl.startsWith("javascript:", ignoreCase = true) &&
                                     !cleanUrl.startsWith("blob:", ignoreCase = true)
                                 ) {
-                                    if (targetScheme != "market" && !targetScheme.startsWith("snssdk") && targetScheme != "tiktok" && targetScheme != "aweme" && targetScheme != "bytedance") {
+                                    if (targetScheme != "market" && !cleanUrl.startsWith("market://", ignoreCase = true)) {
                                         try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+                                            val customIntent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
                                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                             }
-                                            val pm = targetCtx.packageManager
-                                            if (pm.resolveActivity(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY) != null) {
-                                                targetCtx.startActivity(intent)
-                                            }
+                                            targetCtx.startActivity(customIntent)
                                         } catch (_: Exception) {}
                                     }
                                     true
                                 } else {
-                                    false
+                                    // HTTP / HTTPS URL: Check if an installed native application handles this link when clicked by user
+                                    var redirectedToNativeApp = false
+                                    if (hasGesture) {
+                                        try {
+                                            val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
+                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            val pm = targetCtx.packageManager
+                                            val resolveList = pm.queryIntentActivities(appIntent, 0)
+                                            val ourPkg = targetCtx.packageName
+                                            val nativeApp = resolveList.firstOrNull { ri ->
+                                                val pkg = ri.activityInfo?.packageName?.lowercase() ?: ""
+                                                pkg.isNotEmpty() && pkg != ourPkg &&
+                                                    !pkg.contains("chrome") &&
+                                                    !pkg.contains("browser") &&
+                                                    !pkg.contains("webview") &&
+                                                    !pkg.contains("firefox") &&
+                                                    !pkg.contains("opera") &&
+                                                    !pkg.contains("duckduckgo")
+                                            }
+                                            if (nativeApp != null) {
+                                                appIntent.setPackage(nativeApp.activityInfo.packageName)
+                                                targetCtx.startActivity(appIntent)
+                                                redirectedToNativeApp = true
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    redirectedToNativeApp
                                 }
                             }
 
@@ -1569,8 +1567,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val gesture = request?.hasGesture() ?: isUserGesture
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, gesture)
                                                 if (!intercepted) {
-                                                    viewModel.setUrlInput(target)
-                                                    view.loadUrl(target)
+                                                    viewModel.openUrlInBrowser(target, isExternal = true)
                                                 }
                                                 return true
                                             }
@@ -1580,8 +1577,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val target = url ?: return false
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, isUserGesture)
                                                 if (!intercepted) {
-                                                    viewModel.setUrlInput(target)
-                                                    view.loadUrl(target)
+                                                    viewModel.openUrlInBrowser(target, isExternal = true)
                                                 }
                                                 return true
                                             }
@@ -1655,6 +1651,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 if (!enableDownloads) {
                                     viewModel.setStatusMessage("Downloads are disabled in Settings")
                                     return@setDownloadListener
+                                }
+                                val now = System.currentTimeMillis()
+                                if (url == lastDownloadedUrl && (now - lastDownloadTimestamp < 15000L)) {
+                                    return@setDownloadListener
+                                }
+                                lastDownloadedUrl = url
+                                lastDownloadTimestamp = now
+
+                                val currentWvUrl = wv.url
+                                if (!currentWvUrl.isNullOrBlank() && currentWvUrl != url) {
+                                    viewModel.updateCurrentUrl(currentWvUrl)
                                 }
                                 try {
                                     val filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype)
@@ -2199,7 +2206,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val tagId = currentTag?.second as? Int
                             val tagPair = Pair(loadKey, navigationSessionId)
 
-                            val needsNavigation = (tagUrl != loadKey || tagId != navigationSessionId)
+                            val isRecentDownload = (loadKey == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
+                            val needsNavigation = (tagUrl != loadKey || tagId != navigationSessionId) && !isRecentDownload
                             if (needsNavigation) {
                                 webView.tag = tagPair
                                 if (normWv != normRes || tagId != navigationSessionId) {

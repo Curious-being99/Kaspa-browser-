@@ -127,10 +127,23 @@ class MainActivity : FragmentActivity() {
     handleIncomingIntent(intent)
   }
 
+  private var lastHandledIntentUrl: String? = null
+  private var lastHandledIntentTimestamp: Long = 0L
+
   private fun handleIncomingIntent(intent: Intent?) {
     val pwaUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
     if (!pwaUrl.isNullOrBlank()) {
-      viewModel.openUrlInBrowser(pwaUrl, isExternal = true)
+      val now = System.currentTimeMillis()
+      if (pwaUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {
+        lastHandledIntentUrl = pwaUrl
+        lastHandledIntentTimestamp = now
+        viewModel.openUrlInBrowser(pwaUrl, isExternal = true)
+      }
+      // Consume the intent data so leaving and returning to the task does not replay the intent
+      try {
+        intent?.data = null
+        intent?.removeExtra("PWA_URL")
+      } catch (_: Exception) {}
     }
   }
 }
