@@ -725,7 +725,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                                     modifier = Modifier.padding(start = 4.dp)
                                                 ) {
                                                     Text(
-                                                        text = download.status,
+                                                        text = if (download.status == "Pending" || download.status == "Downloading") "Downloading" else download.status,
                                                         color = statusColor,
                                                         fontSize = 9.sp,
                                                         fontWeight = FontWeight.Bold,
@@ -738,15 +738,38 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         Spacer(modifier = Modifier.height(6.dp))
                                         
                                         // Real-Time Progress Bar
-                                        androidx.compose.material3.LinearProgressIndicator(
-                                            progress = { download.progress },
-                                            color = ElectricCyan,
-                                            trackColor = SurfaceCard,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(6.dp)
-                                                .clip(RoundedCornerShape(3.dp))
-                                        )
+                                        if (download.status == "Downloading" || download.status == "Pending") {
+                                            if (download.progress > 0.02f) {
+                                                androidx.compose.material3.LinearProgressIndicator(
+                                                    progress = { download.progress.coerceIn(0.02f, 1.0f) },
+                                                    color = ElectricCyan,
+                                                    trackColor = SurfaceCard,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(6.dp)
+                                                        .clip(RoundedCornerShape(3.dp))
+                                                )
+                                            } else {
+                                                androidx.compose.material3.LinearProgressIndicator(
+                                                    color = ElectricCyan,
+                                                    trackColor = SurfaceCard,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(6.dp)
+                                                        .clip(RoundedCornerShape(3.dp))
+                                                )
+                                            }
+                                        } else {
+                                            androidx.compose.material3.LinearProgressIndicator(
+                                                progress = { if (download.status == "Success") 1.0f else download.progress },
+                                                color = if (download.status == "Success") EmeraldMesh else Color.Red,
+                                                trackColor = SurfaceCard,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(6.dp)
+                                                    .clip(RoundedCornerShape(3.dp))
+                                            )
+                                        }
 
                                         Spacer(modifier = Modifier.height(4.dp))
 
@@ -754,9 +777,10 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            val progressPct = (download.progress * 100).toInt()
+                                            val progressPct = if (download.status == "Success") 100 else (download.progress * 100).toInt()
+                                            val progressText = if ((download.status == "Downloading" || download.status == "Pending") && download.progress <= 0.02f) "Downloading..." else "$progressPct% Completed"
                                             Text(
-                                                text = "$progressPct% Completed",
+                                                text = progressText,
                                                 fontSize = 10.sp,
                                                 color = TextMuted
                                             )

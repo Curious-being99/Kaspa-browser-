@@ -1864,19 +1864,27 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 try {
                                     val filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype)
-                                    val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-                                        setMimeType(mimetype)
-                                        addRequestHeader("cookie", android.webkit.CookieManager.getInstance().getCookie(url))
-                                        addRequestHeader("User-Agent", userAgent)
-                                        setDescription("Downloading file...")
-                                        setTitle(filename)
-                                        setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                        setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
+                                    val fallbackId = System.currentTimeMillis()
+                                    val downloadId = try {
+                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
+                                            setMimeType(mimetype)
+                                            addRequestHeader("cookie", android.webkit.CookieManager.getInstance().getCookie(url))
+                                            addRequestHeader("User-Agent", userAgent)
+                                            setDescription("Downloading file...")
+                                            setTitle(filename)
+                                            setAllowedOverMetered(true)
+                                            setAllowedOverRoaming(true)
+                                            setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
+                                            setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
+                                        }
+                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                                        dm.enqueue(request)
+                                    } catch (_: Exception) {
+                                        fallbackId
                                     }
-                                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                                    val downloadId = dm.enqueue(request)
                                     viewModel.addDownload(downloadId, filename, url)
-                                    viewModel.startMonitoringDownload(context, downloadId)
+                                    viewModel.startDownload(context, downloadId, url, filename)
                                     viewModel.setStatusMessage("Download started: $filename")
                                 } catch (e: Exception) {
                                     viewModel.setStatusMessage("Download failed: ${e.message}")

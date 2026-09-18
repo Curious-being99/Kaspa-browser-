@@ -1376,12 +1376,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             downloadId = id,
             fileName = fileName,
             url = url,
-            progress = 0f,
+            progress = 0.02f,
             bytesDownloaded = 0L,
             bytesTotal = 0L,
             status = "Downloading"
         )
-        _activeDownloads.value = _activeDownloads.value + newDownload
+        _activeDownloads.value = _activeDownloads.value.filter { it.downloadId != id } + newDownload
     }
 
     fun updateDownloadProgress(id: Long, progress: Float, bytesDownloaded: Long, bytesTotal: Long, status: String) {
@@ -1397,14 +1397,98 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun startDownload(context: android.content.Context, downloadId: Long, urlStr: String, fileName: String) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var streamSuccess = false
+            try {
+                updateDownloadProgress(downloadId, 0.02f, 0L, 0L, "Downloading")
+                var currentUrl = urlStr
+                var redirectCount = 0
+                var connection: java.net.HttpURLConnection? = null
+
+                while (redirectCount < 6) {
+                    val url = java.net.URL(currentUrl)
+                    connection = url.openConnection() as java.net.HttpURLConnection
+                    connection.instanceFollowRedirects = true
+                    connection.connectTimeout = 15000
+                    connection.readTimeout = 30000
+                    connection.requestMethod = "GET"
+                    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    connection.connect()
+
+                    val responseCode = connection.responseCode
+                    if (responseCode in 300..399) {
+                        val newUrl = connection.getHeaderField("Location")
+                        if (!newUrl.isNullOrBlank()) {
+                            currentUrl = newUrl
+                            redirectCount++
+                            connection.disconnect()
+                            continue
+                        }
+                    }
+                    break
+                }
+
+                val conn = connection
+                if (conn != null && conn.responseCode in 200..299) {
+                    val totalBytes = conn.contentLengthLong.let { if (it > 0) it else 0L }
+                    val targetFile = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                        fileName
+                    )
+                    
+                    var bytesDownloaded = 0L
+                    val buffer = ByteArray(32768)
+                    var bytesRead: Int
+                    val inputStream = conn.inputStream
+                    val outputStream = java.io.FileOutputStream(targetFile)
+
+                    var lastUpdate = System.currentTimeMillis()
+
+                    while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                        outputStream.write(buffer, 0, bytesRead)
+                        bytesDownloaded += bytesRead
+                        val now = System.currentTimeMillis()
+                        if (now - lastUpdate > 100) {
+                            lastUpdate = now
+                            val progress = if (totalBytes > 0) (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0.02f, 0.99f) else 0.50f
+                            updateDownloadProgress(downloadId, progress, bytesDownloaded, totalBytes, "Downloading")
+                        }
+                    }
+                    outputStream.flush()
+                    outputStream.close()
+                    inputStream.close()
+                    conn.disconnect()
+
+                    updateDownloadProgress(downloadId, 1.0f, bytesDownloaded, if (totalBytes > 0) totalBytes else bytesDownloaded, "Success")
+                    streamSuccess = true
+
+                    try {
+                        android.media.MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(targetFile.absolutePath),
+                            null,
+                            null
+                        )
+                    } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {
+            }
+
+            if (!streamSuccess) {
+                startMonitoringDownload(context, downloadId)
+            }
+        }
+    }
+
     fun startMonitoringDownload(context: android.content.Context, downloadId: Long) {
         viewModelScope.launch {
             val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
             var downloading = true
             while (downloading) {
-                kotlinx.coroutines.delay(1000)
+                kotlinx.coroutines.delay(500)
                 val query = android.app.DownloadManager.Query().setFilterById(downloadId)
-                val cursor = dm.query(query)
+                val cursor = try { dm.query(query) } catch (e: Exception) { null }
                 if (cursor != null && cursor.moveToFirst()) {
                     val bytesDownloadedIndex = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
                     val bytesTotalIndex = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
@@ -1414,17 +1498,19 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     val bytesTotal = if (bytesTotalIndex != -1) cursor.getLong(bytesTotalIndex) else 0L
                     val statusInt = if (statusIndex != -1) cursor.getInt(statusIndex) else android.app.DownloadManager.STATUS_FAILED
                     
-                    val progress = if (bytesTotal > 0) bytesDownloaded.toFloat() / bytesTotal.toFloat() else 0f
+                    val calculatedProgress = if (bytesTotal > 0) bytesDownloaded.toFloat() / bytesTotal.toFloat() else 0f
                     val statusStr = when (statusInt) {
                         android.app.DownloadManager.STATUS_RUNNING -> "Downloading"
                         android.app.DownloadManager.STATUS_SUCCESSFUL -> "Success"
                         android.app.DownloadManager.STATUS_FAILED -> "Failed"
-                        android.app.DownloadManager.STATUS_PENDING -> "Pending"
-                        android.app.DownloadManager.STATUS_PAUSED -> "Paused"
+                        android.app.DownloadManager.STATUS_PENDING -> "Downloading"
+                        android.app.DownloadManager.STATUS_PAUSED -> "Downloading"
                         else -> "Downloading"
                     }
+
+                    val activeProgress = if (statusStr == "Downloading" && calculatedProgress < 0.05f) 0.05f else calculatedProgress
                     
-                    updateDownloadProgress(downloadId, progress, bytesDownloaded, bytesTotal, statusStr)
+                    updateDownloadProgress(downloadId, activeProgress, bytesDownloaded, bytesTotal, statusStr)
                     
                     if (statusInt == android.app.DownloadManager.STATUS_SUCCESSFUL || statusInt == android.app.DownloadManager.STATUS_FAILED) {
                         downloading = false
@@ -1441,38 +1527,50 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun triggerRealTestDownload(context: android.content.Context) {
         val testUrl = "https://proof.ovh.net/files/10Mb.dat"
         val filename = "test_10mb.dat"
+        val downloadId = System.currentTimeMillis()
         try {
             val request = android.app.DownloadManager.Request(android.net.Uri.parse(testUrl)).apply {
                 setDescription("Downloading real 10MB test file...")
                 setTitle(filename)
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(true)
+                setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
                 setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
             }
             val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-            val downloadId = dm.enqueue(request)
-            addDownload(downloadId, filename, testUrl)
-            startMonitoringDownload(context, downloadId)
+            val dmId = try { dm.enqueue(request) } catch (e: Exception) { downloadId }
+            addDownload(dmId, filename, testUrl)
+            startDownload(context, dmId, testUrl, filename)
             _statusMessage.value = "Real download initiated: $filename"
         } catch (e: Exception) {
-            _statusMessage.value = "Real test download failed: ${e.message}"
+            addDownload(downloadId, filename, testUrl)
+            startDownload(context, downloadId, testUrl, filename)
+            _statusMessage.value = "Real download initiated: $filename"
         }
     }
 
     fun redownload(context: android.content.Context, url: String, filename: String) {
+        val downloadId = System.currentTimeMillis()
         try {
             val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
                 setDescription("Redownloading file...")
                 setTitle(filename)
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(true)
+                setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
                 setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
             }
             val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-            val downloadId = dm.enqueue(request)
-            addDownload(downloadId, filename, url)
-            startMonitoringDownload(context, downloadId)
+            val dmId = try { dm.enqueue(request) } catch (e: Exception) { downloadId }
+            addDownload(dmId, filename, url)
+            startDownload(context, dmId, url, filename)
             _statusMessage.value = "Redownload started: $filename"
         } catch (e: Exception) {
-            _statusMessage.value = "Redownload failed: ${e.message}"
+            addDownload(downloadId, filename, url)
+            startDownload(context, downloadId, url, filename)
+            _statusMessage.value = "Redownload started: $filename"
         }
     }
 
