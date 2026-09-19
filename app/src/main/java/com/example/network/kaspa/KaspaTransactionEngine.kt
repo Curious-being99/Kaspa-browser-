@@ -150,8 +150,8 @@ object KaspaTransactionEngine {
     const val MASS_PER_INPUT_COMPUTE = 100L
     const val MASS_PER_OUTPUT_COMPUTE = 100L
     const val MINIMUM_TRANSACTION_MASS = 1000L
-    const val DEFAULT_SOMPI_PER_MASS = 100L // 100 sompi/gram (rusty-kaspa node RPC policy feerate)
-    const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 10_000L // 0.0001 KAS standard node relay fee floor
+    const val DEFAULT_SOMPI_PER_MASS = 10L // 10 sompi per mass unit (standard network relay feerate)
+    const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 10_000L // 0.0001 KAS absolute minimum network fee floor
     const val STANDARD_SIGNATURE_SCRIPT_BYTES = 66 // 1 (0x41) + 64 (Schnorr Sig) + 1 (SIGHASH_ALL)
     const val STANDARD_P2PK_SCRIPT_BYTES = 34 // 1 (0x20) + 32 (pubkey) + 1 (0xac)
 
@@ -675,7 +675,7 @@ object KaspaTransactionEngine {
      * Calculates the exact transaction fee in Sompis for a given mass and sompi/mass feerate.
      */
     fun calculateFeeForMass(mass: Long, sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS): Long {
-        return maxOf(mass * sompiPerMass, 1000L)
+        return maxOf(mass * sompiPerMass, RUSTY_KASPA_MINIMUM_FEE_SOMPIS)
     }
 
     /**

@@ -2869,75 +2869,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    // WebAuthn Passkey / RP ID In-App Authentication Notice Dialog
-    if (showWebAuthnRpIdDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.setShowWebAuthnRpIdDialog(false) },
-            containerColor = SurfaceDark,
-            titleContentColor = TextPrimary,
-            textContentColor = TextSecondary,
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Fingerprint,
-                    contentDescription = null,
-                    tint = ElectricCyan,
-                    modifier = Modifier.size(32.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = "Passkey Verification Notice",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        text = "Android OS restricts hardware Passkey RP ID validation to domains linked by the site owner.",
-                        fontSize = 13.sp,
-                        color = TextPrimary
-                    )
-                    Surface(
-                        color = SurfaceCard,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "Continue inside this browser:",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = ElectricCyan
-                            )
-                            Text(
-                                text = "1. Tap 'More options' on the screen.",
-                                fontSize = 12.sp,
-                                color = TextPrimary
-                            )
-                            Text(
-                                text = "2. Select 'Authenticator app', 'GitHub Mobile', or 'Recovery code' to authenticate seamlessly.",
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.setShowWebAuthnRpIdDialog(false) },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg)
-                ) {
-                    Text("Got It (Continue Here)", fontWeight = FontWeight.SemiBold)
-                }
-            }
-        )
-    }
+
 
     // PWA & Web App Device Installation Dialog
     if (showPwaDialog) {

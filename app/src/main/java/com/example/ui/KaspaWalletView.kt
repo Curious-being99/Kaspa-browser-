@@ -671,7 +671,7 @@ fun KaspaWalletView(
             }
         }
 
-        // Quick Actions Row (Send, Receive, .kab Domains, Explorer)
+        // Quick Actions Row (Send, Receive, .k Domains, Explorer)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),

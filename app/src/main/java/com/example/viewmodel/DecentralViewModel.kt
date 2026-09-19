@@ -534,7 +534,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 val allAccounts = database.accountDao().getAllAccountsList()
                 if (allAccounts.isNotEmpty()) {
                     for (acc in allAccounts) {
-                        val cleanHandle = if (acc.handle.contains(".k") || acc.handle.contains(".kab") || acc.handle.startsWith("@kas")) {
+                        val cleanHandle = if (acc.handle.contains(".k") || acc.handle.startsWith("@kas")) {
                             "Kaspa Wallet (${acc.kaspaAddress.takeLast(6)})"
                         } else {
                             acc.handle
