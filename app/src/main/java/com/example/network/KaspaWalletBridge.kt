@@ -246,41 +246,64 @@ class KaspaWalletBridge(
                     }
                 }
 
-                // Perform Schnorr signature on requested inputs
+                // Perform Schnorr signature on requested inputs after biometric confirmation
                 val indicesToSign = if (signInputIndices.isNotEmpty()) {
                     signInputIndices.filter { it in tx.inputs.indices }
                 } else {
                     tx.inputs.indices.filter { tx.inputs[it].signatureScript.isEmpty() }
                 }
 
-                for (idx in indicesToSign) {
-                    val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
-                        tx = tx,
-                        inputIndex = idx,
-                        sigHashType = KaspaTransactionEngine.SIGHASH_ALL,
-                        utxoEntry = utxoEntries[idx]
-                    )
-                    val sig64Hex = CryptoUtils.signSchnorr(privateKey, sighash)
-                    tx.inputs[idx].signatureScript = "41" + sig64Hex + "01"
-                }
-
-                tx.mass = KaspaTransactionEngine.calculateMass(tx)
-                val signedTxJsonObj = tx.toJson()
-                val signedTxJsonString = signedTxJsonObj.toString()
-
-                val resultObj = JSONObject().apply {
-                    put("txJsonString", signedTxJsonString)
-                    put("signedTx", signedTxJsonString)
-                    put("tx", signedTxJsonString)
-                    put("rawTx", signedTxJsonString)
-                }
-
                 withContext(Dispatchers.Main) {
-                    viewModel.setStatusMessage("Signed transaction with ${indicesToSign.size} input(s) on-chain")
-                }
+                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                        context = context,
+                        title = "Authorize Kaspa Transaction",
+                        subtitle = "DApp requests signature on ${indicesToSign.size} input(s)",
+                        onSuccess = {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    for (idx in indicesToSign) {
+                                        val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+                                            tx = tx,
+                                            inputIndex = idx,
+                                            sigHashType = KaspaTransactionEngine.SIGHASH_ALL,
+                                            utxoEntry = utxoEntries[idx]
+                                        )
+                                        val sig64Hex = CryptoUtils.signSchnorr(privateKey, sighash)
+                                        tx.inputs[idx].signatureScript = "41" + sig64Hex + "01"
+                                    }
 
-                // Resolve with signed transaction object
-                resolveCallbackJson(callbackId, resultObj.toString())
+                                    tx.mass = KaspaTransactionEngine.calculateMass(tx)
+                                    val signedTxJsonObj = tx.toJson()
+                                    val signedTxJsonString = signedTxJsonObj.toString()
+
+                                    val resultObj = JSONObject().apply {
+                                        put("txJsonString", signedTxJsonString)
+                                        put("signedTx", signedTxJsonString)
+                                        put("tx", signedTxJsonString)
+                                        put("rawTx", signedTxJsonString)
+                                    }
+
+                                    withContext(Dispatchers.Main) {
+                                        viewModel.setStatusMessage("Signed transaction with ${indicesToSign.size} input(s) on-chain")
+                                    }
+
+                                    // Resolve with signed transaction object
+                                    resolveCallbackJson(callbackId, resultObj.toString())
+                                } catch (e: Exception) {
+                                    Log.e(tag, "Transaction signing error: ${e.message}", e)
+                                    val errMsg = "Signing error: ${e.message ?: "Invalid transaction payload"}"
+                                    withContext(Dispatchers.Main) { viewModel.setStatusMessage(errMsg) }
+                                    rejectCallback(callbackId, errMsg)
+                                }
+                            }
+                        },
+                        onError = { err ->
+                            val errMsg = "Transaction signing cancelled: $err"
+                            viewModel.setStatusMessage(errMsg)
+                            rejectCallback(callbackId, errMsg)
+                        }
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(tag, "Transaction signing error: ${e.message}", e)
                 val errMsg = "Signing error: ${e.message ?: "Invalid transaction payload"}"
@@ -440,35 +463,49 @@ class KaspaWalletBridge(
                 }
 
                 val amountKas = sompiAmount / 100_000_000.0
+
                 withContext(Dispatchers.Main) {
                     viewModel.setStatusMessage("DApp requested sending $amountKas KAS to ${toAddress.take(18)}...")
-                }
+                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                        context = context,
+                        title = "Authorize Kaspa Transfer",
+                        subtitle = "Send %.4f KAS to %s".format(amountKas, toAddress.take(18)),
+                        onSuccess = {
+                            scope.launch(Dispatchers.IO) {
+                                val result = viewModel.walletService.sendKaspa(
+                                    senderAddress = account.kaspaAddress,
+                                    senderSeed = seed,
+                                    recipientAddress = toAddress,
+                                    amountKas = amountKas
+                                )
 
-                val result = viewModel.walletService.sendKaspa(
-                    senderAddress = account.kaspaAddress,
-                    senderSeed = seed,
-                    recipientAddress = toAddress,
-                    amountKas = amountKas
-                )
-
-                if (result.isSuccess) {
-                    val txItem = result.getOrThrow()
-                    val res = JSONObject().apply {
-                        put("id", txItem.txId)
-                        put("txId", txItem.txId)
-                        put("transactionId", txItem.txId)
-                    }
-                    withContext(Dispatchers.Main) {
-                        viewModel.setStatusMessage("Sent $amountKas KAS on BlockDAG! Tx: ${txItem.txId.take(16)}...")
-                        viewModel.refreshKaspaWallet(account.kaspaAddress)
-                    }
-                    resolveCallbackJson(callbackId, res.toString())
-                } else {
-                    val err = result.exceptionOrNull()?.message ?: "Transaction broadcast failed"
-                    withContext(Dispatchers.Main) {
-                        viewModel.setStatusMessage("Transaction failed: $err")
-                    }
-                    rejectCallback(callbackId, err)
+                                if (result.isSuccess) {
+                                    val txItem = result.getOrThrow()
+                                    val res = JSONObject().apply {
+                                        put("id", txItem.txId)
+                                        put("txId", txItem.txId)
+                                        put("transactionId", txItem.txId)
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        viewModel.setStatusMessage("Sent $amountKas KAS on BlockDAG! Tx: ${txItem.txId.take(16)}...")
+                                        viewModel.refreshKaspaWallet(account.kaspaAddress)
+                                    }
+                                    resolveCallbackJson(callbackId, res.toString())
+                                } else {
+                                    val err = result.exceptionOrNull()?.message ?: "Transaction broadcast failed"
+                                    withContext(Dispatchers.Main) {
+                                        viewModel.setStatusMessage("Transaction failed: $err")
+                                    }
+                                    rejectCallback(callbackId, err)
+                                }
+                            }
+                        },
+                        onError = { err ->
+                            val errMsg = "Transfer rejected: $err"
+                            viewModel.setStatusMessage(errMsg)
+                            rejectCallback(callbackId, errMsg)
+                        }
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(tag, "sendKaspa error: ${e.message}", e)
@@ -491,8 +528,30 @@ class KaspaWalletBridge(
                     rejectCallback(callbackId, "Cannot decrypt wallet private key")
                     return@launch
                 }
-                val sig = CryptoUtils.signMessage(message, seed)
-                resolveCallbackString(callbackId, sig)
+
+                withContext(Dispatchers.Main) {
+                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                        context = context,
+                        title = "Authorize Message Signature",
+                        subtitle = "DApp requests signature on message",
+                        onSuccess = {
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val sig = CryptoUtils.signMessage(message, seed)
+                                    resolveCallbackString(callbackId, sig)
+                                } catch (e: Exception) {
+                                    Log.e(tag, "signMessage error: ${e.message}", e)
+                                    rejectCallback(callbackId, e.message ?: "Failed to sign message")
+                                }
+                            }
+                        },
+                        onError = { err ->
+                            val errMsg = "Message signature rejected: $err"
+                            viewModel.setStatusMessage(errMsg)
+                            rejectCallback(callbackId, errMsg)
+                        }
+                    )
+                }
             } catch (e: Exception) {
                 Log.e(tag, "signMessage error: ${e.message}", e)
                 rejectCallback(callbackId, e.message ?: "Failed to sign message")

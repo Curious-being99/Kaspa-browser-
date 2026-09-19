@@ -193,7 +193,7 @@ class DualStackResolver(
                     val nameStr = json.optString("name", baseSlug)
                     val addressStr = json.optString("address", "")
                     val deedAddressStr = json.optString("deedAddress", "")
-                    val registryCovenantId = json.optString("registryCovenantId", null)
+                    val registryCovenantId = json.optString("registryCovenantId").ifEmpty { null }
                     
                     if (addressStr.isNotEmpty()) {
                         // MANDATORY: Verify the answer against Kaspa BlockDAG consensus
@@ -215,7 +215,7 @@ class DualStackResolver(
                             txId = txIdVal,
                             registrationFeeKas = fee,
                             registeredAt = System.currentTimeMillis(),
-                            targetCid = json.optJSONObject("card")?.optJSONObject("records")?.optString("url", null),
+                            targetCid = json.optJSONObject("card")?.optJSONObject("records")?.optString("url")?.ifEmpty { null },
                             customDnsRecord = "kns:v1|owner:$addressStr|deed:$deedAddressStr|verified:$isVerifiedOnChain"
                         )
                     }

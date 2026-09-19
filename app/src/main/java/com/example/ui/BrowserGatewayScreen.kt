@@ -1372,10 +1372,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
+                                @Suppress("DEPRECATION")
                                 databaseEnabled = true
                                 mediaPlaybackRequiresUserGesture = false
-                                safeBrowsingEnabled = false
-                                setGeolocationEnabled(true)
+                                setGeolocationEnabled(false)
                                 allowFileAccess = false
                                 allowContentAccess = true
                                 @Suppress("DEPRECATION")
@@ -1390,9 +1390,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = false
                                 setSupportMultipleWindows(false)
-                                @Suppress("DEPRECATION")
-                                databaseEnabled = true
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
@@ -1414,12 +1412,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
                                 cacheMode = WebSettings.LOAD_DEFAULT
-                                mediaPlaybackRequiresUserGesture = false
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
                                 offscreenPreRaster = true
-                                setGeolocationEnabled(false)
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                                 } else {

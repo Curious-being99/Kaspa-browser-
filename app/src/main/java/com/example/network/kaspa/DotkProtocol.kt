@@ -501,6 +501,7 @@ object DotkProtocol {
     }
 
     private fun fetchUtxoForAddress(address: String, client: OkHttpClient): KaspaTransactionEngine.KaspaUtxo? {
+        val fastClient = getDirectoryClient(client)
         val endpoints = listOf(
             "https://api.kaspa.org/addresses/$address/utxos",
             "https://api-mainnet.kaspanet.io/addresses/$address/utxos"
@@ -508,7 +509,7 @@ object DotkProtocol {
         for (url in endpoints) {
             try {
                 val req = Request.Builder().url(url).get().build()
-                client.newCall(req).execute().use { resp ->
+                fastClient.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) {
                         val body = resp.body?.string() ?: return@use
                         val array = org.json.JSONArray(body)

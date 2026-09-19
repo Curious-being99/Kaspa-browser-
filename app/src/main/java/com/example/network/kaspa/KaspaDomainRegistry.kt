@@ -145,7 +145,7 @@ class KaspaDomainRegistry(
                     val json = JSONObject(body)
                     val addressStr = json.optString("address", "")
                     val deedAddressStr = json.optString("deedAddress", "")
-                    val registryCovenantId = json.optString("registryCovenantId", null)
+                    val registryCovenantId = json.optString("registryCovenantId").ifEmpty { null }
                     
                     if (addressStr.isNotEmpty()) {
                         // Perform live on-chain verification to ensure this isn't just a cached or social claim
@@ -171,7 +171,7 @@ class KaspaDomainRegistry(
                                 domain = domainName,
                                 txId = txIdVal,
                                 registeredAt = System.currentTimeMillis(),
-                                targetCid = json.optJSONObject("card")?.optJSONObject("records")?.optString("url", null)
+                                targetCid = json.optJSONObject("card")?.optJSONObject("records")?.optString("url")?.ifEmpty { null }
                             )
                         } else {
                             DomainAvailability.ClaimedByOther(

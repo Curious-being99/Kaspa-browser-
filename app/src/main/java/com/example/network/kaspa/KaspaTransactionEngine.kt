@@ -675,7 +675,9 @@ object KaspaTransactionEngine {
      * Calculates the exact transaction fee in Sompis for a given mass and sompi/mass feerate.
      */
     fun calculateFeeForMass(mass: Long, sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS): Long {
-        return maxOf(mass * sompiPerMass, RUSTY_KASPA_MINIMUM_FEE_SOMPIS)
+        val calculatedFee = mass * sompiPerMass
+        val minFeeFloor = MINIMUM_TRANSACTION_MASS * sompiPerMass
+        return maxOf(calculatedFee, minFeeFloor)
     }
 
     /**

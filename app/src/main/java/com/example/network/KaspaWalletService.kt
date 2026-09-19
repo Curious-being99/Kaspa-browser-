@@ -99,6 +99,12 @@ class KaspaWalletService(
     // FIFO Transaction Queue: Protect all send and mass-transfer operations via a coroutine mutex to prevent out-of-order broadcasting when chaining transactions
     private val transactionMutex = Mutex()
 
+    // Fast HTTP client for live UTXO and REST status queries to avoid UI button freeze
+    private val fastRestClient = client.newBuilder()
+        .connectTimeout(2500, TimeUnit.MILLISECONDS)
+        .readTimeout(2500, TimeUnit.MILLISECONDS)
+        .build()
+
     suspend fun fetchWalletState(address: String): KaspaWalletState = withContext(Dispatchers.IO) {
         if (address.isBlank()) {
             return@withContext KaspaWalletState()
@@ -230,24 +236,26 @@ class KaspaWalletService(
     }
 
     /**
-     * Fetches live UTXOs for a Kaspa address from REST API
+     * Fetches live UTXOs for a Kaspa address from REST API with fast timeouts and multi-node failover
      */
     suspend fun fetchLiveUtxos(address: String): List<KaspaTransactionEngine.KaspaUtxo> = withContext(Dispatchers.IO) {
         val utxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
         val apiBase = getApiBase(address)
         val endpoints = if (apiBase == API_MAINNET) {
             listOf(
-                "$API_MAINNET/addresses/$address/utxos"
+                "$API_MAINNET/addresses/$address/utxos",
+                "https://api-mainnet.kaspanet.io/addresses/$address/utxos"
             )
         } else {
             listOf(
-                "$API_TESTNET/addresses/$address/utxos"
+                "$API_TESTNET/addresses/$address/utxos",
+                "https://api-tn10.kaspanet.io/addresses/$address/utxos"
             )
         }
         for (url in endpoints) {
             try {
                 val req = Request.Builder().url(url).get().build()
-                client.newCall(req).execute().use { resp ->
+                fastRestClient.newCall(req).execute().use { resp ->
                     if (resp.isSuccessful) {
                         val bodyStr = resp.body?.string()
                         if (!bodyStr.isNullOrBlank()) {
@@ -375,7 +383,7 @@ class KaspaWalletService(
                     return@withLock Result.failure(IllegalArgumentException("Amount must be greater than 0 KAS."))
                 }
 
-                val amountSompis = (amountKas * 100_000_000.0).toLong()
+                val amountSompis = Math.round(amountKas * 100_000_000.0)
 
                 // 1. Decode addresses to scriptPublicKeys following rusty-kaspa standard
                 val recipientScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(recipientAddress)
@@ -587,10 +595,10 @@ class KaspaWalletService(
                     ))
                 }
 
-                // Confirm PENDING deed UTXO is visible on the node before broadcasting reveal
-                val maxDeedPollAttempts = 3
+                // Confirm PENDING deed UTXO is visible on the node before broadcasting reveal (fast poll to prevent UI button freeze)
+                val maxDeedPollAttempts = 2
                 for (poll in 1..maxDeedPollAttempts) {
-                    delay(1000)
+                    delay(300)
                     if (lastPendingDeedAddr.isNotBlank()) {
                         val deedUtxos = fetchLiveUtxos(lastPendingDeedAddr)
                         val found = deedUtxos.any {

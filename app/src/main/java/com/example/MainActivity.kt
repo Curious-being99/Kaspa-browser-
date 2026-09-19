@@ -63,30 +63,30 @@ class MainActivity : FragmentActivity() {
       val webViewCacheDir = File(cacheDir, "WebView/Default")
       val httpCache = File(webViewCacheDir, "HTTP Cache")
       
-      // Clean up misplaced directories inside HTTP Cache that corrupt Chromium SimpleCache
-      val misplacedCodeCache = File(httpCache, "Code Cache")
-      if (misplacedCodeCache.exists()) {
-        misplacedCodeCache.deleteRecursively()
-      }
-      val indexDir = File(httpCache, "index-dir")
-      val realIndex = File(indexDir, "the-real-index")
-      if (indexDir.exists() && (!realIndex.exists() || realIndex.length() == 0L)) {
-        indexDir.deleteRecursively()
-      }
+      // Ensure Code Cache directories exist both under HTTP Cache and WebView/Default
+      // Chromium's SimpleCache (simple_file_enumerator) checks both paths during startup
+      val httpCodeCache = File(httpCache, "Code Cache")
+      File(httpCodeCache, "js").mkdirs()
+      File(httpCodeCache, "wasm").mkdirs()
 
-      // Ensure proper Code Cache directories exist in standard WebView/Default location
       val defaultCodeCache = File(webViewCacheDir, "Code Cache")
       File(defaultCodeCache, "js").mkdirs()
       File(defaultCodeCache, "wasm").mkdirs()
+
       File(cacheDir, "WebView/Crashpad/attachments").mkdirs()
 
       // Clean up orphaned or broken zero-length temp cache entries
-      val cleanupDirs = listOf(File(defaultCodeCache, "js"), File(defaultCodeCache, "wasm"))
+      val cleanupDirs = listOf(
+        File(defaultCodeCache, "js"),
+        File(defaultCodeCache, "wasm"),
+        File(httpCodeCache, "js"),
+        File(httpCodeCache, "wasm")
+      )
       for (dir in cleanupDirs) {
         if (dir.exists() && dir.isDirectory) {
           dir.listFiles()?.forEach { file ->
             try {
-              if (!file.canRead() || file.length() == 0L) {
+              if (file.isFile && (!file.canRead() || file.length() == 0L)) {
                 file.delete()
               }
             } catch (_: Exception) {}

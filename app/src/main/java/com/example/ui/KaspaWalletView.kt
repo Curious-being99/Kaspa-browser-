@@ -1225,9 +1225,27 @@ private fun SendKaspaSection(
                 Text("≈ $%.2f USD (Network Fee: $estFeeFormatted KAS)".format(amountUsd), fontSize = 10.sp, color = TextSecondary)
             }
 
-            if (sendError != null) {
+            val activeError = sendError ?: if (statusNotice?.startsWith("Error", ignoreCase = true) == true) {
+                statusNotice.removePrefix("Error:").trim()
+            } else null
+
+            if (activeError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(sendError ?: "", fontSize = 11.sp, color = Color(0xFFEF4444))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(activeError, fontSize = 11.sp, color = Color(0xFFEF4444))
+                    }
+                }
             }
 
             if (!lastBroadcastTxId.isNullOrBlank()) {

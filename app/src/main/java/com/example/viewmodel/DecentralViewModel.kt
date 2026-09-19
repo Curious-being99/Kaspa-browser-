@@ -604,31 +604,60 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         val senderAcc = activeAccount.value ?: return
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true)
-            val result = kaspaWalletService.sendKaspa(
-                senderAddress = senderAcc.kaspaAddress,
-                senderSeed = CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase),
-                recipientAddress = recipientAddress,
-                amountKas = amountKas
-            )
-            result.onSuccess { txItem ->
-                _statusMessage.value = "KAS Transaction Broadcasted! Tx: ${txItem.txId.take(16)}..."
-                val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions
-                val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - txItem.feeKas).coerceAtLeast(0.0)
-                _kaspaWalletState.value = _kaspaWalletState.value.copy(
-                    isSending = false,
-                    balanceKas = updatedBalance,
-                    balanceUsd = updatedBalance * _kaspaWalletState.value.priceUsd,
-                    lastBroadcastTxId = txItem.txId,
-                    recentTransactions = updatedTxs,
-                    statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId})".format(amountKas)
+            try {
+                val decryptedSeed = try {
+                    CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
+                } catch (e: Exception) {
+                    val errMsg = "Failed to decrypt wallet seed: ${e.message}"
+                    _statusMessage.value = errMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = null,
+                        statusNotice = "Error: $errMsg"
+                    )
+                    return@launch
+                }
+
+                val result = kaspaWalletService.sendKaspa(
+                    senderAddress = senderAcc.kaspaAddress,
+                    senderSeed = decryptedSeed,
+                    recipientAddress = recipientAddress,
+                    amountKas = amountKas
                 )
-            }.onFailure { err ->
-                _statusMessage.value = "Transaction failed: ${err.message}"
+                result.onSuccess { txItem ->
+                    _statusMessage.value = "KAS Transaction Broadcasted! Tx: ${txItem.txId.take(16)}..."
+                    val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions
+                    val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - txItem.feeKas).coerceAtLeast(0.0)
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        balanceKas = updatedBalance,
+                        balanceUsd = updatedBalance * _kaspaWalletState.value.priceUsd,
+                        lastBroadcastTxId = txItem.txId,
+                        recentTransactions = updatedTxs,
+                        statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId})".format(amountKas)
+                    )
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Transaction broadcast failed"
+                    _statusMessage.value = "Transaction failed: $errorMsg"
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = null,
+                        statusNotice = "Error: $errorMsg"
+                    )
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Unexpected error during transaction"
+                _statusMessage.value = "Transaction error: $errorMsg"
                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                     isSending = false,
                     lastBroadcastTxId = null,
-                    statusNotice = "Error: ${err.message}"
+                    statusNotice = "Error: $errorMsg"
                 )
+            } finally {
+                // Guaranteed immediate backoff: never leave button in sending/frozen state
+                if (_kaspaWalletState.value.isSending) {
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = false)
+                }
             }
         }
     }
