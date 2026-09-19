@@ -5934,9 +5934,7 @@ fun KaspaNewsSection(
                         Pair("https://cointelegraph.com/rss/tag/kaspa", "News"),
                         Pair("https://coingape.com/tag/kaspa/feed/", "News"),
                         Pair("https://xcancel.com/KaspaCurrency/rss", "X"),
-                        Pair("https://xcancel.com/Kaspa_Ecosystem/rss", "X"),
-                        Pair("https://nitter.cz/KaspaCurrency/rss", "X"),
-                        Pair("https://nitter.net/KaspaCurrency/rss", "X")
+                        Pair("https://xcancel.com/Kaspa_Ecosystem/rss", "X")
                     )
 
                     val list: MutableList<KaspaNewsItem> = coroutineScope {

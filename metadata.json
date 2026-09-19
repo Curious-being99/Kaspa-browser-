@@ -1,6 +1,6 @@
 {
   "name": "Kaspa Browser",
-  "description": "A decentralized network layer designed to coexist and integrate seamlessly with the existing centralized internet.",
+  "description": "Kaspa Browser is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

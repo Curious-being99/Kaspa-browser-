@@ -1,7 +1,7 @@
-# KaspaBrowser 🌐
-## Decentralized Android Web Browser & Mesh-Integrated Ecosystem
+# Kaspa Browser 🌐
+## High-Speed Web Decentralized Gateway
 
-**KaspaBrowser** is an Android web browser and decentralized network gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It unifies standard Web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and native **Kaspa BlockDAG (KAS)** wallet utilities into a streamlined mobile client.
+**Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin** and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and native **Kaspa BlockDAG (KAS)** wallet utilities into a fast, privacy-first mobile client.
 
 ---
 

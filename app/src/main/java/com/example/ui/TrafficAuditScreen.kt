@@ -923,7 +923,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (filterMode == "ALERTS") "All resolved requests are cryptographic-verified and tamper-free." else "Navigate to websites or IPFS hashes in the Gateway tab to monitor real live resolution trails and cryptographic hash attestations.",
+                            text = if (filterMode == "ALERTS") "All resolved requests are cryptographic-verified and tamper-free." else "Navigate to websites or HTTPS/3 QUIC endpoints in the Gateway tab to monitor real live resolution trails and cryptographic hash attestations.",
                             fontSize = 11.sp,
                             color = TextSecondary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,

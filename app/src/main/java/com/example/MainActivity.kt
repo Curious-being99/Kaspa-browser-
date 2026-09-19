@@ -58,43 +58,14 @@ class MainActivity : FragmentActivity() {
 
     enableEdgeToEdge()
 
-    // Pre-create and sanitize WebView cache & code-cache directories to prevent Chromium opendir and index errors
+    // Allow WebView & Chromium to manage its internal cache hierarchy cleanly
     try {
-      val webViewCacheDir = File(cacheDir, "WebView/Default")
-      val httpCache = File(webViewCacheDir, "HTTP Cache")
-      
-      // Ensure Code Cache directories exist both under HTTP Cache and WebView/Default
-      // Chromium's SimpleCache (simple_file_enumerator) checks both paths during startup
-      val httpCodeCache = File(httpCache, "Code Cache")
-      File(httpCodeCache, "js").mkdirs()
-      File(httpCodeCache, "wasm").mkdirs()
-
-      val defaultCodeCache = File(webViewCacheDir, "Code Cache")
-      File(defaultCodeCache, "js").mkdirs()
-      File(defaultCodeCache, "wasm").mkdirs()
-
-      File(cacheDir, "WebView/Crashpad/attachments").mkdirs()
-
-      // Clean up orphaned or broken zero-length temp cache entries
-      val cleanupDirs = listOf(
-        File(defaultCodeCache, "js"),
-        File(defaultCodeCache, "wasm"),
-        File(httpCodeCache, "js"),
-        File(httpCodeCache, "wasm")
-      )
-      for (dir in cleanupDirs) {
-        if (dir.exists() && dir.isDirectory) {
-          dir.listFiles()?.forEach { file ->
-            try {
-              if (file.isFile && (!file.canRead() || file.length() == 0L)) {
-                file.delete()
-              }
-            } catch (_: Exception) {}
-          }
-        }
+      val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
+      if (!crashpadDir.exists()) {
+        crashpadDir.mkdirs()
       }
     } catch (e: Exception) {
-      Log.w("MainActivity", "WebView directory init: ${e.message}")
+      Log.d("MainActivity", "WebView directory notice: ${e.message}")
     }
 
     // Initialize Cronet Engine and Disk LRU Asset Cache safely

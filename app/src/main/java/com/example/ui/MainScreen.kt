@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -114,7 +115,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
             }
         }
 
-        // PERSISTENT FIRST-LAUNCH ONLY SPLASH OVERLAY
+        // PERSISTENT FIRST-LAUNCH ONLY SPLASH OVERLAY (Minimalist with all card boxes and writeups removed)
         if (onboardingStep < 2) {
             Box(
                 modifier = Modifier
@@ -126,13 +127,14 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
+                        .navigationBarsPadding()
                         .padding(horizontal = 24.dp)
                 ) {
-                    // Top Bar with Skip Action (positioned down from top edge/status bar)
+                    // Top Bar with Skip Action
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 14.dp, bottom = 8.dp),
+                            .padding(top = 16.dp, bottom = 8.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -146,191 +148,225 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                             Text(
                                 text = "Skip",
                                 color = TextMuted,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(0.6f))
-
-                    // Step 0: Welcome / Gateway Introduction
+                    // Step 0: Minimal Welcome Screen
                     if (onboardingStep == 0) {
-                        SplashLaunchLogo(sizeDp = 72)
+                        Spacer(modifier = Modifier.weight(1f))
 
-                        Spacer(modifier = Modifier.height(18.dp))
+                        SplashLaunchLogo(sizeDp = 88)
+
+                        Spacer(modifier = Modifier.height(24.dp))
 
                         Text(
-                            text = "Kaspa BlockDAG",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "Kaspa Browser",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
                             color = TextPrimary,
+                            letterSpacing = 0.4.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "High-Speed Web Decentralized Gateway",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = ElectricCyan,
                             letterSpacing = 0.3.sp
                         )
 
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.weight(1f))
 
-                        Text(
-                            text = "Decentralized L1 Web Gateway",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = ElectricCyan,
-                            letterSpacing = 0.2.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = "High-speed peer-to-peer web browsing anchored by Proof-of-Work consensus. Sub-second finality, sovereign domains, and zero surveillance.",
-                            fontSize = 12.5.sp,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 18.sp,
-                            modifier = Modifier
-                                .widthIn(max = 320.dp)
-                                .padding(horizontal = 8.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Micro feature chips - uniform rectangular cards
+                        // Step Indicator
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            SplashFeaturePill(icon = Icons.Default.Bolt, label = "10 BPS DAG", modifier = Modifier.weight(1f))
-                            SplashFeaturePill(icon = Icons.Default.Security, label = "Zero Trackers", modifier = Modifier.weight(1f))
-                            SplashFeaturePill(icon = Icons.Default.Hub, label = "P2P Mesh", modifier = Modifier.weight(1f))
+                            Box(
+                                modifier = Modifier
+                                    .height(4.dp)
+                                    .width(20.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(ElectricCyan)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .height(4.dp)
+                                    .width(6.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(SurfaceCardBorder)
+                            )
                         }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Next Button
+                        Button(
+                            onClick = { onboardingStep = 1 },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ElectricCyan,
+                                contentColor = ObsidianBg
+                            ),
+                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier
+                                .height(44.dp)
+                                .widthIn(min = 160.dp, max = 220.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "Next",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.3.sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(40.dp))
                     } else {
-                        // Step 1: Decentralized Vision & Features
-                        SplashLaunchLogo(sizeDp = 72)
+                        // Step 1: Next Tutorial Screen with Missions Write-up (Card-free)
+                        Spacer(modifier = Modifier.weight(0.3f))
+
+                        SplashLaunchLogo(sizeDp = 64)
 
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Text(
-                            text = "Decentralized Vision",
-                            fontSize = 21.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "Core Missions",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
                             color = TextPrimary,
                             letterSpacing = 0.3.sp
                         )
 
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
                             text = "Sovereign, Autonomous & Peer-to-Peer",
-                            fontSize = 12.sp,
+                            fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = ElectricCyan,
                             letterSpacing = 0.2.sp
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(24.dp))
 
+                        // Clean mission statements without card boxes
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(9.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 380.dp)
+                                .padding(horizontal = 8.dp)
                         ) {
-                            SplashVisionRow(
-                                icon = Icons.Default.Bolt,
-                                title = "BlockDAG Instant Finality",
-                                description = "Direct .k decentralized domain lookup and native Kaspa L1 micro-settlements."
-                            )
-                            SplashVisionRow(
-                                icon = Icons.Default.Security,
-                                title = "Cryptographic Privacy",
-                                description = "Zero central telemetry, zero tracking cookies, and strictly local client-side signing."
-                            )
-                            SplashVisionRow(
+                            MissionRow(
                                 icon = Icons.Default.Hub,
-                                title = "P2P Mesh Resiliency",
-                                description = "Discover and access cached decentralized web content over peer-to-peer mesh."
+                                title = "Decentralized Mesh Routing",
+                                description = "Distributed peer-to-peer content delivery and resilient lookup without centralized DNS gatekeepers."
+                            )
+                            MissionRow(
+                                icon = Icons.Default.Speed,
+                                title = "HTTPS/3 QUIC Transport",
+                                description = "Zero round-trip handshake multiplexing for next-gen latency and encrypted streams."
+                            )
+                            MissionRow(
+                                icon = Icons.Default.Security,
+                                title = "Zero-Surveillance Privacy",
+                                description = "Zero trackers, no telemetry, and local cryptographic key custody for complete browsing autonomy."
                             )
                         }
-                    }
 
-                    Spacer(modifier = Modifier.weight(0.5f))
+                        Spacer(modifier = Modifier.weight(0.5f))
 
-                    // Polished Step Indicators
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        repeat(2) { index ->
-                            val isSelected = onboardingStep == index
+                        // Step Indicator
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .height(3.dp)
-                                    .width(if (isSelected) 18.dp else 5.dp)
+                                    .height(4.dp)
+                                    .width(6.dp)
                                     .clip(RoundedCornerShape(2.dp))
-                                    .background(if (isSelected) ElectricCyan else SurfaceCardBorder)
+                                    .background(SurfaceCardBorder)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .height(4.dp)
+                                    .width(20.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(ElectricCyan)
                             )
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    // Compact, Reduced Professional Enter / Next Action Button
-                    Button(
-                        onClick = {
-                            if (onboardingStep == 0) {
-                                onboardingStep = 1
-                            } else {
+                        // Enter Browser Button
+                        Button(
+                            onClick = {
                                 sharedPrefs.edit().putBoolean("has_seen_onboarding_v2", true).apply()
                                 onboardingStep = 2
                                 requestDefaultBrowser()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ElectricCyan,
-                            contentColor = ObsidianBg
-                        ),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier
-                            .height(36.dp)
-                            .widthIn(min = 132.dp, max = 164.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ElectricCyan,
+                                contentColor = ObsidianBg
+                            ),
+                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier
+                                .height(44.dp)
+                                .widthIn(min = 160.dp, max = 220.dp)
                         ) {
-                            Text(
-                                text = if (onboardingStep == 0) "Next" else "Enter Browser",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.3.sp
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "Enter Browser",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.3.sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                    }
 
-                    // Optional back navigation on Step 1 (moved up with dedicated bottom spacing)
-                    if (onboardingStep > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
+
                         TextButton(
                             onClick = { onboardingStep = 0 },
-                            modifier = Modifier.height(30.dp)
+                            modifier = Modifier.height(32.dp)
                         ) {
                             Text(
                                 text = "Back",
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 color = TextMuted,
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        Spacer(modifier = Modifier.height(20.dp))
-                    } else {
-                        Spacer(modifier = Modifier.height(54.dp))
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }
@@ -354,86 +390,50 @@ private fun SplashLaunchLogo(
     )
 }
 
+/**
+ * Clean, card-free mission row highlighting core decentralized browser objectives.
+ */
 @Composable
-private fun SplashFeaturePill(
+private fun MissionRow(
     icon: ImageVector,
-    label: String,
+    title: String,
+    description: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = SurfaceDark,
-        border = BorderStroke(1.dp, SurfaceCardBorder),
-        modifier = modifier.height(34.dp)
+    Row(
+        verticalAlignment = if (description != null) Alignment.Top else Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth()
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(SurfaceDark),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = ElectricCyan,
-                modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = label,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = TextPrimary,
-                maxLines = 1,
-                softWrap = false
+                modifier = Modifier.size(18.dp)
             )
         }
-    }
-}
-
-@Composable
-private fun SplashVisionRow(
-    icon: ImageVector,
-    title: String,
-    description: String
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = SurfaceDark,
-        border = BorderStroke(1.dp, SurfaceCardBorder),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            verticalAlignment = Alignment.Top,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(SurfaceCard),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = ElectricCyan,
-                    modifier = Modifier.size(15.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = title,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                letterSpacing = 0.2.sp
+            )
+            if (description != null) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = description,
-                    fontSize = 11.sp,
-                    color = TextMuted,
-                    lineHeight = 15.sp
+                    fontSize = 11.5.sp,
+                    color = TextSecondary,
+                    lineHeight = 16.5.sp
                 )
             }
         }

@@ -1990,7 +1990,7 @@ private fun KabDomainsTab(
                 OutlinedTextField(
                     value = targetCidInput,
                     onValueChange = { targetCidInput = it },
-                    label = { Text("Linked IPFS / Mesh CID or Peer DID (Optional)", fontSize = 11.sp) },
+                    label = { Text("Linked Content Hash / QUIC Peer DID (Optional)", fontSize = 11.sp) },
                     placeholder = { Text("e.g. bafybei... or did:kaspa:...", fontSize = 11.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("kab_target_cid_input"),
