@@ -346,8 +346,10 @@ class NetworkDiscoveryManager(
             override fun onServiceFound(service: NsdServiceInfo) {
                 Log.d(TAG, "NSD Service found: ${service.serviceName}, type: ${service.serviceType}")
                 val ourServiceName = _nsdState.value.registeredServiceName
+                val uniqueSuffix = currentLocalPeerId?.takeLast(6).orEmpty()
                 // Don't resolve our own broadcasted node
-                if (ourServiceName != null && service.serviceName == ourServiceName) {
+                if ((ourServiceName != null && service.serviceName == ourServiceName) ||
+                    (uniqueSuffix.isNotEmpty() && service.serviceName.contains(uniqueSuffix))) {
                     Log.d(TAG, "Ignoring self-discovered NSD service: ${service.serviceName}")
                     return
                 }
@@ -436,6 +438,12 @@ class NetworkDiscoveryManager(
                                 ?: "12D3KooWLAN${host.replace(".", "")}p$port"
                             val nodeNameAttr = serviceInfo.attributes?.get("nodeName")?.let { String(it) }
                                 ?: serviceInfo.serviceName
+
+                            // Check if this resolved service is our own local node
+                            if (peerIdAttr == currentLocalPeerId || (port == currentListeningPort && (host == "127.0.0.1" || host == _networkState.value.localIpV4Address))) {
+                                Log.d(TAG, "Skipping self-resolved NSD service: $nodeNameAttr on $host:$port")
+                                return
+                            }
 
                             Log.d(TAG, "NSD Service resolved: $nodeNameAttr at $host:$port (PeerID: $peerIdAttr)")
 
@@ -549,7 +557,7 @@ class NetworkDiscoveryManager(
             )
         } catch (e: Exception) {
             val latency = System.currentTimeMillis() - startTime
-            Log.w(TAG, "P2P Handshake connection to $host:$port failed: ${e.message}")
+            Log.d(TAG, "P2P Handshake connection to $host:$port (stale/offline): ${e.message}")
 
             P2PHandshakeResult(
                 success = false,

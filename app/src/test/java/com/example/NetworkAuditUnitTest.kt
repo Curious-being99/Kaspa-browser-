@@ -324,7 +324,7 @@ class NetworkAuditUnitTest {
         val keyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(mnemonic)
 
         // 1. Generate Non-Interactive Zero-Knowledge Proof (NIZKP)
-        val statement = "zk-identity:test|kaspa:${keyPair.kaspaAddress}"
+        val statement = "zk-identity:test|${keyPair.kaspaAddress}"
         val zkProof = com.example.network.zk.ZkProofEngine.generateZkProof(keyPair.privateKey, statement)
 
         assertEquals(64, zkProof.publicKeyHex.length)

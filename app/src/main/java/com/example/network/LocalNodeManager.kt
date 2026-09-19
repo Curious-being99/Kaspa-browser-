@@ -5,6 +5,7 @@ import com.example.data.AppDatabase
 import com.example.data.ContentEntity
 import com.example.data.PeerEntity
 import com.example.model.NetworkMetrics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -80,6 +81,8 @@ class LocalNodeManager(
                 seedPublicGatewaysIfEmpty()
                 startLocalDaemon()
                 pingAllPeers()
+            } catch (e: CancellationException) {
+                // Expected when scope is cancelled on teardown
             } catch (e: Exception) {
                 android.util.Log.w("LocalNodeManager", "Init error: ${e.message}")
             }
@@ -87,6 +90,8 @@ class LocalNodeManager(
         scope.launch(Dispatchers.IO) {
             try {
                 observePeersAndContent()
+            } catch (e: CancellationException) {
+                // Expected when scope is cancelled on teardown
             } catch (e: Exception) {
                 android.util.Log.w("LocalNodeManager", "Peers collection error: ${e.message}")
             }

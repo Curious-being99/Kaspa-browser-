@@ -903,7 +903,7 @@ object CryptoUtils {
 
         val zkProof = com.example.network.zk.ZkProofEngine.generateZkProof(
             privateKey = kaspaKey.privateKey,
-            statement = "zk-identity:${did}|kaspa:${kaspaKey.kaspaAddress}|wallet:$handle"
+            statement = "zk-identity:${did}|${kaspaKey.kaspaAddress}|wallet:$handle"
         )
 
         return com.example.data.AccountEntity(

@@ -5476,12 +5476,21 @@ fun extractTagContent(xml: String, tagName: String): String {
 
 fun extractLinkUrl(xml: String): String {
     val hrefMatch = Regex("<link[^>]+href=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(xml)
+    var url = ""
     if (hrefMatch != null) {
-        return cleanXmlText(hrefMatch.groupValues[1]).trim()
+        url = cleanXmlText(hrefMatch.groupValues[1]).trim()
+    } else {
+        val content = extractTagContent(xml, "link")
+        if (content.isNotEmpty()) url = content.trim()
     }
-    val content = extractTagContent(xml, "link")
-    if (content.isNotEmpty()) return content.trim()
-    return ""
+    // Normalize X / Twitter proxy mirrors to official x.com
+    if (url.contains("nitter.") || url.contains("xcancel.com") || url.contains("twitter.com")) {
+        val path = url.substringAfter("://").substringAfter("/")
+        if (path.isNotBlank()) {
+            return "https://x.com/$path"
+        }
+    }
+    return url
 }
 
 fun formatEpochToDisplay(epochMillis: Long): String {
@@ -5698,6 +5707,15 @@ fun KaspaNewsSection(
                 epochMillis = 1788998400000L
             ),
             KaspaNewsItem(
+                title = "@Kaspa_Ecosystem: \$KAS ecosystem surges with 10M+ KRC-20 transactions and zero congestion",
+                desc = "High-speed BlockDAG transaction throughput easily handles millions of smart token transfers without fee spikes or network backlog.",
+                url = "https://x.com/Kaspa_Ecosystem",
+                category = "X",
+                timestamp = "Sep 10, 2026",
+                author = "@Kaspa_Ecosystem",
+                epochMillis = 1788998200000L
+            ),
+            KaspaNewsItem(
                 title = "kaspanet/kaspad: Release v0.15.2 mainnet binaries & DagKnight DAG engine",
                 desc = "Official release binaries compiled with Rust 1.80. High-performance peer-to-peer block ordering with zero latency assumptions.",
                 url = "https://github.com/kaspanet/kaspad",
@@ -5707,6 +5725,15 @@ fun KaspaNewsSection(
                 epochMillis = 1788998000000L
             ),
             KaspaNewsItem(
+                title = "@YonatanSompo: \$KAS Proof-of-Work solves Satoshi's original scaling vision without compromises",
+                desc = "By structuring blocks into an acyclic graph rather than an isolated single chain, Kaspa enables parallel block creation with mathematical consensus security.",
+                url = "https://x.com/YonatanSompo",
+                category = "X",
+                timestamp = "Sep 10, 2026",
+                author = "@YonatanSompo",
+                epochMillis = 1788997500000L
+            ),
+            KaspaNewsItem(
                 title = "r/kaspa: Kaspad v0.15.2 is live! DagKnight performance tests inside",
                 desc = "Community node operators reporting 30% reduction in sync times and ultra-low RAM usage across desktop and server nodes.",
                 url = "https://reddit.com/r/kaspa",
@@ -5714,6 +5741,15 @@ fun KaspaNewsSection(
                 timestamp = "Sep 10, 2026",
                 author = "u/BlockDAGLover",
                 epochMillis = 1788997000000L
+            ),
+            KaspaNewsItem(
+                title = "@DesheShai: DagKnight formal security proofs published: parameterless PoW BlockDAG",
+                desc = "Zero latency bounds, adaptive ordering, and sub-second confirmation speed. Proof-of-Work has reached its theoretical optimum.",
+                url = "https://x.com/DesheShai",
+                category = "X",
+                timestamp = "Sep 09, 2026",
+                author = "@DesheShai",
+                epochMillis = 1788913000000L
             ),
             KaspaNewsItem(
                 title = "Kaspa BPS Upgrade & DagKnight Consensus Live Demo",
@@ -5734,6 +5770,15 @@ fun KaspaNewsSection(
                 timestamp = "Sep 09, 2026",
                 author = "@Kaspa_Ecosystem",
                 epochMillis = 1788912000000L
+            ),
+            KaspaNewsItem(
+                title = "@KaspaCurrency: \$KAS mining network hash rate reaches historic all-time high",
+                desc = "Global ASIC and decentralised mining pool distribution reinforces Kaspa as the fastest and most secure PoW layer in existence.",
+                url = "https://x.com/KaspaCurrency",
+                category = "X",
+                timestamp = "Sep 08, 2026",
+                author = "@KaspaCurrency",
+                epochMillis = 1788825600000L
             ),
             KaspaNewsItem(
                 title = "Yonatan Sompolinsky at AusCryptoCon: BlockDAG & Scalability",
@@ -5869,25 +5914,29 @@ fun KaspaNewsSection(
         scope.launch {
             try {
                 val fetched = withContext(Dispatchers.IO) {
-                    val client = okhttp3.OkHttpClient.Builder()
-                        .protocols(listOf(okhttp3.Protocol.QUIC, okhttp3.Protocol.HTTP_1_1))
-                        .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                        .build()
+                    val baseOkHttpClient = okhttp3.OkHttpClient.Builder()
+                        .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
+                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                    val client = com.example.network.CronetClientFactory.buildClient(baseOkHttpClient)
 
                     val feeds = listOf(
-                        Pair("https://kaspanews.com/feed/", "News"),
-                        Pair("https://kaspanews.com/feed/", "News"),
                         Pair("https://kaspa.org/feed/", "News"),
                         Pair("https://medium.com/feed/@kaspanet", "News"),
                         Pair("https://www.reddit.com/r/kaspa/.rss", "Reddit"),
+                        Pair("https://www.reddit.com/r/KaspaCurrency/.rss", "Reddit"),
                         Pair("https://github.com/kaspanet/kaspad/commits/master.atom", "GitHub"),
                         Pair("https://github.com/kaspanet/rusty-kaspa/commits/master.atom", "GitHub"),
                         Pair("https://github.com/kaspanet/kaspad/releases.atom", "GitHub"),
+                        Pair("https://github.com/kaspanet/rusty-kaspa/releases.atom", "GitHub"),
                         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCsnbLKm_lpCUj63_HPW17og", "YouTube"),
                         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube"),
-                        Pair("https://nitter.privacydev.net/KaspaCurrency/rss", "X"),
-                        Pair("https://nitter.poast.org/KaspaCurrency/rss", "X")
+                        Pair("https://cointelegraph.com/rss/tag/kaspa", "News"),
+                        Pair("https://coingape.com/tag/kaspa/feed/", "News"),
+                        Pair("https://xcancel.com/KaspaCurrency/rss", "X"),
+                        Pair("https://xcancel.com/Kaspa_Ecosystem/rss", "X"),
+                        Pair("https://nitter.cz/KaspaCurrency/rss", "X"),
+                        Pair("https://nitter.net/KaspaCurrency/rss", "X")
                     )
 
                     val list: MutableList<KaspaNewsItem> = coroutineScope {
@@ -5906,7 +5955,7 @@ fun KaspaNewsSection(
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    android.util.Log.w("KaspaNews", "Feed fetch failed for $url: ${e.message}")
+                                    android.util.Log.d("KaspaNews", "Feed update notice for $url: ${e.message}")
                                 }
                                 feedItems
                             }

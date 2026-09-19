@@ -125,13 +125,14 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .fillMaxSize()
+                        .statusBarsPadding()
                         .padding(horizontal = 24.dp)
                 ) {
-                    // Top Bar with Skip Action
+                    // Top Bar with Skip Action (positioned down from top edge/status bar)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 16.dp, bottom = 8.dp),
+                            .padding(top = 14.dp, bottom = 8.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -192,14 +193,17 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
 
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Micro feature chips
+                        // Micro feature chips - uniform rectangular cards
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp)
                         ) {
-                            SplashFeaturePill(icon = Icons.Default.Bolt, label = "10 BPS DAG")
-                            SplashFeaturePill(icon = Icons.Default.Security, label = "Zero Trackers")
-                            SplashFeaturePill(icon = Icons.Default.Hub, label = "P2P Mesh")
+                            SplashFeaturePill(icon = Icons.Default.Bolt, label = "10 BPS DAG", modifier = Modifier.weight(1f))
+                            SplashFeaturePill(icon = Icons.Default.Security, label = "Zero Trackers", modifier = Modifier.weight(1f))
+                            SplashFeaturePill(icon = Icons.Default.Hub, label = "P2P Mesh", modifier = Modifier.weight(1f))
                         }
                     } else {
                         // Step 1: Decentralized Vision & Features
@@ -249,7 +253,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(0.8f))
+                    Spacer(modifier = Modifier.weight(0.5f))
 
                     // Polished Step Indicators
                     Row(
@@ -268,7 +272,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // Compact, Reduced Professional Enter / Next Action Button
                     Button(
@@ -310,9 +314,9 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         }
                     }
 
-                    // Optional back navigation on Step 1
+                    // Optional back navigation on Step 1 (moved up with dedicated bottom spacing)
                     if (onboardingStep > 0) {
-                        Spacer(modifier = Modifier.height(2.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         TextButton(
                             onClick = { onboardingStep = 0 },
                             modifier = Modifier.height(30.dp)
@@ -324,9 +328,9 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
                     } else {
-                        Spacer(modifier = Modifier.height(42.dp))
+                        Spacer(modifier = Modifier.height(54.dp))
                     }
                 }
             }
@@ -353,16 +357,19 @@ private fun SplashLaunchLogo(
 @Composable
 private fun SplashFeaturePill(
     icon: ImageVector,
-    label: String
+    label: String,
+    modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         color = SurfaceDark,
-        border = BorderStroke(1.dp, SurfaceCardBorder)
+        border = BorderStroke(1.dp, SurfaceCardBorder),
+        modifier = modifier.height(34.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
             Icon(
                 imageVector = icon,
@@ -370,12 +377,14 @@ private fun SplashFeaturePill(
                 tint = ElectricCyan,
                 modifier = Modifier.size(13.dp)
             )
-            Spacer(modifier = Modifier.width(5.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = label,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.Medium,
-                color = TextPrimary
+                color = TextPrimary,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
