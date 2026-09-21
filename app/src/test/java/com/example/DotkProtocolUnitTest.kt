@@ -4,6 +4,7 @@ import com.example.network.Blake3
 import com.example.network.CryptoUtils
 import com.example.network.kaspa.DotkProtocol
 import com.example.network.kaspa.KaspaTransactionEngine
+import com.example.viewmodel.DecentralViewModel
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -697,6 +698,49 @@ class DotkProtocolUnitTest {
         val kaspaKey = CryptoUtils.deriveKaspaKeyPair(rawSeedWithCommas)
         assertTrue(kaspaKey.kaspaAddress.startsWith("kaspa:q"))
         assertTrue(CryptoUtils.isValidKaspaAddress(kaspaKey.kaspaAddress))
+    }
+
+    @Test
+    fun testKaspaAddressValidationRegexAndChecksum() {
+        // Derive valid address for testing
+        val rawSeed = "abandon, ability, able, about, above, absent, absorb, abstract, absurd, abuse, access, accident"
+        val derived = CryptoUtils.deriveKaspaKeyPair(rawSeed).kaspaAddress
+
+        // 1. Standard prefix address (kaspa:q...)
+        val result1 = DecentralViewModel.validateKaspaAddress(derived)
+        assertNotNull(result1)
+        assertTrue(result1!!.isValid)
+        assertTrue(result1.checksumValid)
+        assertEquals("Kaspa Mainnet", result1.networkName)
+        assertEquals("kaspa", result1.networkPrefix)
+        assertEquals("P2PK Schnorr", result1.addressType)
+
+        // 2. Address with kaspa:// scheme prefix
+        val resultScheme = DecentralViewModel.validateKaspaAddress("kaspa://$derived")
+        assertNotNull(resultScheme)
+        assertTrue(resultScheme!!.isValid)
+        assertTrue(resultScheme.checksumValid)
+
+        // 3. Raw payload without prefix
+        val payloadOnly = derived.removePrefix("kaspa:")
+        val resultPayload = DecentralViewModel.validateKaspaAddress(payloadOnly)
+        assertNotNull(resultPayload)
+        assertTrue(resultPayload!!.isValid)
+        assertEquals("kaspa", resultPayload.networkPrefix)
+
+        // 4. Testnet prefix
+        val testnetAddr = "kaspatest:$payloadOnly"
+        val resultTestnet = DecentralViewModel.validateKaspaAddress(testnetAddr)
+        assertNotNull(resultTestnet)
+        assertTrue(resultTestnet!!.isValid)
+        assertEquals("Kaspa Testnet", resultTestnet.networkName)
+
+        // 5. Non-Kaspa queries and web URLs are not valid Kaspa addresses
+        assertFalse(DecentralViewModel.isValidKaspaAddress("https://kaspa.org"))
+        assertFalse(DecentralViewModel.isValidKaspaAddress("google.com"))
+        assertFalse(DecentralViewModel.isValidKaspaAddress("what is kaspa blockdag"))
+        assertFalse(DecentralViewModel.isValidKaspaAddress(""))
+        assertFalse(DecentralViewModel.isValidKaspaAddress("kaspa:123")) // invalid payload length and chars
     }
 }
 

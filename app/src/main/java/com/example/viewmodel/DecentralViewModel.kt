@@ -15,6 +15,7 @@ import com.example.data.DomainEntity
 import com.example.network.kaspa.KaspaDomainRegistry
 import com.example.network.kaspa.DomainAvailability
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 
 import com.example.model.KaspaWalletState
 import com.example.model.NetworkMetrics
@@ -56,6 +57,19 @@ data class ActiveDownload(
     val bytesDownloaded: Long,
     val bytesTotal: Long,
     val status: String // "Pending", "Downloading", "Success", "Failed"
+)
+
+data class KaspaAddressValidationResult(
+    val isValid: Boolean,
+    val rawInput: String = "",
+    val cleanAddress: String = "",
+    val networkPrefix: String = "",
+    val networkName: String = "",
+    val addressType: String = "",
+    val payload: String = "",
+    val checksumValid: Boolean = false,
+    val truncatedAddress: String = "",
+    val explorerUrl: String = ""
 )
 
 class DecentralViewModel(application: Application) : AndroidViewModel(application) {
@@ -160,6 +174,17 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
+
+    private val _pendingDAppRequest = MutableStateFlow<DAppApprovalRequest?>(null)
+    val pendingDAppRequest: StateFlow<DAppApprovalRequest?> = _pendingDAppRequest.asStateFlow()
+
+    fun submitDAppRequest(request: DAppApprovalRequest) {
+        _pendingDAppRequest.value = request
+    }
+
+    fun clearDAppRequest() {
+        _pendingDAppRequest.value = null
+    }
 
     fun setActiveTab(id: String?) {
         if (id == null) return
@@ -298,11 +323,24 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
+    fun clearPendingDAppRequest() = clearDAppRequest()
+    fun submitDAppApprovalRequest(request: DAppApprovalRequest) = submitDAppRequest(request)
+
     private val _activeTab = MutableStateFlow(AppTab.BROWSER_GATEWAY)
     val activeTab: StateFlow<AppTab> = _activeTab.asStateFlow()
 
     private val _urlInput = MutableStateFlow("")
     val urlInput: StateFlow<String> = _urlInput.asStateFlow()
+
+    val kaspaAddressValidation: StateFlow<KaspaAddressValidationResult?> = _urlInput
+        .map { input ->
+            if (input.isBlank()) null
+            else {
+                val res = validateKaspaAddress(input)
+                if (res.isValid) res else null
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _selectedProtocol = MutableStateFlow(NetworkProtocol.HYBRID_COEXISTENCE)
     val selectedProtocol: StateFlow<NetworkProtocol> = _selectedProtocol.asStateFlow()
@@ -532,8 +570,16 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 database.accountDao().deleteLegacyMockAccounts()
                 database.domainDao().deleteLegacyMockDomains()
                 val allAccounts = database.accountDao().getAllAccountsList()
-                if (allAccounts.isNotEmpty()) {
+                if (allAccounts.isEmpty()) {
+                    val defaultAcc = CryptoUtils.deriveDecentralizedAccount(
+                        customHandle = "Kaspa Primary",
+                        seedMnemonic = null
+                    ).copy(isActive = true)
+                    database.accountDao().insertAccount(defaultAcc)
+                } else {
+                    var hasActive = false
                     for (acc in allAccounts) {
+                        if (acc.isActive) hasActive = true
                         val cleanHandle = if (acc.handle.contains(".k") || acc.handle.startsWith("@kas")) {
                             "Kaspa Wallet (${acc.kaspaAddress.takeLast(6)})"
                         } else {
@@ -554,6 +600,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                             }
                             database.accountDao().insertAccount(refreshedAcc)
                         }
+                    }
+                    if (!hasActive && allAccounts.isNotEmpty()) {
+                        database.accountDao().setActive(allAccounts.first().did)
                     }
                 }
             } catch (_: Exception) {}
@@ -920,6 +969,14 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun insertAccount(account: AccountEntity) {
+        viewModelScope.launch {
+            try {
+                database.accountDao().insertAccount(account)
+            } catch (_: Exception) {}
+        }
+    }
+
     fun switchAccount(did: String) {
         viewModelScope.launch {
             try {
@@ -1089,6 +1146,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return ""
 
+        // Check if input is a valid Kaspa network address
+        val kaspaCheck = validateKaspaAddress(trimmed)
+        if (kaspaCheck.isValid) {
+            return kaspaCheck.cleanAddress
+        }
+
         // Explicit protocols
         if (trimmed.startsWith("http://", ignoreCase = true) ||
             trimmed.startsWith("https://", ignoreCase = true) ||
@@ -1098,6 +1161,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             trimmed.startsWith("p2p://", ignoreCase = true) ||
             trimmed.startsWith("kas://", ignoreCase = true) ||
             trimmed.startsWith("kaspa://", ignoreCase = true) ||
+            trimmed.startsWith("kaspa:", ignoreCase = true) ||
+            trimmed.startsWith("kaspatest:", ignoreCase = true) ||
+            trimmed.startsWith("kaspadev:", ignoreCase = true) ||
+            trimmed.startsWith("kaspasim:", ignoreCase = true) ||
             trimmed.startsWith("dnet://", ignoreCase = true) ||
             trimmed.startsWith("kns://", ignoreCase = true) ||
             trimmed.startsWith("hyper://", ignoreCase = true) ||
@@ -1232,6 +1299,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         val currentSessionId = _navigationSessionId.value
         viewModelScope.launch {
             try {
+                if (isHttp) {
+                    nodeManager.recordBrowserTraffic(420 * 1024L, target)
+                    return@launch
+                }
                 val result = resolver.resolve(target, _selectedProtocol.value)
                 if (_navigationSessionId.value == currentSessionId) {
                     val activeUrl = _urlInput.value
@@ -1739,4 +1810,190 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         _statusMessage.value = result.second
         return result
     }
+
+    /**
+     * Regex-based validator for Kaspa network addresses entered in the browser's URL bar.
+     * Validates Mainnet (kaspa), Testnet (kaspatest), Devnet (kaspadev), and Simnet (kaspasim)
+     * CashAddr payloads conforming to standard 61-char (Schnorr/P2SH) and 63-char (ECDSA) lengths.
+     */
+    fun validateKaspaAddress(input: String): KaspaAddressValidationResult =
+        Companion.validateKaspaAddress(input)
+
+    fun isValidKaspaAddress(input: String): Boolean =
+        Companion.isValidKaspaAddress(input)
+
+    companion object {
+        /**
+         * Regular expression matching standard Kaspa network address format:
+         * (kaspa|kaspatest|kaspadev|kaspasim):<61-63 chars in CashAddr charset>
+         * Also tolerates optional browser scheme prefix "kaspa://".
+         */
+        val KASPA_ADDRESS_REGEX = Regex(
+            "^(?:kaspa://)?(kaspa|kaspatest|kaspadev|kaspasim):([qpzry9x8gf2tvdw0s3jn54khce6mua7l]{61,63})$",
+            RegexOption.IGNORE_CASE
+        )
+
+        /**
+         * Matches standalone CashAddr base-32 payload without network prefix.
+         */
+        val KASPA_PAYLOAD_ONLY_REGEX = Regex(
+            "^[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{61,63}$",
+            RegexOption.IGNORE_CASE
+        )
+
+        fun isValidKaspaAddress(input: String): Boolean = validateKaspaAddress(input).isValid
+
+        fun validateKaspaAddress(input: String): KaspaAddressValidationResult {
+            val trimmed = input.trim()
+            if (trimmed.isBlank()) {
+                return KaspaAddressValidationResult(isValid = false, rawInput = input)
+            }
+
+            // Clean trailing slashes or URL query artifacts
+            val sanitized = trimmed.removeSuffix("/").trim()
+
+            // 1. Direct match with standard prefix (e.g., kaspa:q..., kaspatest:q...)
+            val match = KASPA_ADDRESS_REGEX.matchEntire(sanitized)
+            if (match != null) {
+                val prefix = match.groupValues[1].lowercase()
+                val payload = match.groupValues[2].lowercase()
+                return buildValidationResult(input, "$prefix:$payload", prefix, payload)
+            }
+
+            // 2. Strip protocol prefix if entered as browser URL like kaspa://
+            val stripped = if (sanitized.startsWith("kaspa://", ignoreCase = true)) {
+                sanitized.substring(8).trim()
+            } else {
+                sanitized
+            }
+
+            val matchStripped = KASPA_ADDRESS_REGEX.matchEntire(stripped)
+            if (matchStripped != null) {
+                val prefix = matchStripped.groupValues[1].lowercase()
+                val payload = matchStripped.groupValues[2].lowercase()
+                return buildValidationResult(input, "$prefix:$payload", prefix, payload)
+            }
+
+            // 3. Fallback for prefix-less 61 or 63 character CashAddr payload
+            if (KASPA_PAYLOAD_ONLY_REGEX.matches(stripped)) {
+                val payload = stripped.lowercase()
+                val prefix = "kaspa"
+                val res = buildValidationResult(input, "$prefix:$payload", prefix, payload)
+                if (res.checksumValid || payload.startsWith("q") || payload.startsWith("p") || payload.startsWith("s")) {
+                    return res
+                }
+            }
+
+            return KaspaAddressValidationResult(isValid = false, rawInput = input)
+        }
+
+        private fun buildValidationResult(
+            rawInput: String,
+            cleanAddress: String,
+            prefix: String,
+            payload: String
+        ): KaspaAddressValidationResult {
+            val networkName = when (prefix) {
+                "kaspa" -> "Kaspa Mainnet"
+                "kaspatest" -> "Kaspa Testnet"
+                "kaspadev" -> "Kaspa Devnet"
+                "kaspasim" -> "Kaspa Simnet"
+                else -> "Kaspa Network"
+            }
+
+            val addressType = when {
+                payload.startsWith("q") -> "P2PK Schnorr"
+                payload.startsWith("p") -> "P2SH Script"
+                payload.startsWith("s") -> "P2PK ECDSA"
+                else -> "CashAddr"
+            }
+
+            // Validate polymod checksum
+            var checksumPassed = false
+            try {
+                val charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+                val data5Bit = ByteArray(payload.length)
+                var allValid = true
+                for (i in payload.indices) {
+                    val idx = charset.indexOf(payload[i])
+                    if (idx < 0) {
+                        allValid = false
+                        break
+                    }
+                    data5Bit[i] = idx.toByte()
+                }
+                if (allValid) {
+                    checksumPassed = CryptoUtils.kaspaPolymod(prefix, data5Bit) == 0L
+                }
+            } catch (_: Exception) {
+                checksumPassed = false
+            }
+
+            val truncated = if (cleanAddress.length > 22) {
+                "${cleanAddress.take(12)}...${cleanAddress.takeLast(6)}"
+            } else {
+                cleanAddress
+            }
+
+            val explorerUrl = when (prefix) {
+                "kaspatest" -> "https://explorer-testnet.kaspa.org/addresses/$cleanAddress"
+                "kaspadev" -> "https://explorer-devnet.kaspa.org/addresses/$cleanAddress"
+                else -> "https://explorer.kaspa.org/addresses/$cleanAddress"
+            }
+
+            return KaspaAddressValidationResult(
+                isValid = checksumPassed,
+                rawInput = rawInput,
+                cleanAddress = cleanAddress,
+                networkPrefix = prefix,
+                networkName = networkName,
+                addressType = addressType,
+                payload = payload,
+                checksumValid = checksumPassed,
+                truncatedAddress = truncated,
+                explorerUrl = explorerUrl
+            )
+        }
+    }
+}
+
+sealed class DAppApprovalRequest {
+    abstract val id: String
+    abstract val origin: String
+    abstract val timestamp: Long
+    abstract val onApprove: () -> Unit
+    abstract val onReject: (String) -> Unit
+
+    data class Connect(
+        override val id: String,
+        override val origin: String,
+        override val timestamp: Long = System.currentTimeMillis(),
+        val accountAddress: String,
+        val balanceKas: Double,
+        override val onApprove: () -> Unit,
+        override val onReject: (String) -> Unit
+    ) : DAppApprovalRequest()
+
+    data class SignTransaction(
+        override val id: String,
+        override val origin: String,
+        override val timestamp: Long = System.currentTimeMillis(),
+        val actionType: String, // "SWAP", "BUY", "SELL", "TRANSFER", "CONTRACT_CALL"
+        val recipientOrContract: String,
+        val amountKas: Double,
+        val feeKas: Double,
+        val details: String,
+        val payloadSummary: String = "",
+        override val onApprove: () -> Unit,
+        override val onReject: (String) -> Unit
+    ) : DAppApprovalRequest()
+
+    data class SignMessage(
+        override val id: String,
+        override val origin: String,
+        override val timestamp: Long = System.currentTimeMillis(),
+        val message: String,
+        override val onApprove: () -> Unit,
+        override val onReject: (String) -> Unit
+    ) : DAppApprovalRequest()
 }

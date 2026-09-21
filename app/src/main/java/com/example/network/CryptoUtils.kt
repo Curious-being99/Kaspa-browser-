@@ -140,16 +140,169 @@ object CryptoUtils {
     }
 
     fun isValidKaspaAddress(address: String, expectedPrefix: String = "kaspa"): Boolean {
-        if (!address.startsWith("$expectedPrefix:")) return false
-        val payloadPart = address.removePrefix("$expectedPrefix:")
-        if (payloadPart.length != 61) return false
-        val data5Bit = ByteArray(payloadPart.length)
-        for (i in payloadPart.indices) {
-            val idx = KASPA_CHARSET.indexOf(payloadPart[i])
+        if (address.isBlank()) return false
+        val trimmed = address.trim()
+        // Reject mixed-case according to BIP-173 / Bech32 / Kaspa spec
+        if (trimmed != trimmed.lowercase() && trimmed != trimmed.uppercase()) return false
+        val lower = trimmed.lowercase()
+
+        val colonIdx = lower.indexOf(':')
+        val prefix = if (colonIdx != -1) lower.substring(0, colonIdx) else expectedPrefix
+        val payload = if (colonIdx != -1) lower.substring(colonIdx + 1) else lower
+
+        if (prefix !in listOf("kaspa", "kaspatest", "kaspadev", "kaspasim")) return false
+        // Kaspa payload length: 61 chars for P2PK Schnorr / P2SH (32-byte), 63 chars for P2PK ECDSA (33-byte)
+        if (payload.length != 61 && payload.length != 63) return false
+
+        val data5Bit = ByteArray(payload.length)
+        for (i in payload.indices) {
+            val idx = KASPA_CHARSET.indexOf(payload[i])
             if (idx < 0) return false
             data5Bit[i] = idx.toByte()
         }
-        return kaspaPolymod(expectedPrefix, data5Bit) == 0L
+        return kaspaPolymod(prefix, data5Bit) == 0L
+    }
+
+    data class KaspaAddressValidationResult(
+        val isValid: Boolean,
+        val networkName: String,
+        val addressType: String,
+        val checksumValid: Boolean,
+        val payloadHex: String = "",
+        val formattedAddress: String = "",
+        val errorReason: String = ""
+    )
+
+    fun parseKaspaAddress(address: String): KaspaAddressValidationResult {
+        if (address.isBlank()) {
+            return KaspaAddressValidationResult(
+                isValid = false,
+                networkName = "Unknown",
+                addressType = "Empty Input",
+                checksumValid = false,
+                errorReason = "Address input is empty"
+            )
+        }
+        val trimmed = address.trim()
+        // Check mixed-case violation
+        if (trimmed != trimmed.lowercase() && trimmed != trimmed.uppercase()) {
+            return KaspaAddressValidationResult(
+                isValid = false,
+                networkName = "Unknown",
+                addressType = "Invalid Case",
+                checksumValid = false,
+                errorReason = "Mixed-case addresses are invalid per Bech32 specification"
+            )
+        }
+        val lower = trimmed.lowercase()
+        val colonIdx = lower.indexOf(':')
+        var prefix = if (colonIdx != -1) lower.substring(0, colonIdx) else ""
+        var payload = if (colonIdx != -1) lower.substring(colonIdx + 1) else lower
+
+        if (prefix.isBlank()) {
+            // Infer prefix if missing
+            prefix = "kaspa"
+        }
+
+        val networkName = when (prefix) {
+            "kaspa" -> "Mainnet"
+            "kaspatest" -> "Testnet"
+            "kaspadev" -> "Devnet"
+            "kaspasim" -> "Simnet"
+            else -> "Custom ($prefix)"
+        }
+
+        if (prefix !in listOf("kaspa", "kaspatest", "kaspadev", "kaspasim")) {
+            return KaspaAddressValidationResult(
+                isValid = false,
+                networkName = networkName,
+                addressType = "Invalid Prefix",
+                checksumValid = false,
+                errorReason = "Unrecognized prefix '$prefix'. Allowed: kaspa, kaspatest, kaspadev, kaspasim"
+            )
+        }
+
+        if (payload.length != 61 && payload.length != 63) {
+            return KaspaAddressValidationResult(
+                isValid = false,
+                networkName = networkName,
+                addressType = "Invalid Length",
+                checksumValid = false,
+                errorReason = "Invalid payload length (${payload.length} chars). Expected 61 or 63 chars"
+            )
+        }
+
+        val data5Bit = ByteArray(payload.length)
+        for (i in payload.indices) {
+            val idx = KASPA_CHARSET.indexOf(payload[i])
+            if (idx < 0) {
+                return KaspaAddressValidationResult(
+                    isValid = false,
+                    networkName = networkName,
+                    addressType = "Invalid Charset",
+                    checksumValid = false,
+                    errorReason = "Invalid character '${payload[i]}' in Bech32 payload"
+                )
+            }
+            data5Bit[i] = idx.toByte()
+        }
+
+        val isChecksumValid = kaspaPolymod(prefix, data5Bit) == 0L
+        if (!isChecksumValid) {
+            return KaspaAddressValidationResult(
+                isValid = false,
+                networkName = networkName,
+                addressType = "Checksum Mismatch",
+                checksumValid = false,
+                errorReason = "Kaspa Bech32 polymod checksum verification failed"
+            )
+        }
+
+        val payloadWithoutChecksum = data5Bit.copyOfRange(0, data5Bit.size - 8)
+        val decoded8Bit = convertBits(payloadWithoutChecksum, 5, 8, false)
+        val version = if (decoded8Bit.isNotEmpty()) decoded8Bit[0].toInt() and 0xff else -1
+
+        val addressType = when (version) {
+            0x00 -> "P2PK (Schnorr 32-byte)"
+            0x01 -> "P2PK (ECDSA 33-byte)"
+            0x08 -> "P2SH (Script Hash)"
+            else -> "Standard (Version 0x${version.toString(16)})"
+        }
+
+        val payloadBytes = if (decoded8Bit.size > 1) decoded8Bit.copyOfRange(1, decoded8Bit.size) else ByteArray(0)
+        val payloadHex = payloadBytes.joinToString("") { "%02x".format(it) }
+
+        val formatted = "$prefix:$payload"
+
+        return KaspaAddressValidationResult(
+            isValid = true,
+            networkName = networkName,
+            addressType = addressType,
+            checksumValid = true,
+            payloadHex = payloadHex,
+            formattedAddress = formatted,
+            errorReason = ""
+        )
+    }
+
+    fun encodeScriptPublicKeyToAddress(scriptPublicKeyHex: String, prefix: String = "kaspa"): String? {
+        return try {
+            val clean = scriptPublicKeyHex.replace(" ", "").replace("0x", "").lowercase()
+            val bytes = hexToBytes(clean)
+            if (bytes.size == 34 && bytes[0] == 0x20.toByte() && bytes[33] == 0xac.toByte()) {
+                val pubKey = bytes.copyOfRange(1, 33)
+                encodeRealKaspaAddress(pubKey, prefix)
+            } else if (bytes.size == 34 && bytes[0] == 0xaa.toByte() && bytes[33] == 0x87.toByte()) {
+                val scriptHash = bytes.copyOfRange(1, 33)
+                encodeP2shAddress(scriptHash, prefix)
+            } else if (bytes.size == 32) {
+                encodeRealKaspaAddress(bytes, prefix)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**

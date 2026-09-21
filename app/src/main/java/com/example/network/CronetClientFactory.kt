@@ -6,6 +6,7 @@ import com.google.android.gms.net.CronetProviderInstaller
 import com.google.net.cronet.okhttptransport.CronetInterceptor
 import okhttp3.OkHttpClient
 import org.chromium.net.CronetEngine
+import org.chromium.net.CronetProvider
 
 object CronetClientFactory {
     private const val TAG = "CronetClientFactory"
@@ -14,18 +15,38 @@ object CronetClientFactory {
     fun initialize(context: Context) {
         try {
             // Install the Cronet provider from Google Play Services
-            CronetProviderInstaller.installProvider(context)
-            
-            // Build the CronetEngine with QUIC (HTTP/3) enabled
-            cronetEngine = CronetEngine.Builder(context)
+            try {
+                CronetProviderInstaller.installProvider(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "CronetProviderInstaller warning: ${e.message}")
+            }
+
+            // Find best available Cronet provider (Google Play Services, Native, or Fallback)
+            val providers = CronetProvider.getAllProviders(context)
+                .filter { it.isEnabled }
+                .sortedByDescending { it.name.contains("Play-Services") || it.name.contains("Native") }
+
+            val builder = if (providers.isNotEmpty()) {
+                providers.first().createBuilder()
+            } else {
+                CronetEngine.Builder(context)
+            }
+
+            // Configure HTTP/3 (QUIC), HTTP/2, Brotli, and QUIC Hints
+            cronetEngine = builder
                 .enableQuic(true)
                 .enableHttp2(true)
                 .enableBrotli(true)
+                .addQuicHint("api.kaspa.org", 443, 443)
+                .addQuicHint("api.kasplex.org", 443, 443)
+                .addQuicHint("tn10api.kasplex.org", 443, 443)
+                .addQuicHint("rpc.igralabs.com", 443, 443)
+                .addQuicHint("chainlist.org", 443, 443)
                 .build()
-                
-            Log.d(TAG, "Cronet engine initialized successfully with QUIC (HTTP/3) enabled!")
+
+            Log.d(TAG, "Cronet engine initialized successfully with HTTP/3 (QUIC) enabled!")
         } catch (e: Exception) {
-            Log.w(TAG, "Cronet provider installation failed. Falling back to default HTTP/2 transport: ${e.message}")
+            Log.w(TAG, "Cronet engine initialization failed: ${e.message}")
         }
     }
 
@@ -33,14 +54,13 @@ object CronetClientFactory {
         val engine = cronetEngine
         if (engine != null) {
             try {
-                // Build the CronetInterceptor to intercept standard OkHttp traffic
                 val cronetInterceptor = CronetInterceptor.newBuilder(engine).build()
-                Log.d(TAG, "Applied CronetInterceptor to OkHttp. True QUIC transport is active!")
+                Log.d(TAG, "Applied CronetInterceptor (HTTP/3 QUIC) to OkHttp client!")
                 return baseBuilder
                     .addInterceptor(cronetInterceptor)
                     .build()
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to apply CronetInterceptor, using standard transport: ${e.message}")
+                Log.w(TAG, "Failed to apply CronetInterceptor: ${e.message}")
             }
         }
         return baseBuilder.build()

@@ -62,7 +62,9 @@ object KaspaTransactionEngine {
         companion object {
             fun fromJson(json: JSONObject): KaspaScriptPublicKey {
                 val version = json.optInt("version", 0)
-                val script = json.optString("scriptPublicKey", json.optString("script", ""))
+                val script = json.optString("scriptPublicKey",
+                    json.optString("script_public_key",
+                    json.optString("script", "")))
                 return KaspaScriptPublicKey(version, script)
             }
         }
@@ -88,7 +90,11 @@ object KaspaTransactionEngine {
                 val scriptPubKey = if (scriptObj != null) {
                     KaspaScriptPublicKey.fromJson(scriptObj)
                 } else {
-                    KaspaScriptPublicKey(0, json.optString("script_public_key", ""))
+                    val rawScript = json.optString("scriptPublicKey",
+                        json.optString("script_public_key",
+                        json.optString("script", "")))
+                    val version = json.optInt("version", 0)
+                    KaspaScriptPublicKey(version, rawScript)
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))
@@ -737,15 +743,13 @@ object KaspaTransactionEngine {
             }
         }
 
-        val requiredTotal = targetAmountSompis + feeSompis
-        val isSufficient = accumulated >= requiredTotal
-        val change = if (isSufficient) accumulated - requiredTotal else 0L
-
-        // If no change needed (exact match), output count is 1
-        val finalOutputsCount = if (change > 0L) 2 else 1
+        val tentativeChange = accumulated - (targetAmountSompis + feeSompis)
+        val finalOutputsCount = if (tentativeChange > 0L) 2 else 1
         val finalMass = estimateTransactionMass(selected.size, finalOutputsCount, payloadByteCount)
         val finalFee = calculateFeeForMass(finalMass, sompiPerMass)
-        val finalChange = if (isSufficient) accumulated - (targetAmountSompis + finalFee) else 0L
+        val requiredTotal = targetAmountSompis + finalFee
+        val isSufficient = accumulated >= requiredTotal
+        val finalChange = if (isSufficient) accumulated - requiredTotal else 0L
 
         return TransactionPlan(
             selectedUtxos = selected,
@@ -754,7 +758,7 @@ object KaspaTransactionEngine {
             feeKas = sompiToKas(finalFee),
             changeSompis = finalChange.coerceAtLeast(0L),
             isSufficient = isSufficient,
-            requiredTotalSompis = targetAmountSompis + finalFee,
+            requiredTotalSompis = requiredTotal,
             accumulatedSompis = accumulated,
             sompiPerMass = sompiPerMass
         )

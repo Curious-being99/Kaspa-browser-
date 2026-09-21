@@ -424,7 +424,13 @@ class KaspaWalletService(
                 }
 
                 val selectedInputs = txPlan.selectedUtxos.map { KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = it.outpoint) }
-                val selectedUtxoEntries = txPlan.selectedUtxos.map { it.utxoEntry }
+                val selectedUtxoEntries = txPlan.selectedUtxos.map { utxo ->
+                    if (utxo.utxoEntry.scriptPublicKey.script.isBlank()) {
+                        utxo.utxoEntry.copy(scriptPublicKey = senderScriptPubKey)
+                    } else {
+                        utxo.utxoEntry
+                    }
+                }
 
                 // 4. Construct outputs (Recipient + Dynamic Change)
                 val outputs = mutableListOf<KaspaTransactionEngine.KaspaTransactionOutput>()

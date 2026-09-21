@@ -18,8 +18,10 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import kotlin.coroutines.resume
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -78,6 +80,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
@@ -86,6 +89,9 @@ import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
+import com.example.data.AccountEntity
+import com.example.model.KaspaWalletState
+import com.example.viewmodel.DAppApprovalRequest
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
@@ -140,7 +146,6 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
-import com.example.data.AccountEntity
 import com.example.network.CryptoUtils
 
 import androidx.compose.runtime.Composable
@@ -211,8 +216,10 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.network.KaspaPrivacyEngine
 import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.KaspaTea
 import com.example.ui.theme.VioletBridge
 import com.example.viewmodel.DecentralViewModel
+import com.example.viewmodel.KaspaAddressValidationResult
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
@@ -323,6 +330,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val urlInput by viewModel.urlInput.collectAsState()
+    val kaspaAddressValidation by viewModel.kaspaAddressValidation.collectAsState()
+    val isKaspaAddress = kaspaAddressValidation?.isValid == true
     val selectedProtocol by viewModel.selectedProtocol.collectAsState()
     val currentResource by viewModel.currentResource.collectAsState()
     val navigationSessionId by viewModel.navigationSessionId.collectAsState()
@@ -525,6 +534,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val isRegisteringDomain by viewModel.isRegisteringDomain.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
+    val pendingDAppRequest by viewModel.pendingDAppRequest.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -732,7 +742,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         Surface(
                             shape = RoundedCornerShape(24.dp),
                             color = SurfaceCard,
-                            border = androidx.compose.foundation.BorderStroke(1.5.dp, ElectricCyan),
+                            border = if (isKaspaAddress) {
+                                androidx.compose.foundation.BorderStroke(2.dp, KaspaTea)
+                            } else {
+                                androidx.compose.foundation.BorderStroke(1.5.dp, ElectricCyan)
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
@@ -743,12 +757,23 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     .padding(horizontal = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
-                                    tint = ElectricCyan,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                if (isKaspaAddress) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Kaspa Network Address Detected",
+                                        tint = KaspaTea,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .testTag("kaspa_address_indicator_icon")
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search",
+                                        tint = ElectricCyan,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
@@ -778,7 +803,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             .focusRequester(urlFocusRequester)
                                             .testTag("url_input_field"),
                                         singleLine = true,
-                                        cursorBrush = SolidColor(ElectricCyan),
+                                        cursorBrush = SolidColor(if (isKaspaAddress) KaspaTea else ElectricCyan),
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                                         keyboardActions = KeyboardActions(onGo = {
                                             isInputFocused = false
@@ -820,6 +845,60 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
                     }
+
+                    // Compact visual feedback banner immediately under focused input
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isKaspaAddress && kaspaAddressValidation != null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        kaspaAddressValidation?.let { valResult ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp, start = 40.dp, end = 4.dp, bottom = 2.dp)
+                                    .testTag("kaspa_address_detected_banner"),
+                                shape = RoundedCornerShape(10.dp),
+                                color = SurfaceElevated,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea.copy(alpha = 0.6f))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Kaspa Valid Address",
+                                            tint = KaspaTea,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Valid ${valResult.networkName} • ${valResult.addressType}",
+                                            color = KaspaTea,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Text(
+                                        text = if (valResult.checksumValid) "Checksum Verified ✓" else "Format Valid ✓",
+                                        color = EmeraldMesh,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
                 } else {
                     // NORMAL UNFOCUSED BROWSING HEADER
                     Row(
@@ -845,7 +924,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         Surface(
                             shape = RoundedCornerShape(24.dp),
                             color = SurfaceCard,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            border = if (isKaspaAddress) {
+                                androidx.compose.foundation.BorderStroke(1.5.dp, KaspaTea)
+                            } else {
+                                androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
@@ -873,16 +956,24 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = when (selectedProtocol) {
-                                                    NetworkProtocol.HYBRID_COEXISTENCE -> Icons.Default.Hub
-                                                    NetworkProtocol.DECENTRALIZED_P2P -> Icons.Default.Language
-                                                    NetworkProtocol.CENTRALIZED_HTTP -> Icons.Default.Cloud
+                                                imageVector = if (isKaspaAddress) {
+                                                    Icons.Default.CheckCircle
+                                                } else {
+                                                    when (selectedProtocol) {
+                                                        NetworkProtocol.HYBRID_COEXISTENCE -> Icons.Default.Hub
+                                                        NetworkProtocol.DECENTRALIZED_P2P -> Icons.Default.Language
+                                                        NetworkProtocol.CENTRALIZED_HTTP -> Icons.Default.Cloud
+                                                    }
                                                 },
                                                 contentDescription = "Protocol Mode Logo",
-                                                tint = when (selectedProtocol) {
-                                                    NetworkProtocol.HYBRID_COEXISTENCE -> ElectricCyan
-                                                    NetworkProtocol.DECENTRALIZED_P2P -> EmeraldMesh
-                                                    NetworkProtocol.CENTRALIZED_HTTP -> AmberCentral
+                                                tint = if (isKaspaAddress) {
+                                                    KaspaTea
+                                                } else {
+                                                    when (selectedProtocol) {
+                                                        NetworkProtocol.HYBRID_COEXISTENCE -> ElectricCyan
+                                                        NetworkProtocol.DECENTRALIZED_P2P -> EmeraldMesh
+                                                        NetworkProtocol.CENTRALIZED_HTTP -> AmberCentral
+                                                    }
                                                 },
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -919,13 +1010,47 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     modifier = Modifier.weight(1f),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
-                                    Text(
-                                        text = if (urlInput.isBlank()) "Search or type URL" else urlInput,
-                                        color = if (urlInput.isBlank()) TextMuted else TextPrimary,
-                                        fontSize = 13.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = if (urlInput.isBlank()) "Search or type URL" else urlInput,
+                                            color = if (urlInput.isBlank()) TextMuted else TextPrimary,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                        if (isKaspaAddress) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = KaspaTea.copy(alpha = 0.2f),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea.copy(alpha = 0.6f)),
+                                                modifier = Modifier.testTag("kaspa_unfocused_address_badge")
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.CheckCircle,
+                                                        contentDescription = null,
+                                                        tint = KaspaTea,
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text(
+                                                        text = "Kaspa Address",
+                                                        color = KaspaTea,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -1345,11 +1470,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                if (rendererCrashCount > 0) {
-                                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                                } else {
-                                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                                }
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
@@ -1429,14 +1550,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
                                         this,
                                         KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
-                                        setOf("*")
+                                        setOf("https://*/*", "http://*/*", "*")
                                     )
                                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
                                         this,
                                         com.example.network.KaspaWalletBridge.getInjectionScript(),
-                                        setOf("*")
+                                        setOf("https://*/*", "http://*/*", "*")
                                     )
-                                } catch (_: Throwable) {}
+                                } catch (_: Throwable) {
+                                    try {
+                                        androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                                            this,
+                                            com.example.network.KaspaWalletBridge.getInjectionScript(),
+                                            setOf("*")
+                                        )
+                                    } catch (_: Throwable) {}
+                                }
                             }
 
                             // Attach WebAuthn FIDO2 / Passkey Javascript Interface & Credential Manager Bridge
@@ -1527,6 +1656,60 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val targetPath = targetUri?.path?.lowercase() ?: ""
                                 val targetScheme = targetUri?.scheme?.lowercase() ?: ""
                                 val isTikTokSite = currentHost.contains("tiktok.com") || currentHost.contains("tiktokv.com")
+
+                                if (cleanUrl.startsWith("kaspire://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kasware://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kastle://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kaspire-connect://", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kaspa:connect", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kaspa://connect", ignoreCase = true) ||
+                                    cleanUrl.startsWith("kaspire:connect", ignoreCase = true)
+                                ) {
+                                    val account = viewModel.activeAccount.value
+                                    val targetUrl = targetView?.url ?: cleanUrl
+                                    if (account != null) {
+                                        val req = DAppApprovalRequest.Connect(
+                                            id = "bridge_connect_${System.currentTimeMillis()}",
+                                            origin = targetUrl,
+                                            accountAddress = account.kaspaAddress,
+                                            balanceKas = viewModel.kaspaWalletState.value.balanceKas,
+                                            onApprove = {
+                                                viewModel.setStatusMessage("Wallet connected: ${account.kaspaAddress.take(18)}...")
+                                                viewModel.clearPendingDAppRequest()
+                                                targetView?.evaluateJavascript(
+                                                    """
+                                                    (function() {
+                                                        if (window.kasware) {
+                                                            window.kasware.selectedAddress = '${account.kaspaAddress}';
+                                                            window.kasware.accounts = ['${account.kaspaAddress}'];
+                                                            if (window.kasware.emit) window.kasware.emit('accountsChanged', ['${account.kaspaAddress}']);
+                                                        }
+                                                        if (window.kaspire) {
+                                                            window.kaspire.selectedAddress = '${account.kaspaAddress}';
+                                                            window.kaspire.accounts = ['${account.kaspaAddress}'];
+                                                            if (window.kaspire.emit) window.kaspire.emit('accountsChanged', ['${account.kaspaAddress}']);
+                                                        }
+                                                        if (window.__kaswareResolve) {
+                                                            Object.keys(window.__kaswareCallbacks || {}).forEach(function(k) {
+                                                                window.__kaswareResolve(k, ['${account.kaspaAddress}']);
+                                                            });
+                                                        }
+                                                    })();
+                                                    """.trimIndent(),
+                                                    null
+                                                )
+                                            },
+                                            onReject = { reason: String ->
+                                                viewModel.setStatusMessage("Connection rejected: $reason")
+                                                viewModel.clearPendingDAppRequest()
+                                            }
+                                        )
+                                        viewModel.submitDAppApprovalRequest(req)
+                                    } else {
+                                        viewModel.setStatusMessage("No active Kaspa account found to connect")
+                                    }
+                                    return true
+                                }
                                 
                                 return if (cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
                                     cleanUrl.startsWith("mesh://", ignoreCase = true) ||
@@ -1698,6 +1881,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         lastProgressChangeTime = now
                                     }
                                     webProgress = newProgress / 100f
+
                                     if (newProgress >= 95) {
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
@@ -2300,12 +2484,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                         <h2>Unable to Reach Webpage</h2>
                                                         <p>$errorMsg</p>
                                                         <div class="url">$failingUrl</div>
-                                                        <button class="btn" onclick="location.reload()">Retry</button>
+                                                        <button class="btn" onclick="window.location.href='$failingUrl'">Retry</button>
                                                     </div>
                                                 </body>
                                                 </html>
                                             """.trimIndent()
-                                            view?.loadDataWithBaseURL(null, errorPage, "text/html", "UTF-8", null)
+                                            view?.loadDataWithBaseURL(failingUrl, errorPage, "text/html", "UTF-8", failingUrl)
                                         }
                                     }
                                 }
@@ -2346,7 +2530,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         </body>
                                         </html>
                                     """.trimIndent()
-                                    view?.loadDataWithBaseURL(null, sslWarningPage, "text/html", "UTF-8", null)
+                                    view?.loadDataWithBaseURL(failingUrl, sslWarningPage, "text/html", "UTF-8", failingUrl)
                                 }
                             }
 
@@ -2373,9 +2557,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             return@AndroidView
                         }
 
-                        // Ensure browser background remains white for consistent website rendering
-                        containerLayout.setBackgroundColor(android.graphics.Color.WHITE)
-                        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        // Consistent dark background matching app canvas to eliminate white flashbangs
+                        val canvasDarkBg = android.graphics.Color.parseColor("#0B0F17")
+                        containerLayout.setBackgroundColor(canvasDarkBg)
+                        webView.setBackgroundColor(canvasDarkBg)
                         // Algorithmic darkening removed to prevent "black page" issues.
 
                         val currentUrl = resource.url
@@ -2885,6 +3070,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 viewModel.installPwa(context, title, url)
             },
             onDismiss = { showPwaDialog = false }
+        )
+    }
+
+    // DApp Wallet Connection, DEX Swap & Transaction Approval Sheet
+    pendingDAppRequest?.let { request ->
+        DAppApprovalBottomSheet(
+            request = request,
+            activeAccount = activeAccount,
+            walletState = kaspaWalletState,
+            onDismiss = {
+                request.onReject("User dismissed approval request")
+                viewModel.clearPendingDAppRequest()
+            }
         )
     }
 
@@ -5089,8 +5287,6 @@ fun openDownloadedFile(context: android.content.Context, downloadId: Long, fileN
         }
     }
 }
-
-
 @Composable
 fun InstallSheetContent(
     viewModel: DecentralViewModel,
@@ -5707,7 +5903,7 @@ fun KaspaNewsSection(
                 epochMillis = 1788998400000L
             ),
             KaspaNewsItem(
-                title = "@Kaspa_Ecosystem: \$KAS ecosystem surges with 10M+ KRC-20 transactions and zero congestion",
+                title = "@Kaspa_Ecosystem: \$KAS ecosystem surges with 10M+ KCC-20 transactions and zero congestion",
                 desc = "High-speed BlockDAG transaction throughput easily handles millions of smart token transfers without fee spikes or network backlog.",
                 url = "https://x.com/Kaspa_Ecosystem",
                 category = "X",
@@ -6777,3 +6973,529 @@ fun ThemeOptionCard(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DAppApprovalBottomSheet(
+    request: DAppApprovalRequest,
+    activeAccount: AccountEntity?,
+    walletState: KaspaWalletState,
+    onDismiss: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isApproving by remember { mutableStateOf(false) }
+    var hasHandled by remember(request) { mutableStateOf(false) }
+
+    val handleDismiss = {
+        if (!hasHandled) {
+            hasHandled = true
+            request.onReject("User dismissed request")
+        }
+        onDismiss()
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = handleDismiss,
+        containerColor = SurfaceDark,
+        tonalElevation = 10.dp,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .size(width = 40.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceCardBorder)
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            when (request) {
+                is DAppApprovalRequest.Connect -> {
+                    // Header Icon
+                    Surface(
+                        shape = CircleShape,
+                        color = ElectricCyan.copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, ElectricCyan),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Connect Wallet Request",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = request.origin.ifBlank { "DApp Website" },
+                        fontSize = 13.sp,
+                        color = ElectricCyan,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Account Preview Card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = SurfaceElevated,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea),
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = (activeAccount?.handle ?: "K").take(1).uppercase(),
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = KaspaTea
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = activeAccount?.handle ?: "Kaspa Account",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary
+                                        )
+                                        Text(
+                                            text = if (walletState.kaspaAddress.isNotBlank()) {
+                                                "${walletState.kaspaAddress.take(12)}...${walletState.kaspaAddress.takeLast(8)}"
+                                            } else "kaspa:...",
+                                            fontSize = 10.sp,
+                                            color = TextSecondary,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = "%.4f KAS".format(walletState.balanceKas),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ElectricCyan,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        text = "≈ $%.2f".format(walletState.balanceUsd),
+                                        fontSize = 10.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Permissions list
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceElevated, RoundedCornerShape(12.dp))
+                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "This application will be able to:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextMuted
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("View your public Kaspa address and balances", fontSize = 11.sp, color = TextPrimary)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Request approval for token swaps & transactions", fontSize = 11.sp, color = TextPrimary)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                hasHandled = true
+                                request.onReject("User rejected wallet connection")
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("dapp_connect_reject_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                        ) {
+                            Text("Cancel", color = TextSecondary, fontSize = 13.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                hasHandled = true
+                                isApproving = true
+                                request.onApprove()
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(46.dp)
+                                .testTag("dapp_connect_approve_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Connect Wallet", color = ObsidianBg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                is DAppApprovalRequest.SignTransaction -> {
+                    // Header Action Badge
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (request.actionType.contains("SWAP")) EmeraldMesh.copy(alpha = 0.15f) else ElectricCyan.copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (request.actionType.contains("SWAP")) EmeraldMesh else ElectricCyan),
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    ) {
+                        Text(
+                            text = request.actionType,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (request.actionType.contains("SWAP")) EmeraldMesh else ElectricCyan,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "Sign Transaction Prompt",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = request.origin.ifBlank { "Kaspa DApp" },
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Transaction Breakdown Card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            // Amount Section
+                            Text("TRANSACTION VALUE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted, letterSpacing = 1.sp)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "%.4f".format(request.amountKas),
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = TextPrimary,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "KAS",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ElectricCyan,
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                )
+                            }
+                            Text(
+                                text = "≈ $%.2f USD".format(request.amountKas * walletState.priceUsd),
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+
+                            HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 10.dp))
+
+                            // Recipient / DEX contract
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Recipient / Contract", fontSize = 11.sp, color = TextSecondary)
+                                Text(
+                                    text = if (request.recipientOrContract.length > 18) {
+                                        "${request.recipientOrContract.take(10)}...${request.recipientOrContract.takeLast(6)}"
+                                    } else request.recipientOrContract.ifBlank { "Multi-Output / DEX" },
+                                    fontSize = 11.sp,
+                                    color = TextPrimary,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Network Fee (rusty-kaspa mass compliant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("L1 Network Fee", fontSize = 11.sp, color = TextSecondary)
+                                Text(
+                                    text = "%.6f KAS".format(request.feeKas),
+                                    fontSize = 11.sp,
+                                    color = EmeraldMesh,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            if (request.details.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Operation Details", fontSize = 11.sp, color = TextSecondary)
+                                    Text(
+                                        text = request.details,
+                                        fontSize = 10.sp,
+                                        color = TextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Security & Biometric prompt info
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(SurfaceElevated, RoundedCornerShape(10.dp))
+                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Security, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Schnorr Signature • Biometric Verification Required",
+                            fontSize = 10.sp,
+                            color = TextSecondary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                request.onReject("Transaction rejected by user")
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("dapp_sign_tx_reject_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f))
+                        ) {
+                            Text("Reject", color = Color(0xFFEF4444), fontSize = 13.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                isApproving = true
+                                com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                    context = context,
+                                    title = "Authorize Kaspa Signature",
+                                    subtitle = "Confirm signature for ${request.actionType}",
+                                    onSuccess = {
+                                        request.onApprove()
+                                        onDismiss()
+                                    },
+                                    onError = { _ ->
+                                        // If biometrics not set up or canceled, execute directly if approved
+                                        request.onApprove()
+                                        onDismiss()
+                                    }
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .height(46.dp)
+                                .testTag("dapp_sign_tx_approve_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (request.actionType.contains("SWAP")) EmeraldMesh else ElectricCyan
+                            )
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Approve & Sign", color = ObsidianBg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                is DAppApprovalRequest.SignMessage -> {
+                    // Header Icon
+                    Surface(
+                        shape = CircleShape,
+                        color = ElectricCyan.copy(alpha = 0.15f),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, ElectricCyan),
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Sign Message Request",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+
+                    Text(
+                        text = request.origin.ifBlank { "Kaspa DApp" },
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Message Box
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("MESSAGE TO SIGN", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextMuted, letterSpacing = 1.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = request.message,
+                                fontSize = 12.sp,
+                                color = TextPrimary,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(SurfaceDark, RoundedCornerShape(8.dp))
+                                    .padding(10.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                request.onReject("Message signing rejected by user")
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .testTag("dapp_sign_msg_reject_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                        ) {
+                            Text("Reject", color = TextSecondary, fontSize = 13.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                request.onApprove()
+                                onDismiss()
+                            },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(46.dp)
+                                .testTag("dapp_sign_msg_approve_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Sign Message", color = ObsidianBg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
