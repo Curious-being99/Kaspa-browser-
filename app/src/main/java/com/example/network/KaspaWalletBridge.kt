@@ -568,10 +568,10 @@ class KaspaWalletBridge(
                 val tx = parseKaspaTransactionFromJson(JSONObject(rawTxJsonStr))
                 val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
 
-                val endpoints = if (addr.startsWith("kaspatest:")) {
-                    listOf("https://api-tn10.kaspa.org/transactions", "https://api-tn10.kaspanet.io/transactions")
+                val endpoint = if (addr.startsWith("kaspatest:")) {
+                    "https://api-tn10.kaspa.org/transactions"
                 } else {
-                    listOf("https://api.kaspa.org/transactions", "https://api-mainnet.kaspanet.io/transactions")
+                    "https://api.kaspa.org/transactions"
                 }
 
                 val payload = KaspaTransactionEngine.buildSubmitPayload(tx, allowOrphan = false)
@@ -580,16 +580,21 @@ class KaspaWalletBridge(
 
                 var broadcastOk = false
                 var returnedTxId = computedTxId
-                var lastErr = "Nodes unavailable"
+                var lastErr = "Node unavailable"
 
                 val fastClient = OkHttpClient.Builder()
-                    .connectTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(5, TimeUnit.SECONDS)
+                    .connectTimeout(2, TimeUnit.SECONDS)
+                    .readTimeout(2, TimeUnit.SECONDS)
                     .build()
 
-                for (ep in endpoints) {
+                for (attempt in 0 until 3) {
                     try {
-                        val req = Request.Builder().url(ep).post(body).build()
+                        val req = Request.Builder()
+                            .url(endpoint)
+                            .header("User-Agent", "KaspaBrowser/1.0 (Android; Mobile)")
+                            .header("Accept", "application/json")
+                            .post(body)
+                            .build()
                         fastClient.newCall(req).execute().use { resp ->
                             val bodyStr = resp.body?.string() ?: ""
                             if (resp.isSuccessful) {
@@ -600,12 +605,19 @@ class KaspaWalletBridge(
                                     if (tid.isNotBlank()) returnedTxId = tid
                                 }
                             } else {
-                                lastErr = "Node returned HTTP ${resp.code}: $bodyStr"
+                                val errDetail = try {
+                                    if (bodyStr.startsWith("{")) {
+                                        val j = JSONObject(bodyStr)
+                                        j.optString("error", j.optString("message", bodyStr))
+                                    } else bodyStr
+                                } catch (_: Exception) { bodyStr }
+                                lastErr = "Node returned HTTP ${resp.code}: $errDetail"
                             }
                         }
-                        if (broadcastOk) break
+                        if (broadcastOk || lastErr.startsWith("Node returned HTTP 4")) break
                     } catch (e: Exception) {
                         lastErr = e.message ?: "Connection error"
+                        if (attempt < 2) kotlinx.coroutines.delay(500L * (attempt + 1))
                     }
                 }
 

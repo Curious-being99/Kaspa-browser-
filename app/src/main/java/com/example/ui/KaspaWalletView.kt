@@ -143,13 +143,15 @@ fun KaspaWalletView(
         onRefresh()
     }
 
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onVerticalDrag = { change, dragAmount ->
-                        if (dragAmount > 0f || pullOffsetY > 0f) {
+                        if (scrollState.value == 0 && (dragAmount > 0f || pullOffsetY > 0f)) {
                             change.consume()
                             pullOffsetY = (pullOffsetY + dragAmount * 0.45f).coerceIn(0f, 90f)
                         }
@@ -166,7 +168,7 @@ fun KaspaWalletView(
                     }
                 )
             }
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Sticky Top Pull To Refresh (Frameless at top)

@@ -23,11 +23,19 @@ class KaspaWalletService(
             .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "application/json")
+                    .build()
+                chain.proceed(req)
+            }
     )
 ) {
     companion object {
         private const val API_MAINNET = "https://api.kaspa.org"
         private const val API_TESTNET = "https://api-tn10.kaspa.org"
+        private const val USER_AGENT = "KaspaBrowser/1.0 (Android; Mobile)"
         
         // Official KNS (Kaspa Name Service) Registry Covenant ID for Mainnet
         // Any valid .k name must have this ID in its lineage for consensus uniqueness.
@@ -236,44 +244,33 @@ class KaspaWalletService(
     }
 
     /**
-     * Fetches live UTXOs for a Kaspa address from REST API with fast timeouts and multi-node failover
+     * Fetches live UTXOs for a Kaspa address from REST API
      */
     suspend fun fetchLiveUtxos(address: String): List<KaspaTransactionEngine.KaspaUtxo> = withContext(Dispatchers.IO) {
         val utxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
         val apiBase = getApiBase(address)
-        val endpoints = if (apiBase == API_MAINNET) {
-            listOf(
-                "$API_MAINNET/addresses/$address/utxos",
-                "https://api-mainnet.kaspanet.io/addresses/$address/utxos"
-            )
-        } else {
-            listOf(
-                "$API_TESTNET/addresses/$address/utxos",
-                "https://api-tn10.kaspanet.io/addresses/$address/utxos"
-            )
-        }
-        for (url in endpoints) {
-            try {
-                val req = Request.Builder().url(url).get().build()
-                fastRestClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val bodyStr = resp.body?.string()
-                        if (!bodyStr.isNullOrBlank()) {
-                            val array = JSONArray(bodyStr)
-                            for (i in 0 until array.length()) {
-                                val obj = array.optJSONObject(i) ?: continue
-                                val outpointObj = obj.optJSONObject("outpoint") ?: continue
-                                val utxoEntryObj = obj.optJSONObject("utxoEntry") ?: obj.optJSONObject("utxo_entry") ?: continue
+        val url = "$apiBase/addresses/$address/utxos"
+        try {
+            val req = Request.Builder().url(url).get().build()
+            fastRestClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string()
+                    if (!bodyStr.isNullOrBlank()) {
+                        val array = JSONArray(bodyStr)
+                        for (i in 0 until array.length()) {
+                            val obj = array.optJSONObject(i) ?: continue
+                            val outpointObj = obj.optJSONObject("outpoint") ?: continue
+                            val utxoEntryObj = obj.optJSONObject("utxoEntry") ?: obj.optJSONObject("utxo_entry") ?: continue
 
-                                val outpoint = KaspaTransactionEngine.KaspaOutpoint.fromJson(outpointObj)
-                                val utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoEntryObj)
-                                utxos.add(KaspaTransactionEngine.KaspaUtxo(outpoint, utxoEntry))
-                            }
+                            val outpoint = KaspaTransactionEngine.KaspaOutpoint.fromJson(outpointObj)
+                            val utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoEntryObj)
+                            utxos.add(KaspaTransactionEngine.KaspaUtxo(outpoint, utxoEntry))
                         }
                     }
                 }
-                if (utxos.isNotEmpty()) break
-            } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("KaspaWalletService", "Failed to fetch live UTXOs from $url: ${e.message}")
         }
         utxos
     }
@@ -295,9 +292,9 @@ class KaspaWalletService(
     )
 
     /**
-     * Mempool Standard Compliance & Failover Backoff Broadcast Engine:
+     * Mempool Standard Compliance & Retry Broadcast Engine:
      * Enforces allowOrphan = false in transaction payloads to prevent public RPC DoS/non-standard rejections.
-     * Configured multi-node endpoint failover with brief backoff delays when propagation races or orphan errors are detected.
+     * Uses resilient timeouts and retry backoff on transient network delays.
      */
     private suspend fun broadcastTransactionWithFailover(
         tx: KaspaTransactionEngine.KaspaTransaction,
@@ -312,51 +309,62 @@ class KaspaWalletService(
         var lastBroadcastError = "Unable to connect to Kaspa BlockDAG network nodes."
 
         val apiBase = getApiBase(address)
-        val broadcastEndpoints = if (apiBase == API_MAINNET) {
-            listOf(
-                "$API_MAINNET/transactions",
-                "https://api-mainnet.kaspanet.io/transactions"
-            )
-        } else {
-            listOf(
-                "$API_TESTNET/transactions",
-                "https://api-tn10.kaspanet.io/transactions"
-            )
-        }
+        val broadcastEndpoint = "$apiBase/transactions"
 
-        val fastBroadcastClient = client.newBuilder()
+        val broadcastClient = client.newBuilder()
             .connectTimeout(2000, TimeUnit.MILLISECONDS)
             .readTimeout(2000, TimeUnit.MILLISECONDS)
+            .writeTimeout(2000, TimeUnit.MILLISECONDS)
             .build()
 
-        for ((index, endpoint) in broadcastEndpoints.withIndex()) {
+        val maxAttempts = 3
+        for (attempt in 0 until maxAttempts) {
             try {
-                val req = Request.Builder().url(endpoint).post(jsonBody).build()
-                fastBroadcastClient.newCall(req).execute().use { resp ->
+                val req = Request.Builder()
+                    .url(broadcastEndpoint)
+                    .post(jsonBody)
+                    .build()
+
+                broadcastClient.newCall(req).execute().use { resp ->
                     val respBody = resp.body?.string() ?: ""
                     if (resp.isSuccessful) {
                         broadcastConfirmed = true
                         if (respBody.isNotBlank() && respBody.startsWith("{")) {
                             val respJson = JSONObject(respBody)
-                            val serverTxId = respJson.optString("transactionId",
-                                respJson.optString("transaction_id",
-                                    respJson.optString("txid", "")))
+                            val serverTxId = respJson.optString(
+                                "transactionId",
+                                respJson.optString(
+                                    "transaction_id",
+                                    respJson.optString("txid", "")
+                                )
+                            )
                             if (serverTxId.isNotBlank()) {
                                 confirmedTxId = serverTxId
                             }
                         }
                     } else {
-                        lastBroadcastError = "Node ($endpoint) returned HTTP ${resp.code}: ${respBody.take(150)}"
-                        if (index < broadcastEndpoints.size - 1) {
-                            delay(100L * (index + 1))
+                        val parsedError = try {
+                            if (respBody.startsWith("{")) {
+                                val j = JSONObject(respBody)
+                                j.optString("error", j.optString("message", j.optString("detail", respBody)))
+                            } else {
+                                respBody
+                            }
+                        } catch (_: Exception) {
+                            respBody
+                        }
+                        lastBroadcastError = "Kaspa node returned (${resp.code}): ${parsedError.take(200)}"
+                        // If it's a 4xx consensus rejection (e.g. invalid fee, already spent, orphan), do not retry
+                        if (resp.code in 400..499) {
+                            return BroadcastResult(false, confirmedTxId, lastBroadcastError)
                         }
                     }
                 }
                 if (broadcastConfirmed) break
             } catch (e: Exception) {
-                lastBroadcastError = "Failed to connect to $endpoint: ${e.message}"
-                if (index < broadcastEndpoints.size - 1) {
-                    delay(100L * (index + 1))
+                lastBroadcastError = "Connection error (${broadcastEndpoint}): ${e.localizedMessage ?: e.message}"
+                if (attempt < maxAttempts - 1) {
+                    delay(500L * (attempt + 1))
                 }
             }
         }

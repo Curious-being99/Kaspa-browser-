@@ -660,42 +660,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             .fillMaxSize()
             .then(backgroundModifier)
     ) {
-        // TOP BROWSER BAR: Directly starting with the search/URL bar with Sticky Head Pull-To-Refresh
+        // TOP BROWSER BAR: Directly starting with the search/URL bar
         val scope = rememberCoroutineScope()
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("browser_address_bar")
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { change, dragAmount ->
-                            if (dragAmount > 0f || pullOffsetY > 0f) {
-                                change.consume()
-                                pullOffsetY = (pullOffsetY + dragAmount * 0.45f).coerceIn(0f, 90f)
-                            }
-                        },
-                        onDragEnd = {
-                            if (pullOffsetY >= 40f) {
-                                isPullRefreshing = true
-                                scope.launch {
-                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
-                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                        webViewInstance?.reload()
-                                    } else {
-                                        viewModel.resolveUrl()
-                                    }
-                                    viewModel.refreshKaspaWallet()
-                                    kotlinx.coroutines.delay(1200L)
-                                    isPullRefreshing = false
-                                }
-                            }
-                            pullOffsetY = 0f
-                        },
-                        onDragCancel = {
-                            pullOffsetY = 0f
-                        }
-                    )
-                },
+                .testTag("browser_address_bar"),
             color = SurfaceDark,
             tonalElevation = 4.dp
         ) {
@@ -1154,39 +1124,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 }
 
-                // PULL TO REFRESH (Frameless inline banner directly after search bar)
-                AnimatedVisibility(
-                    visible = pullOffsetY > 0f || isPullRefreshing,
-                    enter = fadeIn() + slideInVertically(),
-                    exit = fadeOut() + slideOutVertically()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (isPullRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = ElectricCyan
-                            )
-                        } else {
-                            val rotation = (pullOffsetY * 4f) % 360f
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Pull to refresh",
-                                tint = ElectricCyan,
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .graphicsLayer(rotationZ = rotation)
-                            )
-                        }
-                    }
-                }
-
                 // Find in Page Bar
                 if (showFindInPage) {
                     FindInPageBar(
@@ -1351,7 +1288,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                                 }
                             setInitialScale(0)
-                            overScrollMode = android.view.View.OVER_SCROLL_NEVER
+                            overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
                             isHorizontalScrollBarEnabled = false
@@ -1701,6 +1638,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (newProgress >= 95) {
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
+                                        isPullRefreshing = false
+                                        val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                                        parentSrl?.isRefreshing = false
                                     } else {
                                         isWebLoading = true
                                     }
@@ -1708,6 +1648,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         webProgress = 1.0f
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
+                                        isPullRefreshing = false
+                                        val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                                        parentSrl?.isRefreshing = false
                                         val cur = view?.url ?: ""
                                         if (cur.isNotBlank() && !cur.startsWith("data:") && !cur.startsWith("about:")) {
                                             viewModel.recordBrowserTraffic(cur, 220 * 1024L)
@@ -1959,6 +1902,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     viewModel.setIsLoading(false)
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
+                                    isPullRefreshing = false
+                                    val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                                    parentSrl?.isRefreshing = false
                                     url?.let {
                                         val isNavigableUrl = it.startsWith("http://", ignoreCase = true) ||
                                             it.startsWith("https://", ignoreCase = true) ||
@@ -2279,6 +2225,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     if (request?.isForMainFrame == true) {
                                         isWebLoading = false
+                                        isPullRefreshing = false
+                                        val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                                        parentSrl?.isRefreshing = false
                                         if (failingUrl.startsWith("http://", ignoreCase = true) || failingUrl.startsWith("https://", ignoreCase = true)) {
                                             val errorMsg = error?.description?.toString() ?: "Network error or connection timed out"
                                             val errorPage = """
@@ -2353,14 +2302,53 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             webViewInstance = this
                         }
 
-                        addView(webView)
+                        val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#151A26"))
+                            setColorSchemeColors(
+                                android.graphics.Color.parseColor("#00E5FF"), // ElectricCyan
+                                android.graphics.Color.parseColor("#70C7BA")  // Kaspa teal
+                            )
+                            setOnChildScrollUpCallback { _, _ ->
+                                // Standard browser behavior: only pull-to-refresh when at the top of the webpage
+                                webView.scrollY > 0 || webView.canScrollVertically(-1)
+                            }
+                            setOnRefreshListener {
+                                isPullRefreshing = true
+                                scope.launch {
+                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
+                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                        webViewInstance?.reload()
+                                    } else {
+                                        viewModel.resolveUrl()
+                                    }
+                                    viewModel.refreshKaspaWallet()
+                                    kotlinx.coroutines.delay(1200L)
+                                    isPullRefreshing = false
+                                    isRefreshing = false
+                                }
+                            }
+                            addView(webView)
+                        }
+
+                        addView(swipeRefreshLayout)
                     }
                 },
                 update = { containerLayout ->
                     try {
-                        val webView = (0 until containerLayout.childCount)
+                        val swipeRefresh = (0 until containerLayout.childCount)
+                            .mapNotNull { containerLayout.getChildAt(it) as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout }
+                            .firstOrNull()
+                        val webView = swipeRefresh?.let { srl ->
+                            (0 until srl.childCount).mapNotNull { srl.getChildAt(it) as? WebView }.firstOrNull()
+                        } ?: (0 until containerLayout.childCount)
                             .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                             .firstOrNull() ?: return@AndroidView
+
+                        swipeRefresh?.isRefreshing = isPullRefreshing
 
                         webViewInstance = webView
                         canGoBack = webView.canGoBack()

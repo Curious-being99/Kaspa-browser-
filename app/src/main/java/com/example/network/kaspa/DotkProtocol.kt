@@ -502,32 +502,32 @@ object DotkProtocol {
 
     private fun fetchUtxoForAddress(address: String, client: OkHttpClient): KaspaTransactionEngine.KaspaUtxo? {
         val fastClient = getDirectoryClient(client)
-        val endpoints = listOf(
-            "https://api.kaspa.org/addresses/$address/utxos",
-            "https://api-mainnet.kaspanet.io/addresses/$address/utxos"
-        )
-        for (url in endpoints) {
-            try {
-                val req = Request.Builder().url(url).get().build()
-                fastClient.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        val body = resp.body?.string() ?: return@use
-                        val array = org.json.JSONArray(body)
-                        if (array.length() > 0) {
-                            val obj = array.getJSONObject(0)
-                            val outpointObj = obj.optJSONObject("outpoint")
-                            val utxoEntryObj = obj.optJSONObject("utxoEntry") ?: obj.optJSONObject("utxo_entry")
-                            if (outpointObj != null && utxoEntryObj != null) {
-                                return KaspaTransactionEngine.KaspaUtxo(
-                                    outpoint = KaspaTransactionEngine.KaspaOutpoint.fromJson(outpointObj),
-                                    utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoEntryObj)
-                                )
-                            }
+        val url = "https://api.kaspa.org/addresses/$address/utxos"
+        try {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "KaspaBrowser/1.0 (Android; Mobile)")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            fastClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val array = org.json.JSONArray(body)
+                    if (array.length() > 0) {
+                        val obj = array.getJSONObject(0)
+                        val outpointObj = obj.optJSONObject("outpoint")
+                        val utxoEntryObj = obj.optJSONObject("utxoEntry") ?: obj.optJSONObject("utxo_entry")
+                        if (outpointObj != null && utxoEntryObj != null) {
+                            return KaspaTransactionEngine.KaspaUtxo(
+                                outpoint = KaspaTransactionEngine.KaspaOutpoint.fromJson(outpointObj),
+                                utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoEntryObj)
+                            )
                         }
                     }
                 }
-            } catch (_: Exception) {}
-        }
+            }
+        } catch (_: Exception) {}
         return null
     }
 
