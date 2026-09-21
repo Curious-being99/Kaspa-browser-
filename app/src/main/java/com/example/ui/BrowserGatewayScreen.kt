@@ -16,9 +16,6 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.core.view.NestedScrollingChild3
-import androidx.core.view.NestedScrollingChildHelper
-import androidx.core.view.ViewCompat
 import kotlin.coroutines.resume
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -663,12 +660,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             .fillMaxSize()
             .then(backgroundModifier)
     ) {
-        // TOP BROWSER BAR: Directly starting with the search/URL bar
+        // TOP BROWSER BAR: Directly starting with the search/URL bar with Sticky Head Pull-To-Refresh
         val scope = rememberCoroutineScope()
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("browser_address_bar"),
+                .testTag("browser_address_bar")
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onVerticalDrag = { change, dragAmount ->
+                            if (dragAmount > 0f || pullOffsetY > 0f) {
+                                change.consume()
+                                pullOffsetY = (pullOffsetY + dragAmount * 0.45f).coerceIn(0f, 90f)
+                            }
+                        },
+                        onDragEnd = {
+                            if (pullOffsetY >= 40f) {
+                                isPullRefreshing = true
+                                scope.launch {
+                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
+                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                        webViewInstance?.reload()
+                                    } else {
+                                        viewModel.resolveUrl()
+                                    }
+                                    viewModel.refreshKaspaWallet()
+                                    kotlinx.coroutines.delay(1200L)
+                                    isPullRefreshing = false
+                                }
+                            }
+                            pullOffsetY = 0f
+                        },
+                        onDragCancel = {
+                            pullOffsetY = 0f
+                        }
+                    )
+                },
             color = SurfaceDark,
             tonalElevation = 4.dp
         ) {
@@ -1127,6 +1154,39 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 }
 
+                // PULL TO REFRESH (Frameless inline banner directly after search bar)
+                AnimatedVisibility(
+                    visible = pullOffsetY > 0f || isPullRefreshing,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isPullRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = ElectricCyan
+                            )
+                        } else {
+                            val rotation = (pullOffsetY * 4f) % 360f
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Pull to refresh",
+                                tint = ElectricCyan,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .graphicsLayer(rotationZ = rotation)
+                            )
+                        }
+                    }
+                }
+
                 // Find in Page Bar
                 if (showFindInPage) {
                     FindInPageBar(
@@ -1280,7 +1340,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             )
                             setBackgroundColor(browserBgColor)
 
-                            val webView = ChromeStyleNestedWebView(ctx).apply {
+                            val webView = WebView(ctx).apply {
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -1291,12 +1351,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                                 }
                             setInitialScale(0)
-                            overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                            overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isHapticFeedbackEnabled = false
                             isVerticalScrollBarEnabled = false
                             isHorizontalScrollBarEnabled = false
                             scrollBarStyle = android.view.View.SCROLLBARS_INSIDE_OVERLAY
-                            setBackgroundColor(android.graphics.Color.WHITE)
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                                 webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
                                     override fun onRenderProcessUnresponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
@@ -1360,7 +1419,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 userAgentString = if (desktopModeEnabled) {
                                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                                 } else {
-                                    "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                                 }
                             }
 
@@ -1421,14 +1480,40 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 false
                             }
 
-                            // Native gesture and touch processing is left to Android OS & system navigation
+                            // Touch & Gesture navigation (Edge swipe Back/Forward)
+                            val gestureDetector = android.view.GestureDetector(ctx, object : android.view.GestureDetector.SimpleOnGestureListener() {
+                                override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                                    if (e1 == null) return false
+                                    val deltaX = e2.x - e1.x
+                                    val deltaY = e2.y - e1.y
+                                    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 150 && Math.abs(velocityX) > 150) {
+                                        if (deltaX > 0) {
+                                            if (canGoBack()) {
+                                                goBack()
+                                                return true
+                                            }
+                                        } else {
+                                            if (canGoForward()) {
+                                                goForward()
+                                                return true
+                                            }
+                                        }
+                                    }
+                                    return false
+                                }
+                            })
+                            @android.annotation.SuppressLint("ClickableViewAccessibility")
+                            setOnTouchListener { _, event ->
+                                gestureDetector.onTouchEvent(event)
+                                false
+                            }
 
                             val wv = this
                             android.webkit.CookieManager.getInstance().apply {
                                 setAcceptCookie(true)
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
-                            setBackgroundColor(android.graphics.Color.WHITE)
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
                             isHapticFeedbackEnabled = false
 
                             fun handleDeepLinkOrNavigate(targetWv: WebView?, rawUrl: String, hasGesture: Boolean): Boolean {
@@ -1616,9 +1701,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (newProgress >= 95) {
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
-                                        isPullRefreshing = false
-                                        val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                                        parentSrl?.isRefreshing = false
                                     } else {
                                         isWebLoading = true
                                     }
@@ -1626,9 +1708,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         webProgress = 1.0f
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
-                                        isPullRefreshing = false
-                                        val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                                        parentSrl?.isRefreshing = false
                                         val cur = view?.url ?: ""
                                         if (cur.isNotBlank() && !cur.startsWith("data:") && !cur.startsWith("about:")) {
                                             viewModel.recordBrowserTraffic(cur, 220 * 1024L)
@@ -1880,9 +1959,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     viewModel.setIsLoading(false)
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
-                                    isPullRefreshing = false
-                                    val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                                    parentSrl?.isRefreshing = false
                                     url?.let {
                                         val isNavigableUrl = it.startsWith("http://", ignoreCase = true) ||
                                             it.startsWith("https://", ignoreCase = true) ||
@@ -2203,9 +2279,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     if (request?.isForMainFrame == true) {
                                         isWebLoading = false
-                                        isPullRefreshing = false
-                                        val parentSrl = view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-                                        parentSrl?.isRefreshing = false
                                         if (failingUrl.startsWith("http://", ignoreCase = true) || failingUrl.startsWith("https://", ignoreCase = true)) {
                                             val errorMsg = error?.description?.toString() ?: "Network error or connection timed out"
                                             val errorPage = """
@@ -2280,55 +2353,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             webViewInstance = this
                         }
 
-                        val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#151A26"))
-                            setColorSchemeColors(
-                                android.graphics.Color.parseColor("#00E5FF"), // ElectricCyan
-                                android.graphics.Color.parseColor("#70C7BA")  // Kaspa teal
-                            )
-                            // Require a deliberate, deep pull down (80dp) so light scrolling never triggers refresh accidentally
-                            setDistanceToTriggerSync((80 * ctx.resources.displayMetrics.density).toInt())
-                            setOnChildScrollUpCallback { _, _ ->
-                                // Standard browser behavior: strictly only allow pull-to-refresh when webpage is at scroll position 0
-                                webView.scrollY > 0 || webView.canScrollVertically(-1)
-                            }
-                            setOnRefreshListener {
-                                isPullRefreshing = true
-                                scope.launch {
-                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
-                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                        webViewInstance?.reload()
-                                    } else {
-                                        viewModel.resolveUrl()
-                                    }
-                                    viewModel.refreshKaspaWallet()
-                                    kotlinx.coroutines.delay(1200L)
-                                    isPullRefreshing = false
-                                    isRefreshing = false
-                                }
-                            }
-                            addView(webView)
-                        }
-
-                        addView(swipeRefreshLayout)
+                        addView(webView)
                     }
                 },
                 update = { containerLayout ->
                     try {
-                        val swipeRefresh = (0 until containerLayout.childCount)
-                            .mapNotNull { containerLayout.getChildAt(it) as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout }
-                            .firstOrNull()
-                        val webView = swipeRefresh?.let { srl ->
-                            (0 until srl.childCount).mapNotNull { srl.getChildAt(it) as? WebView }.firstOrNull()
-                        } ?: (0 until containerLayout.childCount)
+                        val webView = (0 until containerLayout.childCount)
                             .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                             .firstOrNull() ?: return@AndroidView
-
-                        swipeRefresh?.isRefreshing = isPullRefreshing
 
                         webViewInstance = webView
                         canGoBack = webView.canGoBack()
@@ -2343,7 +2375,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         // Ensure browser background remains white for consistent website rendering
                         containerLayout.setBackgroundColor(android.graphics.Color.WHITE)
-                        webView.setBackgroundColor(android.graphics.Color.WHITE)
+                        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         // Algorithmic darkening removed to prevent "black page" issues.
 
                         val currentUrl = resource.url
@@ -6744,165 +6776,4 @@ fun ThemeOptionCard(
             }
         }
     }
-}
-
-/**
- * Production-grade Chromium-style NestedScrollWebView.
- * Implements Android NestedScrollingChild3 to seamlessly coordinate WebView content scrolling
- * with parent pull-to-refresh (SwipeRefreshLayout) without stealing touches, breaking momentum flings,
- * or interfering with back handlers and system gestures.
- */
-class ChromeStyleNestedWebView @JvmOverloads constructor(
-    context: android.content.Context,
-    attrs: android.util.AttributeSet? = null,
-    defStyleAttr: Int = 0
-) : WebView(context, attrs, defStyleAttr), NestedScrollingChild3 {
-
-    private val childHelper: NestedScrollingChildHelper = NestedScrollingChildHelper(this)
-    private var lastMotionY: Int = 0
-    private val scrollOffset = IntArray(2)
-    private val scrollConsumed = IntArray(2)
-    private var nestedYOffset: Int = 0
-
-    init {
-        isNestedScrollingEnabled = true
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
-        val trackedEvent = android.view.MotionEvent.obtain(event)
-        val action = event.actionMasked
-
-        if (action == android.view.MotionEvent.ACTION_DOWN) {
-            nestedYOffset = 0
-        }
-
-        trackedEvent.offsetLocation(0f, nestedYOffset.toFloat())
-
-        when (action) {
-            android.view.MotionEvent.ACTION_DOWN -> {
-                lastMotionY = event.y.toInt()
-                startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL, ViewCompat.TYPE_TOUCH)
-            }
-            android.view.MotionEvent.ACTION_MOVE -> {
-                val y = event.y.toInt()
-                var deltaY = lastMotionY - y
-
-                // 1. Give nested scrolling parent first opportunity to consume pre-scroll
-                if (dispatchNestedPreScroll(0, deltaY, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
-                    deltaY -= scrollConsumed[1]
-                    trackedEvent.offsetLocation(0f, scrollOffset[1].toFloat())
-                    nestedYOffset += scrollOffset[1]
-                }
-
-                lastMotionY = y - scrollOffset[1]
-
-                val isAtTop = scrollY <= 0 && !canScrollVertically(-1)
-                val isDraggingDown = deltaY < 0
-
-                // If user is at top of page and dragging downwards (pull to refresh),
-                // pass unconsumed delta to parent (SwipeRefreshLayout)
-                if (isAtTop && isDraggingDown) {
-                    dispatchNestedScroll(0, 0, 0, deltaY, scrollOffset, ViewCompat.TYPE_TOUCH, scrollConsumed)
-                    nestedYOffset += scrollOffset[1]
-                }
-            }
-            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                stopNestedScroll(ViewCompat.TYPE_TOUCH)
-            }
-        }
-
-        val handled = super.onTouchEvent(trackedEvent)
-        trackedEvent.recycle()
-        return handled
-    }
-
-    // NestedScrollingChild3 Implementation
-    override fun dispatchNestedScroll(
-        dxConsumed: Int,
-        dyConsumed: Int,
-        dxUnconsumed: Int,
-        dyUnconsumed: Int,
-        offsetInWindow: IntArray?,
-        type: Int,
-        consumed: IntArray
-    ) {
-        childHelper.dispatchNestedScroll(
-            dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow, type, consumed
-        )
-    }
-
-    // NestedScrollingChild2 Implementation
-    override fun startNestedScroll(axes: Int, type: Int): Boolean =
-        childHelper.startNestedScroll(axes, type)
-
-    override fun stopNestedScroll(type: Int) =
-        childHelper.stopNestedScroll(type)
-
-    override fun hasNestedScrollingParent(type: Int): Boolean =
-        childHelper.hasNestedScrollingParent(type)
-
-    override fun dispatchNestedScroll(
-        dxConsumed: Int,
-        dyConsumed: Int,
-        dxUnconsumed: Int,
-        dyUnconsumed: Int,
-        offsetInWindow: IntArray?,
-        type: Int
-    ): Boolean = childHelper.dispatchNestedScroll(
-        dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow, type
-    )
-
-    override fun dispatchNestedPreScroll(
-        dx: Int,
-        dy: Int,
-        consumed: IntArray?,
-        offsetInWindow: IntArray?,
-        type: Int
-    ): Boolean = childHelper.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow, type)
-
-    // NestedScrollingChild standard implementations
-    override fun setNestedScrollingEnabled(enabled: Boolean) {
-        childHelper.isNestedScrollingEnabled = enabled
-    }
-
-    override fun isNestedScrollingEnabled(): Boolean =
-        childHelper.isNestedScrollingEnabled
-
-    override fun startNestedScroll(axes: Int): Boolean =
-        childHelper.startNestedScroll(axes)
-
-    override fun stopNestedScroll() =
-        childHelper.stopNestedScroll()
-
-    override fun hasNestedScrollingParent(): Boolean =
-        childHelper.hasNestedScrollingParent()
-
-    override fun dispatchNestedScroll(
-        dxConsumed: Int,
-        dyConsumed: Int,
-        dxUnconsumed: Int,
-        dyUnconsumed: Int,
-        offsetInWindow: IntArray?
-    ): Boolean = childHelper.dispatchNestedScroll(
-        dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow
-    )
-
-    override fun dispatchNestedPreScroll(
-        dx: Int,
-        dy: Int,
-        consumed: IntArray?,
-        offsetInWindow: IntArray?
-    ): Boolean = childHelper.dispatchNestedPreScroll(dx, dy, consumed, offsetInWindow)
-
-    override fun dispatchNestedFling(
-        velocityX: Float,
-        velocityY: Float,
-        consumed: Boolean
-    ): Boolean = childHelper.dispatchNestedFling(velocityX, velocityY, consumed)
-
-    override fun dispatchNestedPreFling(
-        velocityX: Float,
-        velocityY: Float
-    ): Boolean = childHelper.dispatchNestedPreFling(velocityX, velocityY)
 }
