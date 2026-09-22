@@ -610,8 +610,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 res.content.trim().startsWith("<!DOCTYPE", ignoreCase = true) ||
                 res.content.trim().startsWith("<html", ignoreCase = true) ||
                 res.content.contains("</html>", ignoreCase = true) ||
-                res.url.startsWith("http://") ||
-                res.url.startsWith("https://")
+                res.url.startsWith("http://", ignoreCase = true) ||
+                res.url.startsWith("https://", ignoreCase = true) ||
+                res.url.startsWith("kaspa://", ignoreCase = true) ||
+                res.url.startsWith("ipfs://", ignoreCase = true) ||
+                res.url.startsWith("dnet://", ignoreCase = true) ||
+                res.url.startsWith("mesh://", ignoreCase = true) ||
+                res.url.startsWith("kns://", ignoreCase = true)
     }
 
     androidx.activity.compose.BackHandler(enabled = isInputFocused || showTabSwitcher || canGoBack || currentResource != null) {
@@ -1409,7 +1414,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 if (rendererCrashCount > 0) {
                                     setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                                 } else {
-                                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 }
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
