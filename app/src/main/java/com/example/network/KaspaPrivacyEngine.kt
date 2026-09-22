@@ -260,69 +260,26 @@ object KaspaPrivacyEngine {
                     } catch(e) {}
                 }
 
-                // 4. WebGL Virtual GPU context recovery & crash prevention
+                // 4. WebGL Virtual GPU context recovery
                 try {
                     window.addEventListener('webglcontextlost', function(e) {
                         try { e.preventDefault(); } catch (_) {}
                     }, true);
-                    if (HTMLCanvasElement && HTMLCanvasElement.prototype) {
-                        const origGetContext = HTMLCanvasElement.prototype.getContext;
-                        HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-                            if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-                                try {
-                                    if (attributes && typeof attributes === 'object') {
-                                        attributes.failIfMajorPerformanceCaveat = false;
-                                        attributes.preserveDrawingBuffer = true;
-                                    }
-                                    const ctx = origGetContext.call(this, type, attributes);
-                                    if (!ctx) return origGetContext.call(this, '2d');
-                                    return ctx;
-                                } catch(err) {
-                                    return origGetContext.call(this, '2d');
-                                }
-                            }
-                            return origGetContext.call(this, type, attributes);
-                        };
-                    }
                 } catch(e) {}
 
                 // 5. Remove click effect color and tap highlight color across all web elements
                 try {
-                    (function() {
-                        function injectNoTapStyle() {
-                            if (document.getElementById('__kaspa_no_click_effect')) return true;
-                            const target = document.head || document.documentElement || document.body;
-                            if (!target) return false;
-                            const style = document.createElement('style');
-                            style.id = '__kaspa_no_click_effect';
-                            style.textContent = 'html, body, *, *::before, *::after, *:focus, *:active, *:hover, *:visited, a, button, input, select, textarea, div, span, img, svg, path, [role="button"] { -webkit-tap-highlight-color: rgba(0,0,0,0) !important; -webkit-tap-highlight-color: transparent !important; -webkit-touch-callout: none !important; outline: 0 !important; outline: none !important; } [class*="drawer"], [class*="Drawer"], [class*="menu"], [class*="Menu"], [class*="modal"], [class*="Modal"], [class*="dialog"], [class*="Dialog"], [class*="dropdown"], [class*="Dropdown"], [class*="popup"], [class*="Popup"] { z-index: 999999 !important; }';
-                            try {
-                                target.appendChild(style);
-                                return true;
-                            } catch(_) {
-                                return false;
-                            }
-                        }
-
-                        if (!injectNoTapStyle()) {
-                            const intervalId = setInterval(function() {
-                                if (injectNoTapStyle()) clearInterval(intervalId);
-                            }, 10);
-                            if (document.readyState === 'loading') {
-                                document.addEventListener('DOMContentLoaded', injectNoTapStyle);
-                            }
-                        }
-
-                        function removeElementTapHighlight(e) {
-                            if (e && e.target && e.target.style) {
-                                try {
-                                    e.target.style.webkitTapHighlightColor = 'transparent';
-                                } catch(_) {}
-                            }
-                        }
-                        window.addEventListener('touchstart', removeElementTapHighlight, { capture: true, passive: true });
-                        window.addEventListener('pointerdown', removeElementTapHighlight, { capture: true, passive: true });
-                    })();
+                    const removeClickEffect = function() {
+                        if (document.getElementById('__kaspa_no_click_effect')) return;
+                        const style = document.createElement('style');
+                        style.id = '__kaspa_no_click_effect';
+                        style.textContent = '*, *:focus, *:active, *:hover { -webkit-tap-highlight-color: transparent !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; outline: none !important; }';
+                        (document.head || document.documentElement || document.body)?.appendChild(style);
+                    };
+                    removeClickEffect();
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', removeClickEffect);
+                    }
                 } catch(_) {}
 
                 // 6. TikTok specific scroll unlock & modal banner dismisser

@@ -32,12 +32,11 @@ object UBlockEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val httpClient: OkHttpClient by lazy {
-        CronetClientFactory.buildClient(
-            OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .followRedirects(true)
-        )
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
     }
 
     // Google Account & Authentication domains and infrastructure that must NEVER be blocked

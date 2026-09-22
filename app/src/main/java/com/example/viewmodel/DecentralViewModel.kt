@@ -175,17 +175,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _activeTabId = MutableStateFlow<String?>(null)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
-    private val _pendingDAppRequest = MutableStateFlow<DAppApprovalRequest?>(null)
-    val pendingDAppRequest: StateFlow<DAppApprovalRequest?> = _pendingDAppRequest.asStateFlow()
-
-    fun submitDAppRequest(request: DAppApprovalRequest) {
-        _pendingDAppRequest.value = request
-    }
-
-    fun clearDAppRequest() {
-        _pendingDAppRequest.value = null
-    }
-
     fun setActiveTab(id: String?) {
         if (id == null) return
         _activeTabId.value = id
@@ -322,9 +311,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
-
-    fun clearPendingDAppRequest() = clearDAppRequest()
-    fun submitDAppApprovalRequest(request: DAppApprovalRequest) = submitDAppRequest(request)
 
     private val _activeTab = MutableStateFlow(AppTab.BROWSER_GATEWAY)
     val activeTab: StateFlow<AppTab> = _activeTab.asStateFlow()
@@ -570,16 +556,8 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 database.accountDao().deleteLegacyMockAccounts()
                 database.domainDao().deleteLegacyMockDomains()
                 val allAccounts = database.accountDao().getAllAccountsList()
-                if (allAccounts.isEmpty()) {
-                    val defaultAcc = CryptoUtils.deriveDecentralizedAccount(
-                        customHandle = "Kaspa Primary",
-                        seedMnemonic = null
-                    ).copy(isActive = true)
-                    database.accountDao().insertAccount(defaultAcc)
-                } else {
-                    var hasActive = false
+                if (allAccounts.isNotEmpty()) {
                     for (acc in allAccounts) {
-                        if (acc.isActive) hasActive = true
                         val cleanHandle = if (acc.handle.contains(".k") || acc.handle.startsWith("@kas")) {
                             "Kaspa Wallet (${acc.kaspaAddress.takeLast(6)})"
                         } else {
@@ -600,9 +578,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                             }
                             database.accountDao().insertAccount(refreshedAcc)
                         }
-                    }
-                    if (!hasActive && allAccounts.isNotEmpty()) {
-                        database.accountDao().setActive(allAccounts.first().did)
                     }
                 }
             } catch (_: Exception) {}
@@ -969,14 +944,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun insertAccount(account: AccountEntity) {
-        viewModelScope.launch {
-            try {
-                database.accountDao().insertAccount(account)
-            } catch (_: Exception) {}
-        }
-    }
-
     fun switchAccount(did: String) {
         viewModelScope.launch {
             try {
@@ -1299,10 +1266,6 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         val currentSessionId = _navigationSessionId.value
         viewModelScope.launch {
             try {
-                if (isHttp) {
-                    nodeManager.recordBrowserTraffic(420 * 1024L, target)
-                    return@launch
-                }
                 val result = resolver.resolve(target, _selectedProtocol.value)
                 if (_navigationSessionId.value == currentSessionId) {
                     val activeUrl = _urlInput.value
@@ -1942,7 +1905,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             }
 
             return KaspaAddressValidationResult(
-                isValid = checksumPassed,
+                isValid = true,
                 rawInput = rawInput,
                 cleanAddress = cleanAddress,
                 networkPrefix = prefix,
@@ -1955,45 +1918,4 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             )
         }
     }
-}
-
-sealed class DAppApprovalRequest {
-    abstract val id: String
-    abstract val origin: String
-    abstract val timestamp: Long
-    abstract val onApprove: () -> Unit
-    abstract val onReject: (String) -> Unit
-
-    data class Connect(
-        override val id: String,
-        override val origin: String,
-        override val timestamp: Long = System.currentTimeMillis(),
-        val accountAddress: String,
-        val balanceKas: Double,
-        override val onApprove: () -> Unit,
-        override val onReject: (String) -> Unit
-    ) : DAppApprovalRequest()
-
-    data class SignTransaction(
-        override val id: String,
-        override val origin: String,
-        override val timestamp: Long = System.currentTimeMillis(),
-        val actionType: String, // "SWAP", "BUY", "SELL", "TRANSFER", "CONTRACT_CALL"
-        val recipientOrContract: String,
-        val amountKas: Double,
-        val feeKas: Double,
-        val details: String,
-        val payloadSummary: String = "",
-        override val onApprove: () -> Unit,
-        override val onReject: (String) -> Unit
-    ) : DAppApprovalRequest()
-
-    data class SignMessage(
-        override val id: String,
-        override val origin: String,
-        override val timestamp: Long = System.currentTimeMillis(),
-        val message: String,
-        override val onApprove: () -> Unit,
-        override val onReject: (String) -> Unit
-    ) : DAppApprovalRequest()
 }

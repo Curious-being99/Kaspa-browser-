@@ -1139,17 +1139,6 @@ private fun SendKaspaSection(
             Spacer(modifier = Modifier.height(10.dp))
 
             // Recipient Input
-            val cleanTrimmed = recipientInput.trim()
-            val parsedValidation = remember(cleanTrimmed) {
-                if (cleanTrimmed.isBlank()) null else CryptoUtils.parseKaspaAddress(cleanTrimmed)
-            }
-            val missingPrefixCandidate = remember(cleanTrimmed) {
-                if (!cleanTrimmed.contains(":") && cleanTrimmed.length in 55..65) {
-                    val candidate = "kaspa:$cleanTrimmed"
-                    if (CryptoUtils.isValidKaspaAddress(candidate)) candidate else null
-                } else null
-            }
-
             OutlinedTextField(
                 value = recipientInput,
                 onValueChange = {
@@ -1159,13 +1148,11 @@ private fun SendKaspaSection(
                 label = { Text("Recipient Kaspa Address", fontSize = 11.sp) },
                 placeholder = { Text("kaspa:q...", fontSize = 11.sp) },
                 singleLine = true,
-                isError = recipientInput.isNotBlank() && !isValidAddress && missingPrefixCandidate == null,
+                isError = recipientInput.isNotBlank() && !isValidAddress,
                 trailingIcon = {
                     if (recipientInput.isNotBlank()) {
                         if (isValidAddress) {
                             Icon(Icons.Default.CheckCircle, contentDescription = "Valid Address", tint = EmeraldMesh, modifier = Modifier.size(16.dp))
-                        } else if (missingPrefixCandidate != null) {
-                            Icon(Icons.Default.Info, contentDescription = "Missing Prefix", tint = ElectricCyan, modifier = Modifier.size(16.dp))
                         } else {
                             Icon(Icons.Default.Warning, contentDescription = "Invalid Address", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
                         }
@@ -1182,57 +1169,6 @@ private fun SendKaspaSection(
                 ),
                 shape = RoundedCornerShape(10.dp)
             )
-
-            // Address Auto-Fix & Validation Helper Chip
-            if (missingPrefixCandidate != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    onClick = {
-                        recipientInput = missingPrefixCandidate
-                        sendError = null
-                    },
-                    shape = RoundedCornerShape(8.dp),
-                    color = ElectricCyan.copy(alpha = 0.12f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.4f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Add 'kaspa:' prefix to format address", fontSize = 10.sp, color = ElectricCyan, fontWeight = FontWeight.Medium)
-                        Text("Auto-Fix ⚡", fontSize = 10.sp, color = ElectricCyan, fontWeight = FontWeight.Bold)
-                    }
-                }
-            } else if (parsedValidation != null && parsedValidation.isValid) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = EmeraldMesh.copy(alpha = 0.10f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "${parsedValidation.networkName} • ${parsedValidation.addressType}",
-                            fontSize = 10.sp,
-                            color = EmeraldMesh,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = if (parsedValidation.checksumValid) "Checksum Verified ✓" else "Format OK",
-                            fontSize = 10.sp,
-                            color = EmeraldMesh,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
 
             Spacer(modifier = Modifier.height(10.dp))
 
