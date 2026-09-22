@@ -1478,9 +1478,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 blockNetworkLoads = false
                                 offscreenPreRaster = true
                                 userAgentString = if (desktopModeEnabled) {
-                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                                    KaspaPrivacyEngine.DESKTOP_USER_AGENT
                                 } else {
-                                    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                    KaspaPrivacyEngine.MOBILE_USER_AGENT
                                 }
                             }
 
@@ -1560,7 +1560,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setAcceptCookie(true)
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
-                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            setBackgroundColor(android.graphics.Color.WHITE)
                             isHapticFeedbackEnabled = false
 
                             fun handleDeepLinkOrNavigate(targetWv: WebView?, rawUrl: String, hasGesture: Boolean): Boolean {
@@ -1573,7 +1573,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val targetHost = targetUri?.host?.lowercase() ?: ""
                                 val targetPath = targetUri?.path?.lowercase() ?: ""
                                 val targetScheme = targetUri?.scheme?.lowercase() ?: ""
-                                val isTikTokSite = currentHost.contains("tiktok.com") || currentHost.contains("tiktokv.com")
                                 
                                 return if (cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
                                     cleanUrl.startsWith("mesh://", ignoreCase = true) ||
@@ -1593,21 +1592,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     targetHost.contains("apps.apple.com") ||
                                     targetHost.contains("itunes.apple.com") ||
                                     targetHost.contains("onelink.me") ||
-                                    targetHost.contains("link.tiktok.com") ||
                                     targetHost.contains("adjust.com") ||
                                     targetHost.contains("smart.link") ||
                                     targetHost.contains("branch.io") ||
                                     targetHost.contains("app.link")
                                 )) {
                                     // Suppress non-gesture background redirects attempting to force store downloads or install trackers
-                                    true
-                                } else if (isTikTokSite && !hasGesture && (
-                                    targetPath == "/download" || targetPath.startsWith("/download/") || cleanUrl.contains("/download?") ||
-                                    targetPath == "/app" || targetPath.startsWith("/app/") || cleanUrl.contains("/app?") ||
-                                    targetPath == "/redirect" || targetPath.startsWith("/redirect/") || cleanUrl.contains("/redirect?") ||
-                                    targetPath == "/login" || targetPath.startsWith("/login/") || targetPath == "/signup" || targetPath.startsWith("/signup/")
-                                )) {
-                                    // Suppress TikTok scroll-triggered automatic redirects so user stays on video stream
                                     true
                                 } else if (cleanUrl.startsWith("intent://", ignoreCase = true)) {
                                     try {
@@ -2439,7 +2429,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         // Ensure browser background remains white for consistent website rendering
                         containerLayout.setBackgroundColor(android.graphics.Color.WHITE)
-                        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        webView.setBackgroundColor(android.graphics.Color.WHITE)
                         // Algorithmic darkening removed to prevent "black page" issues.
 
                         val currentUrl = resource.url
@@ -2466,9 +2456,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         if (isDirectHttp) {
                             val isWebStore = resource.url.contains("chromewebstore.google.com") || resource.url.contains("chrome.google.com/webstore")
                             val desiredUa = if (desktopModeEnabled || isWebStore) {
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                                KaspaPrivacyEngine.DESKTOP_USER_AGENT
                             } else {
-                                "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                KaspaPrivacyEngine.MOBILE_USER_AGENT
                             }
                             val uaChanged = webView.settings.userAgentString != desiredUa
                             if (uaChanged) {

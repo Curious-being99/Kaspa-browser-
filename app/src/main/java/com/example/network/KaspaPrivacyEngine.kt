@@ -281,64 +281,6 @@ object KaspaPrivacyEngine {
                         document.addEventListener('DOMContentLoaded', removeClickEffect);
                     }
                 } catch(_) {}
-
-                // 6. TikTok specific scroll unlock & modal banner dismisser
-                const hostname = window.location.hostname || '';
-                if (hostname.includes('tiktok.com') || hostname.includes('tiktokv.com')) {
-                        function unlockTikTokScroll() {
-                            try {
-                                if (document.body) {
-                                    if (document.body.style.overflow === 'hidden') {
-                                        document.body.style.overflow = 'auto';
-                                    }
-                                }
-                                if (document.documentElement) {
-                                    if (document.documentElement.style.overflow === 'hidden') {
-                                        document.documentElement.style.overflow = 'auto';
-                                    }
-                                }
-                            } catch(_) {}
-                        }
-
-                        window.addEventListener('scroll', unlockTikTokScroll, { passive: true });
-                        window.addEventListener('touchmove', unlockTikTokScroll, { passive: true });
-                        window.addEventListener('DOMContentLoaded', unlockTikTokScroll);
-
-                        function dismissAppPrompts() {
-                            try {
-                                const closeButtons = [
-                                    '[data-e2e="modal-close-inner-button"]',
-                                    'button[aria-label="Close"]',
-                                    'div[class*="DivBanner"] button',
-                                    'div[class*="AppBanner"] button',
-                                    'div[class*="DownloadBar"] button'
-                                ];
-                                for (const sel of closeButtons) {
-                                    const btn = document.querySelector(sel);
-                                    if (btn && typeof btn.click === 'function') {
-                                        btn.click();
-                                    }
-                                }
-                                const overlayContainers = [
-                                    'div[class*="DivModalMask"]',
-                                    'div[class*="ModalMask"]',
-                                    'div[class*="DivBannerContainer"]',
-                                    'div[class*="AppBanner"]',
-                                    'div[class*="DivDownloadBar"]'
-                                ];
-                                for (const sel of overlayContainers) {
-                                    const el = document.querySelector(sel);
-                                    if (el && el.style.display !== 'none') {
-                                        el.style.display = 'none';
-                                    }
-                                }
-                                unlockTikTokScroll();
-                            } catch(_) {}
-                        }
-
-                        setInterval(dismissAppPrompts, 1000);
-                    }
-                } catch(e) {}
             } catch (e) {}
         })();
     """
@@ -367,9 +309,7 @@ object KaspaPrivacyEngine {
     }
 
     /**
-     * Dynamic script that enforces standard desktop resolution (1280px),
-     * overrides mobile viewport constraints (<meta name="viewport" content="width=device-width">),
-     * and aligns navigator.userAgentData and platform with desktop browser standards.
+     * Dynamic script that overrides mobile navigator client hints and platform to match desktop browser standards.
      */
     fun getDesktopViewportScript(isDesktop: Boolean): String {
         return if (isDesktop) {
@@ -406,36 +346,7 @@ object KaspaPrivacyEngine {
                         Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
                     } catch(_) {}
                     try {
-                        const dw = Math.max(window.screen.width, 1280);
-                        const dh = Math.max(window.screen.height, 800);
-                        Object.defineProperty(window.screen, 'width', { get: () => dw, configurable: true });
-                        Object.defineProperty(window.screen, 'availWidth', { get: () => dw, configurable: true });
-                    } catch(_) {}
-
-                    const enforceDesktopViewport = function() {
-                        let meta = document.querySelector('meta[name="viewport"]');
-                        if (!meta) {
-                            meta = document.createElement('meta');
-                            meta.name = 'viewport';
-                            (document.head || document.documentElement).appendChild(meta);
-                        }
-                        meta.setAttribute('content', 'width=1280, initial-scale=0.35, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
-                    };
-                    enforceDesktopViewport();
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', enforceDesktopViewport);
-                    }
-                    try {
-                        const observer = new MutationObserver(function(mutations) {
-                            for (const mutation of mutations) {
-                                if (mutation.type === 'attributes' && mutation.target.name === 'viewport') {
-                                    if (mutation.target.getAttribute('content') !== 'width=1280, initial-scale=0.35, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes') {
-                                        mutation.target.setAttribute('content', 'width=1280, initial-scale=0.35, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
-                                    }
-                                }
-                            }
-                        });
-                        observer.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['content'] });
+                        Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0, configurable: true });
                     } catch(_) {}
                 } catch(_) {}
             })();
