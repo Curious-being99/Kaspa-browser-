@@ -897,13 +897,13 @@ object CryptoUtils {
         val peerId = "12D3KooW" + kaspaKey.publicKeyHex.take(24)
         
         val handle = customHandle?.trim()?.ifBlank { null }
-            ?: "Kaspa Wallet (${kaspaKey.kaspaAddress.takeLast(6)})"
+            ?: "Kaspa Account (${kaspaKey.kaspaAddress.takeLast(6)})"
 
         val encryptedMnemonic = encryptAes256(plainMnemonic)
 
         val zkProof = com.example.network.zk.ZkProofEngine.generateZkProof(
             privateKey = kaspaKey.privateKey,
-            statement = "zk-identity:${did}|${kaspaKey.kaspaAddress}|wallet:$handle"
+            statement = "zk-identity:${did}|${kaspaKey.kaspaAddress}|account:$handle"
         )
 
         return com.example.data.AccountEntity(

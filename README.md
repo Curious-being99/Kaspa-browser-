@@ -1,7 +1,7 @@
 # Kaspa Browser 🌐
 ## High-Speed Web Decentralized Gateway
 
-**Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin** and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and native **Kaspa BlockDAG (KAS)** wallet utilities into a fast, privacy-first mobile client.
+**Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin** and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and high-performance Web3 browsing into a fast, privacy-first mobile client.
 
 ---
 
@@ -52,7 +52,7 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 - **Decentralized DNS Engine**: Multi-chain DoH & ledger resolver querying Handshake (HNS) PoW root chain, Kaspa Block DAG (KNS), ENS (.eth), EmerDNS, and OpenNIC directly.
 - **Cryptographic Verification Engine**: Local in-browser SHA-256 message digest calculator certifying incoming payload streams as `VERIFIED_TAMPER_PROOF` and blocking tampered packets.
 - **Local Mesh Seeding Engine**: Room SQLite database engine (`AppDatabase` / `ContentDao`) storing content-addressed blocks with `isSeeding = true` for peer mesh seeding and zero single point of failure during server outages.
-- **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and local Kaspa wallet signing without exposing private keys.
+- **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and secure cryptographic signing without exposing private keys.
 - **Privacy & Content Shield Engine**: Real-time URL blocklist evaluator inspecting incoming DOM resources against ad-trackers and telemetry scripts before passing sanitized streams into the rendering pipeline.
 
 ---
@@ -66,7 +66,7 @@ The following diagram illustrates how user input, network resolution, peer disco
 ## 
 +----------------------------------------------------------------------------------------------------+
 |                                         USER INTERFACE (Jetpack Compose)                          |
-|  [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Kaspa Wallet ]   [ Account DID Pill ] |
+|  [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Privacy Audit ]  [ Account DID Pill ] |
 +----------------------------------------------------------------------------------------------------+
                                                    |
                                             (User Action / URL)
@@ -137,7 +137,7 @@ The following diagram illustrates how user input, network resolution, peer disco
 |                                  +---------------+---------------+                                 |
 |                                  |     JavaScript Bridge Layer   |                                 |
 |                                  |  - Zero-Knowledge DID Bridge  |                                 |
-|                                  |  - Kaspa Wallet Web3 Provider |                                 |
+|                                  |  - Web3 & Passkey Provider    |                                 |
 |                                  +---------------+---------------+                                 |
 +--------------------------------------------------+-------------------------------------------------+
                                                    |
@@ -171,22 +171,17 @@ The following diagram illustrates how user input, network resolution, peer disco
 - **Ed25519 & Secp256k1 Cryptography**: Hardware-backed key derivation with cryptographic hashing (SHA-256, Blake2b).
 - **Account Backup & Export**: Safe export of private keys and recovery phrases with PIN and biometric protection.
 
-### 💰 3. Native Kaspa BlockDAG (KAS) Wallet
-- **Real-Time DAG Explorer & Balances**: Query live UTXO balances, sompis denominations, and transaction histories across mainnet and testnet endpoints.
-- **Fast Transactions**: Compose, sign, and broadcast KAS transactions directly to public and local Kaspa nodes.
-- **QR Code Scanner & Address Validation**: Built-in address syntax validator for `kaspa:` and `kaspatest:` bech32 formats.
-
-### 📡 4. P2P Mesh Radar & Local Node Hosting
+### 📡 3. P2P Mesh Radar & Local Node Hosting
 - **Live Mesh Radar**: Discovers nearby nodes, peers, and local web services over Wi-Fi Direct, Local Area Networks (LAN), and NSD (Network Service Discovery).
 - **On-Device Micro Daemon**: Host lightweight local web pages, decentralized documents, or P2P data packets directly from your phone.
 - **Peer Latency & Routing Metrics**: Real-time ping, hops, bandwidth consumption, and signal strength auditing.
 
-### 📊 5. Real-Time Traffic Audit & Privacy Shield
+### 📊 4. Real-Time Traffic Audit & Privacy Shield
 - **Data Usage Analytics**: Monitor upstream and downstream bandwidth in real time.
 - **Tracker & Script Protection**: Built-in content shielding to mitigate intrusive tracking and reduce mobile data overhead.
 - **Live Traffic Logs**: Detailed ledger of intercepted network calls, DNS queries, and decentralized gateway lookups.
 
-### 📱 6. PWA Launcher & Desktop Integration
+### 📱 5. PWA Launcher & Desktop Integration
 - **Zero-Install Web Apps**: Pin decentralized dApps and standard web apps directly to the Android Home Screen using Android Pin Shortcut APIs.
 - **Dynamic Icons & Standalone Viewing**: Launches installed web apps in dedicated immersive views.
 
@@ -201,13 +196,13 @@ KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's
 
 | Component / Token | Hex Code | Visual Sample | Usage & UI Mapping |
 | :--- | :--- | :--- | :--- |
-| **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | App Logo, Primary Action Buttons, Active Navigation Tab, KAS Balance Counters, Verified Badges |
+| **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | App Logo, Primary Action Buttons, Active Navigation Tab, Status Badges, Verified Badges |
 | **Cyan Glow** (Mesh Accent) | `#49A89A` | `#49A89A` | Mesh Radar Pulse Rings, Active Peer Nodes, Encryption Status Beacon |
 | **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | Root Application Background, Status Bar Scrim, Fullscreen WebView Backdrop |
 | **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Card Containers, Sheet Headers |
 | **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
 | **Violet Bridge** (Identity/zk) | `#6366F1` | `#6366F1` | Decentralized ID (DID) Badges, Ed25519 Keys, IPFS Gateway Indicators |
-| **Amber Central** (Warning) | `#F59E0B` | `#F59E0B` | Medium-Latency Nodes, Pending BlockDAG Transactions, Unsigned Warnings |
+| **Amber Central** (Warning) | `#F59E0B` | `#F59E0B` | Medium-Latency Nodes, Unsigned Warnings, Network Warnings |
 | **Red Tamper** (Shield/Alert) | `#EF4444` | `#EF4444` | Blocked Tracker Ledger, Dropped Packets, Offline Status Alerts |
 | **Text Primary** (High Contrast) | `#F3F4F6` | `#F3F4F6` | URL Typography, Headings, Primary Interactive Labels |
 
@@ -234,20 +229,17 @@ The codebase is engineered following modern Android architecture guidelines (**M
 │           │   │   ├── Daos.kt                   # Data Access Objects (History, Bookmarks, Nodes)
 │           │   │   └── Entities.kt               # SQLite database entities
 │           │   ├── model/
-│           │   │   ├── KaspaWalletModels.kt      # KAS UTXO, transaction, and balance models
 │           │   │   └── NetworkModels.kt          # Mesh, node, peer, and traffic packet models
 │           │   ├── network/
 │           │   │   ├── CryptoUtils.kt            # Key generation, hashing, and hex tools
 │           │   │   ├── DomainConstants.kt        # Default seed nodes, public APIs, and gateways
 │           │   │   ├── DualStackResolver.kt      # DNS and decentralized protocol resolver
-│           │   │   ├── KaspaWalletService.kt     # Kaspa REST/RPC service client
 │           │   │   ├── LocalNodeManager.kt       # On-device micro-daemon and routing logic
 │           │   │   ├── NetworkDiscoveryManager.kt# LAN/NSD/Mesh peer discovery engine
 │           │   │   └── PwaShortcutHelper.kt      # Home screen shortcut & launcher manager
 │           │   ├── ui/
 │           │   │   ├── BrowserGatewayScreen.kt   # Dual-stack WebView browser & tab manager
 │           │   │   ├── DecentralizedAccountDialog.kt # Key management & Seed dialogs
-│           │   │   ├── KaspaWalletView.kt        # Kaspa wallet balance, send, and receive UI
 │           │   │   ├── MainScreen.kt             # Navigation bar, Scaffold, and root view
 │           │   │   ├── MeshRadarScreen.kt        # Interactive P2P visual radar & peer map
 │           │   │   ├── PwaInstallDialog.kt       # PWA confirmation & icon dialog

@@ -112,7 +112,6 @@ The browser operates using a multi-layered hybrid engine stack:
         │           │   ├── DomainConstants.kt           # Custom TLD definitions
         │           │   ├── DualStackResolver.kt         # Core P2P / DoH / Handshake / KNS engine
         │           │   ├── KaspaPrivacyEngine.kt        # Privacy shield & anti-tracking headers
-        │           │   ├── KaspaWalletService.kt        # Kaspa RPC node client
         │           │   ├── LocalNodeManager.kt          # P2P daemon node manager
         │           │   └── NetworkDiscoveryManager.kt   # Peer discovery & mesh routing
         │           ├── ui

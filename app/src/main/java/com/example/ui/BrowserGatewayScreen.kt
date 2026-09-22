@@ -24,7 +24,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Image
@@ -264,7 +263,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val bookmarks by viewModel.bookmarks.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
 
-    val isWalletLocked by viewModel.isWalletLocked.collectAsState()
     val hasWalletPassword by viewModel.hasWalletPassword.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
 
@@ -320,11 +318,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { mutableFloatStateOf(0f) }
     var isWebLoading by remember { mutableStateOf(false) }
-    var isPullRefreshing by remember { mutableStateOf(false) }
-    var pullOffsetY by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var viewSourceMode by remember { mutableStateOf(false) }
     val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    LaunchedEffect(isWebLoading) {
+        if (!isWebLoading) {
+            (webViewInstance?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
+        }
+    }
 
     val urlInput by viewModel.urlInput.collectAsState()
     val kaspaAddressValidation by viewModel.kaspaAddressValidation.collectAsState()
@@ -525,10 +527,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
-    val kaspaWalletState by viewModel.kaspaWalletState.collectAsState()
-    val allDomains by viewModel.allDomains.collectAsState()
-    val domainAvailability by viewModel.domainAvailability.collectAsState()
-    val isRegisteringDomain by viewModel.isRegisteringDomain.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
 
@@ -666,42 +664,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             .fillMaxSize()
             .then(backgroundModifier)
     ) {
-        // TOP BROWSER BAR: Directly starting with the search/URL bar with Sticky Head Pull-To-Refresh
+        // TOP BROWSER BAR: Directly starting with the search/URL bar
         val scope = rememberCoroutineScope()
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("browser_address_bar")
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onVerticalDrag = { change, dragAmount ->
-                            if (dragAmount > 0f || pullOffsetY > 0f) {
-                                change.consume()
-                                pullOffsetY = (pullOffsetY + dragAmount * 0.45f).coerceIn(0f, 90f)
-                            }
-                        },
-                        onDragEnd = {
-                            if (pullOffsetY >= 40f) {
-                                isPullRefreshing = true
-                                scope.launch {
-                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
-                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                        webViewInstance?.reload()
-                                    } else {
-                                        viewModel.resolveUrl()
-                                    }
-                                    viewModel.refreshKaspaWallet()
-                                    kotlinx.coroutines.delay(1200L)
-                                    isPullRefreshing = false
-                                }
-                            }
-                            pullOffsetY = 0f
-                        },
-                        onDragCancel = {
-                            pullOffsetY = 0f
-                        }
-                    )
-                },
+                .testTag("browser_address_bar"),
             color = SurfaceDark,
             tonalElevation = 4.dp
         ) {
@@ -1254,7 +1222,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 .size(38.dp)
                                 .clip(CircleShape)
                                 .clickable {
-                                    accountDialogInitialTab = 1
+                                    accountDialogInitialTab = 0
                                     showAccountDialog = true
                                 }
                                 .testTag("account_identity_button")
@@ -1271,39 +1239,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     )
                                 }
                             }
-                        }
-                    }
-                }
-
-                // PULL TO REFRESH (Frameless inline banner directly after search bar)
-                AnimatedVisibility(
-                    visible = pullOffsetY > 0f || isPullRefreshing,
-                    enter = fadeIn() + slideInVertically(),
-                    exit = fadeOut() + slideOutVertically()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (isPullRefreshing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = ElectricCyan
-                            )
-                        } else {
-                            val rotation = (pullOffsetY * 4f) % 360f
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Pull to refresh",
-                                tint = ElectricCyan,
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .graphicsLayer(rotationZ = rotation)
-                            )
                         }
                     }
                 }
@@ -1454,12 +1389,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         factory = { ctx ->
                         val browserBgColor = android.graphics.Color.WHITE
 
-                        android.widget.FrameLayout(ctx).apply {
+                        androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
                             setBackgroundColor(browserBgColor)
+                            setColorSchemeColors(
+                                android.graphics.Color.parseColor("#00E5FF"),
+                                android.graphics.Color.parseColor("#10B981")
+                            )
+                            setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
 
                             val webView = WebView(ctx).apply {
                                 layoutParams = ViewGroup.LayoutParams(
@@ -1552,11 +1492,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
                                         setOf("*")
                                     )
-                                    androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
-                                        this,
-                                        com.example.network.KaspaWalletBridge.getInjectionScript(),
-                                        setOf("*")
-                                    )
                                 } catch (_: Throwable) {}
                             }
 
@@ -1568,15 +1503,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 scope = scope
                             )
                             addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
-
-                            // Attach Universal Kaspa Web3 Wallet Bridge (window.kasware / window.kaspa)
-                            val kaspaWalletBridge = com.example.network.KaspaWalletBridge(
-                                context = ctx,
-                                webViewProvider = { webViewInstance },
-                                viewModel = viewModel,
-                                scope = scope
-                            )
-                            addJavascriptInterface(kaspaWalletBridge, "KaspaWalletBridge")
 
                             // Long-press context menu for links and images
                             setOnLongClickListener { v ->
@@ -2061,11 +1987,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
-                                    view?.evaluateJavascript(
-                                        com.example.network.KaspaWalletBridge.getInjectionScript(),
-                                        null
-                                    )
-
                                     if (webAuthEnabled) {
                                         view?.evaluateJavascript(
                                             com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
@@ -2076,6 +1997,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     isWebLoading = false
+                                    (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                     webProgress = 1.0f
                                     viewModel.setIsLoading(false)
                                     canGoBack = view?.canGoBack() == true
@@ -2102,11 +2024,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                     view?.evaluateJavascript(
                                         KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
-                                        null
-                                    )
-
-                                    view?.evaluateJavascript(
-                                        com.example.network.KaspaWalletBridge.getInjectionScript(),
                                         null
                                     )
 
@@ -2400,6 +2317,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     if (request?.isForMainFrame == true) {
                                         isWebLoading = false
+                                        (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                         if (failingUrl.startsWith("http://", ignoreCase = true) || failingUrl.startsWith("https://", ignoreCase = true)) {
                                             val errorMsg = error?.description?.toString() ?: "Network error or connection timed out"
                                             val errorPage = """
@@ -2433,6 +2351,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                                     handler?.cancel()
+                                    isWebLoading = false
+                                    (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                     val failingUrl = error?.url ?: ""
                                     val sslReason = when (error?.primaryError) {
                                         android.net.http.SslError.SSL_EXPIRED -> "The SSL certificate for this site has expired."
@@ -2475,6 +2395,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
 
                         addView(webView)
+
+                        setOnChildScrollUpCallback { _, _ ->
+                            webView.canScrollVertically(-1) || webView.scrollY > 0
+                        }
+
+                        setOnRefreshListener {
+                            val currentUrl = webView.url ?: urlInput
+                            val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
+                            if (normalized.startsWith("http://", ignoreCase = true) || normalized.startsWith("https://", ignoreCase = true)) {
+                                webView.reload()
+                            } else {
+                                viewModel.resolveUrl()
+                            }
+                        }
                     }
                 },
                 update = { containerLayout ->
@@ -2482,6 +2416,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val webView = (0 until containerLayout.childCount)
                             .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                             .firstOrNull() ?: return@AndroidView
+
+                        val swipeRefresh = containerLayout as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                        if (swipeRefresh != null) {
+                            swipeRefresh.isEnabled = !showFindInPage && !isReaderMode
+                            if (!isWebLoading && swipeRefresh.isRefreshing) {
+                                swipeRefresh.isRefreshing = false
+                            }
+                        }
 
                         webViewInstance = webView
                         canGoBack = webView.canGoBack()
@@ -2491,6 +2433,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val readerBgInt = android.graphics.Color.parseColor("#0F172A")
                             containerLayout.setBackgroundColor(readerBgInt)
                             webView.setBackgroundColor(readerBgInt)
+                            swipeRefresh?.isEnabled = false
                             return@AndroidView
                         }
 
@@ -2588,6 +2531,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 },
                 onRelease = { containerLayout ->
+                    val swipeRefresh = containerLayout as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                    swipeRefresh?.setOnRefreshListener(null)
+                    swipeRefresh?.setOnChildScrollUpCallback(null)
                     val webView = (0 until containerLayout.childCount)
                         .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                         .firstOrNull()
@@ -3009,36 +2955,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         )
     }
 
-    // Decentralized Identity & Google zk-Bridge Dialog with Built-in Kaspa Wallet
+    // Decentralized Identity & Google zk-Bridge Dialog
     if (showAccountDialog) {
         DecentralizedAccountDialog(
             activeAccount = activeAccount,
             allAccounts = allAccounts,
-            walletState = kaspaWalletState,
             initialTab = accountDialogInitialTab,
-            registeredDomains = allDomains,
-            domainAvailability = domainAvailability,
-            isRegisteringDomain = isRegisteringDomain,
             onDismiss = { showAccountDialog = false },
-            onCheckDomainAvailability = { viewModel.checkDomainAvailability(it) },
-            onRegisterDomain = { domain, cid, onComplete ->
-                viewModel.registerKabDomain(domain, cid, onComplete)
-            },
-            onTransferDomain = { domain, newOwner, onComplete ->
-                viewModel.transferKabDomain(domain, newOwner, onComplete)
-            },
-            onDeleteDomain = { domain ->
-                viewModel.deleteDomain(domain)
-            },
-            onCreateAccount = { handle, mnemonic, password, enableBiometric ->
-                viewModel.createDecentralizedAccount(handle, mnemonic, password, enableBiometric)
-            },
-            isWalletLocked = isWalletLocked,
-            hasWalletPassword = hasWalletPassword,
+            hasAccountPassword = hasWalletPassword,
             biometricEnabled = biometricsEnabled,
-            onUnlockWalletWithPassword = { password -> viewModel.unlockWalletWithPassword(password) },
-            onUnlockWalletWithBiometric = { viewModel.unlockWalletWithBiometric() },
-            onLockWallet = { viewModel.lockWallet() },
+            onVerifyPassword = { password -> viewModel.unlockWalletWithPassword(password) },
             onLinkGoogle = { email, displayName ->
                 viewModel.linkGoogleDecentralizedAccount(email, displayName)
             },
@@ -3052,18 +2978,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             onDeleteAccount = { acc ->
                 viewModel.deleteAccount(acc)
             },
-            onRefreshWallet = {
-                viewModel.refreshKaspaWallet()
-            },
-            onSendKaspa = { to, amt ->
-                viewModel.sendKaspaTransaction(to, amt)
-            },
             onOpenUrl = { url ->
                 showAccountDialog = false
                 viewModel.openUrlInBrowser(url)
             },
             onSignOut = {
-                viewModel.signOutActiveAccount()
+                val acc = activeAccount
+                if (acc != null) {
+                    viewModel.deleteAccount(acc)
+                }
+                showAccountDialog = false
             }
         )
     }

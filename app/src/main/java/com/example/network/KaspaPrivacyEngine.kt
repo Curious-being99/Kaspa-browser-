@@ -343,8 +343,111 @@ object KaspaPrivacyEngine {
         })();
     """
 
-    fun getPrivacyShieldScript(safeGpuMode: Boolean = true): String {
+    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+
+    /**
+     * Client hints and network headers for Desktop / Mobile site modes.
+     * Tells modern servers (Google, YouTube, Reddit, etc.) whether to serve desktop or mobile layouts.
+     */
+    fun getDesktopHeaders(isDesktop: Boolean): Map<String, String> {
+        return if (isDesktop) {
+            mapOf(
+                "Sec-CH-UA-Mobile" to "?0",
+                "Sec-CH-UA-Platform" to "\"Windows\"",
+                "Sec-CH-UA" to "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\""
+            )
+        } else {
+            mapOf(
+                "Sec-CH-UA-Mobile" to "?1",
+                "Sec-CH-UA-Platform" to "\"Android\"",
+                "Sec-CH-UA" to "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\""
+            )
+        }
+    }
+
+    /**
+     * Dynamic script that enforces standard desktop resolution (1280px),
+     * overrides mobile viewport constraints (<meta name="viewport" content="width=device-width">),
+     * and aligns navigator.userAgentData and platform with desktop browser standards.
+     */
+    fun getDesktopViewportScript(isDesktop: Boolean): String {
+        return if (isDesktop) {
+            """
+            (function() {
+                try {
+                    if (navigator.userAgentData) {
+                        try {
+                            Object.defineProperty(navigator, 'userAgentData', {
+                                get: () => ({
+                                    brands: [
+                                        { brand: 'Chromium', version: '130' },
+                                        { brand: 'Google Chrome', version: '130' },
+                                        { brand: 'Not?A_Brand', version: '99' }
+                                    ],
+                                    mobile: false,
+                                    platform: 'Windows',
+                                    getHighEntropyValues: (hints) => Promise.resolve({
+                                        architecture: 'x86',
+                                        bitness: '64',
+                                        mobile: false,
+                                        model: '',
+                                        platform: 'Windows',
+                                        platformVersion: '10.0.0',
+                                        uaFullVersion: '130.0.0.0'
+                                    })
+                                }),
+                                configurable: true,
+                                enumerable: true
+                            });
+                        } catch(_) {}
+                    }
+                    try {
+                        Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
+                    } catch(_) {}
+                    try {
+                        const dw = Math.max(window.screen.width, 1280);
+                        const dh = Math.max(window.screen.height, 800);
+                        Object.defineProperty(window.screen, 'width', { get: () => dw, configurable: true });
+                        Object.defineProperty(window.screen, 'availWidth', { get: () => dw, configurable: true });
+                    } catch(_) {}
+
+                    const enforceDesktopViewport = function() {
+                        let meta = document.querySelector('meta[name="viewport"]');
+                        if (!meta) {
+                            meta = document.createElement('meta');
+                            meta.name = 'viewport';
+                            (document.head || document.documentElement).appendChild(meta);
+                        }
+                        meta.setAttribute('content', 'width=1280, initial-scale=0.35, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
+                    };
+                    enforceDesktopViewport();
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', enforceDesktopViewport);
+                    }
+                    try {
+                        const observer = new MutationObserver(function(mutations) {
+                            for (const mutation of mutations) {
+                                if (mutation.type === 'attributes' && mutation.target.name === 'viewport') {
+                                    if (mutation.target.getAttribute('content') !== 'width=1280, initial-scale=0.35, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes') {
+                                        mutation.target.setAttribute('content', 'width=1280, initial-scale=0.35, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
+                                    }
+                                }
+                            }
+                        });
+                        observer.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['content'] });
+                    } catch(_) {}
+                } catch(_) {}
+            })();
+            """.trimIndent()
+        } else {
+            ""
+        }
+    }
+
+    fun getPrivacyShieldScript(safeGpuMode: Boolean = true, isDesktop: Boolean = false): String {
         val flag = if (safeGpuMode) "window.__kaspa_software_rendering = true;" else ""
-        return "$flag\n$JS_PRIVACY_SHIELD_INJECTION"
+        val desktopScript = if (isDesktop) getDesktopViewportScript(true) else ""
+        return "$flag\n$JS_PRIVACY_SHIELD_INJECTION\n$desktopScript"
     }
 }

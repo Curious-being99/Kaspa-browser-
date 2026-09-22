@@ -41,7 +41,7 @@ object BiometricAuthHelper {
      */
     fun authenticateWithBiometricOrDeviceLock(
         context: Context,
-        title: String = "Unlock Kaspa Wallet",
+        title: String = "Unlock Kaspa Account",
         subtitle: String = "Authenticate using fingerprint, face, or device PIN",
         onSuccess: () -> Unit,
         onError: (String) -> Unit

@@ -38,10 +38,11 @@ class KaspaDomainRegistry(
     private val walletService: KaspaWalletService
 ) {
 
-    private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(2, TimeUnit.SECONDS)
-        .build()
+    private val okHttpClient = com.example.network.CronetClientFactory.buildClient(
+        OkHttpClient.Builder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.SECONDS)
+    )
 
     companion object {
         const val STANDARD_REGISTRATION_FEE_KAS = 35.0
