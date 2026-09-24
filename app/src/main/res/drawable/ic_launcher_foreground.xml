@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item
-        android:width="72dp"
-        android:height="72dp"
-        android:drawable="@drawable/ic_kaspa_reverse_k"
+        android:width="76dp"
+        android:height="76dp"
+        android:drawable="@drawable/ic_kaspa_ant_logo"
         android:gravity="center" />
 </layer-list>
 

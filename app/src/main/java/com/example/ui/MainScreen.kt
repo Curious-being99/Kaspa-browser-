@@ -383,7 +383,7 @@ private fun SplashLaunchLogo(
     sizeDp: Int = 72
 ) {
     Image(
-        painter = painterResource(id = R.drawable.ic_kaspa_reverse_k),
+        painter = painterResource(id = R.drawable.ic_kaspa_ant_logo),
         contentDescription = "Kaspa Logo",
         contentScale = ContentScale.Fit,
         modifier = modifier.size(sizeDp.dp)
