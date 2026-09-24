@@ -7,4 +7,6 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="obsidian_bg">#FF0C0D10</color>
+    <color name="kaspa_teal">#FF70C7BA</color>
 </resources>

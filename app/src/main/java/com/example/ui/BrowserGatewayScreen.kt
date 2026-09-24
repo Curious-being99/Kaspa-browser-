@@ -231,6 +231,144 @@ data class BrowserTab(
     val resource: ResolvedResource? = null
 )
 
+internal fun executeImageDownload(
+    context: android.content.Context,
+    targetImgUrl: String,
+    viewModel: DecentralViewModel,
+    webViewInstance: WebView?
+) {
+    try {
+        val downloadId = System.currentTimeMillis()
+        val cleanFileName: String
+
+        if (targetImgUrl.startsWith("data:", ignoreCase = true)) {
+            val ext = when {
+                targetImgUrl.startsWith("data:image/png", ignoreCase = true) -> "png"
+                targetImgUrl.startsWith("data:image/jpeg", ignoreCase = true) || targetImgUrl.startsWith("data:image/jpg", ignoreCase = true) -> "jpg"
+                targetImgUrl.startsWith("data:image/webp", ignoreCase = true) -> "webp"
+                targetImgUrl.startsWith("data:image/svg", ignoreCase = true) -> "svg"
+                targetImgUrl.startsWith("data:image/gif", ignoreCase = true) -> "gif"
+                else -> "png"
+            }
+            cleanFileName = "image_${System.currentTimeMillis()}.$ext"
+            viewModel.addDownload(downloadId, cleanFileName, targetImgUrl)
+            viewModel.saveBase64ImageDownload(context, downloadId, targetImgUrl, cleanFileName)
+            viewModel.setStatusMessage("Downloading image: $cleanFileName")
+            android.widget.Toast.makeText(context, "Downloading $cleanFileName", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Standard HTTP / HTTPS URL
+        val rawFilename = android.webkit.URLUtil.guessFileName(targetImgUrl, null, "image/*")
+        if (rawFilename.isBlank() || rawFilename == "downloadfile" || !rawFilename.contains(".")) {
+            val urlClean = targetImgUrl.substringBefore("?").substringBefore("#")
+            val lastSegment = urlClean.substringAfterLast("/").trim()
+            val guessedExt = when {
+                lastSegment.endsWith(".png", true) -> "png"
+                lastSegment.endsWith(".jpg", true) || lastSegment.endsWith(".jpeg", true) -> "jpg"
+                lastSegment.endsWith(".webp", true) -> "webp"
+                lastSegment.endsWith(".svg", true) -> "svg"
+                lastSegment.endsWith(".gif", true) -> "gif"
+                targetImgUrl.contains("format=webp", true) -> "webp"
+                targetImgUrl.contains("format=png", true) -> "png"
+                targetImgUrl.contains("format=jpg", true) || targetImgUrl.contains("format=jpeg", true) -> "jpg"
+                else -> "jpg"
+            }
+            cleanFileName = if (lastSegment.isNotBlank() && lastSegment.length < 40 && !lastSegment.contains(".")) {
+                "${lastSegment}_${System.currentTimeMillis()}.$guessedExt"
+            } else {
+                "image_${System.currentTimeMillis()}.$guessedExt"
+            }
+        } else {
+            cleanFileName = rawFilename
+        }
+
+        val sanitizedFileName = cleanFileName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+
+        val cookies = try {
+            android.webkit.CookieManager.getInstance().getCookie(targetImgUrl)
+        } catch (_: Exception) {
+            null
+        }
+        val userAgent = webViewInstance?.settings?.userAgentString
+        val referer = webViewInstance?.url ?: targetImgUrl
+
+        val dmId = try {
+            val request = android.app.DownloadManager.Request(android.net.Uri.parse(targetImgUrl)).apply {
+                setTitle(sanitizedFileName)
+                setDescription("Downloading image")
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(true)
+                setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
+                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, sanitizedFileName)
+                if (!userAgent.isNullOrBlank()) {
+                    addRequestHeader("User-Agent", userAgent)
+                }
+                if (!cookies.isNullOrBlank()) {
+                    addRequestHeader("Cookie", cookies)
+                }
+                if (!referer.isNullOrBlank()) {
+                    addRequestHeader("Referer", referer)
+                }
+            }
+            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+            dm.enqueue(request)
+        } catch (_: Exception) {
+            downloadId
+        }
+
+        viewModel.addDownload(dmId, sanitizedFileName, targetImgUrl)
+        viewModel.startDownload(context, dmId, targetImgUrl, sanitizedFileName, cookies, userAgent, referer)
+        viewModel.setStatusMessage("Downloading image: $sanitizedFileName")
+        android.widget.Toast.makeText(context, "Downloading $sanitizedFileName", android.widget.Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        viewModel.setStatusMessage("Image download failed: ${e.message}")
+        android.widget.Toast.makeText(context, "Image download failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+@Composable
+private fun HubActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    iconTint: Color = TextPrimary,
+    titleColor: Color = TextPrimary,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(18.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = titleColor
+            )
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = TextMuted
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled", "WrongConstant", "NewApi")
 @Composable
@@ -269,8 +407,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     var longPressedLinkUrl by remember { mutableStateOf<String?>(null) }
     var longPressedImageUrl by remember { mutableStateOf<String?>(null) }
+    var longPressedImageTitle by remember { mutableStateOf<String?>(null) }
     var isLongPressedImage by remember { mutableStateOf(false) }
     var showLinkContextMenu by remember { mutableStateOf(false) }
+    val linkContextMenuSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val bookmarks by viewModel.bookmarks.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
@@ -380,8 +520,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    LaunchedEffect(urlInput, currentResource) {
-        viewModel.updateActiveTabMetadata(urlInput, currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput)
+    LaunchedEffect(urlInput, currentResource?.title) {
+        val title = currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput
+        viewModel.updateActiveTabMetadata(urlInput, title)
     }
 
     fun toggleReaderMode() {
@@ -504,8 +645,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val sendDntHeaders by viewModel.sendDntHeaders.collectAsState()
     val httpsOnlyMode by viewModel.httpsOnlyMode.collectAsState()
     val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
-    val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
-    val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
@@ -543,12 +682,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val data = result.data
-            if (data != null) {
-                val uris = android.webkit.WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
-                uploadCallback?.onReceiveValue(uris)
+            val uris: Array<android.net.Uri>? = if (data != null) {
+                val parsed = try {
+                    android.webkit.WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
+                } catch (_: Throwable) {
+                    null
+                }
+                if (!parsed.isNullOrEmpty()) {
+                    parsed
+                } else if (data.data != null) {
+                    arrayOf(data.data!!)
+                } else if (data.clipData != null && data.clipData!!.itemCount > 0) {
+                    val list = mutableListOf<android.net.Uri>()
+                    for (i in 0 until data.clipData!!.itemCount) {
+                        data.clipData!!.getItemAt(i).uri?.let { list.add(it) }
+                    }
+                    if (list.isNotEmpty()) list.toTypedArray() else null
+                } else {
+                    null
+                }
             } else {
-                uploadCallback?.onReceiveValue(null)
+                null
             }
+            uploadCallback?.onReceiveValue(uris)
         } else {
             uploadCallback?.onReceiveValue(null)
         }
@@ -1008,13 +1164,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    if (isLoading || isWebLoading) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            strokeWidth = 2.dp,
-                                            color = ElectricCyan
-                                        )
-                                    } else if (urlInput.isNotEmpty()) {
+                                    if (urlInput.isNotEmpty()) {
                                         val isBookmarked = remember(urlInput, bookmarks) {
                                             bookmarks.any { it.url == urlInput }
                                         }
@@ -1023,13 +1173,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             onClick = {
                                                 viewModel.toggleBookmark(urlInput, currentResource?.title ?: urlInput)
                                             },
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(26.dp)
                                         ) {
                                             Icon(
                                                 imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                                 contentDescription = "Bookmark",
                                                 tint = if (isBookmarked) ElectricCyan else TextMuted,
-                                                modifier = Modifier.size(14.dp)
+                                                modifier = Modifier.size(15.dp)
                                             )
                                         }
 
@@ -1037,20 +1187,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                         IconButton(
                                             onClick = {
-                                                val normalized = viewModel.normalizeUrlOrQuery(urlInput)
-                                                if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
-                                                    webViewInstance?.reload()
+                                                if (isWebLoading) {
+                                                    webViewInstance?.stopLoading()
+                                                    isWebLoading = false
+                                                    viewModel.setIsLoading(false)
                                                 } else {
-                                                    viewModel.onUserSubmitUrl(normalized)
+                                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
+                                                    if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
+                                                        webViewInstance?.reload()
+                                                    } else {
+                                                        viewModel.onUserSubmitUrl(normalized)
+                                                    }
                                                 }
                                             },
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(26.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = "Reload",
-                                                tint = TextMuted,
-                                                modifier = Modifier.size(14.dp)
+                                                imageVector = if (isWebLoading) Icons.Default.Close else Icons.Default.Refresh,
+                                                contentDescription = if (isWebLoading) "Stop Loading" else "Reload",
+                                                tint = if (isWebLoading) ElectricCyan else TextMuted,
+                                                modifier = Modifier.size(15.dp)
                                             )
                                         }
 
@@ -1058,13 +1214,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                         IconButton(
                                             onClick = { toggleReaderMode() },
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(26.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.Article,
                                                 contentDescription = if (isReaderMode) "Exit Reader Mode" else "Reader Mode",
                                                 tint = if (isReaderMode) ElectricCyan else TextMuted,
-                                                modifier = Modifier.size(14.dp)
+                                                modifier = Modifier.size(15.dp)
                                             )
                                         }
                                     }
@@ -1172,7 +1328,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             wv.settings.useWideViewPort = true
                                             wv.settings.loadWithOverviewMode = newMode
                                             wv.setInitialScale(0)
-                                            val curUrl = wv.url ?: (if (urlInput.isNotBlank()) urlInput else currentResource?.url)
+                                            val rawUrl = wv.url ?: (if (urlInput.isNotBlank()) urlInput else currentResource?.url)
+                                            val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
+                                                KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
+                                            } else if (!newMode && !rawUrl.isNullOrBlank()) {
+                                                KaspaPrivacyEngine.convertDesktopUrlToMobile(rawUrl)
+                                            } else {
+                                                rawUrl
+                                            }
+                                            if (!curUrl.isNullOrBlank() && curUrl != rawUrl) {
+                                                viewModel.setUrlInput(curUrl)
+                                            }
                                             if (!curUrl.isNullOrBlank() && (curUrl.startsWith("http://", ignoreCase = true) || curUrl.startsWith("https://", ignoreCase = true))) {
                                                 wv.loadUrl(curUrl, KaspaPrivacyEngine.getDesktopHeaders(newMode, defaultDeviceUa))
                                             } else {
@@ -1286,16 +1452,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     )
                 }
 
-                // Web Page Loading Progress Bar (Real WebView Loading Progress)
-                if (isWebLoading && webProgress in 0.01f..0.99f) {
-                    LinearProgressIndicator(
-                        progress = { webProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.dp),
-                        color = ElectricCyan,
-                        trackColor = Color.Transparent
-                    )
+                // Web Page Loading Progress Bar (Fixed 2dp container - zero sticky header jitter or height shift)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                ) {
+                    if (isWebLoading && webProgress in 0.01f..0.99f) {
+                        LinearProgressIndicator(
+                            progress = { webProgress },
+                            modifier = Modifier.fillMaxSize(),
+                            color = ElectricCyan,
+                            trackColor = Color.Transparent
+                        )
+                    }
                 }
 
                 // Reader Mode Active Header Controls
@@ -1538,7 +1708,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             )
                             addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
 
-                            // Long-press context menu for links and images
+                            // Long-press context menu for links and images (Chrome-style Hub trigger)
                             setOnLongClickListener { v ->
                                 val wv = v as? WebView
                                 val result = wv?.hitTestResult
@@ -1554,30 +1724,33 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             override fun handleMessage(msg: android.os.Message) {
                                                 val src = msg.data.getString("src")
                                                 val url = msg.data.getString("url")
+                                                val title = msg.data.getString("title")
                                                 longPressedImageUrl = if (!src.isNullOrBlank()) src else extra
-                                                longPressedLinkUrl = if (!url.isNullOrBlank()) url else (if (!src.isNullOrBlank()) src else extra)
+                                                longPressedLinkUrl = if (!url.isNullOrBlank()) url else null
+                                                longPressedImageTitle = if (!title.isNullOrBlank()) title else null
                                                 isLongPressedImage = true
                                                 showLinkContextMenu = true
                                             }
                                         }
                                         wv.requestFocusNodeHref(message)
                                         return@setOnLongClickListener true
+                                    } else if (type == WebView.HitTestResult.IMAGE_TYPE && !extra.isNullOrBlank()) {
+                                        longPressedImageUrl = extra
+                                        longPressedLinkUrl = null
+                                        longPressedImageTitle = null
+                                        isLongPressedImage = true
+                                        showLinkContextMenu = true
+                                        return@setOnLongClickListener true
                                     } else if (!extra.isNullOrBlank() && (
                                         type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
-                                        type == WebView.HitTestResult.IMAGE_TYPE ||
                                         type == WebView.HitTestResult.GEO_TYPE ||
                                         type == WebView.HitTestResult.EMAIL_TYPE ||
                                         type == WebView.HitTestResult.PHONE_TYPE
                                     )) {
-                                        if (isImg) {
-                                            longPressedImageUrl = extra
-                                            longPressedLinkUrl = extra
-                                            isLongPressedImage = true
-                                        } else {
-                                            longPressedImageUrl = null
-                                            longPressedLinkUrl = extra
-                                            isLongPressedImage = false
-                                        }
+                                        longPressedImageUrl = null
+                                        longPressedLinkUrl = extra
+                                        longPressedImageTitle = null
+                                        isLongPressedImage = false
                                         showLinkContextMenu = true
                                         return@setOnLongClickListener true
                                     }
@@ -1895,11 +2068,31 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     uploadCallback = filePathCallback
                                     return try {
-                                        val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            type = "*/*"
+                                        val baseIntent = try {
+                                            fileChooserParams?.createIntent()
+                                        } catch (_: Throwable) {
+                                            null
                                         }
-                                        fileChooserLauncher.launch(intent)
+                                        val intent = baseIntent ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                            addCategory(Intent.CATEGORY_OPENABLE)
+                                            val rawAccept = fileChooserParams?.acceptTypes?.filter { !it.isNullOrBlank() }
+                                            if (!rawAccept.isNullOrEmpty()) {
+                                                if (rawAccept.size == 1) {
+                                                    type = rawAccept[0]
+                                                } else {
+                                                    type = "*/*"
+                                                    putExtra(Intent.EXTRA_MIME_TYPES, rawAccept.toTypedArray())
+                                                }
+                                            } else {
+                                                type = "*/*"
+                                            }
+                                        }
+                                        if (fileChooserParams?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
+                                            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                                        }
+                                        val title = fileChooserParams?.title?.takeIf { it.isNotBlank() } ?: "Choose file to upload"
+                                        val chooser = Intent.createChooser(intent, title)
+                                        fileChooserLauncher.launch(chooser)
                                         true
                                     } catch (_: Exception) {
                                         uploadCallback?.onReceiveValue(null)
@@ -2006,7 +2199,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         isExtractingOrLoadingReaderMode = false
                                     }
                                     isWebLoading = true
-                                    webProgress = 0f
+                                    webProgress = 0.05f
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -2022,7 +2215,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("kns://", ignoreCase = true) ||
                                             it.startsWith("hyper://", ignoreCase = true)
 
-                                        if (isNavigableUrl) {
+                                        if (isNavigableUrl && it != urlInput) {
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
@@ -2322,7 +2515,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return true
                                     }
 
-                                    viewModel.setUrlInput(targetUrl)
                                     return false
                                 }
 
@@ -2346,7 +2538,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return true
                                     }
 
-                                    viewModel.setUrlInput(targetUrl)
                                     return false
                                 }
 
@@ -2549,7 +2740,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
                                 webView.loadUrl(finalUrl, desktopHeaders)
                             } else if (uaChanged) {
-                                val targetUrl = webView.url ?: resource.url
+                                val rawUrl = webView.url ?: resource.url
+                                val targetUrl = if (desktopModeEnabled && !rawUrl.isNullOrBlank()) {
+                                    KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
+                                } else if (!desktopModeEnabled && !rawUrl.isNullOrBlank()) {
+                                    KaspaPrivacyEngine.convertDesktopUrlToMobile(rawUrl)
+                                } else {
+                                    rawUrl
+                                }
+                                if (!targetUrl.isNullOrBlank() && targetUrl != rawUrl) {
+                                    viewModel.setUrlInput(targetUrl)
+                                }
                                 if (!targetUrl.isNullOrBlank()) {
                                     val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
                                     webView.loadUrl(targetUrl, desktopHeaders)
@@ -3440,195 +3641,353 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         val linkUrl = longPressedLinkUrl ?: (longPressedImageUrl ?: "")
         val imageUrl = longPressedImageUrl
         val isImage = isLongPressedImage || imageUrl != null
-        AlertDialog(
+        val hasSeparateLink = !longPressedLinkUrl.isNullOrBlank() && longPressedLinkUrl != imageUrl
+
+        ModalBottomSheet(
             onDismissRequest = {
                 showLinkContextMenu = false
                 longPressedLinkUrl = null
                 longPressedImageUrl = null
+                longPressedImageTitle = null
                 isLongPressedImage = false
             },
-            containerColor = SurfaceCard,
-            shape = RoundedCornerShape(16.dp),
-            title = {
-                Text(
-                    text = if (isImage) "Image Options" else "Link Options",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+            sheetState = linkContextMenuSheetState,
+            containerColor = SurfaceDark,
+            tonalElevation = 8.dp,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 10.dp)
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceCardBorder)
                 )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = if (isImage && !imageUrl.isNullOrBlank()) imageUrl else linkUrl,
-                        fontSize = 12.sp,
-                        color = ElectricCyan,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider(color = SurfaceCardBorder, thickness = 1.dp)
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Option: Download Image (When an image is long-pressed)
-                    if (isImage && !imageUrl.isNullOrBlank()) {
-                        Row(
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+            ) {
+                // Header preview (100% like Chrome)
+                if (isImage && !imageUrl.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    showLinkContextMenu = false
-                                    val targetImgUrl = imageUrl
-                                    longPressedLinkUrl = null
-                                    longPressedImageUrl = null
-                                    isLongPressedImage = false
-                                    try {
-                                        var rawFilename = android.webkit.URLUtil.guessFileName(targetImgUrl, null, "image/*")
-                                        if (rawFilename.isBlank() || rawFilename == "downloadfile" || !rawFilename.contains(".")) {
-                                            rawFilename = "image_${System.currentTimeMillis()}.png"
-                                        }
-                                        val filename = rawFilename
-                                        val downloadId = System.currentTimeMillis()
-                                        if (targetImgUrl.startsWith("data:", ignoreCase = true)) {
-                                            viewModel.addDownload(downloadId, filename, targetImgUrl)
-                                            viewModel.startDownload(context, downloadId, targetImgUrl, filename)
-                                            viewModel.setStatusMessage("Saving image: $filename")
-                                        } else {
-                                            val dmId = try {
-                                                val request = android.app.DownloadManager.Request(android.net.Uri.parse(targetImgUrl)).apply {
-                                                    setTitle(filename)
-                                                    setDescription("Downloading image")
-                                                    setAllowedOverMetered(true)
-                                                    setAllowedOverRoaming(true)
-                                                    setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
-                                                    setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                                    setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-                                                }
-                                                val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                                                dm.enqueue(request)
-                                            } catch (_: Exception) {
-                                                downloadId
-                                            }
-                                            viewModel.addDownload(dmId, filename, targetImgUrl)
-                                            viewModel.startDownload(context, dmId, targetImgUrl, filename)
-                                            viewModel.setStatusMessage("Downloading image: $filename")
-                                        }
-                                    } catch (e: Exception) {
-                                        viewModel.setStatusMessage("Image download failed: ${e.message}")
-                                    }
-                                }
-                                .padding(vertical = 10.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SurfaceCard)
+                                .border(1.dp, SurfaceCardBorder, RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text("Download Image", color = ElectricCyan, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            AsyncImage(
+                                model = imageUrl,
+                                contentDescription = "Image preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            val displayTitle = if (!longPressedImageTitle.isNullOrBlank()) {
+                                longPressedImageTitle
+                            } else {
+                                val clean = imageUrl.substringBefore("?").substringBefore("#")
+                                val seg = clean.substringAfterLast("/")
+                                if (seg.isNotBlank() && seg.length < 50 && !seg.contains("=")) seg else "Image"
+                            }
+                            Text(
+                                text = displayTitle ?: "Image",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            val hostDisplay = try {
+                                val parsedUri = android.net.Uri.parse(imageUrl)
+                                if (imageUrl.startsWith("data:", true)) "Embedded image"
+                                else if (imageUrl.startsWith("blob:", true)) "Blob image"
+                                else parsedUri.host ?: imageUrl
+                            } catch (_: Exception) {
+                                imageUrl
+                            }
+                            Text(
+                                text = hostDisplay,
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
-
-                    // Option 1: Open in New Tab
+                } else {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                showLinkContextMenu = false
-                                val targetToOpen = if (isImage && !imageUrl.isNullOrBlank() && (longPressedLinkUrl == imageUrl || longPressedLinkUrl.isNullOrBlank())) imageUrl else linkUrl
-                                longPressedLinkUrl = null
-                                longPressedImageUrl = null
-                                isLongPressedImage = false
-                                viewModel.createNewTab(targetToOpen, if (isImage) "Image" else "New Tab")
-                            }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(if (isImage) "Open Image in New Tab" else "Open in New Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    }
-
-                    // Option 2: Open in Background Tab
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                showLinkContextMenu = false
-                                val targetToOpen = if (isImage && !imageUrl.isNullOrBlank() && (longPressedLinkUrl == imageUrl || longPressedLinkUrl.isNullOrBlank())) imageUrl else linkUrl
-                                longPressedLinkUrl = null
-                                longPressedImageUrl = null
-                                isLongPressedImage = false
-                                viewModel.openBackgroundTab(targetToOpen, if (isImage) "Image" else "New Tab")
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(SurfaceCard)
+                                .border(1.dp, SurfaceCardBorder, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Link, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            val hostDisplay = try {
+                                android.net.Uri.parse(linkUrl).host ?: linkUrl
+                            } catch (_: Exception) {
+                                linkUrl
                             }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(if (isImage) "Open Image in Background Tab" else "Open in Background Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = hostDisplay,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = linkUrl,
+                                fontSize = 12.sp,
+                                color = ElectricCyan,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
+                }
 
-                    // Option 3: Copy Link Address / Image Address
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = SurfaceCardBorder, thickness = 1.dp)
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Actions
+                if (isImage && !imageUrl.isNullOrBlank()) {
+                    // 1. Download image
+                    HubActionRow(
+                        icon = Icons.Default.Download,
+                        title = "Download image",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
                                 showLinkContextMenu = false
-                                val targetToCopy = if (isImage && !imageUrl.isNullOrBlank()) imageUrl else linkUrl
+                                val target = imageUrl
                                 longPressedLinkUrl = null
                                 longPressedImageUrl = null
+                                longPressedImageTitle = null
                                 isLongPressedImage = false
-                                clipboardManager.setText(AnnotatedString(targetToCopy))
-                                viewModel.setStatusMessage(if (isImage) "Image URL copied to clipboard" else "Link address copied to clipboard")
+                                executeImageDownload(context, target, viewModel, webViewInstance)
                             }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(if (isImage) "Copy Image URL" else "Copy Link Address", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    }
+                        }
+                    )
 
-                    // Option 4: Share Link / Image URL
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
+                    // 2. Share image
+                    HubActionRow(
+                        icon = Icons.Default.Share,
+                        title = "Share image",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
                                 showLinkContextMenu = false
-                                val targetToShare = if (isImage && !imageUrl.isNullOrBlank()) imageUrl else linkUrl
+                                val target = imageUrl
                                 longPressedLinkUrl = null
                                 longPressedImageUrl = null
+                                longPressedImageTitle = null
                                 isLongPressedImage = false
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, targetToShare)
+                                    putExtra(Intent.EXTRA_TEXT, target)
                                 }
-                                context.startActivity(Intent.createChooser(shareIntent, if (isImage) "Share Image URL" else "Share Link"))
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Image"))
                             }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(if (isImage) "Share Image URL" else "Share Link", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        }
+                    )
+
+                    // 3. Copy image address
+                    HubActionRow(
+                        icon = Icons.Default.ContentCopy,
+                        title = "Copy image address",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                showLinkContextMenu = false
+                                val target = imageUrl
+                                longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                longPressedImageTitle = null
+                                isLongPressedImage = false
+                                clipboardManager.setText(AnnotatedString(target))
+                                viewModel.setStatusMessage("Image address copied to clipboard")
+                                android.widget.Toast.makeText(context, "Image address copied", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+
+                    // If image is inside an anchor link:
+                    if (hasSeparateLink && !longPressedLinkUrl.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider(color = SurfaceCardBorder, thickness = 1.dp)
+                        Text(
+                            text = "LINK",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                        )
+
+                        HubActionRow(
+                            icon = Icons.AutoMirrored.Filled.OpenInNew,
+                            title = "Open link in new tab",
+                            onClick = {
+                                scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                    showLinkContextMenu = false
+                                    val target = longPressedLinkUrl ?: ""
+                                    longPressedLinkUrl = null
+                                    longPressedImageUrl = null
+                                    longPressedImageTitle = null
+                                    isLongPressedImage = false
+                                    viewModel.createNewTab(target, "New Tab")
+                                }
+                            }
+                        )
+
+                        HubActionRow(
+                            icon = Icons.AutoMirrored.Filled.OpenInNew,
+                            title = "Open link in background tab",
+                            onClick = {
+                                scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                    showLinkContextMenu = false
+                                    val target = longPressedLinkUrl ?: ""
+                                    longPressedLinkUrl = null
+                                    longPressedImageUrl = null
+                                    longPressedImageTitle = null
+                                    isLongPressedImage = false
+                                    viewModel.openBackgroundTab(target, "New Tab")
+                                }
+                            }
+                        )
+
+                        HubActionRow(
+                            icon = Icons.Default.ContentCopy,
+                            title = "Copy link address",
+                            onClick = {
+                                scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                    showLinkContextMenu = false
+                                    val target = longPressedLinkUrl ?: ""
+                                    longPressedLinkUrl = null
+                                    longPressedImageUrl = null
+                                    longPressedImageTitle = null
+                                    isLongPressedImage = false
+                                    clipboardManager.setText(AnnotatedString(target))
+                                    viewModel.setStatusMessage("Link address copied to clipboard")
+                                    android.widget.Toast.makeText(context, "Link address copied", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+
+                        HubActionRow(
+                            icon = Icons.Default.Share,
+                            title = "Share link",
+                            onClick = {
+                                scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                    showLinkContextMenu = false
+                                    val target = longPressedLinkUrl ?: ""
+                                    longPressedLinkUrl = null
+                                    longPressedImageUrl = null
+                                    longPressedImageTitle = null
+                                    isLongPressedImage = false
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, target)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Link"))
+                                }
+                            }
+                        )
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showLinkContextMenu = false
-                        longPressedLinkUrl = null
-                        longPressedImageUrl = null
-                        isLongPressedImage = false
-                    }
-                ) {
-                    Text("Cancel", color = TextMuted)
+                } else {
+                    // Pure Link actions
+                    HubActionRow(
+                        icon = Icons.Default.Add,
+                        title = "Open link in new tab",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                showLinkContextMenu = false
+                                val target = linkUrl
+                                longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                longPressedImageTitle = null
+                                isLongPressedImage = false
+                                viewModel.createNewTab(target, "New Tab")
+                            }
+                        }
+                    )
+
+                    HubActionRow(
+                        icon = Icons.AutoMirrored.Filled.OpenInNew,
+                        title = "Open link in background tab",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                showLinkContextMenu = false
+                                val target = linkUrl
+                                longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                longPressedImageTitle = null
+                                isLongPressedImage = false
+                                viewModel.openBackgroundTab(target, "New Tab")
+                            }
+                        }
+                    )
+
+                    HubActionRow(
+                        icon = Icons.Default.ContentCopy,
+                        title = "Copy link address",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                showLinkContextMenu = false
+                                val target = linkUrl
+                                longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                longPressedImageTitle = null
+                                isLongPressedImage = false
+                                clipboardManager.setText(AnnotatedString(target))
+                                viewModel.setStatusMessage("Link address copied to clipboard")
+                                android.widget.Toast.makeText(context, "Link address copied", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+
+                    HubActionRow(
+                        icon = Icons.Default.Share,
+                        title = "Share link",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                showLinkContextMenu = false
+                                val target = linkUrl
+                                longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                longPressedImageTitle = null
+                                isLongPressedImage = false
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, target)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Link"))
+                            }
+                        }
+                    )
                 }
             }
-        )
+        }
     }
 
     // MULTI-TAB SWITCHER FULL-SCREEN OVERLAY

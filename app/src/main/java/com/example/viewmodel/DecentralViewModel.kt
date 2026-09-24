@@ -290,8 +290,11 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun updateTab(id: String, url: String, title: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val existing = database.browserTabDao().getTabById(id)
+            if (existing != null && existing.url == url && existing.title == title) {
+                return@launch
+            }
             val isSuspended = existing?.isSuspended ?: false
             val isExternal = existing?.isExternal ?: false
             database.browserTabDao().insert(
@@ -990,10 +993,11 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun updateCurrentUrl(newUrl: String) {
         if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:")) return
+        if (_urlInput.value == newUrl) return
         _urlInput.value = newUrl
         val activeId = _activeTabId.value
         if (activeId != null) {
-            viewModelScope.launch {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val tab = database.browserTabDao().getTabById(activeId)
                 if (tab != null && tab.url != newUrl) {
                     database.browserTabDao().insert(tab.copy(url = newUrl, lastAccessed = System.currentTimeMillis()))
@@ -1281,7 +1285,86 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun startDownload(context: android.content.Context, downloadId: Long, urlStr: String, fileName: String) {
+    fun saveBase64ImageDownload(
+        context: android.content.Context,
+        downloadId: Long,
+        dataUrl: String,
+        fileName: String
+    ) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
+                ?: context.filesDir
+            val targetFile = java.io.File(appDownloadsDir, fileName)
+            try {
+                updateDownloadProgress(downloadId, 0.1f, 0L, 0L, "Saving")
+                val commaIndex = dataUrl.indexOf(',')
+                val bytes = if (commaIndex != -1) {
+                    val metadata = dataUrl.substring(5, commaIndex)
+                    val rawData = dataUrl.substring(commaIndex + 1)
+                    if (metadata.contains("base64", ignoreCase = true)) {
+                        android.util.Base64.decode(rawData, android.util.Base64.DEFAULT)
+                    } else {
+                        java.net.URLDecoder.decode(rawData, "UTF-8").toByteArray(Charsets.UTF_8)
+                    }
+                } else {
+                    android.util.Base64.decode(dataUrl, android.util.Base64.DEFAULT)
+                }
+
+                targetFile.outputStream().use { fos ->
+                    fos.write(bytes)
+                    fos.flush()
+                }
+
+                // Export to public MediaStore downloads so file is visible in device system Downloads app and gallery
+                val mimeType = if (fileName.endsWith(".png", true)) "image/png"
+                    else if (fileName.endsWith(".webp", true)) "image/webp"
+                    else if (fileName.endsWith(".svg", true)) "image/svg+xml"
+                    else if (fileName.endsWith(".gif", true)) "image/gif"
+                    else "image/jpeg"
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    }
+                    val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    if (uri != null) {
+                        context.contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(bytes)
+                        }
+                    }
+                } else {
+                    val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    if (publicDir.exists() || publicDir.mkdirs()) {
+                        val publicFile = java.io.File(publicDir, fileName)
+                        publicFile.outputStream().use { os ->
+                            os.write(bytes)
+                        }
+                        android.media.MediaScannerConnection.scanFile(context, arrayOf(publicFile.absolutePath), arrayOf(mimeType), null)
+                    }
+                }
+                updateDownloadProgress(downloadId, 1.0f, bytes.size.toLong(), bytes.size.toLong(), "Success")
+            } catch (e: Exception) {
+                updateDownloadProgress(downloadId, 0f, 0L, 0L, "Failed: ${e.message}")
+            }
+        }
+    }
+
+    fun startDownload(
+        context: android.content.Context,
+        downloadId: Long,
+        urlStr: String,
+        fileName: String,
+        cookies: String? = null,
+        userAgent: String? = null,
+        referer: String? = null
+    ) {
+        if (urlStr.startsWith("data:", ignoreCase = true)) {
+            saveBase64ImageDownload(context, downloadId, urlStr, fileName)
+            return
+        }
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             var streamSuccess = false
             val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
@@ -1301,7 +1384,14 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     connection.connectTimeout = 15000
                     connection.readTimeout = 30000
                     connection.requestMethod = "GET"
-                    connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    val defaultUa = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+                    connection.setRequestProperty("User-Agent", if (!userAgent.isNullOrBlank()) userAgent else defaultUa)
+                    if (!cookies.isNullOrBlank()) {
+                        connection.setRequestProperty("Cookie", cookies)
+                    }
+                    if (!referer.isNullOrBlank()) {
+                        connection.setRequestProperty("Referer", referer)
+                    }
                     connection.connect()
 
                     val responseCode = connection.responseCode
@@ -1347,11 +1437,19 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     updateDownloadProgress(downloadId, 1.0f, bytesDownloaded, if (totalBytes > 0) totalBytes else bytesDownloaded, "Success")
                     streamSuccess = true
 
-                    // Export to public MediaStore downloads so file is visible in device system Downloads app
+                    // Export to public MediaStore downloads so file is visible in device system Downloads app and gallery
                     try {
+                        val mimeType = if (fileName.endsWith(".png", true)) "image/png"
+                            else if (fileName.endsWith(".webp", true)) "image/webp"
+                            else if (fileName.endsWith(".svg", true)) "image/svg+xml"
+                            else if (fileName.endsWith(".gif", true)) "image/gif"
+                            else if (fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true)) "image/jpeg"
+                            else "application/octet-stream"
+
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                             val values = android.content.ContentValues().apply {
                                 put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                                 put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                             }
                             val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -1371,7 +1469,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                                         isStream.copyTo(os)
                                     }
                                 }
-                                android.media.MediaScannerConnection.scanFile(context, arrayOf(publicFile.absolutePath), null, null)
+                                android.media.MediaScannerConnection.scanFile(context, arrayOf(publicFile.absolutePath), arrayOf(mimeType), null)
                             }
                         }
                     } catch (_: Exception) {}

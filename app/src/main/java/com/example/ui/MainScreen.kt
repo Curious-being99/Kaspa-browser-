@@ -64,7 +64,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
     var onboardingStep by remember {
-        mutableStateOf(if (sharedPrefs.getBoolean("has_seen_onboarding_v3", true)) 2 else 2)
+        mutableStateOf(if (sharedPrefs.getBoolean("has_seen_tutorial_v1", false)) 2 else 0)
     }
 
     val defaultBrowserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -140,7 +140,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     ) {
                         TextButton(
                             onClick = {
-                                sharedPrefs.edit().putBoolean("has_seen_onboarding_v2", true).apply()
+                                sharedPrefs.edit().putBoolean("has_seen_tutorial_v1", true).apply()
                                 onboardingStep = 2
                                 requestDefaultBrowser()
                             }
@@ -182,23 +182,21 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
 
                         Spacer(modifier = Modifier.weight(1f))
 
-                        // Step Indicator
+                        // Step Indicator (Circles)
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .height(4.dp)
-                                    .width(20.dp)
-                                    .clip(RoundedCornerShape(2.dp))
+                                    .size(8.dp)
+                                    .clip(CircleShape)
                                     .background(ElectricCyan)
                             )
                             Box(
                                 modifier = Modifier
-                                    .height(4.dp)
-                                    .width(6.dp)
-                                    .clip(RoundedCornerShape(2.dp))
+                                    .size(6.dp)
+                                    .clip(CircleShape)
                                     .background(SurfaceCardBorder)
                             )
                         }
@@ -293,23 +291,21 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
 
                         Spacer(modifier = Modifier.weight(0.5f))
 
-                        // Step Indicator
+                        // Step Indicator (Circles)
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .height(4.dp)
-                                    .width(6.dp)
-                                    .clip(RoundedCornerShape(2.dp))
+                                    .size(6.dp)
+                                    .clip(CircleShape)
                                     .background(SurfaceCardBorder)
                             )
                             Box(
                                 modifier = Modifier
-                                    .height(4.dp)
-                                    .width(20.dp)
-                                    .clip(RoundedCornerShape(2.dp))
+                                    .size(8.dp)
+                                    .clip(CircleShape)
                                     .background(ElectricCyan)
                             )
                         }
@@ -319,7 +315,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         // Enter Browser Button
                         Button(
                             onClick = {
-                                sharedPrefs.edit().putBoolean("has_seen_onboarding_v2", true).apply()
+                                sharedPrefs.edit().putBoolean("has_seen_tutorial_v1", true).apply()
                                 onboardingStep = 2
                                 requestDefaultBrowser()
                             },
@@ -382,12 +378,22 @@ private fun SplashLaunchLogo(
     modifier: Modifier = Modifier,
     sizeDp: Int = 72
 ) {
-    Image(
-        painter = painterResource(id = R.drawable.ic_kaspa_ant_logo),
-        contentDescription = "Kaspa Logo",
-        contentScale = ContentScale.Fit,
-        modifier = modifier.size(sizeDp.dp)
-    )
+    Box(
+        modifier = modifier
+            .size(sizeDp.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFECEFF1)),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.ic_kaspa_ant_logo),
+            contentDescription = "Kaspa Logo",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+        )
+    }
 }
 
 /**

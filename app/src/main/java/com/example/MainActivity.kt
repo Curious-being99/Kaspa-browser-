@@ -7,6 +7,9 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.example.ui.MainScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.DecentralViewModel
@@ -57,37 +60,36 @@ class MainActivity : FragmentActivity() {
     }
 
     enableEdgeToEdge()
-
-    // Allow WebView & Chromium to manage its internal cache hierarchy cleanly
-    try {
-      val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
-      if (!crashpadDir.exists()) {
-        crashpadDir.mkdirs()
-      }
-    } catch (e: Exception) {
-      Log.d("MainActivity", "WebView directory notice: ${e.message}")
-    }
-
-    // Initialize Cronet Engine and Disk LRU Asset Cache safely
-    try {
-      com.example.network.CronetClientFactory.initialize(applicationContext)
-      com.example.network.WebViewAssetLruCache.initialize(applicationContext)
-    } catch (e: Exception) {
-      Log.w("MainActivity", "Failed to initialize network services: ${e.message}")
-    }
-
-    // Enable Chrome Developer Tools (chrome://inspect) debugging for all WebViews
-    try {
-      android.webkit.WebView.setWebContentsDebuggingEnabled(true)
-    } catch (e: Exception) {
-      Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
-    }
-
     handleIncomingIntent(intent)
 
     setContent {
       MyApplicationTheme {
         MainScreen(viewModel = viewModel)
+      }
+    }
+
+    // Initialize background services asynchronously on IO dispatcher to avoid UI thread startup delay
+    CoroutineScope(Dispatchers.IO).launch {
+      try {
+        val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
+        if (!crashpadDir.exists()) {
+          crashpadDir.mkdirs()
+        }
+      } catch (e: Exception) {
+        Log.d("MainActivity", "WebView directory notice: ${e.message}")
+      }
+
+      try {
+        com.example.network.CronetClientFactory.initialize(applicationContext)
+        com.example.network.WebViewAssetLruCache.initialize(applicationContext)
+      } catch (e: Exception) {
+        Log.w("MainActivity", "Failed to initialize network services: ${e.message}")
+      }
+
+      try {
+        android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+      } catch (e: Exception) {
+        Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
       }
     }
   }

@@ -308,6 +308,43 @@ object KaspaPrivacyEngine {
     }
 
     /**
+     * Converts common mobile subdomains (m.youtube.com, en.m.wikipedia.org, m.facebook.com)
+     * to their full desktop equivalent when Desktop Mode is toggled, exactly like Chrome on Android.
+     */
+    fun convertMobileUrlToDesktop(url: String): String {
+        if (url.isBlank()) return url
+        var converted = url
+            .replace("://m.youtube.com", "://www.youtube.com")
+            .replace("://m.facebook.com", "://www.facebook.com")
+            .replace("://mobile.twitter.com", "://twitter.com")
+            .replace("://m.twitter.com", "://twitter.com")
+            .replace("://m.wikipedia.org", "://wikipedia.org")
+            .replace("://m.reddit.com", "://www.reddit.com")
+        
+        // Handle wikipedia language subdomains like en.m.wikipedia.org -> en.wikipedia.org
+        converted = Regex("://([a-z0-9-]+)\\.m\\.wikipedia\\.org").replace(converted, "://$1.wikipedia.org")
+        // General mobile subdomain fallback like m.example.com -> www.example.com
+        converted = Regex("://m\\.([a-zA-Z0-9-]+\\.[a-z]{2,})").replace(converted, "://www.$1")
+        return converted
+    }
+
+    /**
+     * Converts desktop-specific subdomains to their mobile equivalents when Desktop Mode is toggled OFF,
+     * ensuring immediate mobile responsiveness without fighting redirects.
+     */
+    fun convertDesktopUrlToMobile(url: String): String {
+        if (url.isBlank()) return url
+        var converted = url
+            .replace("://www.youtube.com", "://m.youtube.com")
+            .replace("://www.facebook.com", "://m.facebook.com")
+            .replace("://www.reddit.com", "://m.reddit.com")
+        
+        // Handle wikipedia language subdomains like en.wikipedia.org -> en.m.wikipedia.org
+        converted = Regex("://([a-z0-9-]+)\\.wikipedia\\.org").replace(converted, "://$1.m.wikipedia.org")
+        return converted
+    }
+
+    /**
      * Client hints and network headers for Desktop / Mobile site modes.
      * Tells modern servers (Google, YouTube, Reddit, etc.) whether to serve desktop or mobile layouts.
      */
@@ -320,7 +357,10 @@ object KaspaPrivacyEngine {
             mapOf(
                 "Sec-CH-UA-Mobile" to "?0",
                 "Sec-CH-UA-Platform" to "\"Windows\"",
-                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\""
+                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
+                "Sec-CH-UA-Model" to "\"\"",
+                "Sec-CH-UA-Platform-Version" to "\"15.0.0\"",
+                "Sec-CH-UA-Full-Version-List" to "\"Chromium\";v=\"$fullVer\", \"Google Chrome\";v=\"$fullVer\", \"Not?A_Brand\";v=\"99.0.0.0\""
             )
         } else {
             mapOf(
