@@ -78,3 +78,38 @@ interface BrowserTabDao {
     @Query("DELETE FROM browser_tabs")
     suspend fun clearAll()
 }
+
+@Entity(tableName = "news_articles")
+data class NewsArticleEntity(
+    @PrimaryKey val deduplicationKey: String,
+    val title: String,
+    val desc: String,
+    val url: String,
+    val category: String,
+    val timestamp: String,
+    val author: String = "",
+    val videoId: String? = null,
+    val duration: String? = null,
+    val epochMillis: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface NewsArticleDao {
+    @Query("SELECT * FROM news_articles ORDER BY epochMillis DESC LIMIT 300")
+    fun getAllNews(): Flow<List<NewsArticleEntity>>
+
+    @Query("SELECT * FROM news_articles ORDER BY epochMillis DESC LIMIT 300")
+    suspend fun getAllNewsList(): List<NewsArticleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(articles: List<NewsArticleEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(article: NewsArticleEntity)
+
+    @Query("SELECT COUNT(*) FROM news_articles")
+    suspend fun getCount(): Int
+
+    @Query("DELETE FROM news_articles")
+    suspend fun clearAll()
+}

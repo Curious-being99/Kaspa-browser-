@@ -64,7 +64,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
     var onboardingStep by remember {
-        mutableStateOf(if (sharedPrefs.getBoolean("has_seen_onboarding_v2", false)) 2 else 0)
+        mutableStateOf(if (sharedPrefs.getBoolean("has_seen_onboarding_v3", true)) 2 else 2)
     }
 
     val defaultBrowserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(

@@ -1,5 +1,14 @@
 # Kaspa Browser 🌐
 
+<p align="left">
+  <img src="https://img.shields.io/badge/Language-Kotlin%20100%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 100%" />
+  <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-3DDC84.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-4285F4.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
+  <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20Clean-FF6F00.svg?style=for-the-badge" alt="Clean Architecture" />
+  <img src="https://img.shields.io/badge/Engine-Chromium%20Blink-4285F4.svg?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chromium Engine" />
+  <img src="https://img.shields.io/badge/License-Apache%202.0-00E5FF.svg?style=for-the-badge" alt="Apache 2.0 License" />
+</p>
+
 **Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin** and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and high-performance Web3 browsing into a fast, privacy-first mobile client.
 
 ---
@@ -183,6 +192,23 @@ The following diagram illustrates how user input, network resolution, peer disco
 ### 📱 5. PWA Launcher & Desktop Integration
 - **Zero-Install Web Apps**: Pin decentralized dApps and standard web apps directly to the Android Home Screen using Android Pin Shortcut APIs.
 - **Dynamic Icons & Standalone Viewing**: Launches installed web apps in dedicated immersive views.
+
+### 🖥️ 6. Natural Desktop / Mobile View (100% Chrome Parity)
+- **1-Tap Menu Control**: Quick toggle located directly inside the browser's 3-dots (`⋮`) menu with a reactive `[✓] Desktop site` checkbox.
+- **Standard Chromium Viewport**: Utilizes the official **980px** layout viewport width (`width=980, user-scalable=yes`) and Chromium's native `useWideViewPort` and `loadWithOverviewMode` engines.
+- **Pure Native Layout**: No artificial DOM `<meta>` mutation scripts or micro-scaling hacks; websites and single-page apps (SPAs) render naturally.
+- **Scale Reset on Mode Toggle**: Automatically restores native 100% device scale (`setInitialScale(0)`) when switching between Desktop and Mobile modes.
+- **Touch & Gesture Integrity**: Complete native multi-touch pass-through (`maxTouchPoints`), pinch-to-zoom, fling inertia, and swipe-to-refresh top-boundary guards.
+
+### 🛡️ 7. Security & Anti-Malware Architecture
+- **Sandboxed Local File Isolation**:
+  - `allowFileAccess = false`, `allowFileAccessFromFileURLs = false`, and `allowUniversalAccessFromFileURLs = false` prevent cross-origin file theft and block web scripts from accessing local device storage.
+- **Google Safe Browsing Integration**:
+  - Implements `onSafeBrowsingHit` with `callback.backToSafety(true)` to automatically detect and intercept phishing, malware, and social engineering domains.
+- **Strict JavaScript Interface Hardening**:
+  - Sandboxed `@JavascriptInterface` binding strictly limited to Passkey/FIDO2 authentication via Android `CredentialManager` and Biometric Prompt. No internal reflection or filesystem APIs exposed to web contexts.
+- **Duplicate Launch & Intent Replay Guards**:
+  - Activity configured with `android:launchMode="singleTask"` and intent payload consumption (`intent.data = null`) to eliminate duplicate app instances or replayed navigation requests.
 
 ---
 

@@ -12,6 +12,12 @@ import com.example.data.HistoryEntity
 import com.example.data.BookmarkEntity
 import com.example.data.BrowserTabEntity
 import com.example.data.DomainEntity
+import com.example.data.NewsArticleEntity
+import com.example.data.KaspaNewsItem
+import com.example.data.toKaspaNewsItem
+import com.example.data.toEntity
+import com.example.data.getDefaultCuratedNews
+import com.example.data.fetchLatestKaspaFeeds
 import com.example.network.kaspa.KaspaDomainRegistry
 import com.example.network.kaspa.DomainAvailability
 import kotlinx.coroutines.flow.combine
@@ -35,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 
 enum class AppTab {
     BROWSER_GATEWAY,
@@ -123,6 +130,35 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     val browserTabs: StateFlow<List<BrowserTabEntity>> = database.browserTabDao()
         .getAllTabs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val newsFeedItems: StateFlow<List<KaspaNewsItem>> = database.newsArticleDao()
+        .getAllNews()
+        .map { list ->
+            if (list.isEmpty()) getDefaultCuratedNews()
+            else list.map { it.toKaspaNewsItem() }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, getDefaultCuratedNews())
+
+    private val _isNewsRefreshing = MutableStateFlow(false)
+    val isNewsRefreshing = _isNewsRefreshing.asStateFlow()
+
+    fun refreshNewsFeeds() {
+        if (_isNewsRefreshing.value) return
+        _isNewsRefreshing.value = true
+        viewModelScope.launch {
+            try {
+                val fetched = fetchLatestKaspaFeeds()
+                if (fetched.isNotEmpty()) {
+                    val entities = fetched.map { it.toEntity() }
+                    database.newsArticleDao().insertAll(entities)
+                }
+            } catch (e: Exception) {
+                android.util.Log.d("DecentralViewModel", "News refresh notice: ${e.message}")
+            } finally {
+                _isNewsRefreshing.value = false
+            }
+        }
+    }
 
     private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
 
@@ -611,6 +647,26 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             } catch (_: Exception) {}
         }
+
+        // Initialize and persist latest news cache so it catches naturally and never resets
+        viewModelScope.launch {
+            try {
+                val count = database.newsArticleDao().getCount()
+                if (count == 0) {
+                    val initialEntities = getDefaultCuratedNews().map { it.toEntity() }
+                    database.newsArticleDao().insertAll(initialEntities)
+                }
+                refreshNewsFeeds()
+            } catch (_: Exception) {}
+        }
+
+        // Periodic background news fetcher every 15 minutes
+        viewModelScope.launch {
+            while (isActive) {
+                kotlinx.coroutines.delay(15 * 60_000L)
+                refreshNewsFeeds()
+            }
+        }
     }
 
     fun refreshKaspaWallet(address: String? = null) {
@@ -1018,6 +1074,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 cryptographicHash = com.example.network.CryptoUtils.sha256(target),
                 routedVia = "Direct High-Speed Web Stack: $host"
             )
+            _isLoading.value = false
+        } else {
+            _isLoading.value = true
         }
 
         val currentSessionId = _navigationSessionId.value
@@ -1025,13 +1084,18 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 val result = resolver.resolve(target, _selectedProtocol.value)
                 if (_navigationSessionId.value == currentSessionId) {
-                    val activeUrl = _urlInput.value
-                    val finalResult = if (isHttp && activeUrl.isNotBlank() && activeUrl != result.url) {
-                        result.copy(url = activeUrl, title = _currentResource.value?.title ?: result.title)
+                    if (!isHttp) {
+                        _currentResource.value = result
                     } else {
-                        result
+                        val current = _currentResource.value
+                        if (current != null) {
+                            _currentResource.value = current.copy(
+                                cid = result.cid,
+                                verificationStatus = result.verificationStatus,
+                                cryptographicHash = result.cryptographicHash
+                            )
+                        }
                     }
-                    _currentResource.value = finalResult
                     verifyResourceIntegrity(notifyUser = false)
                     
                     val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)

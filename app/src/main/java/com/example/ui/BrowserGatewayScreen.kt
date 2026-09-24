@@ -1,5 +1,6 @@
 package com.example.ui
 
+import com.example.data.*
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
@@ -118,6 +119,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -233,6 +236,13 @@ data class BrowserTab(
 @Composable
 fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val defaultDeviceUa = remember {
+        try {
+            android.webkit.WebSettings.getDefaultUserAgent(context)
+        } catch (_: Throwable) {
+            null
+        }
+    }
     val tabs by viewModel.browserTabs.collectAsState()
     val activeTabId by viewModel.activeTabId.collectAsState()
     var showTabSwitcher by remember { mutableStateOf(false) }
@@ -258,6 +268,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     var longPressedLinkUrl by remember { mutableStateOf<String?>(null) }
+    var longPressedImageUrl by remember { mutableStateOf<String?>(null) }
+    var isLongPressedImage by remember { mutableStateOf(false) }
     var showLinkContextMenu by remember { mutableStateOf(false) }
 
     val bookmarks by viewModel.bookmarks.collectAsState()
@@ -436,37 +448,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    LaunchedEffect(webViewInstance, webViewRecreateKey) {
-        val webView = webViewInstance ?: return@LaunchedEffect
-        lastProgressChangeTime = System.currentTimeMillis()
-
-        while (true) {
-            kotlinx.coroutines.delay(15000L)
-
-            // Graceful loading indicator timeout (hides spinner without interrupting page load)
-            val isCurrentlyLoading = isWebLoading
-            val progressTime = lastProgressChangeTime
-            val now = System.currentTimeMillis()
-            if (isCurrentlyLoading && (now - progressTime > 30_000L)) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    isWebLoading = false
-                    viewModel.setIsLoading(false)
-                }
-            }
-
-            // Check if system reported renderer process as unresponsive
-            if (isRendererUnresponsive) {
-                android.util.Log.w("WebViewWatchdog", "System reported renderer unresponsive. Recovering...")
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    try {
-                        (webView.parent as? ViewGroup)?.removeView(webView)
-                        webView.destroy()
-                    } catch (_: Exception) {}
-                    webViewInstance = null
-                    isRendererUnresponsive = false
-                    webViewRecreateKey++
-                }
-                break
+    LaunchedEffect(isRendererUnresponsive) {
+        if (isRendererUnresponsive) {
+            val webView = webViewInstance
+            if (webView != null) {
+                try {
+                    (webView.parent as? ViewGroup)?.removeView(webView)
+                    webView.destroy()
+                } catch (_: Exception) {}
+                webViewInstance = null
+                isRendererUnresponsive = false
+                webViewRecreateKey++
             }
         }
     }
@@ -483,17 +475,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             webViewInstance = null
             webProgress = 0f
             isWebLoading = false
-        }
-    }
-
-    LaunchedEffect(isWebLoading, navigationSessionId) {
-        if (isWebLoading) {
-            kotlinx.coroutines.delay(18_000L)
-            if (isWebLoading) {
-                isWebLoading = false
-                webProgress = 1.0f
-                viewModel.setIsLoading(false)
-            }
         }
     }
 
@@ -1024,14 +1005,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 Spacer(modifier = Modifier.width(4.dp))
 
-                                Box(
-                                    modifier = Modifier.size(24.dp),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     if (isLoading || isWebLoading) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier
-                                                .size(16.dp),
+                                            modifier = Modifier.size(16.dp),
                                             strokeWidth = 2.dp,
                                             color = ElectricCyan
                                         )
@@ -1056,7 +1035,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                         Spacer(modifier = Modifier.width(2.dp))
 
-                                         IconButton(
+                                        IconButton(
                                             onClick = {
                                                 val normalized = viewModel.normalizeUrlOrQuery(urlInput)
                                                 if ((normalized.startsWith("http://") || normalized.startsWith("https://")) && webViewInstance != null) {
@@ -1088,7 +1067,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 modifier = Modifier.size(14.dp)
                                             )
                                         }
-
                                     }
                                 }
                             }
@@ -1159,6 +1137,48 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     onClick = {
                                         showFindInPage = true
                                         showBrowserMenu = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Desktop site", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = if (desktopModeEnabled) ElectricCyan else TextMuted) },
+                                    trailingIcon = {
+                                        Checkbox(
+                                            checked = desktopModeEnabled,
+                                            onCheckedChange = null,
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = ElectricCyan,
+                                                checkmarkColor = Color.Black,
+                                                uncheckedColor = TextMuted
+                                            )
+                                        )
+                                    },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        val newMode = !desktopModeEnabled
+                                        viewModel.toggleDesktopMode(newMode)
+                                        webViewInstance?.let { wv ->
+                                            val defaultDeviceUa = try {
+                                                WebSettings.getDefaultUserAgent(context)
+                                            } catch (_: Throwable) {
+                                                null
+                                            }
+                                            val currentUa = if (newMode) {
+                                                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
+                                            } else {
+                                                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
+                                            }
+                                            wv.settings.userAgentString = currentUa
+                                            wv.settings.useWideViewPort = true
+                                            wv.settings.loadWithOverviewMode = newMode
+                                            wv.setInitialScale(0)
+                                            val curUrl = wv.url ?: (if (urlInput.isNotBlank()) urlInput else currentResource?.url)
+                                            if (!curUrl.isNullOrBlank() && (curUrl.startsWith("http://", ignoreCase = true) || curUrl.startsWith("https://", ignoreCase = true))) {
+                                                wv.loadUrl(curUrl, KaspaPrivacyEngine.getDesktopHeaders(newMode, defaultDeviceUa))
+                                            } else {
+                                                wv.reload()
+                                            }
+                                        }
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1266,10 +1286,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     )
                 }
 
-                // Web Page Loading Progress Bar
-                if ((isWebLoading || isLoading) && webProgress < 1.0f) {
+                // Web Page Loading Progress Bar (Real WebView Loading Progress)
+                if (isWebLoading && webProgress in 0.01f..0.99f) {
                     LinearProgressIndicator(
-                        progress = { if (webProgress > 0f) webProgress else 0.5f },
+                        progress = { webProgress },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(2.dp),
@@ -1482,10 +1502,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
                                 offscreenPreRaster = true
+                                val defaultDeviceUa = try {
+                                    WebSettings.getDefaultUserAgent(ctx)
+                                } catch (_: Throwable) {
+                                    null
+                                }
                                 userAgentString = if (desktopModeEnabled) {
-                                    KaspaPrivacyEngine.DESKTOP_USER_AGENT
+                                    KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
                                 } else {
-                                    KaspaPrivacyEngine.MOBILE_USER_AGENT
+                                    KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
                                 }
                             }
 
@@ -1494,7 +1519,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 try {
                                     androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
                                         this,
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(
+                                            safeGpuMode = rendererCrashCount > 0,
+                                            isDesktop = desktopModeEnabled,
+                                            baseUa = defaultDeviceUa
+                                        ),
                                         setOf("*")
                                     )
                                 } catch (_: Throwable) {}
@@ -1516,15 +1545,39 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 if (result != null) {
                                     val type = result.type
                                     val extra = result.extra
-                                    if (!extra.isNullOrBlank() && (
+                                    val isImg = type == WebView.HitTestResult.IMAGE_TYPE || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE
+                                    
+                                    if (type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                                        // For linked image, fetch both link and image URL asynchronously via hit test message
+                                        val message = android.os.Handler(android.os.Looper.getMainLooper()).obtainMessage()
+                                        message.target = object : android.os.Handler(android.os.Looper.getMainLooper()) {
+                                            override fun handleMessage(msg: android.os.Message) {
+                                                val src = msg.data.getString("src")
+                                                val url = msg.data.getString("url")
+                                                longPressedImageUrl = if (!src.isNullOrBlank()) src else extra
+                                                longPressedLinkUrl = if (!url.isNullOrBlank()) url else (if (!src.isNullOrBlank()) src else extra)
+                                                isLongPressedImage = true
+                                                showLinkContextMenu = true
+                                            }
+                                        }
+                                        wv.requestFocusNodeHref(message)
+                                        return@setOnLongClickListener true
+                                    } else if (!extra.isNullOrBlank() && (
                                         type == WebView.HitTestResult.SRC_ANCHOR_TYPE ||
-                                        type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE ||
                                         type == WebView.HitTestResult.IMAGE_TYPE ||
                                         type == WebView.HitTestResult.GEO_TYPE ||
                                         type == WebView.HitTestResult.EMAIL_TYPE ||
                                         type == WebView.HitTestResult.PHONE_TYPE
                                     )) {
-                                        longPressedLinkUrl = extra
+                                        if (isImg) {
+                                            longPressedImageUrl = extra
+                                            longPressedLinkUrl = extra
+                                            isLongPressedImage = true
+                                        } else {
+                                            longPressedImageUrl = null
+                                            longPressedLinkUrl = extra
+                                            isLongPressedImage = false
+                                        }
                                         showLinkContextMenu = true
                                         return@setOnLongClickListener true
                                     }
@@ -1953,8 +2006,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         isExtractingOrLoadingReaderMode = false
                                     }
                                     isWebLoading = true
-                                    webProgress = 0.15f
-                                    viewModel.setIsLoading(true)
+                                    webProgress = 0f
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -1971,14 +2023,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("hyper://", ignoreCase = true)
 
                                         if (isNavigableUrl) {
-                                            view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
                                     }
 
                                     view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(
+                                            safeGpuMode = rendererCrashCount > 0,
+                                            isDesktop = desktopModeEnabled,
+                                            baseUa = defaultDeviceUa
+                                        ),
                                         null
                                     )
 
@@ -1994,7 +2049,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     isWebLoading = false
                                     (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                     webProgress = 1.0f
-                                    viewModel.setIsLoading(false)
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -2011,14 +2065,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("hyper://", ignoreCase = true)
 
                                         if (isNavigableUrl) {
-                                            view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
                                         }
                                     }
 
                                     view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(safeGpuMode = rendererCrashCount > 0),
+                                        KaspaPrivacyEngine.getPrivacyShieldScript(
+                                            safeGpuMode = rendererCrashCount > 0,
+                                            isDesktop = desktopModeEnabled,
+                                            baseUa = defaultDeviceUa
+                                        ),
                                         null
                                     )
 
@@ -2102,7 +2159,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("hyper://", ignoreCase = true)
 
                                         if (isNavigableUrl) {
-                                            view?.tag = Pair(it, viewModel.navigationSessionId.value)
                                             viewModel.updateCurrentUrl(it)
                                         }
                                     }
@@ -2460,53 +2516,54 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         
                         if (isDirectHttp) {
                             val isWebStore = resource.url.contains("chromewebstore.google.com") || resource.url.contains("chrome.google.com/webstore")
+                            val defaultDeviceUa = try {
+                                WebSettings.getDefaultUserAgent(context)
+                            } catch (_: Throwable) {
+                                null
+                            }
                             val desiredUa = if (desktopModeEnabled || isWebStore) {
-                                KaspaPrivacyEngine.DESKTOP_USER_AGENT
+                                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
                             } else {
-                                KaspaPrivacyEngine.MOBILE_USER_AGENT
+                                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
                             }
                             val uaChanged = webView.settings.userAgentString != desiredUa
                             if (uaChanged) {
                                 webView.settings.userAgentString = desiredUa
+                                webView.settings.useWideViewPort = true
+                                webView.settings.loadWithOverviewMode = desktopModeEnabled || isWebStore
+                                webView.setInitialScale(0)
                             }
                             
-                            val loadKey = resource.url
-                            val currentWvUrl = webView.url ?: ""
-                            val normWv = currentWvUrl.removeSuffix("/").trim().lowercase()
-                            val normRes = resource.url.removeSuffix("/").trim().lowercase()
-
                             val currentTag = webView.tag as? Pair<*, *>
-                            val tagUrl = currentTag?.first as? String
-                            val tagId = currentTag?.second as? Int
-                            val tagPair = Pair(loadKey, navigationSessionId)
+                            val tagId = currentTag?.second as? Int ?: (webView.tag as? Int)
+                            val isRecentDownload = (resource.url == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
+                            val isNewSession = (tagId != navigationSessionId) && !isRecentDownload
 
-                            val isRecentDownload = (loadKey == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
-                            val needsNavigation = (tagUrl != loadKey || tagId != navigationSessionId) && !isRecentDownload
-                            if (needsNavigation) {
-                                webView.tag = tagPair
-                                if (normWv != normRes || tagId != navigationSessionId) {
-                                    val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
-                                        resource.url.replaceFirst("http://", "https://", ignoreCase = true)
-                                    } else {
-                                        resource.url
-                                    }
-                                    webView.loadUrl(finalUrl)
+                            if (isNewSession) {
+                                webView.tag = Pair(resource.url, navigationSessionId)
+                                val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
+                                    resource.url.replaceFirst("http://", "https://", ignoreCase = true)
+                                } else {
+                                    resource.url
                                 }
-                            } else if (uaChanged && normWv.isNotEmpty()) {
-                                webView.reload()
-                            } else {
-                                webView.tag = Pair(currentWvUrl.ifEmpty { loadKey }, navigationSessionId)
+                                val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
+                                webView.loadUrl(finalUrl, desktopHeaders)
+                            } else if (uaChanged) {
+                                val targetUrl = webView.url ?: resource.url
+                                if (!targetUrl.isNullOrBlank()) {
+                                    val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
+                                    webView.loadUrl(targetUrl, desktopHeaders)
+                                }
                             }
                         } else {
                             val cidKey = if (resource.cid.isNotBlank()) resource.cid else "kaspa"
                             val loadKey = "${resource.url}_$cidKey"
                             val currentTag = webView.tag as? Pair<*, *>
                             val tagUrl = currentTag?.first as? String
-                            val tagId = currentTag?.second as? Int
-                            val tagPair = Pair(loadKey, navigationSessionId)
+                            val tagId = currentTag?.second as? Int ?: (webView.tag as? Int)
 
                             if (tagUrl != loadKey || tagId != navigationSessionId) {
-                                webView.tag = tagPair
+                                webView.tag = Pair(loadKey, navigationSessionId)
                                 val baseUrl = if (resource.cid.isNotBlank()) {
                                     "https://${resource.cid}.ipfs.dweb.link/"
                                 } else {
@@ -3379,18 +3436,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         )
     }
 
-    if (showLinkContextMenu && longPressedLinkUrl != null) {
-        val linkUrl = longPressedLinkUrl ?: ""
+    if (showLinkContextMenu && (longPressedLinkUrl != null || longPressedImageUrl != null)) {
+        val linkUrl = longPressedLinkUrl ?: (longPressedImageUrl ?: "")
+        val imageUrl = longPressedImageUrl
+        val isImage = isLongPressedImage || imageUrl != null
         AlertDialog(
             onDismissRequest = {
                 showLinkContextMenu = false
                 longPressedLinkUrl = null
+                longPressedImageUrl = null
+                isLongPressedImage = false
             },
             containerColor = SurfaceCard,
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text(
-                    text = "Link Options",
+                    text = if (isImage) "Image Options" else "Link Options",
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -3399,7 +3460,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = linkUrl,
+                        text = if (isImage && !imageUrl.isNullOrBlank()) imageUrl else linkUrl,
                         fontSize = 12.sp,
                         color = ElectricCyan,
                         maxLines = 2,
@@ -3409,6 +3470,62 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     HorizontalDivider(color = SurfaceCardBorder, thickness = 1.dp)
                     Spacer(modifier = Modifier.height(4.dp))
 
+                    // Option: Download Image (When an image is long-pressed)
+                    if (isImage && !imageUrl.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    showLinkContextMenu = false
+                                    val targetImgUrl = imageUrl
+                                    longPressedLinkUrl = null
+                                    longPressedImageUrl = null
+                                    isLongPressedImage = false
+                                    try {
+                                        var rawFilename = android.webkit.URLUtil.guessFileName(targetImgUrl, null, "image/*")
+                                        if (rawFilename.isBlank() || rawFilename == "downloadfile" || !rawFilename.contains(".")) {
+                                            rawFilename = "image_${System.currentTimeMillis()}.png"
+                                        }
+                                        val filename = rawFilename
+                                        val downloadId = System.currentTimeMillis()
+                                        if (targetImgUrl.startsWith("data:", ignoreCase = true)) {
+                                            viewModel.addDownload(downloadId, filename, targetImgUrl)
+                                            viewModel.startDownload(context, downloadId, targetImgUrl, filename)
+                                            viewModel.setStatusMessage("Saving image: $filename")
+                                        } else {
+                                            val dmId = try {
+                                                val request = android.app.DownloadManager.Request(android.net.Uri.parse(targetImgUrl)).apply {
+                                                    setTitle(filename)
+                                                    setDescription("Downloading image")
+                                                    setAllowedOverMetered(true)
+                                                    setAllowedOverRoaming(true)
+                                                    setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
+                                                    setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                    setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
+                                                }
+                                                val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                                                dm.enqueue(request)
+                                            } catch (_: Exception) {
+                                                downloadId
+                                            }
+                                            viewModel.addDownload(dmId, filename, targetImgUrl)
+                                            viewModel.startDownload(context, dmId, targetImgUrl, filename)
+                                            viewModel.setStatusMessage("Downloading image: $filename")
+                                        }
+                                    } catch (e: Exception) {
+                                        viewModel.setStatusMessage("Image download failed: ${e.message}")
+                                    }
+                                }
+                                .padding(vertical = 10.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Download Image", color = ElectricCyan, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
                     // Option 1: Open in New Tab
                     Row(
                         modifier = Modifier
@@ -3416,15 +3533,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 showLinkContextMenu = false
+                                val targetToOpen = if (isImage && !imageUrl.isNullOrBlank() && (longPressedLinkUrl == imageUrl || longPressedLinkUrl.isNullOrBlank())) imageUrl else linkUrl
                                 longPressedLinkUrl = null
-                                viewModel.createNewTab(linkUrl, "New Tab")
+                                longPressedImageUrl = null
+                                isLongPressedImage = false
+                                viewModel.createNewTab(targetToOpen, if (isImage) "Image" else "New Tab")
                             }
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Open in New Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(if (isImage) "Open Image in New Tab" else "Open in New Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
 
                     // Option 2: Open in Background Tab
@@ -3434,56 +3554,65 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 showLinkContextMenu = false
+                                val targetToOpen = if (isImage && !imageUrl.isNullOrBlank() && (longPressedLinkUrl == imageUrl || longPressedLinkUrl.isNullOrBlank())) imageUrl else linkUrl
                                 longPressedLinkUrl = null
-                                viewModel.openBackgroundTab(linkUrl, "New Tab")
+                                longPressedImageUrl = null
+                                isLongPressedImage = false
+                                viewModel.openBackgroundTab(targetToOpen, if (isImage) "Image" else "New Tab")
                             }
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Open in Background Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(if (isImage) "Open Image in Background Tab" else "Open in Background Tab", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
 
-                    // Option 3: Copy Link Address
+                    // Option 3: Copy Link Address / Image Address
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 showLinkContextMenu = false
+                                val targetToCopy = if (isImage && !imageUrl.isNullOrBlank()) imageUrl else linkUrl
                                 longPressedLinkUrl = null
-                                clipboardManager.setText(AnnotatedString(linkUrl))
-                                viewModel.setStatusMessage("Link address copied to clipboard")
+                                longPressedImageUrl = null
+                                isLongPressedImage = false
+                                clipboardManager.setText(AnnotatedString(targetToCopy))
+                                viewModel.setStatusMessage(if (isImage) "Image URL copied to clipboard" else "Link address copied to clipboard")
                             }
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Copy Link Address", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(if (isImage) "Copy Image URL" else "Copy Link Address", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
 
-                    // Option 4: Share Link
+                    // Option 4: Share Link / Image URL
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
                                 showLinkContextMenu = false
+                                val targetToShare = if (isImage && !imageUrl.isNullOrBlank()) imageUrl else linkUrl
                                 longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                isLongPressedImage = false
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, linkUrl)
+                                    putExtra(Intent.EXTRA_TEXT, targetToShare)
                                 }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share Link"))
+                                context.startActivity(Intent.createChooser(shareIntent, if (isImage) "Share Image URL" else "Share Link"))
                             }
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null, tint = TextMuted, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("Share Link", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(if (isImage) "Share Image URL" else "Share Link", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             },
@@ -3492,6 +3621,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     onClick = {
                         showLinkContextMenu = false
                         longPressedLinkUrl = null
+                        longPressedImageUrl = null
+                        isLongPressedImage = false
                     }
                 ) {
                     Text("Cancel", color = TextMuted)
@@ -4799,7 +4930,7 @@ fun BrowserSpeedDial(
             modifier = Modifier
                 .fillMaxWidth()
         ) {
-            KaspaNewsSection(onNavigate = onNavigate)
+            KaspaNewsSection(viewModel = viewModel, onNavigate = onNavigate)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -5493,536 +5624,20 @@ fun PrivacyToggleItem(
     }
 }
 
-data class KaspaNewsItem(
-    val title: String,
-    val desc: String,
-    val url: String,
-    val category: String, // "Reddit", "GitHub", "X Feeds", "YouTube"
-    val timestamp: String,
-    val author: String = "",
-    val videoId: String? = null,
-    val duration: String? = null,
-    val epochMillis: Long = System.currentTimeMillis()
-)
-
-fun extractTagContent(xml: String, tagName: String): String {
-    val regex = Regex("<$tagName(?:\\s+[^>]*)?>(.*?)</$tagName>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-    val match = regex.find(xml)
-    if (match != null) {
-        return cleanXmlText(match.groupValues[1])
-    }
-    return ""
-}
-
-fun extractLinkUrl(xml: String): String {
-    val hrefMatch = Regex("<link[^>]+href=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(xml)
-    var url = ""
-    if (hrefMatch != null) {
-        url = cleanXmlText(hrefMatch.groupValues[1]).trim()
-    } else {
-        val content = extractTagContent(xml, "link")
-        if (content.isNotEmpty()) url = content.trim()
-    }
-    // Normalize X / Twitter proxy mirrors to official x.com
-    if (url.contains("nitter.") || url.contains("xcancel.com") || url.contains("twitter.com")) {
-        val path = url.substringAfter("://").substringAfter("/")
-        if (path.isNotBlank()) {
-            return "https://x.com/$path"
-        }
-    }
-    return url
-}
-
-fun formatEpochToDisplay(epochMillis: Long): String {
-    val diff = System.currentTimeMillis() - epochMillis
-    if (diff < 0) return "Just now"
-    if (diff < 60_000) return "Just now"
-    if (diff < 3600_000) return "${diff / 60_000}m ago"
-    if (diff < 86400_000) return "${diff / 3600_000}h ago"
-    val days = diff / 86400_000
-    if (days < 7) return "${days}d ago"
-    val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US)
-    return sdf.format(java.util.Date(epochMillis))
-}
-
-fun parseDateToEpoch(dateStr: String): Long {
-    if (dateStr.isBlank() || dateStr == "Recently" || dateStr == "Just now") return System.currentTimeMillis()
-    val formats = listOf(
-        "EEE, dd MMM yyyy HH:mm:ss z",
-        "EEE, dd MMM yyyy HH:mm:ss Z",
-        "EEE, dd MMM yyyy HH:mm:ss",
-        "yyyy-MM-dd'T'HH:mm:ss'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-        "yyyy-MM-dd'T'HH:mm:ssXXX",
-        "yyyy-MM-dd HH:mm:ss",
-        "MMM dd, yyyy"
-    )
-    for (fmt in formats) {
-        try {
-            val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
-            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
-            val parsed = sdf.parse(dateStr)
-            if (parsed != null) return parsed.time
-        } catch (_: Exception) {}
-    }
-    return System.currentTimeMillis()
-}
-
-fun extractYouTubeVideoId(url: String): String? {
-    val clean = url.trim()
-    if (clean.isBlank() || clean.equals("undefined", ignoreCase = true) || clean.equals("null", ignoreCase = true)) return null
-    if (clean.matches(Regex("^[a-zA-Z0-9_-]{11}$")) && !clean.equals("undefined", ignoreCase = true)) return clean
-    val vMatch = Regex("[?&]v=([a-zA-Z0-9_-]{11})").find(clean)
-    if (vMatch != null && !vMatch.groupValues[1].equals("undefined", ignoreCase = true)) return vMatch.groupValues[1]
-    val beMatch = Regex("youtu\\.be/([a-zA-Z0-9_-]{11})").find(clean)
-    if (beMatch != null && !beMatch.groupValues[1].equals("undefined", ignoreCase = true)) return beMatch.groupValues[1]
-    val embedMatch = Regex("embed/([a-zA-Z0-9_-]{11})").find(clean)
-    if (embedMatch != null && !embedMatch.groupValues[1].equals("undefined", ignoreCase = true)) return embedMatch.groupValues[1]
-    return null
-}
-
-fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
-    val items = mutableListOf<KaspaNewsItem>()
-    try {
-        var index = 0
-        while (index < xml.length) {
-            var itemStart = xml.indexOf("<item>", index)
-            var isAtom = false
-            if (itemStart == -1) {
-                itemStart = xml.indexOf("<entry>", index)
-                isAtom = true
-            }
-            if (itemStart == -1) break
-
-            val itemEnd = if (isAtom) {
-                xml.indexOf("</entry>", itemStart)
-            } else {
-                xml.indexOf("</item>", itemStart)
-            }
-            if (itemEnd == -1) break
-
-            val itemXml = xml.substring(itemStart, itemEnd)
-            index = itemEnd
-
-            var title = extractTagContent(itemXml, "title")
-            if (title.isEmpty()) title = extractTagContent(itemXml, "media:title")
-
-            val link = extractLinkUrl(itemXml)
-
-            var desc = extractTagContent(itemXml, "description")
-            if (desc.isEmpty()) desc = extractTagContent(itemXml, "summary")
-            if (desc.isEmpty()) desc = extractTagContent(itemXml, "content")
-            if (desc.isEmpty()) desc = extractTagContent(itemXml, "media:description")
-            if (desc.length > 200) {
-                desc = desc.take(197) + "..."
-            }
-
-            var rawDate = extractTagContent(itemXml, "pubDate")
-            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "updated")
-            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "published")
-            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "dc:date")
-
-            val epochMillis = parseDateToEpoch(rawDate)
-            val displayDate = if (rawDate.isNotBlank()) formatEpochToDisplay(epochMillis) else "Recently"
-
-            var author = extractTagContent(itemXml, "name")
-            if (author.isEmpty()) author = extractTagContent(itemXml, "author")
-            if (author.isEmpty()) author = extractTagContent(itemXml, "dc:creator")
-            if (author.isEmpty()) author = extractTagContent(itemXml, "source")
-            if (author.isEmpty() && defaultCategory == "News") author = "Kaspa News"
-
-            var videoId: String? = extractTagContent(itemXml, "yt:videoId").trim().takeIf {
-                it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
-            }
-            if (videoId == null && link.isNotEmpty() && !link.equals("undefined", ignoreCase = true)) {
-                videoId = extractYouTubeVideoId(link)
-            }
-
-            val finalCategory = if (!videoId.isNullOrBlank() || defaultCategory == "YouTube" || link.contains("youtube.com") || link.contains("youtu.be")) {
-                "YouTube"
-            } else if (link.contains("x.com") || link.contains("twitter.com") || link.contains("nitter") || defaultCategory == "X") {
-                "X"
-            } else if (defaultCategory == "Reddit" || link.contains("reddit.com")) {
-                "Reddit"
-            } else if (defaultCategory == "GitHub" || link.contains("github.com")) {
-                "GitHub"
-            } else {
-                if (defaultCategory.isBlank()) "Kaspa News" else defaultCategory
-            }
-
-            if (title.isNotBlank()) {
-                items.add(
-                    KaspaNewsItem(
-                        title = title,
-                        desc = desc.ifBlank { "Click to view full blockDAG update." },
-                        url = link.ifBlank { "https://kaspa.org" },
-                        category = finalCategory,
-                        timestamp = displayDate,
-                        author = author,
-                        videoId = videoId,
-                        epochMillis = epochMillis
-                    )
-                )
-            }
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-    }
-    return items
-}
-
-fun unescapeHtmlEntities(input: String): String {
-    if (input.isBlank()) return ""
-    return try {
-        @Suppress("DEPRECATION")
-        android.text.Html.fromHtml(input).toString()
-    } catch (_: Throwable) {
-        input.replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&#39;", "'")
-            .replace("&#32;", " ")
-            .replace("&nbsp;", " ")
-    }
-}
-
-fun cleanXmlText(text: String): String {
-    if (text.isBlank()) return ""
-    var cleaned = text
-
-    // 1. Extract content inside CDATA blocks if present
-    while (cleaned.contains("<![CDATA[")) {
-        cleaned = cleaned.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) { match ->
-            match.groupValues[1]
-        }
-    }
-
-    // 2. Unescape HTML entities first so encoded tags (e.g. &lt;!-- SC_OFF --&gt;) become literal tags/comments
-    cleaned = unescapeHtmlEntities(cleaned)
-
-    // 3. Remove HTML comments <!-- ... -->
-    cleaned = cleaned.replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
-
-    // 4. Remove all HTML tags <...>
-    cleaned = cleaned.replace(Regex("<[^>]+>"), " ")
-
-    // 5. Unescape any secondary entities that were double-encoded
-    cleaned = unescapeHtmlEntities(cleaned)
-
-    // 6. Remove Reddit & RSS boilerplate clutter
-    cleaned = cleaned.replace(Regex("submitted by\\s+/u/\\S+", RegexOption.IGNORE_CASE), "")
-    cleaned = cleaned.replace(Regex("\\[link\\]", RegexOption.IGNORE_CASE), "")
-    cleaned = cleaned.replace(Regex("\\[comments\\]", RegexOption.IGNORE_CASE), "")
-
-    // 7. Collapse all spaces, tabs, and line breaks into single spaces
-    cleaned = cleaned.replace(Regex("\\s+"), " ").trim()
-
-    return cleaned
-}
-
-fun getKaspaNewsDeduplicationKey(item: KaspaNewsItem): String {
-    val cleanTitle = item.title.lowercase().replace(Regex("[^a-z0-9]"), "")
-    return if (cleanTitle.length > 8) cleanTitle else item.url.lowercase().trim()
-}
-
 @Composable
 fun KaspaNewsSection(
+    viewModel: DecentralViewModel? = null,
     onNavigate: (String) -> Unit
 ) {
     var selectedFilter by remember { mutableStateOf("All") }
-    var isRefreshing by remember { mutableStateOf(false) }
     var shuffleTrigger by remember { mutableIntStateOf(0) }
-    
-    val initialItems = remember {
-        listOf(
-            KaspaNewsItem(
-                title = "@KaspaCurrency: Kaspad v0.15.2 released with DagKnight sync optimizations and mainnet BPS enhancements",
-                desc = "Latest node update delivers major performance improvements for peer sync, UTXO set validation, and block propagation latency.",
-                url = "https://x.com/KaspaCurrency",
-                category = "X",
-                timestamp = "Sep 10, 2026",
-                author = "@KaspaCurrency",
-                epochMillis = 1788998400000L
-            ),
-            KaspaNewsItem(
-                title = "@Kaspa_Ecosystem: \$KAS ecosystem surges with 10M+ KRC-20 transactions and zero congestion",
-                desc = "High-speed BlockDAG transaction throughput easily handles millions of smart token transfers without fee spikes or network backlog.",
-                url = "https://x.com/Kaspa_Ecosystem",
-                category = "X",
-                timestamp = "Sep 10, 2026",
-                author = "@Kaspa_Ecosystem",
-                epochMillis = 1788998200000L
-            ),
-            KaspaNewsItem(
-                title = "kaspanet/kaspad: Release v0.15.2 mainnet binaries & DagKnight DAG engine",
-                desc = "Official release binaries compiled with Rust 1.80. High-performance peer-to-peer block ordering with zero latency assumptions.",
-                url = "https://github.com/kaspanet/kaspad",
-                category = "GitHub",
-                timestamp = "Sep 10, 2026",
-                author = "shaiwy",
-                epochMillis = 1788998000000L
-            ),
-            KaspaNewsItem(
-                title = "@YonatanSompo: \$KAS Proof-of-Work solves Satoshi's original scaling vision without compromises",
-                desc = "By structuring blocks into an acyclic graph rather than an isolated single chain, Kaspa enables parallel block creation with mathematical consensus security.",
-                url = "https://x.com/YonatanSompo",
-                category = "X",
-                timestamp = "Sep 10, 2026",
-                author = "@YonatanSompo",
-                epochMillis = 1788997500000L
-            ),
-            KaspaNewsItem(
-                title = "r/kaspa: Kaspad v0.15.2 is live! DagKnight performance tests inside",
-                desc = "Community node operators reporting 30% reduction in sync times and ultra-low RAM usage across desktop and server nodes.",
-                url = "https://reddit.com/r/kaspa",
-                category = "Reddit",
-                timestamp = "Sep 10, 2026",
-                author = "u/BlockDAGLover",
-                epochMillis = 1788997000000L
-            ),
-            KaspaNewsItem(
-                title = "@DesheShai: DagKnight formal security proofs published: parameterless PoW BlockDAG",
-                desc = "Zero latency bounds, adaptive ordering, and sub-second confirmation speed. Proof-of-Work has reached its theoretical optimum.",
-                url = "https://x.com/DesheShai",
-                category = "X",
-                timestamp = "Sep 09, 2026",
-                author = "@DesheShai",
-                epochMillis = 1788913000000L
-            ),
-            KaspaNewsItem(
-                title = "Kaspa BPS Upgrade & DagKnight Consensus Live Demo",
-                desc = "Dr. Yonatan Sompolinsky and core developers demonstrate parameterless proof-of-work DAG consensus achieving unprecedented throughput.",
-                url = "https://www.youtube.com/watch?v=By_Zw58PN6o",
-                category = "YouTube",
-                timestamp = "Sep 10, 2026",
-                author = "Kaspa Official",
-                videoId = "By_Zw58PN6o",
-                duration = "16:45",
-                epochMillis = 1788996000000L
-            ),
-            KaspaNewsItem(
-                title = "@Kaspa_Ecosystem: New decentralised bridge & KCC-20 indexer live on testnet",
-                desc = "Developers can now build cross-chain dApps on Kaspa BlockDAG with sub-second finality and zero latency overhead.",
-                url = "https://x.com/Kaspa_Ecosystem",
-                category = "X",
-                timestamp = "Sep 09, 2026",
-                author = "@Kaspa_Ecosystem",
-                epochMillis = 1788912000000L
-            ),
-            KaspaNewsItem(
-                title = "@KaspaCurrency: \$KAS mining network hash rate reaches historic all-time high",
-                desc = "Global ASIC and decentralised mining pool distribution reinforces Kaspa as the fastest and most secure PoW layer in existence.",
-                url = "https://x.com/KaspaCurrency",
-                category = "X",
-                timestamp = "Sep 08, 2026",
-                author = "@KaspaCurrency",
-                epochMillis = 1788825600000L
-            ),
-            KaspaNewsItem(
-                title = "Yonatan Sompolinsky at AusCryptoCon: BlockDAG & Scalability",
-                desc = "Dr. Yonatan Sompolinsky discusses the fundamentals of BlockDAG architecture, parameterless consensus, and high throughput decentralization.",
-                url = "https://www.youtube.com/watch?v=By_Zw58PN6o",
-                category = "YouTube",
-                timestamp = "Sep 07, 2026",
-                author = "Kaspa Official",
-                videoId = "By_Zw58PN6o",
-                duration = "14:20",
-                epochMillis = 1788739200000L
-            ),
-            KaspaNewsItem(
-                title = "Kaspa Commons X Space Featuring Kaskad",
-                desc = "Community discussion covering the latest network upgrades, ecosystem development, and decentralized applications.",
-                url = "https://www.youtube.com/watch?v=BbUSm6inXhg",
-                category = "YouTube",
-                timestamp = "Sep 06, 2026",
-                author = "Kaspa Official",
-                videoId = "BbUSm6inXhg",
-                duration = "18:45",
-                epochMillis = 1788652800000L
-            ),
-            KaspaNewsItem(
-                title = "@KaspaCurrency: DagKnight consensus protocol adapts dynamically to live internet latency",
-                desc = "Parameterless proof-of-work is the ultimate solution to the blockchain trilemma. Sub-second confirmations without hardcoded assumptions.",
-                url = "https://x.com/KaspaCurrency",
-                category = "X",
-                timestamp = "Sep 07, 2026",
-                author = "@KaspaCurrency",
-                epochMillis = 1788739200000L
-            ),
-            KaspaNewsItem(
-                title = "@Kaspa_Ecosystem: KCC-20 token indexer performance hits record highs",
-                desc = "Community node operators have processed millions of KCC-20 requests seamlessly. High-speed DAG token minting and smart contracts at scale.",
-                url = "https://x.com/KaspaCurrency",
-                category = "X",
-                timestamp = "Sep 06, 2026",
-                author = "@Kaspa_Ecosystem",
-                epochMillis = 1788652800000L
-            ),
-            KaspaNewsItem(
-                title = "kaspanet/rusty-kaspa: DagKnight consensus dynamic ordering engine (PR #2491)",
-                desc = "Parameterless DAG reachability tree and adaptive confirmation times. Mainnet benchmark tests achieving 32 blocks per second.",
-                url = "https://github.com/kaspanet/kaspad",
-                category = "GitHub",
-                timestamp = "Sep 06, 2026",
-                author = "shaiwy",
-                epochMillis = 1788652800000L
-            ),
-            KaspaNewsItem(
-                title = "kaspa-core/kcc20-protocol: Release v1.2.0-alpha for smart contracts",
-                desc = "High-throughput token inscription standard, automated UTXO batching and validation engine for KCC-20 composable contracts.",
-                url = "https://github.com/kaspanet/kaspad",
-                category = "GitHub",
-                timestamp = "Sep 05, 2026",
-                author = "michaels",
-                epochMillis = 1788566400000L
-            ),
-            KaspaNewsItem(
-                title = "@YonatanSompo: DagKnight achieves near-optimal 49% BFT security",
-                desc = "Unlike protocols with fixed latency bounds, DagKnight dynamically tightens confirmation times as network conditions improve.",
-                url = "https://x.com/YonatanSompo",
-                category = "X",
-                timestamp = "Sep 05, 2026",
-                author = "@YonatanSompo",
-                epochMillis = 1788566400000L
-            ),
-            KaspaNewsItem(
-                title = "r/kaspa: DagKnight is the true endgame for Proof-of-Work scalability",
-                desc = "Why parameterless consensus changes everything: zero latency assumptions, dynamic confirmation times, and 100 BPS capability.",
-                url = "https://reddit.com/r/kaspa",
-                category = "Reddit",
-                timestamp = "Sep 07, 2026",
-                author = "u/DagMaster",
-                epochMillis = 1788739200000L
-            ),
-            KaspaNewsItem(
-                title = "r/kaspa: KCC-20 tokens are taking off! What are your favorite projects?",
-                desc = "Community discussion about newly launched KCC-20 projects, volume milestones, and decentralized indexer incentives.",
-                url = "https://reddit.com/r/kaspa",
-                category = "Reddit",
-                timestamp = "Sep 06, 2026",
-                author = "u/BlockDAGLover",
-                epochMillis = 1788652800000L
-            ),
-            KaspaNewsItem(
-                title = "Dev Workshop: Performance Aspects with Michael Sutton & Hans Moog",
-                desc = "In-depth engineering workshop exploring performance optimization, memory layout, and node scaling for BlockDAG.",
-                url = "https://www.youtube.com/watch?v=cMFeijKSv1g",
-                category = "YouTube",
-                timestamp = "Sep 04, 2026",
-                author = "Kaspa Official",
-                videoId = "cMFeijKSv1g",
-                duration = "22:10",
-                epochMillis = 1788480000000L
-            ),
-            KaspaNewsItem(
-                title = "@Kaspa_Miners: Node runners and ASIC operators testing DagKnight parameters",
-                desc = "Please update your node daemon connection configurations to optimize block propagation and prepare for DagKnight testnet validation.",
-                url = "https://x.com/Kaspa_Support",
-                category = "X",
-                timestamp = "Sep 04, 2026",
-                author = "@Kaspa_Miners",
-                epochMillis = 1788480000000L
-            ),
-            KaspaNewsItem(
-                title = "Kaspa BlockDAG: Revolutionary 10 BPS Mainnet Upgrade Landmark",
-                desc = "Historical milestone as Kaspa mainnet transitions smoothly to 10 blocks per second, validating sub-second transactions.",
-                url = "https://medium.com/@kaspanet",
-                category = "News",
-                timestamp = "Aug 28, 2026",
-                author = "Kaspa Research",
-                epochMillis = 1787875200000L
-            ),
-            KaspaNewsItem(
-                title = "kaspanet/kaspad: Rust Node Engine Complete Transition Milestone",
-                desc = "Full deprecation of legacy Go node code base in favor of high-speed multi-threaded Rust p2p engine.",
-                url = "https://github.com/kaspanet/kaspad",
-                category = "GitHub",
-                timestamp = "Aug 15, 2026",
-                author = "shaiwy",
-                epochMillis = 1786752000000L
-            )
-        ).distinctBy { getKaspaNewsDeduplicationKey(it) }
-    }
 
-    var newsItems by remember { mutableStateOf(initialItems) }
-    val scope = rememberCoroutineScope()
+    val defaultItems = remember { getDefaultCuratedNews() }
+    val newsItemsState by (viewModel?.newsFeedItems ?: remember {
+        kotlinx.coroutines.flow.MutableStateFlow(defaultItems)
+    }).collectAsState()
 
-    val refreshFeeds = {
-        isRefreshing = true
-        scope.launch {
-            try {
-                val fetched = withContext(Dispatchers.IO) {
-                    val baseOkHttpClient = okhttp3.OkHttpClient.Builder()
-                        .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
-                        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                        .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    val client = com.example.network.CronetClientFactory.buildClient(baseOkHttpClient)
-
-                    val feeds = listOf(
-                        Pair("https://kaspa.org/feed/", "News"),
-                        Pair("https://medium.com/feed/@kaspanet", "News"),
-                        Pair("https://www.reddit.com/r/kaspa/.rss", "Reddit"),
-                        Pair("https://www.reddit.com/r/KaspaCurrency/.rss", "Reddit"),
-                        Pair("https://github.com/kaspanet/kaspad/commits/master.atom", "GitHub"),
-                        Pair("https://github.com/kaspanet/rusty-kaspa/commits/master.atom", "GitHub"),
-                        Pair("https://github.com/kaspanet/kaspad/releases.atom", "GitHub"),
-                        Pair("https://github.com/kaspanet/rusty-kaspa/releases.atom", "GitHub"),
-                        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCsnbLKm_lpCUj63_HPW17og", "YouTube"),
-                        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube"),
-                        Pair("https://cointelegraph.com/rss/tag/kaspa", "News"),
-                        Pair("https://coingape.com/tag/kaspa/feed/", "News"),
-                        Pair("https://xcancel.com/KaspaCurrency/rss", "X"),
-                        Pair("https://xcancel.com/Kaspa_Ecosystem/rss", "X")
-                    )
-
-                    val list: MutableList<KaspaNewsItem> = coroutineScope {
-                        feeds.map { (url, cat) ->
-                            async(Dispatchers.IO) {
-                                val feedItems = mutableListOf<KaspaNewsItem>()
-                                try {
-                                    val request = okhttp3.Request.Builder()
-                                        .url(url)
-                                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) KaspaBrowser/1.0")
-                                        .build()
-                                    client.newCall(request).execute().use { response ->
-                                        if (response.isSuccessful) {
-                                            val bodyStr = response.body?.string() ?: ""
-                                            feedItems.addAll(parseRssXml(bodyStr, cat))
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.d("KaspaNews", "Feed update notice for $url: ${e.message}")
-                                }
-                                feedItems
-                            }
-                        }.awaitAll().flatten().toMutableList()
-                    }
-                    list
-                }
-
-                val combined = (fetched + newsItems)
-                    .distinctBy { getKaspaNewsDeduplicationKey(it) }
-                    .sortedByDescending { it.epochMillis }
-                    .take(250)
-
-                newsItems = combined
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                isRefreshing = false
-            }
-        }
-    }
-
-    // Auto-refresh feeds periodically every 15 minutes
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            refreshFeeds()
-            kotlinx.coroutines.delay(15 * 60_000L)
-        }
-    }
+    val newsItems = if (newsItemsState.isNotEmpty()) newsItemsState else defaultItems
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(

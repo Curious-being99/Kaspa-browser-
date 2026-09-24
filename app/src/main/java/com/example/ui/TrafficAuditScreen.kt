@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -166,7 +165,6 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val incognitoMode by viewModel.incognitoMode.collectAsState()
     val httpsOnlyMode by viewModel.httpsOnlyMode.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
-    val desktopModeEnabled by viewModel.desktopModeEnabled.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
     val uBlockRulesCount by viewModel.uBlockRulesCount.collectAsState()
@@ -446,16 +444,6 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             }
                         }
                     }
-                    
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
-                    
-                    PrivacyToggleRow(
-                        title = "Desktop Mode",
-                        desc = "Request desktop version of websites by default",
-                        icon = Icons.Default.Devices,
-                        checked = desktopModeEnabled,
-                        onCheckedChange = { viewModel.toggleDesktopMode(it) }
-                    )
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
 

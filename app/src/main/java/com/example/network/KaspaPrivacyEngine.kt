@@ -289,53 +289,80 @@ object KaspaPrivacyEngine {
     const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
     /**
+     * Dynamically generates a desktop Chromium User-Agent matching the device's actual bundled Chromium version.
+     * Replaces Android platform tokens with Windows 10 64-bit and strips Mobile tokens.
+     */
+    fun getDesktopUserAgent(baseUa: String? = null): String {
+        if (baseUa.isNullOrBlank()) return DESKTOP_USER_AGENT
+        val chromeMatch = Regex("Chrome/([0-9.]+)").find(baseUa)
+        val chromeVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVer Safari/537.36"
+    }
+
+    /**
+     * Cleans the mobile User-Agent to match standard standalone Chrome on Android (removing WebView markers).
+     */
+    fun getMobileUserAgent(baseUa: String? = null): String {
+        if (baseUa.isNullOrBlank()) return MOBILE_USER_AGENT
+        return baseUa.replace("; wv", "").replace("Version/4.0 ", "")
+    }
+
+    /**
      * Client hints and network headers for Desktop / Mobile site modes.
      * Tells modern servers (Google, YouTube, Reddit, etc.) whether to serve desktop or mobile layouts.
      */
-    fun getDesktopHeaders(isDesktop: Boolean): Map<String, String> {
+    fun getDesktopHeaders(isDesktop: Boolean, baseUa: String? = null): Map<String, String> {
+        val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
+        val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
+        val majorVer = fullVer.substringBefore(".")
+        
         return if (isDesktop) {
             mapOf(
                 "Sec-CH-UA-Mobile" to "?0",
                 "Sec-CH-UA-Platform" to "\"Windows\"",
-                "Sec-CH-UA" to "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\""
+                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\""
             )
         } else {
             mapOf(
                 "Sec-CH-UA-Mobile" to "?1",
                 "Sec-CH-UA-Platform" to "\"Android\"",
-                "Sec-CH-UA" to "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\""
+                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\""
             )
         }
     }
 
     /**
-     * Dynamic script that overrides mobile navigator client hints and platform to match desktop browser standards.
+     * Minimal dynamic script for Desktop mode presentation.
+     * Ensures navigator.userAgentData reflects mobile: false for responsive layout engines
+     * while preserving native hardware capabilities (e.g. touch gestures, high-DPI scaling).
      */
-    fun getDesktopViewportScript(isDesktop: Boolean): String {
+    fun getDesktopViewportScript(isDesktop: Boolean, baseUa: String? = null): String {
+        val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
+        val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
+        val majorVer = fullVer.substringBefore(".")
+
         return if (isDesktop) {
             """
             (function() {
                 try {
                     if (navigator.userAgentData) {
                         try {
+                            const origUaData = navigator.userAgentData;
                             Object.defineProperty(navigator, 'userAgentData', {
                                 get: () => ({
-                                    brands: [
-                                        { brand: 'Chromium', version: '130' },
-                                        { brand: 'Google Chrome', version: '130' },
+                                    brands: origUaData?.brands || [
+                                        { brand: 'Chromium', version: '$majorVer' },
+                                        { brand: 'Google Chrome', version: '$majorVer' },
                                         { brand: 'Not?A_Brand', version: '99' }
                                     ],
                                     mobile: false,
                                     platform: 'Windows',
-                                    getHighEntropyValues: (hints) => Promise.resolve({
-                                        architecture: 'x86',
-                                        bitness: '64',
-                                        mobile: false,
-                                        model: '',
-                                        platform: 'Windows',
-                                        platformVersion: '10.0.0',
-                                        uaFullVersion: '130.0.0.0'
-                                    })
+                                    getHighEntropyValues: (hints) => {
+                                        if (origUaData?.getHighEntropyValues) {
+                                            return origUaData.getHighEntropyValues(hints).then(v => ({ ...v, mobile: false, platform: 'Windows' }));
+                                        }
+                                        return Promise.resolve({ mobile: false, platform: 'Windows', uaFullVersion: '$fullVer' });
+                                    }
                                 }),
                                 configurable: true,
                                 enumerable: true
@@ -345,9 +372,6 @@ object KaspaPrivacyEngine {
                     try {
                         Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
                     } catch(_) {}
-                    try {
-                        Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0, configurable: true });
-                    } catch(_) {}
                 } catch(_) {}
             })();
             """.trimIndent()
@@ -356,9 +380,9 @@ object KaspaPrivacyEngine {
         }
     }
 
-    fun getPrivacyShieldScript(safeGpuMode: Boolean = true, isDesktop: Boolean = false): String {
+    fun getPrivacyShieldScript(safeGpuMode: Boolean = true, isDesktop: Boolean = false, baseUa: String? = null): String {
         val flag = if (safeGpuMode) "window.__kaspa_software_rendering = true;" else ""
-        val desktopScript = if (isDesktop) getDesktopViewportScript(true) else ""
-        return "$flag\n$JS_PRIVACY_SHIELD_INJECTION\n$desktopScript"
+        val viewportScript = getDesktopViewportScript(isDesktop, baseUa)
+        return "$flag\n$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript"
     }
 }
