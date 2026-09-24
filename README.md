@@ -15,7 +15,7 @@
 
 ## 🎨 System Architecture & Visual Overview
 
-![KaspaBrowser Architecture Diagram](architecture_diagram.jpg)
+![KaspaBrowser Architecture Diagram](architecture_3d_overview.gif)
 
 ---
 
