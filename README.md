@@ -1,12 +1,12 @@
 # Kaspa Browser 🌐
 
 <p align="left">
-  <img src="https://img.shields.io/badge/Language-Kotlin%20100%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 100%" />
-  <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-3DDC84.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
-  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-4285F4.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
-  <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20Clean-FF6F00.svg?style=for-the-badge" alt="Clean Architecture" />
-  <img src="https://img.shields.io/badge/Engine-Chromium%20Blink-4285F4.svg?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chromium Engine" />
-  <img src="https://img.shields.io/badge/License-Apache%202.0-00E5FF.svg?style=for-the-badge" alt="Apache 2.0 License" />
+  <img src="https://img.shields.io/badge/Language-Kotlin%20100%25-5B21B6.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 100%" />
+  <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-1E40AF.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
+  <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20Clean-9A3412.svg?style=for-the-badge" alt="Clean Architecture" />
+  <img src="https://img.shields.io/badge/Engine-Chromium%20Blink-334155.svg?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chromium Engine" />
+  <img src="https://img.shields.io/badge/License-Apache%202.0-475569.svg?style=for-the-badge" alt="Apache 2.0 License" />
 </p>
 
 **Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin** and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and high-performance Web3 browsing into a fast, privacy-first mobile client.
