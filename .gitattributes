@@ -1,0 +1,21 @@
+# GitHub Linguist Language Overrides
+# Ensures repository language statistics report 100% Kotlin
+
+# Exclude documentation, assets, and binaries from language statistics
+*.docx linguist-documentation=true
+*.md linguist-documentation=true
+*.jpg linguist-documentation=true
+*.png linguist-documentation=true
+*.mp4 linguist-documentation=true
+*.gif linguist-documentation=true
+*.webm linguist-documentation=true
+
+# Vendor all scripts or non-application files
+*.py linguist-vendored=true
+*.py linguist-detectable=false
+*.sh linguist-vendored=true
+*.sh linguist-detectable=false
+
+# Kotlin Code
+*.kt linguist-detectable=true
+*.kts linguist-detectable=true
