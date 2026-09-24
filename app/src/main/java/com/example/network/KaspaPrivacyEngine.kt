@@ -372,11 +372,51 @@ object KaspaPrivacyEngine {
                     try {
                         Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
                     } catch(_) {}
+                    try {
+                        function applyDesktopViewport() {
+                            try {
+                                var meta = document.querySelector('meta[name="viewport"]');
+                                if (meta) {
+                                    meta.setAttribute('content', 'width=980, user-scalable=yes');
+                                } else {
+                                    meta = document.createElement('meta');
+                                    meta.name = 'viewport';
+                                    meta.content = 'width=980, user-scalable=yes';
+                                    if (document.head) document.head.appendChild(meta);
+                                }
+                            } catch(_) {}
+                        }
+                        if (document.readyState === 'loading') {
+                            document.addEventListener('DOMContentLoaded', applyDesktopViewport);
+                        } else {
+                            applyDesktopViewport();
+                        }
+                        setTimeout(applyDesktopViewport, 300);
+                    } catch(_) {}
                 } catch(_) {}
             })();
             """.trimIndent()
         } else {
-            ""
+            """
+            (function() {
+                try {
+                    function restoreMobileViewport() {
+                        try {
+                            var meta = document.querySelector('meta[name="viewport"]');
+                            if (meta) {
+                                meta.setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
+                            }
+                        } catch(_) {}
+                    }
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', restoreMobileViewport);
+                    } else {
+                        restoreMobileViewport();
+                    }
+                    setTimeout(restoreMobileViewport, 300);
+                } catch(_) {}
+            })();
+            """.trimIndent()
         }
     }
 
