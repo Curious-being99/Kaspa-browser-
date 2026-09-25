@@ -1,7 +1,8 @@
 # Kaspa Browser 🌐
 
 <p align="left">
-  <img src="https://img.shields.io/badge/Language-Kotlin%20100%25-5B21B6.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 100%" />
+  <img src="https://img.shields.io/badge/Kotlin-98.5%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 98.5%" />
+  <img src="https://img.shields.io/badge/Rust-1.5%25-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust 1.5%" />
   <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-1E40AF.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20Clean-9A3412.svg?style=for-the-badge" alt="Clean Architecture" />
@@ -9,13 +10,35 @@
   <img src="https://img.shields.io/badge/License-Apache%202.0-475569.svg?style=for-the-badge" alt="Apache 2.0 License" />
 </p>
 
-**Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin** and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and high-performance Web3 browsing into a fast, privacy-first mobile client.
+**Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin (98.5%)**, native **Rust (1.5%)** for high-performance JNI search & privacy sanitization, and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and high-performance Web3 browsing into a fast, privacy-first mobile client.
 
 ---
 
 ## 🎨 System Architecture & Visual Overview
 
-![KaspaBrowser Architecture Diagram](architecture_3d_overview.gif)
+<p align="center">
+  <a href="architecture_3d_overview.mp4" title="Click to open full MP4 Video Player">
+    <img src="architecture_3d_overview.gif" alt="KaspaBrowser 3D Architecture (Click to Play MP4 Video)" width="100%" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="architecture_3d_overview.mp4">
+    <img src="https://img.shields.io/badge/▶_Watch_Video-architecture__3d__overview.mp4-00E5FF.svg?style=for-the-badge&logoColor=0B0F17" alt="Play Video" />
+  </a>
+  &nbsp;
+  <a href="architecture_diagram.jpg">
+    <img src="https://img.shields.io/badge/🖼️_Blueprint-4K_JPG-7F52FF.svg?style=for-the-badge" alt="View Blueprint" />
+  </a>
+  &nbsp;
+  <a href="architecture_3d_overview.gif">
+    <img src="https://img.shields.io/badge/⚡_Animation-GIF-10B981.svg?style=for-the-badge" alt="View GIF" />
+  </a>
+</p>
+
+<p align="center">
+  <sub>🎬 <b>Click the preview above or the badge to play the high-definition 60 FPS MP4 video directly in GitHub's media player.</b></sub>
+</p>
 
 ---
 
@@ -286,6 +309,17 @@ The codebase is engineered following modern Android architecture guidelines (**M
 │           └── res/
 │               ├── drawable/                     # Adaptive icons, vectors, and graphics
 │               └── values/                       # Strings, colors, and themes
+├── architecture_3d_overview.mp4 # 3D Architecture simulation video (MP4)
+├── architecture_3d_overview.gif # Animated 3D architecture overview (GIF)
+├── architecture_diagram.jpg     # High-resolution architectural system blueprint
+├── brand_palette.jpg            # Cyberpunk M3 brand palette & visual guidelines
+├── kaspasearch-engine/          # Native Rust engine (1.5% codebase - Rust 2021)
+│   ├── Cargo.toml               # Rust package manifest & dependencies
+│   └── src/
+│       ├── lib.rs               # JNI C/Rust bindings (libkaspasearch.so)
+│       ├── privacy.rs           # URL parameter tracking stripper & AST sanitizer
+│       ├── federator.rs         # Zero-telemetry multi-engine search aggregator
+│       └── main.rs              # Standalone verification runner
 └── gradle/
     └── libs.versions.toml       # Gradle Version Catalog
 ```
@@ -296,7 +330,8 @@ The codebase is engineered following modern Android architecture guidelines (**M
 
 | Layer | Technology |
 |---|---|
-| **Language** | [Kotlin 2.0+](https://kotlinlang.org/) |
+| **Programming Languages** | [Kotlin 2.0+](https://kotlinlang.org/) (**98.5%**) &bull; [Rust 2021 Edition](https://www.rust-lang.org/) (**1.5%** - `kaspasearch-engine`) |
+| **Native Engine** | Native Rust JNI v9 (`libkaspasearch.so`) for zero-tracking federated search & AST privacy sanitization |
 | **UI Framework** | [Jetpack Compose (Material 3)](https://developer.android.com/jetpack/compose) |
 | **Target OS** | Android 16 (API 36) / Minimum Android 8.0 (API 26) |
 | **Asynchronous Engine** | Kotlin Coroutines & `StateFlow` |
