@@ -103,98 +103,99 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 The following diagram illustrates how user input, network resolution, peer discovery, protocol fallback, and DOM rendering flow through the KaspaBrowser subsystems:
 
 ```
-
-## 
-+----------------------------------------------------------------------------------------------------+
-|                                         USER INTERFACE (Jetpack Compose)                          |
-|  [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Privacy Audit ]  [ Account DID Pill ] |
-+----------------------------------------------------------------------------------------------------+
-                                                   |
-                                            (User Action / URL)
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                                      VIEWMODEL & ROUTING STATE                                     |
-|                              DecentralViewModel (StateFlow / Coroutines)                           |
-+----------------------------------------------------------------------------------------------------+
-                                                   |
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                                    DUAL-STACK RESOLVER & ROUTER                                    |
-|                                       (DualStackResolver.kt)                                       |
-+----------------------------------------------------------------------------------------------------+
-                   |                               |                              |
-      (Standard Web Protocols)           (Decentralized TLDs & CIDs)          (Direct P2P / Mesh)
-        http:// or https://           .hns / .kas / .eth / ipfs://               Local Node Host
-                   |                               |                              |
-                   v                               v                              v
-+--------------------+            +-------------------------------+    +-----------------------------+
-|    HTTP/3 (QUIC    |            | Handshake / Kaspa / ENS Engine|    |     Local Node Manager      |
-|    over UDP)       |            |  - Handshake (HNS) PoW Root   |    |  - Serves local localhost   |
-| 0-RTT Connection   |            |  - Kaspa (KNS) Block DAG      |    |    on-device micro-daemon   |
-| (HTTP/2 Removed)   |            |  - ENS / OpenNIC / EmerDNS    |    |  - Resolves local payload   |
-+--------------------+            +-------------------------------+    +-----------------------------+
-          |                                        |                                  |
-          +----------------------------------------+----------------------------------+
-                                                   |
-                                         (Raw Resource Payload)
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                             IN-BROWSER SHA-256 TAMPER VERIFICATION                                 |
-| - Computes local SHA-256 digest of payload data streams                                            |
-| - Verifies hash against CID: CERTIFIES AS VERIFIED_TAMPER_PROOF                                    |
-| - Rejects altered payloads (TAMPERED_HASH_MISMATCH)                                                |
-+----------------------------------------------------------------------------------------------------+
-                                                   |
-                                         (Verified Data Stream)
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                           LOCAL MESH SEEDING & ROOM DB PERSISTENCE                                 |
-| - Indexes content block into SQLite Room database (`ContentEntity`)                                |
-| - Sets `isSeeding = true` to seed content to nearby P2P mesh nodes                                 |
-| - Guarantees zero single point of failure during central server outages                            |
-+----------------------------------------------------------------------------------------------------+
-                                                   |
-                                         (Sanitized Web Stream)
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                                 TRAFFIC AUDIT & PRIVACY SHIELD                                     |
-| - Inspects network headers and payload size                                                        |
-| - Filters tracking scripts, malicious telemetry, and ad endpoints                                  |
-| - Records real-time I/O metrics to Traffic Audit ledger                                            |
-+----------------------------------------------------------------------------------------------------+
-                                                   |
-                                       (Sanitized Web Stream)
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                                      WEB ENGINE INTEGRATION LAYER                                  |
-|                                                                                                    |
-|  +-------------------------------------+          +---------------------------------------------+  |
-|  |     Custom WebViewClient            |          |         Custom WebChromeClient              |  |
-|  |  - Intercepts sub-resource requests |          |  - Handles progress, titles & favicons      |  |
-|  |  - Manages cookie/session storage   |          |  - Zero-permission Android Photo Picker     |  |
-|  |  - Enforces SSL/TLS security checks |          |  - Geolocation & Fullscreen control         |  |
-|  +-------------------------------------+          +---------------------------------------------+  |
-|                                                  |                                                 |
-|                                  +---------------+---------------+                                 |
-|                                  |     JavaScript Bridge Layer   |                                 |
-|                                  |  - Zero-Knowledge DID Bridge  |                                 |
-|                                  |  - Web3 & Passkey Provider    |                                 |
-|                                  +---------------+---------------+                                 |
-+--------------------------------------------------+-------------------------------------------------+
-                                                   |
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                                   CHROMIUM / BLINK RENDERING ENGINE                                |
-| - HTML5 Parsing & CSS3 Styling Engine (Skia GPU Acceleration)                                      |
-| - V8 JavaScript Execution Engine                                                                   |
-| - DOM Tree Construction -> Render Tree Layout -> GPU Compositing & Rasterization                   |
-+----------------------------------------------------------------------------------------------------+
-                                                   |
-                                                   v
-+----------------------------------------------------------------------------------------------------+
-|                                      ANDROID DISPLAY SURFACE                                       |
-|  Edge-to-Edge Compose Canvas rendering active web page, dApp viewport, and interactive UI          |
-+----------------------------------------------------------------------------------------------------+
++--------------------------------------------------------------------------------------------------------+
+|                                    USER INTERFACE (Jetpack Compose)                                    |
+|   [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Privacy Audit ]   [ Account DID Pill ]   |
++--------------------------------------------------------------------------------------------------------+
+                                                    |
+                                          (User Action / Query)
+                                                    v
++--------------------------------------------------------------------------------------------------------+
+|                                       VIEWMODEL & ROUTING STATE                                        |
+|                               DecentralViewModel (StateFlow / Coroutines)                              |
++--------------------------------------------------------------------------------------------------------+
+                                                    |
+                                                    v
++--------------------------------------------------------------------------------------------------------+
+|                                      DUAL-STACK RESOLVER & ROUTER                                      |
+|                                         (DualStackResolver.kt)                                         |
++--------------------------------------------------------------------------------------------------------+
+         |                           |                               |                           |
+ (Search & AST Sanitizer)     (Standard Web)            (Decentralized CIDs/TLDs)        (P2P Mesh Host)
+  Queries & Reader Mode     http:// or https://         .hns / .kas / .eth / ipfs://    Local Node Host
+         |                           |                               |                           |
+         v                           v                               v                           v
++-----------------------+   +---------------------+   +-------------------------+   +--------------------+
+|    NATIVE RUST v9     |   |    HTTP/3 (QUIC)    |   | Handshake / Kaspa / ENS |   | Local Node Manager |
+|      JNI ENGINE       |   |    (over UDP/IP)    |   | - Handshake PoW Root    |   | - Localhost daemon |
+|  (libkaspasearch.so)  |   | - 0-RTT Handshake   |   | - Kaspa (KNS) BlockDAG  |   | - Resolves on-dev  |
+| - Zero-Track Search   |   | - Connection Migr.  |   | - ENS / OpenNIC / Emer  |   |   cached payload   |
+| - AST Ad & Tracker Clr|   | - HTTP/2 Removed    |   | - Content-addr CIDs     |   | - P2P micro-server |
+| - Reader Mode Clean   |   | - Low-latency UDP   |   | - Decentralized DOH     |   | - Mesh node seeder |
++-----------------------+   +---------------------+   +-------------------------+   +--------------------+
+         |                           |                               |                           |
+         +---------------------------+---------------+---------------+---------------------------+
+                                                     |
+                                           (Raw Resource Payload)
+                                                     v
++--------------------------------------------------------------------------------------------------------+
+|                                IN-BROWSER SHA-256 TAMPER VERIFICATION                                  |
+| - Computes local SHA-256 digest of payload data streams                                                |
+| - Verifies hash against CID: CERTIFIES AS VERIFIED_TAMPER_PROOF                                        |
+| - Rejects altered payloads (TAMPERED_HASH_MISMATCH)                                                    |
++--------------------------------------------------------------------------------------------------------+
+                                                     |
+                                           (Verified Data Stream)
+                                                     v
++--------------------------------------------------------------------------------------------------------+
+|                              LOCAL MESH SEEDING & ROOM DB PERSISTENCE                                  |
+| - Indexes content block into SQLite Room database (`ContentEntity`)                                    |
+| - Sets `isSeeding = true` to seed content to nearby P2P mesh nodes                                     |
+| - Guarantees zero single point of failure during central server outages                                |
++--------------------------------------------------------------------------------------------------------+
+                                                     |
+                                           (Sanitized Web Stream)
+                                                     v
++--------------------------------------------------------------------------------------------------------+
+|                           TRAFFIC AUDIT, CONTENT SHIELD & RUST AST SANITIZER                           |
+| - Native Rust v9 AST filtering strips hidden tracking beacons, ads, and telemetry scripts              |
+| - HTTPS-Only Mode upgrade and SSL/TLS certificate validation                                           |
+| - Records real-time I/O metrics and blocked tracker count to Traffic Audit ledger                      |
++--------------------------------------------------------------------------------------------------------+
+                                                     |
+                                           (Sanitized Web Stream)
+                                                     v
++--------------------------------------------------------------------------------------------------------+
+|                                        WEB ENGINE INTEGRATION LAYER                                    |
+|                                                                                                        |
+|  +---------------------------------------+          +-----------------------------------------------+  |
+|  |         Custom WebViewClient          |          |            Custom WebChromeClient             |  |
+|  |  - Intercepts sub-resource requests   |          |  - Handles progress, titles & favicons        |  |
+|  |  - Manages cookie/session storage     |          |  - Zero-permission Android Photo Picker       |  |
+|  |  - Enforces SSL/TLS security checks   |          |  - Geolocation & Fullscreen control           |  |
+|  +---------------------------------------+          +-----------------------------------------------+  |
+|                                                    |                                                   |
+|                                    +---------------+---------------+                                   |
+|                                    |    JavaScript Bridge Layer    |                                   |
+|                                    |  - Zero-Knowledge DID Bridge  |                                   |
+|                                    |  - Web3 & Passkey Provider    |                                   |
+|                                    |  - KaspaNative Action Bridge  |                                   |
+|                                    +---------------+---------------+                                   |
++----------------------------------------------------+---------------------------------------------------+
+                                                     |
+                                                     v
++--------------------------------------------------------------------------------------------------------+
+|                                     CHROMIUM / BLINK RENDERING ENGINE                                  |
+| - HTML5 Parsing & CSS3 Styling Engine (Skia GPU Acceleration)                                          |
+| - V8 JavaScript Execution Engine                                                                       |
+| - DOM Tree Construction -> Render Tree Layout -> GPU Compositing & Rasterization                       |
++--------------------------------------------------------------------------------------------------------+
+                                                     |
+                                                     v
++--------------------------------------------------------------------------------------------------------+
+|                                        ANDROID DISPLAY SURFACE                                         |
+|  Edge-to-Edge Compose Canvas rendering active web page, dApp viewport, and interactive UI              |
++--------------------------------------------------------------------------------------------------------+
 ```
 
 ---
