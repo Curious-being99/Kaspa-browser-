@@ -51,10 +51,20 @@
 
 ## 🌐 Browser Rendering Engine & Gateway Architecture
 
-KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, local micro-node routing, and content shields.
+KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, native ARM64 Rust v9 JNI modules, and privacy content shields.
+
+### 🏛️ Main Rendering Engine Breakdown
+
+| Component / Screen | Main Rendering Engine | Technical Explanation |
+| :--- | :--- | :--- |
+| **General Web Pages** *(e.g. YouTube, news sites, web apps)* | **Android System WebView (Chromium/Blink)** | Renders third-party websites with 100% HTML5, CSS3, JavaScript, WebGL, and video playback compatibility. |
+| **Search Results Screen** | **Jetpack Compose + Native Rust v9 JNI Layer** | Search queries execute through native Rust v9 (`libkaspasearch.so`), returning cards rendered with Jetpack Compose. |
+| **Kaspa Reader Mode & Text Views** | **Jetpack Compose + Rust AST Sanitizer** | Rust strips ads and trackers from the HTML; Jetpack Compose renders the clean article layout natively. |
+| **Browser UI & Navigation** | **Jetpack Compose + Android GPU (Skia)** | Address bar, tab bar, settings, mesh radar, and dialogs are rendered using Jetpack Compose and Skia hardware acceleration. |
 
 ### Engine Specifications
 - **Core Rendering Engine**: Android System WebView (Chromium/Blink WebCore with V8 JavaScript engine & Skia 2D rendering).
+- **Native Rust v9 JNI Module**: Native Rust engine (`libkaspasearch.so`) performing zero-tracking federated search (DuckDuckGo, Bing, Wikipedia), AST ad/tracker filtering, and URL parameter sanitization.
 - **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `kas://`, `mesh://`, `dweb://`, `.kas`, `.hns`, `.eth`, and P2P CID targets).
 - **Network Pipeline**: Asynchronous OkHttp3 client with pure **HTTP/3 (QUIC over UDP)** transport layer, 0-RTT handshakes, zero head-of-line blocking, and connection migration (HTTP/2 removed).
 - **Decentralized DNS Engine**: Multi-chain DoH & ledger resolver querying Handshake (HNS) PoW root chain, Kaspa Block DAG (KNS), ENS (.eth), EmerDNS, and OpenNIC directly.

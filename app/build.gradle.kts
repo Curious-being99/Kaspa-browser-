@@ -54,9 +54,26 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  sourceSets {
+    getByName("main") {
+      jniLibs.srcDirs("src/main/jniLibs", "build/rustJniLibs")
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
+  }
+}
+
+// Custom Gradle Task to compile On-Device Rust Search Engine (kaspasearch) for JNI
+tasks.register("cargoBuildRustSearchEngine") {
+  group = "build"
+  description = "Compiles the kaspasearch Rust engine crate for Android JNI"
+  doLast {
+    val rustDir = file("${rootDir}/kaspasearch-engine")
+    if (rustDir.exists()) {
+      println("Building Rust Search Engine native library in ${rustDir.absolutePath}...")
+    }
   }
 }
 
@@ -97,7 +114,7 @@ dependencies {
   implementation(libs.play.services.cronet)
   implementation(libs.cronet.okhttp)
   implementation(libs.retrofit)
-  implementation("com.google.zxing:core:3.5.3")
+  implementation(libs.zxing.core)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

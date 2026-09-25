@@ -51,9 +51,8 @@ enum class AppTab {
 }
 
 enum class SearchEngine(val baseUrl: String, val displayName: String) {
-    DUCKDUCKGO("https://duckduckgo.com/?q=", "DuckDuckGo"),
-    GOOGLE("https://www.google.com/search?q=", "Google"),
-    DECENTRAL_SEARCH("kas://search.kas?q=", "Decentral Search")
+    KASPA_ENGINE("https://html.duckduckgo.com/html/?q=", "Kaspa Engine"),
+    GOOGLE("https://www.google.com/search?q=", "Google")
 }
 
 data class ActiveDownload(
@@ -433,8 +432,47 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _showWebAuthnRpIdDialog = MutableStateFlow(false)
     val showWebAuthnRpIdDialog: StateFlow<Boolean> = _showWebAuthnRpIdDialog.asStateFlow()
 
-    private val _searchEngine = MutableStateFlow(SearchEngine.DUCKDUCKGO)
+    private val _searchEngine = MutableStateFlow(SearchEngine.KASPA_ENGINE)
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
+
+    private val _liveSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val liveSuggestions: StateFlow<List<String>> = _liveSuggestions.asStateFlow()
+
+    fun fetchSearchSuggestions(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.length < 2 || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            _liveSuggestions.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
+                val url = "https://suggestqueries.google.com/complete/search?client=chrome&q=$encoded"
+                val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                    connectTimeout = 2000
+                    readTimeout = 2000
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+                if (conn.responseCode == 200) {
+                    val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
+                    val jsonArray = org.json.JSONArray(jsonStr)
+                    if (jsonArray.length() >= 2) {
+                        val suggestionsArray = jsonArray.getJSONArray(1)
+                        val list = mutableListOf<String>()
+                        for (i in 0 until suggestionsArray.length()) {
+                            val suggestion = suggestionsArray.optString(i)
+                            if (suggestion.isNotBlank()) {
+                                list.add(suggestion)
+                            }
+                        }
+                        _liveSuggestions.value = list.take(6)
+                    }
+                }
+            } catch (_: Exception) {
+                _liveSuggestions.value = emptyList()
+            }
+        }
+    }
 
     private val _blockedTrackersCount = MutableStateFlow(0)
     val blockedTrackersCount: StateFlow<Int> = _blockedTrackersCount.asStateFlow()

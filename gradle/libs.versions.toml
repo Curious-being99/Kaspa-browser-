@@ -46,6 +46,7 @@ playServicesCronet = "18.0.1"
 cronetOkhttp = "0.1.0"
 webkit = "1.12.1"
 biometric = "1.1.0"
+zxing = "3.5.3"
 
 
 [libraries]
@@ -108,6 +109,7 @@ play-services-cronet = { group = "com.google.android.gms", name = "play-services
 cronet-okhttp = { group = "com.google.net.cronet", name = "cronet-okhttp", version.ref = "cronetOkhttp" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 
 [plugins]

@@ -3,6 +3,7 @@ package com.example.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -422,20 +423,22 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             com.example.viewmodel.SearchEngine.values().forEach { engine ->
                                 val isSelected = viewModel.searchEngine.collectAsState().value == engine
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     color = if (isSelected) ElectricCyan else SurfaceCard,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                                    modifier = Modifier.weight(1f).clickable { viewModel.setSearchEngine(engine) }
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) ElectricCyan else SurfaceCardBorder),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { viewModel.setSearchEngine(engine) }
                                 ) {
-                                    Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
                                         Text(
                                             text = engine.displayName,
-                                            fontSize = 10.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isSelected) Color.Black else TextSecondary
                                         )

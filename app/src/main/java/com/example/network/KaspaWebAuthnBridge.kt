@@ -12,6 +12,7 @@ import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
+import androidx.credentials.exceptions.NoCredentialException
 import com.example.viewmodel.DecentralViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -103,6 +104,9 @@ class KaspaWebAuthnBridge(
                 } else {
                     triggerBiometricPasskeyAssertion(requestJson, callbackId)
                 }
+            } catch (e: NoCredentialException) {
+                Log.w(tag, "No credential found in CredentialManager, falling back to Biometric Passkey Engine: ${e.message}")
+                triggerBiometricPasskeyAssertion(requestJson, callbackId)
             } catch (e: Exception) {
                 Log.w(tag, "CredentialManager getCredential failed, using Biometric Passkey Engine: ${e.message}")
                 triggerBiometricPasskeyAssertion(requestJson, callbackId)

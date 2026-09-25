@@ -1,7 +1,7 @@
 # GitHub Linguist Language Overrides
-# Ensures repository language statistics report 100% Kotlin
+# Configured for KaspaBrowser: Dual-Stack Android Application (Kotlin) + Native JNI Engine (Rust)
 
-# Exclude documentation, assets, and binaries from language statistics
+# Exclude documentation, assets, and media from language statistics
 *.docx linguist-documentation=true
 *.md linguist-documentation=true
 *.jpg linguist-documentation=true
@@ -10,12 +10,21 @@
 *.gif linguist-documentation=true
 *.webm linguist-documentation=true
 
-# Vendor all scripts or non-application files
+# Vendor helper scripts & XML/JSON configuration files
 *.py linguist-vendored=true
-*.py linguist-detectable=false
 *.sh linguist-vendored=true
-*.sh linguist-detectable=false
+*.json linguist-vendored=true
+*.xml linguist-vendored=true
 
-# Kotlin Code
+# Primary Android Application Layer (Kotlin)
+*.kt linguist-language=Kotlin
 *.kt linguist-detectable=true
+*.kts linguist-language=Kotlin
 *.kts linguist-detectable=true
+
+# Native JNI Engine Layer (Rust)
+*.rs linguist-language=Rust
+*.rs linguist-detectable=true
+kaspasearch-engine/** linguist-language=Rust
+Cargo.toml linguist-language=Rust
+Cargo.toml linguist-detectable=true

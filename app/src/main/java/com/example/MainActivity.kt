@@ -100,6 +100,15 @@ class MainActivity : FragmentActivity() {
     handleIncomingIntent(intent)
   }
 
+  override fun onTrimMemory(level: Int) {
+    super.onTrimMemory(level)
+    try {
+      if (level >= TRIM_MEMORY_MODERATE) {
+        com.example.network.WebViewAssetLruCache.clearCache()
+      }
+    } catch (_: Exception) {}
+  }
+
   private var lastHandledIntentUrl: String? = null
   private var lastHandledIntentTimestamp: Long = 0L
 

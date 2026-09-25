@@ -220,37 +220,159 @@ object KaspaPrivacyEngine {
             if (window.__kaspa_shield_injected) return;
             window.__kaspa_shield_injected = true;
             try {
-                // 1. Global Privacy Control & DNT
+                // 1. Global Privacy Control & Do-Not-Track
                 try {
                     Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
-                } catch(e) {}
-                try {
                     Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
                 } catch(e) {}
-                
-                // 2. Protect Battery API Fingerprinting
-                if (navigator.getBattery) {
-                    try {
-                        navigator.getBattery = function() {
-                            return Promise.resolve({
-                                charging: true,
-                                chargingTime: 0,
-                                dischargingTime: Infinity,
-                                level: 1.0,
-                                addEventListener: function() {},
-                                removeEventListener: function() {}
-                            });
-                        };
-                    } catch(e) {}
-                }
 
-                // 3. WebRTC Privacy (Relay-only is too aggressive for many DApps, use safer mitigation)
+                // 2. Hardware & Concurrency Fingerprint Spoofing
+                try {
+                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
+                    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
+                    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });
+                } catch(e) {}
+
+                // 3. Canvas Fingerprint Noise Injection (Anti-Canvas-Tracking)
+                try {
+                    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+                    const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+
+                    HTMLCanvasElement.prototype.toDataURL = function(type, encoderOptions) {
+                        try {
+                            const ctx = this.getContext('2d');
+                            if (ctx && this.width > 0 && this.height > 0) {
+                                const imgData = ctx.getImageData(0, 0, Math.min(this.width, 10), Math.min(this.height, 10));
+                                if (imgData && imgData.data && imgData.data.length > 0) {
+                                    imgData.data[0] = imgData.data[0] ^ 1;
+                                    ctx.putImageData(imgData, 0, 0);
+                                }
+                            }
+                        } catch(_) {}
+                        return originalToDataURL.apply(this, arguments);
+                    };
+
+                    if (HTMLCanvasElement.prototype.toBlob) {
+                        const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+                        HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+                            try {
+                                const ctx = this.getContext('2d');
+                                if (ctx && this.width > 0 && this.height > 0) {
+                                    const imgData = ctx.getImageData(0, 0, Math.min(this.width, 10), Math.min(this.height, 10));
+                                    if (imgData && imgData.data && imgData.data.length > 0) {
+                                        imgData.data[0] = imgData.data[0] ^ 1;
+                                        ctx.putImageData(imgData, 0, 0);
+                                    }
+                                }
+                            } catch(_) {}
+                            return originalToBlob.apply(this, arguments);
+                        };
+                    }
+
+                    CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+                        const res = originalGetImageData.apply(this, arguments);
+                        try {
+                            if (res && res.data && res.data.length > 4) {
+                                res.data[0] = (res.data[0] + 1) % 256;
+                            }
+                        } catch(_) {}
+                        return res;
+                    };
+                } catch(e) {}
+
+                // 4. WebGL GPU Vendor & Renderer Masking & Rendernode Guard
+                try {
+                    const origGetContext = HTMLCanvasElement.prototype.getContext;
+                    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+                        if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+                            try {
+                                const ctx = origGetContext.apply(this, arguments);
+                                if (ctx) return ctx;
+                            } catch (_) {
+                                return null;
+                            }
+                        }
+                        return origGetContext.apply(this, arguments);
+                    };
+
+                    const getParamOrig = WebGLRenderingContext.prototype.getParameter;
+                    WebGLRenderingContext.prototype.getParameter = function(param) {
+                        if (param === 0x9245) return 'ANGLE (Google, Vulkan 1.3, Direct3D11)';
+                        if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)';
+                        return getParamOrig.apply(this, arguments);
+                    };
+
+                    if (window.WebGL2RenderingContext) {
+                        const getParam2Orig = WebGL2RenderingContext.prototype.getParameter;
+                        WebGL2RenderingContext.prototype.getParameter = function(param) {
+                            if (param === 0x9245) return 'ANGLE (Google, Vulkan 1.3, Direct3D11)';
+                            if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)';
+                            return getParam2Orig.apply(this, arguments);
+                        };
+                    }
+                } catch(e) {}
+
+                // 5. AudioContext WebAudio Anti-Fingerprinting Noise
+                try {
+                    if (window.AudioContext || window.webkitAudioContext) {
+                        const origGetChannelData = AudioBuffer.prototype.getChannelData;
+                        AudioBuffer.prototype.getChannelData = function() {
+                            const channel = origGetChannelData.apply(this, arguments);
+                            try {
+                                for (let i = 0; i < Math.min(channel.length, 100); i += 10) {
+                                    channel[i] += 0.0000001 * (Math.random() - 0.5);
+                                }
+                            } catch(_) {}
+                            return channel;
+                        };
+                    }
+                } catch(e) {}
+
+                // 6. Protect Battery API Fingerprinting (W3C Battery Status API Masking)
+                try {
+                    const fakeBatteryManager = {
+                        charging: true,
+                        chargingTime: 0,
+                        dischargingTime: Infinity,
+                        level: 1.0,
+                        onchargingchange: null,
+                        onchargingtimechange: null,
+                        ondischargingtimechange: null,
+                        onlevelchange: null,
+                        addEventListener: function() {},
+                        removeEventListener: function() {},
+                        dispatchEvent: function() { return false; }
+                    };
+                    const getBatteryFn = function() {
+                        return Promise.resolve(fakeBatteryManager);
+                    };
+                    try {
+                        Object.defineProperty(navigator, 'getBattery', {
+                            get: () => getBatteryFn,
+                            configurable: true,
+                            enumerable: true
+                        });
+                    } catch (_) {
+                        navigator.getBattery = getBatteryFn;
+                    }
+                    if (window.Navigator && Navigator.prototype) {
+                        try {
+                            Object.defineProperty(Navigator.prototype, 'getBattery', {
+                                get: () => getBatteryFn,
+                                configurable: true,
+                                enumerable: true
+                            });
+                        } catch (_) {}
+                    }
+                } catch(e) {}
+
+                // 7. WebRTC IP Leak Prevention (Relay Mode)
                 if (window.RTCPeerConnection) {
                     try {
                         const OrigRTC = window.RTCPeerConnection;
                         window.RTCPeerConnection = function(config, constraints) {
                             try {
-                                if (config && config.iceServers && window.__kaspa_software_rendering) {
+                                if (config && config.iceServers) {
                                     config.iceTransportPolicy = 'relay';
                                 }
                             } catch(_) {}
@@ -260,14 +382,7 @@ object KaspaPrivacyEngine {
                     } catch(e) {}
                 }
 
-                // 4. WebGL Virtual GPU context recovery
-                try {
-                    window.addEventListener('webglcontextlost', function(e) {
-                        try { e.preventDefault(); } catch (_) {}
-                    }, true);
-                } catch(e) {}
-
-                // 5. Remove click effect color and tap highlight color across all web elements
+                // 8. Remove Tap Highlight / Click Effects
                 try {
                     const removeClickEffect = function() {
                         if (document.getElementById('__kaspa_no_click_effect')) return;
@@ -381,86 +496,159 @@ object KaspaPrivacyEngine {
         val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
         val majorVer = fullVer.substringBefore(".")
 
-        return if (isDesktop) {
-            """
-            (function() {
-                try {
-                    if (navigator.userAgentData) {
-                        try {
-                            const origUaData = navigator.userAgentData;
-                            Object.defineProperty(navigator, 'userAgentData', {
-                                get: () => ({
-                                    brands: origUaData?.brands || [
+        return """
+        (function() {
+            try {
+                var ua = navigator.userAgent || '';
+                var isDesktopMode = $isDesktop || (!ua.includes('Android') && !ua.includes('Mobile'));
+
+                if (navigator.userAgentData) {
+                    try {
+                        var origUaData = navigator.userAgentData;
+                        Object.defineProperty(navigator, 'userAgentData', {
+                            get: function() {
+                                return {
+                                    brands: (origUaData && origUaData.brands) ? origUaData.brands : [
                                         { brand: 'Chromium', version: '$majorVer' },
                                         { brand: 'Google Chrome', version: '$majorVer' },
                                         { brand: 'Not?A_Brand', version: '99' }
                                     ],
-                                    mobile: false,
-                                    platform: 'Windows',
-                                    getHighEntropyValues: (hints) => {
-                                        if (origUaData?.getHighEntropyValues) {
-                                            return origUaData.getHighEntropyValues(hints).then(v => ({ ...v, mobile: false, platform: 'Windows' }));
+                                    mobile: !isDesktopMode,
+                                    platform: isDesktopMode ? 'Windows' : 'Android',
+                                    getHighEntropyValues: function(hints) {
+                                        if (origUaData && origUaData.getHighEntropyValues) {
+                                            return origUaData.getHighEntropyValues(hints).then(function(v) {
+                                                return Object.assign({}, v, {
+                                                    mobile: !isDesktopMode,
+                                                    platform: isDesktopMode ? 'Windows' : 'Android'
+                                                });
+                                            });
                                         }
-                                        return Promise.resolve({ mobile: false, platform: 'Windows', uaFullVersion: '$fullVer' });
+                                        return Promise.resolve({
+                                            mobile: !isDesktopMode,
+                                            platform: isDesktopMode ? 'Windows' : 'Android',
+                                            uaFullVersion: '$fullVer'
+                                        });
                                     }
-                                }),
-                                configurable: true,
-                                enumerable: true
-                            });
-                        } catch(_) {}
-                    }
-                    try {
-                        Object.defineProperty(navigator, 'platform', { get: () => 'Win32', configurable: true });
-                    } catch(_) {}
-                    try {
-                        function applyDesktopViewport() {
-                            try {
-                                var meta = document.querySelector('meta[name="viewport"]');
-                                if (meta) {
-                                    meta.setAttribute('content', 'width=980, user-scalable=yes');
-                                } else {
-                                    meta = document.createElement('meta');
-                                    meta.name = 'viewport';
-                                    meta.content = 'width=980, user-scalable=yes';
-                                    if (document.head) document.head.appendChild(meta);
-                                }
-                            } catch(_) {}
-                        }
-                        if (document.readyState === 'loading') {
-                            document.addEventListener('DOMContentLoaded', applyDesktopViewport);
-                        } else {
-                            applyDesktopViewport();
-                        }
-                        setTimeout(applyDesktopViewport, 300);
-                    } catch(_) {}
-                } catch(_) {}
-            })();
-            """.trimIndent()
-        } else {
-            """
-            (function() {
+                                };
+                            },
+                            configurable: true,
+                            enumerable: true
+                        });
+                    } catch (_) {}
+                }
+
                 try {
-                    function restoreMobileViewport() {
-                        try {
-                            var meta = document.querySelector('meta[name="viewport"]');
-                            if (meta) {
-                                meta.setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
+                    Object.defineProperty(navigator, 'platform', {
+                        get: function() { return isDesktopMode ? 'Win32' : 'Linux armv81'; },
+                        configurable: true
+                    });
+                } catch (_) {}
+
+                if (isDesktopMode) {
+                    var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
+
+                    // 1. Immediately patch HTMLMetaElement.prototype.setAttribute so that
+                    // client-side frameworks (e.g. Next.js Head, React Helmet) cannot
+                    // overwrite the viewport back to mobile width=device-width during hydration.
+                    try {
+                        var proto = HTMLMetaElement.prototype;
+                        var origSetAttr = proto.setAttribute;
+                        proto.setAttribute = function(name, value) {
+                            if (name && name.toLowerCase() === 'content') {
+                                var mName = this.getAttribute('name') || this.name;
+                                if (mName && mName.toLowerCase() === 'viewport') {
+                                    return origSetAttr.call(this, name, DESKTOP_VIEWPORT);
+                                }
                             }
-                        } catch(_) {}
+                            return origSetAttr.apply(this, arguments);
+                        };
+                    } catch (_) {}
+
+                    // 2. Synchronous viewport application
+                    function enforceDesktopViewport() {
+                        try {
+                            var metas = document.querySelectorAll('meta[name="viewport"]');
+                            var applied = false;
+                            for (var i = 0; i < metas.length; i++) {
+                                var m = metas[i];
+                                if (m.getAttribute('content') !== DESKTOP_VIEWPORT) {
+                                    m.setAttribute('content', DESKTOP_VIEWPORT);
+                                }
+                                applied = true;
+                            }
+                            if (!applied) {
+                                var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
+                                if (head) {
+                                    var meta = document.createElement('meta');
+                                    meta.name = 'viewport';
+                                    meta.content = DESKTOP_VIEWPORT;
+                                    if (head.firstChild) {
+                                        head.insertBefore(meta, head.firstChild);
+                                    } else {
+                                        head.appendChild(meta);
+                                    }
+                                }
+                            }
+                        } catch (_) {}
                     }
+
+                    // 3. MutationObserver on document to catch <meta name="viewport"> the very millisecond the HTML parser creates it
+                    try {
+                        var observer = new MutationObserver(function(mutations) {
+                            for (var i = 0; i < mutations.length; i++) {
+                                var nodes = mutations[i].addedNodes;
+                                for (var j = 0; j < nodes.length; j++) {
+                                    var n = nodes[j];
+                                    if (n.nodeType === 1) {
+                                        if (n.nodeName === 'META' && (n.getAttribute('name') === 'viewport' || n.name === 'viewport')) {
+                                            n.setAttribute('content', DESKTOP_VIEWPORT);
+                                        } else if (n.getElementsByTagName) {
+                                            var vms = n.getElementsByTagName('meta');
+                                            for (var k = 0; k < vms.length; k++) {
+                                                if (vms[k].getAttribute('name') === 'viewport' || vms[k].name === 'viewport') {
+                                                    vms[k].setAttribute('content', DESKTOP_VIEWPORT);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        var targetNode = document.documentElement || document;
+                        if (targetNode) {
+                            observer.observe(targetNode, { childList: true, subtree: true });
+                        }
+                    } catch (_) {}
+
+                    enforceDesktopViewport();
                     if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', restoreMobileViewport);
-                    } else {
-                        restoreMobileViewport();
+                        document.addEventListener('DOMContentLoaded', enforceDesktopViewport, { once: true });
                     }
-                    setTimeout(restoreMobileViewport, 300);
-                } catch(_) {}
-            })();
-            """.trimIndent()
+                } else {
+                    // Mobile mode: Restore standard mobile viewport if it was previously forced
+                    try {
+                        var meta = document.querySelector('meta[name="viewport"]');
+                        if (meta && meta.getAttribute('content') && meta.getAttribute('content').indexOf('width=980') !== -1) {
+                            meta.setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
+                        }
+                    } catch (_) {}
+                }
+            } catch (_) {}
+        })();
+        """.trimIndent()
+    }
+
+    val isDrmRendernodeAvailable: Boolean by lazy {
+        try {
+            val dri = java.io.File("/dev/dri")
+            dri.exists() && (java.io.File(dri, "renderD128").exists() || java.io.File(dri, "card0").exists())
+        } catch (_: Throwable) {
+            false
         }
     }
 
-    fun getPrivacyShieldScript(safeGpuMode: Boolean = true, isDesktop: Boolean = false, baseUa: String? = null): String {
+    fun getPrivacyShieldScript(safeGpuMode: Boolean = !isDrmRendernodeAvailable, isDesktop: Boolean = false, baseUa: String? = null): String {
         val flag = if (safeGpuMode) "window.__kaspa_software_rendering = true;" else ""
         val viewportScript = getDesktopViewportScript(isDesktop, baseUa)
         return "$flag\n$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript"
