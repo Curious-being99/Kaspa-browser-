@@ -1616,12 +1616,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             }
 
             if (!streamSuccess) {
-                if (targetFile.exists() && targetFile.length() > 0) {
-                    val fileLength = targetFile.length()
-                    updateDownloadProgress(downloadId, 1.0f, fileLength, fileLength, "Success")
-                } else {
-                    startMonitoringDownload(context, downloadId, fileName)
-                }
+                try {
+                    if (targetFile.exists()) {
+                        targetFile.delete()
+                    }
+                } catch (_: Exception) {}
+                updateDownloadProgress(downloadId, 0f, 0L, 0L, "Failed")
             }
         }
     }
@@ -1631,7 +1631,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
             var downloading = true
             var attempts = 0
-            val maxAttempts = 15
+            val maxAttempts = 120
             val targetFile = if (fileName.isNotBlank()) {
                 java.io.File(
                     android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
@@ -1640,7 +1640,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             } else null
 
             while (downloading) {
-                kotlinx.coroutines.delay(500)
+                kotlinx.coroutines.delay(1000)
                 attempts++
                 val query = android.app.DownloadManager.Query().setFilterById(downloadId)
                 val cursor = try { dm.query(query) } catch (e: Exception) { null }
@@ -1665,10 +1665,15 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
                     val activeProgress = if (statusStr == "Downloading" && calculatedProgress < 0.05f) 0.05f else calculatedProgress
                     
-                    updateDownloadProgress(downloadId, activeProgress, bytesDownloaded, bytesTotal, statusStr)
-                    
-                    if (statusInt == android.app.DownloadManager.STATUS_SUCCESSFUL || statusInt == android.app.DownloadManager.STATUS_FAILED) {
+                    if (statusInt == android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                        val finalSize = if (bytesTotal > 0) bytesTotal else (targetFile?.length() ?: bytesDownloaded)
+                        updateDownloadProgress(downloadId, 1.0f, finalSize, finalSize, "Success")
                         downloading = false
+                    } else if (statusInt == android.app.DownloadManager.STATUS_FAILED) {
+                        updateDownloadProgress(downloadId, 0f, bytesDownloaded, bytesTotal, "Failed")
+                        downloading = false
+                    } else {
+                        updateDownloadProgress(downloadId, activeProgress, bytesDownloaded, bytesTotal, statusStr)
                     }
                     cursor.close()
                 } else {
