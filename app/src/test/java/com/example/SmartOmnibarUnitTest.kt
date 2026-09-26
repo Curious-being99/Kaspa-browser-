@@ -205,6 +205,13 @@ class SmartOmnibarUnitTest {
         assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("buy kas"))
         assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("how to buy kaspa"))
         assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("where to buy kaspa"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("I want to buy Kaspa"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("Where can I buy KAS?"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("Where can I buy kaspa"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("KAS purchase"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("kaspa purchase"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("get kaspa"))
+        assertTrue(SmartOmnibarEngine.isBuyKaspaQuery("purchase kaspa"))
 
         assertFalse(SmartOmnibarEngine.isBuyKaspaQuery("kaspa price"))
         assertFalse(SmartOmnibarEngine.isBuyKaspaQuery("kaspa stream"))

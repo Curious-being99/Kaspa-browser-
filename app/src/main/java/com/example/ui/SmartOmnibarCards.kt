@@ -637,10 +637,10 @@ fun WebsitePreviewCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(95.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .height(65.dp)
+                    .clip(RoundedCornerShape(6.dp))
                     .background(SurfaceDark)
-                    .border(0.5.dp, SurfaceCardBorder, RoundedCornerShape(8.dp))
+                    .border(0.5.dp, SurfaceCardBorder, RoundedCornerShape(6.dp))
                     .clickable { onOpen(preview.fullUrl) }
             ) {
                 AndroidView(
@@ -757,7 +757,7 @@ fun WebsitePreviewCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Action Row: Security shield + Copy + Expand + Open Site
             Row(
@@ -765,56 +765,61 @@ fun WebsitePreviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Security,
                         contentDescription = null,
                         tint = EmeraldMesh,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(11.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
-                        text = "Zero Trackers • Live Stream",
+                        text = "Zero Trackers",
                         color = EmeraldMesh,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     FilledTonalButton(
                         onClick = { onCopyUrl(preview.fullUrl) },
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = SurfaceCard,
                             contentColor = TextPrimary
                         ),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 34.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 36.dp, minHeight = 28.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Copy",
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(10.dp)
                         )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Copy", fontSize = 10.sp)
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("Copy", fontSize = 9.sp)
                     }
 
                     if (onExpandPreview != null) {
                         OutlinedButton(
                             onClick = { onExpandPreview(preview.fullUrl) },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 34.dp)
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, SurfaceCardBorder),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minWidth = 36.dp, minHeight = 28.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Visibility,
                                 contentDescription = "Full View",
-                                modifier = Modifier.size(12.dp)
+                                modifier = Modifier.size(10.dp)
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("Full", fontSize = 10.sp)
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text("Full", fontSize = 9.sp)
                         }
                     }
 
@@ -824,15 +829,15 @@ fun WebsitePreviewCard(
                             containerColor = ElectricCyan,
                             contentColor = Color.Black
                         ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 34.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 40.dp, minHeight = 28.dp)
                     ) {
-                        Text("Open Site", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Open", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(2.dp))
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = "Open",
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(10.dp)
                         )
                     }
                 }

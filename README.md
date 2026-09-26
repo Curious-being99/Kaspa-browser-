@@ -1,4 +1,4 @@
-# Kaspa Browser
+# Kaspa Browser 🌐
 
 <p align="left">
   <img src="https://img.shields.io/badge/Kotlin-98.8%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 98.8%" />
@@ -14,7 +14,7 @@
 
 ---
 
-## System Architecture & Visual Overview
+## 🎨 System Architecture & Visual Overview
 
 <p align="center">
   <a href="architecture_3d_overview.mp4" title="Click to open full MP4 Video Player">
@@ -72,7 +72,7 @@
 
 
 
-## Browser Rendering Engine & Gateway Architecture
+## 🌐 Browser Rendering Engine & Gateway Architecture
 
 KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, native ARM64 Rust v9 JNI modules, and privacy content shields.
 
@@ -200,7 +200,7 @@ The following diagram illustrates how user input, network resolution, peer disco
 
 ---
 
-##  Key Features
+## 🌟 Key Features
 
 ### 🌐 1. Dual-Stack Gateway & Web Browser
 - **Unified Protocol Handler**: Seamlessly navigates standard web addresses (`http://`, `https://`) and decentralized Web3 protocols (`ipfs://`, `hyper://`, `.kas`, `.mesh`, and custom local peer endpoints).
@@ -247,7 +247,7 @@ The following diagram illustrates how user input, network resolution, peer disco
 ---
 
 
-## Component Visual Identity & Brand Logo Color Palette
+## 🎨 Component Visual Identity & Brand Logo Color Palette
 
 ![KaspaBrowser Brand Palette](brand_palette.jpg)
 
@@ -344,7 +344,7 @@ The codebase is engineered following modern Android architecture guidelines (**M
 
 ---
 
-##  Building & Publishing
+## 🚀 Building & Publishing
 
 ### Local Compilation
 To compile the debug version using Gradle:

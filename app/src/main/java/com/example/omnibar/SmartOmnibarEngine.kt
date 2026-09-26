@@ -237,22 +237,60 @@ object SmartOmnibarEngine {
      * Checks if the query looks like a request for Kaspa Price / Market info.
      */
     fun isKaspaPriceQuery(query: String): Boolean {
-        val q = query.trim().lowercase()
-        return q == "kaspa price" || q == "kas price" || q == "\$kas" || q == "kas" ||
-                q == "kas/usd" || q == "kaspa/usd" || q == "kas ticker" || q == "kaspa ticker" ||
-                q == "price of kaspa" || q == "price of kas" || q == "kaspa market" ||
-                q == "kas market" || q == "kas marketcap" || q == "kaspa rate"
+        val q = query.trim().lowercase().filter { it.isLetterOrDigit() || it.isWhitespace() || it == '$' || it == '/' }
+        if (q.isBlank()) return false
+
+        // Exact shortcuts
+        if (q == "kaspa price" || q == "kas price" || q == "\$kas" || q == "kas" ||
+            q == "kas/usd" || q == "kaspa/usd" || q == "kas ticker" || q == "kaspa ticker" ||
+            q == "price of kaspa" || q == "price of kas" || q == "kaspa market" ||
+            q == "kas market" || q == "kas marketcap" || q == "kaspa rate" ||
+            q == "kaspa cost" || q == "kas cost" || q == "how much is kaspa" || q == "how much is kas"
+        ) {
+            return true
+        }
+
+        // Subphrase / Natural language checks
+        val hasKas = q.contains("kaspa") || q.contains("kas") || q.contains("\$kas")
+        val hasPriceKeyword = q.contains("price") || q.contains("rate") || q.contains("ticker") ||
+                q.contains("market") || q.contains("marketcap") || q.contains("worth") ||
+                q.contains("cost") || q.contains("value") || q.contains("chart")
+
+        return hasKas && hasPriceKeyword && !isBuyKaspaQuery(query)
     }
 
     /**
      * Checks if the query looks like a request to Buy Kaspa.
+     * Flexibly matches natural language variations like:
+     * - "I want to buy Kaspa"
+     * - "Where can I buy KAS?" / "Where can I buy kaspa?"
+     * - "KAS purchase" / "kaspa purchase"
+     * - "how to buy kaspa" / "where to buy kas"
      */
     fun isBuyKaspaQuery(query: String): Boolean {
-        val q = query.trim().lowercase()
-        return q == "buy kaspa" || q == "buy kas" || q == "how to buy kaspa" ||
-                q == "where to buy kaspa" || q == "purchase kaspa" || q == "swap kaspa" ||
-                q == "get kaspa" || q == "buy kaspa crypto" || q == "buy kas coin" ||
-                q == "where to buy kas" || q == "how to buy kas"
+        val q = query.trim().lowercase().filter { it.isLetterOrDigit() || it.isWhitespace() }
+        if (q.isBlank()) return false
+
+        // Direct common exact phrases
+        val exactMatch = q == "buy kaspa" || q == "buy kas" || q == "how to buy kaspa" ||
+                q == "where to buy kaspa" || q == "where can i buy kaspa" || q == "where can i buy kas" ||
+                q == "i want to buy kaspa" || q == "i want to buy kas" || q == "want to buy kaspa" ||
+                q == "want to buy kas" || q == "kas purchase" || q == "kaspa purchase" ||
+                q == "purchase kaspa" || q == "purchase kas" || q == "swap kaspa" || q == "swap kas" ||
+                q == "get kaspa" || q == "get kas" || q == "buy kaspa crypto" || q == "buy kas coin" ||
+                q == "where to buy kas" || q == "how to buy kas" || q == "buying kaspa" || q == "buying kas"
+
+        if (exactMatch) return true
+
+        val hasKas = q.contains("kaspa") || q.contains("kas")
+        val hasBuyIntent = q.contains("buy") || q.contains("purchase") || q.contains("swap") ||
+                q.contains("onramp") || q.contains("acquire") || q.contains("get kas")
+
+        if (!hasKas || !hasBuyIntent) return false
+
+        // Check combinations (e.g. "where can i buy ... kaspa", "want to buy ... kas", "kaspa ... purchase")
+        return q.contains("buy") || q.contains("purchase") || q.contains("swap") ||
+                q.contains("where") || q.contains("how to") || q.contains("want to")
     }
 
     /**
