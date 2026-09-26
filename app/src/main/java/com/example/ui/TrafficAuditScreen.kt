@@ -422,8 +422,10 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             com.example.viewmodel.SearchEngine.values().forEach { engine ->
                                 val isSelected = viewModel.searchEngine.collectAsState().value == engine
@@ -432,10 +434,9 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                     color = if (isSelected) ElectricCyan else SurfaceCard,
                                     border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) ElectricCyan else SurfaceCardBorder),
                                     modifier = Modifier
-                                        .weight(1f)
                                         .clickable { viewModel.setSearchEngine(engine) }
                                 ) {
-                                    Box(modifier = Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                                    Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
                                         Text(
                                             text = engine.displayName,
                                             fontSize = 12.sp,

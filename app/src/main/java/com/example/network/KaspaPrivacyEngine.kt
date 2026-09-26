@@ -491,7 +491,7 @@ object KaspaPrivacyEngine {
      * Ensures navigator.userAgentData reflects mobile: false for responsive layout engines
      * while preserving native hardware capabilities (e.g. touch gestures, high-DPI scaling).
      */
-    fun getDesktopViewportScript(isDesktop: Boolean, baseUa: String? = null): String {
+    fun getDesktopViewportScript(isDesktop: Boolean = false, baseUa: String? = null): String {
         val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
         val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
         val majorVer = fullVer.substringBefore(".")
@@ -500,7 +500,9 @@ object KaspaPrivacyEngine {
         (function() {
             try {
                 var ua = navigator.userAgent || '';
-                var isDesktopMode = $isDesktop || (!ua.includes('Android') && !ua.includes('Mobile'));
+                var isDesktopMode = (window.KaspaNative && typeof window.KaspaNative.isDesktopMode === 'function')
+                    ? window.KaspaNative.isDesktopMode()
+                    : (!ua.includes('Android') && !ua.includes('Mobile'));
 
                 if (navigator.userAgentData) {
                     try {
@@ -627,12 +629,21 @@ object KaspaPrivacyEngine {
                     }
                 } else {
                     // Mobile mode: Restore standard mobile viewport if it was previously forced
-                    try {
-                        var meta = document.querySelector('meta[name="viewport"]');
-                        if (meta && meta.getAttribute('content') && meta.getAttribute('content').indexOf('width=980') !== -1) {
-                            meta.setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
-                        }
-                    } catch (_) {}
+                    function restoreMobileViewport() {
+                        try {
+                            var metas = document.querySelectorAll('meta[name="viewport"]');
+                            for (var i = 0; i < metas.length; i++) {
+                                var m = metas[i];
+                                if (m.getAttribute('content') && m.getAttribute('content').indexOf('width=980') !== -1) {
+                                    m.setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
+                                }
+                            }
+                        } catch (_) {}
+                    }
+                    restoreMobileViewport();
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', restoreMobileViewport, { once: true });
+                    }
                 }
             } catch (_) {}
         })();

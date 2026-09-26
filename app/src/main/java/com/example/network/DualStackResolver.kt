@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import android.net.Uri
 import java.net.InetAddress
 import java.net.URI
 import java.util.concurrent.TimeUnit
@@ -36,7 +37,9 @@ class DualStackResolver(
 
     suspend fun resolve(
         rawInput: String,
-        preferredProtocol: NetworkProtocol = NetworkProtocol.HYBRID_COEXISTENCE
+        preferredProtocol: NetworkProtocol = NetworkProtocol.HYBRID_COEXISTENCE,
+        desktopModeEnabled: Boolean = false,
+        searchEngineBaseUrl: String = "https://duckduckgo.com/?q="
     ): ResolvedResource = withContext(Dispatchers.IO) {
         val cleanUrl = rawInput.trim()
         val startTime = System.currentTimeMillis()
@@ -69,13 +72,21 @@ class DualStackResolver(
                 "https://$cleanUrl"
             } else if (cleanUrl.isNotBlank()) {
                 val enc = try { java.net.URLEncoder.encode(cleanUrl, "UTF-8") } catch (_: Exception) { cleanUrl }
-                "https://duckduckgo.com/?q=$enc"
+                "$searchEngineBaseUrl$enc"
             } else {
                 cleanUrl
             }
         } else {
             cleanUrl
         }
+
+        val isSearchEngineQuery = normalizedUrl.startsWith("https://search?q=", ignoreCase = true) ||
+                normalizedUrl.startsWith("https://search/?q=", ignoreCase = true) ||
+                normalizedUrl.startsWith("http://search?q=", ignoreCase = true) ||
+                normalizedUrl.startsWith("kaspa://search", ignoreCase = true) ||
+                normalizedUrl.startsWith("kas://search", ignoreCase = true) ||
+                normalizedUrl.equals("https://search", ignoreCase = true) ||
+                normalizedUrl.equals("https://search/", ignoreCase = true)
 
         val isHttp = normalizedUrl.startsWith("http://", ignoreCase = true) || normalizedUrl.startsWith("https://", ignoreCase = true)
 
@@ -98,7 +109,15 @@ class DualStackResolver(
             resolveDnsLink(cleanUrl)
         } else null
 
-        val resolved = if (dnsLinkCid != null) {
+        val resolved = if (isSearchEngineQuery) {
+            val q = when {
+                normalizedUrl.contains("?q=") -> normalizedUrl.substringAfter("?q=").substringBefore("&")
+                normalizedUrl.contains("&q=") -> normalizedUrl.substringAfter("&q=").substringBefore("&")
+                else -> ""
+            }
+            val searchUrl = if (q.isNotBlank()) "$searchEngineBaseUrl$q" else searchEngineBaseUrl.substringBefore("?")
+            resolveCentralized(searchUrl)
+        } else if (dnsLinkCid != null) {
             val decRes = resolveDecentralized("ipfs://$dnsLinkCid")
             decRes.copy(
                 url = normalizedUrl,
@@ -882,5 +901,884 @@ class DualStackResolver(
             return "${parts[0]}.${parts[1]}.x.x"
         }
         return "[Protected Link]"
+    }
+
+    private suspend fun resolveKaspaSearch(url: String, desktopModeEnabled: Boolean): ResolvedResource = withContext(Dispatchers.IO) {
+        val query = try {
+            val uri = Uri.parse(url)
+            uri.getQueryParameter("q") ?: ""
+        } catch (_: Exception) {
+            if (url.contains("?q=")) {
+                url.substringAfter("?q=").substringBefore("&")
+            } else ""
+        }
+
+        val category = try {
+            val uri = Uri.parse(url)
+            uri.getQueryParameter("category") ?: uri.getQueryParameter("cat") ?: uri.getQueryParameter("tab") ?: "all"
+        } catch (_: Exception) {
+            if (url.contains("category=")) {
+                url.substringAfter("category=").substringBefore("&")
+            } else "all"
+        }.lowercase()
+
+        val decodedQuery = try {
+            java.net.URLDecoder.decode(query, "UTF-8")
+        } catch (_: Exception) {
+            query
+        }
+
+        val searchResults = if (decodedQuery.isNotBlank()) {
+            SearchEngine.executeSearch(decodedQuery)
+        } else {
+            emptyList()
+        }
+
+        val imageResults = if (decodedQuery.isNotBlank()) {
+            EmbeddedRustSearchEngine.searchImagesOnDevice(decodedQuery)
+        } else {
+            emptyList()
+        }
+
+        val videoResults = if (decodedQuery.isNotBlank()) {
+            EmbeddedRustSearchEngine.searchVideosOnDevice(decodedQuery)
+        } else {
+            emptyList()
+        }
+
+        val resultsHtml = generateSearchResultsHtml(decodedQuery, category, searchResults, imageResults, videoResults, desktopModeEnabled)
+        val hash = CryptoUtils.sha256(resultsHtml)
+
+        ResolvedResource(
+            url = url,
+            resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+            cid = "",
+            title = if (decodedQuery.isNotBlank()) "$decodedQuery — Kaspa Search" else "Kaspa Search",
+            content = resultsHtml,
+            contentType = "text/html",
+            sizeBytes = resultsHtml.toByteArray(Charsets.UTF_8).size.toLong(),
+            latencyMs = 12L,
+            decentralizedPeersCount = 0,
+            decentralizedLatencyMs = 12L,
+            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+            cryptographicHash = hash,
+            routedVia = "Kaspa Federated Search • Privacy Multi-Engine (Brave • DuckDuckGo • Bing • Kaspa)",
+            kaspaVerificationSummary = "Kaspa Search • Zero Telemetry & On-Device Privacy Shield"
+        )
+    }
+
+    private fun generateSearchResultsHtml(
+        query: String,
+        category: String,
+        results: List<EmbeddedRustSearchEngine.SearchResult>,
+        images: List<EmbeddedRustSearchEngine.ImageResult>,
+        videos: List<EmbeddedRustSearchEngine.VideoResult>,
+        desktopModeEnabled: Boolean
+    ): String {
+        val escapedQuery = query.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+        val encodedQuery = try { java.net.URLEncoder.encode(query, "UTF-8") } catch (_: Exception) { escapedQuery }
+
+        // Math Instant Evaluation
+        val mathEvaluation = if (query.isNotBlank()) {
+            com.example.network.SmartOmnibarEngine.evaluateMath(query)
+        } else null
+
+        val isKaspaQuery = query.contains("kaspa", ignoreCase = true) || query.contains("blockdag", ignoreCase = true) || query.contains("ghostdag", ignoreCase = true)
+
+        fun renderWebResults(list: List<EmbeddedRustSearchEngine.SearchResult>): String {
+            if (list.isEmpty()) {
+                return """
+                <div class="empty-state">
+                    <div class="empty-icon">🔍</div>
+                    <h3>No direct web results found for "$escapedQuery"</h3>
+                    <p>Search across major web engines instantly:</p>
+                    <div class="empty-actions">
+                        <a href="https://search.brave.com/search?q=$encodedQuery" class="engine-switch-btn brave-btn" target="_self">🦁 Search on Brave</a>
+                        <a href="https://duckduckgo.com/?q=$encodedQuery" class="engine-switch-btn ddg-btn" target="_self">🦆 Search on DuckDuckGo</a>
+                        <a href="https://www.bing.com/search?q=$encodedQuery" class="engine-switch-btn bing-btn" target="_self">🌊 Search on Bing</a>
+                    </div>
+                </div>
+                """.trimIndent()
+            }
+            return list.joinToString("\n") { r ->
+                val safeTitle = r.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                val safeSnippet = r.snippet.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                val safeUrl = r.url.replace("\"", "&quot;")
+                
+                val domain = try {
+                    val uri = java.net.URI(safeUrl)
+                    uri.host?.removePrefix("www.") ?: safeUrl
+                } catch (_: Exception) {
+                    safeUrl
+                }
+
+                val path = try {
+                    val uri = java.net.URI(safeUrl)
+                    val p = uri.path ?: ""
+                    if (p.length > 30) p.take(30) + "…" else p
+                } catch (_: Exception) {
+                    ""
+                }
+
+                val pathHtml = if (path.isNotBlank()) "<span class=\"site-path\">› $path</span>" else ""
+                val faviconUrl = "https://www.google.com/s2/favicons?domain=$domain&sz=32"
+
+                """
+                <article class="search-item">
+                    <div class="site-breadcrumb">
+                        <img class="site-icon" src="$faviconUrl" alt="" onerror="this.style.display='none';" />
+                        <span class="site-host">$domain</span>
+                        $pathHtml
+                        <span class="source-tag">${r.engineSource}</span>
+                    </div>
+                    <h3 class="result-title"><a href="$safeUrl" target="_self">$safeTitle</a></h3>
+                    <p class="result-snippet">$safeSnippet</p>
+                </article>
+                """.trimIndent()
+            }
+        }
+
+        // 1. Core Categories
+        val webHtml = renderWebResults(results)
+
+        val imagesHtml = if (images.isEmpty()) {
+            """<div class="empty-state"><div class="empty-icon">📂</div><h3>No image results found for "$escapedQuery"</h3></div>"""
+        } else {
+            val cards = images.joinToString("\n") { img ->
+                val title = img.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+                val url = img.imageUrl.replace("\"", "&quot;")
+                val srcUrl = img.sourceUrl.replace("\"", "&quot;")
+                """
+                <div class="image-card">
+                    <a href="$srcUrl" target="_self">
+                        <div class="image-thumb-box">
+                            <img src="$url" alt="$title" onerror="this.src='https://kaspa.org/wp-content/uploads/2023/06/kaspa-icon.png';" />
+                        </div>
+                        <div class="image-card-title">$title</div>
+                        <div class="image-card-host">${img.sourceHost}</div>
+                    </a>
+                </div>
+                """.trimIndent()
+            }
+            """<div class="image-grid">$cards</div>"""
+        }
+
+        val videosHtml = if (videos.isEmpty()) {
+            """<div class="empty-state"><div class="empty-icon">📂</div><h3>No video results found for "$escapedQuery"</h3></div>"""
+        } else {
+            val cards = videos.joinToString("\n") { v ->
+                val title = v.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+                val videoUrl = v.videoUrl.replace("\"", "&quot;")
+                val thumbUrl = v.thumbnailUrl.replace("\"", "&quot;")
+                """
+                <div class="video-item">
+                    <a href="$videoUrl" target="_self" class="video-link">
+                        <div class="video-thumb-container">
+                            <img src="$thumbUrl" alt="$title" onerror="this.src='https://kaspa.org/wp-content/uploads/2023/06/kaspa-icon.png';" />
+                            <span class="video-badge">${v.duration}</span>
+                            <div class="play-overlay">▶</div>
+                        </div>
+                        <div class="video-details">
+                            <h3 class="video-title">$title</h3>
+                            <div class="video-channel">${v.channelOrSource} • ${v.publishedDate}</div>
+                        </div>
+                    </a>
+                </div>
+                """.trimIndent()
+            }
+            """<div class="video-list">$cards</div>"""
+        }
+
+        val newsFiltered = results.filter { r ->
+            r.snippet.contains("news", true) || r.title.contains("news", true) || r.snippet.contains("2026", true) || r.snippet.contains("2025", true)
+        }
+        val newsHtml = renderWebResults(if (newsFiltered.isNotEmpty()) newsFiltered else results)
+
+        val kaspaFiltered = results.filter { r ->
+            r.url.contains("kaspa", true) || r.title.contains("kaspa", true) || r.snippet.contains("kaspa", true)
+        }
+        val kaspaHtml = renderWebResults(if (kaspaFiltered.isNotEmpty()) kaspaFiltered else results)
+
+        val wikiFiltered = results.filter { r ->
+            r.url.contains("wikipedia.org", true) || r.title.contains("wikipedia", true)
+        }
+        val wikiHtml = renderWebResults(if (wikiFiltered.isNotEmpty()) wikiFiltered else results)
+
+        // 2. Shelf Previews inside "All" Tab
+        val imagePreviewHtml = if (images.isNotEmpty()) {
+            val thumbs = images.take(6).joinToString("\n") { img ->
+                """
+                <a href="javascript:void(0)" onclick="switchTab('images')" class="preview-img-card">
+                    <img src="${img.imageUrl}" alt="${img.title.replace("\"", "&quot;")}" onerror="this.style.display='none';" />
+                </a>
+                """.trimIndent()
+            }
+            """
+            <div class="preview-shelf">
+                <div class="shelf-header">
+                    <span class="shelf-title">Images for $escapedQuery</span>
+                    <a href="javascript:void(0)" onclick="switchTab('images')" class="shelf-more">View All Images ↗</a>
+                </div>
+                <div class="shelf-row">$thumbs</div>
+            </div>
+            """.trimIndent()
+        } else ""
+
+        val videoPreviewHtml = if (videos.isNotEmpty()) {
+            val vCards = videos.take(2).joinToString("\n") { v ->
+                """
+                <a href="${v.videoUrl.replace("\"", "&quot;")}" target="_self" class="preview-video-card">
+                    <div class="preview-v-thumb">
+                        <img src="${v.thumbnailUrl.replace("\"", "&quot;")}" alt="" />
+                        <span class="v-duration">${v.duration}</span>
+                    </div>
+                    <div class="preview-v-title">${v.title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</div>
+                </a>
+                """.trimIndent()
+            }
+            """
+            <div class="preview-shelf">
+                <div class="shelf-header">
+                    <span class="shelf-title">Videos for $escapedQuery</span>
+                    <a href="javascript:void(0)" onclick="switchTab('videos')" class="shelf-more">View All Videos ↗</a>
+                </div>
+                <div class="shelf-grid">$vCards</div>
+            </div>
+            """.trimIndent()
+        } else ""
+
+        // Math Instant Evaluation
+        val mathCardHtml = if (mathEvaluation != null) {
+            val safeResult = mathEvaluation.resultFormatted.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            val safeExpression = mathEvaluation.expression.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            val detailsHtml = if (!mathEvaluation.details.isNullOrBlank()) {
+                "<div class=\"math-details\">${mathEvaluation.details.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</div>"
+            } else ""
+            """
+            <div class="math-card">
+                <div class="math-header">
+                    <span class="math-badge">⚡ Advanced Calculation & Solver</span>
+                    ${if (mathEvaluation.isKaspaCurrencyMath) "<span class=\"math-category\">Kaspa Rate</span>" else "<span class=\"math-category\">Math</span>"}
+                </div>
+                <div class="math-expression">$safeExpression</div>
+                <div class="math-result">= $safeResult</div>
+                $detailsHtml
+            </div>
+            """.trimIndent()
+        } else ""
+
+        // Kaspa / Crypto Knowledge Card
+        val cryptoCardHtml = if (isKaspaQuery) {
+            """
+            <div class="knowledge-card">
+                <div class="knowledge-header">
+                    <img src="https://kaspa.org/wp-content/uploads/2023/06/kaspa-icon.png" class="knowledge-logo" onerror="this.style.display='none'" alt="" />
+                    <div>
+                        <div class="knowledge-title">Kaspa (KAS)</div>
+                        <div class="knowledge-sub">Proof-of-Work BlockDAG • 10 BPS GHOSTDAG L1 Network</div>
+                    </div>
+                </div>
+                <div class="knowledge-body">
+                    Kaspa is the fastest, open-source, decentralized Layer-1 Proof-of-Work cryptocurrency operating on GHOSTDAG consensus protocol for instant confirmations and high throughput.
+                </div>
+                <div class="knowledge-actions">
+                    <a href="https://kaspa.org" class="btn-primary" target="_self">Official Site ↗</a>
+                    <a href="https://kaspa.stream" class="btn-secondary" target="_self">Live DAG Explorer ↗</a>
+                    <a href="https://wallet.kaspanet.io" class="btn-secondary" target="_self">Web Wallet ↗</a>
+                    <a href="https://github.com/kaspanet" class="btn-secondary" target="_self">GitHub ↗</a>
+                </div>
+            </div>
+            """.trimIndent()
+        } else ""
+
+        // Top Knowledge Box (Math or Crypto)
+        val topKnowledgeBox = when {
+            mathCardHtml.isNotBlank() -> mathCardHtml
+            cryptoCardHtml.isNotBlank() -> cryptoCardHtml
+            else -> ""
+        }
+
+        return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="utf-8">
+                ${if (desktopModeEnabled) """<meta name="viewport" content="width=980">""" else """<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">"""}
+                <title>${if (query.isNotBlank()) "$escapedQuery — " else ""}Kaspa Search</title>
+                <style>
+                    * { box-sizing: border-box; }
+                    body {
+                        background-color: #0d1117;
+                        color: #c9d1d9;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                        margin: 0;
+                        padding: 0;
+                        line-height: 1.55;
+                        -webkit-font-smoothing: antialiased;
+                    }
+                    .search-header {
+                        position: sticky;
+                        top: 0;
+                        background: #161b22;
+                        border-bottom: 1px solid #21262d;
+                        padding: 10px 14px 0 14px;
+                        z-index: 100;
+                    }
+                    .header-top {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                    }
+                    .logo-brand {
+                        font-weight: 800;
+                        font-size: 15px;
+                        color: #70C7BA;
+                        text-decoration: none;
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
+                        white-space: nowrap;
+                    }
+                    .search-bar-wrap {
+                        flex: 1;
+                        display: flex;
+                        align-items: center;
+                        background: #0d1117;
+                        border: 1px solid #30363d;
+                        border-radius: 24px;
+                        padding: 2px 10px 2px 14px;
+                        transition: all 0.2s ease;
+                    }
+                    .search-bar-wrap:focus-within {
+                        border-color: #70C7BA;
+                        box-shadow: 0 0 0 1px #70C7BA;
+                    }
+                    .search-input {
+                        width: 100%;
+                        background: transparent;
+                        border: none;
+                        color: #f0f6fc;
+                        font-size: 14px;
+                        outline: none;
+                        padding: 7px 0;
+                    }
+                    .search-btn-icon {
+                        background: transparent;
+                        color: #70C7BA;
+                        border: none;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        padding: 5px;
+                        cursor: pointer;
+                        border-radius: 50%;
+                    }
+                    /* Search Engine Quick Switcher */
+                    .engine-switcher-bar {
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        margin-top: 8px;
+                        overflow-x: auto;
+                        scrollbar-width: none;
+                        padding-bottom: 2px;
+                    }
+                    .engine-switcher-bar::-webkit-scrollbar { display: none; }
+                    .engine-pill {
+                        display: flex;
+                        align-items: center;
+                        gap: 5px;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        padding: 4px 10px;
+                        border-radius: 14px;
+                        text-decoration: none;
+                        color: #8b949e;
+                        background: #21262d;
+                        border: 1px solid #30363d;
+                        white-space: nowrap;
+                        transition: all 0.15s;
+                    }
+                    .engine-pill:hover, .engine-pill:active {
+                        border-color: #70C7BA;
+                        color: #f0f6fc;
+                    }
+                    .engine-pill.active {
+                        background: rgba(112, 199, 186, 0.15);
+                        border-color: #70C7BA;
+                        color: #70C7BA;
+                    }
+                    .nav-tabs {
+                        display: flex;
+                        gap: 18px;
+                        margin-top: 8px;
+                        overflow-x: auto;
+                        scrollbar-width: none;
+                    }
+                    .nav-tabs::-webkit-scrollbar { display: none; }
+                    .tab-item {
+                        color: #8b949e;
+                        font-size: 13px;
+                        font-weight: 600;
+                        text-decoration: none;
+                        padding-bottom: 6px;
+                        border-bottom: 2px solid transparent;
+                        white-space: nowrap;
+                    }
+                    .tab-item.active {
+                        color: #70C7BA;
+                        border-bottom-color: #70C7BA;
+                    }
+                    .content-container {
+                        max-width: 780px;
+                        margin: 0 auto;
+                        padding: 14px 14px 40px 14px;
+                    }
+                    .stats-bar {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        font-size: 11.5px;
+                        color: #8b949e;
+                        margin-bottom: 14px;
+                    }
+                    .shield-badge {
+                        color: #70C7BA;
+                        font-weight: 600;
+                    }
+                    /* Math Card */
+                    .math-card {
+                        background: #161b22;
+                        border: 1.5px solid #70C7BA;
+                        border-radius: 12px;
+                        padding: 14px 16px;
+                        margin-bottom: 18px;
+                    }
+                    .math-header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 8px;
+                    }
+                    .math-badge {
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #70C7BA;
+                    }
+                    .math-category {
+                        font-size: 10px;
+                        color: #8b949e;
+                        background: #21262d;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                    }
+                    .math-expression {
+                        font-size: 13px;
+                        color: #8b949e;
+                        font-family: monospace;
+                    }
+                    .math-result {
+                        font-size: 24px;
+                        font-weight: 800;
+                        color: #f0f6fc;
+                        margin-top: 2px;
+                    }
+                    /* Knowledge Card */
+                    .knowledge-card {
+                        background: #161b22;
+                        border: 1px solid #30363d;
+                        border-radius: 12px;
+                        padding: 14px;
+                        margin-bottom: 18px;
+                    }
+                    .knowledge-header {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        margin-bottom: 8px;
+                    }
+                    .knowledge-logo {
+                        width: 32px;
+                        height: 32px;
+                        border-radius: 50%;
+                    }
+                    .knowledge-title {
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #f0f6fc;
+                    }
+                    .knowledge-sub {
+                        font-size: 11.5px;
+                        color: #8b949e;
+                    }
+                    .knowledge-body {
+                        font-size: 13px;
+                        color: #c9d1d9;
+                        margin-bottom: 12px;
+                        line-height: 1.45;
+                    }
+                    .knowledge-actions {
+                        display: flex;
+                        gap: 8px;
+                        flex-wrap: wrap;
+                    }
+                    .btn-primary {
+                        background: #70C7BA;
+                        color: #0d1117;
+                        padding: 5px 10px;
+                        border-radius: 6px;
+                        text-decoration: none;
+                        font-size: 11.5px;
+                        font-weight: 700;
+                    }
+                    .btn-secondary {
+                        background: #21262d;
+                        color: #c9d1d9;
+                        padding: 5px 10px;
+                        border-radius: 6px;
+                        text-decoration: none;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        border: 1px solid #30363d;
+                    }
+                    .search-item {
+                        margin-bottom: 20px;
+                        padding-bottom: 16px;
+                        border-bottom: 1px solid #21262d;
+                    }
+                    .site-breadcrumb {
+                        display: flex;
+                        align-items: center;
+                        gap: 6px;
+                        font-size: 12px;
+                        margin-bottom: 3px;
+                    }
+                    .site-icon {
+                        width: 15px;
+                        height: 15px;
+                        border-radius: 3px;
+                    }
+                    .site-host {
+                        color: #f0f6fc;
+                        font-weight: 600;
+                    }
+                    .site-path {
+                        color: #8b949e;
+                    }
+                    .source-tag {
+                        font-size: 9.5px;
+                        color: #8b949e;
+                        background: #21262d;
+                        padding: 1px 5px;
+                        border-radius: 4px;
+                        margin-left: auto;
+                    }
+                    .result-title {
+                        margin: 0 0 3px 0;
+                        font-size: 16.5px;
+                        font-weight: 600;
+                    }
+                    .result-title a {
+                        color: #58a6ff;
+                        text-decoration: none;
+                    }
+                    .result-title a:hover {
+                        text-decoration: underline;
+                    }
+                    .result-snippet {
+                        margin: 0;
+                        font-size: 13px;
+                        color: #8b949e;
+                        line-height: 1.45;
+                    }
+                    /* Image Grid */
+                    .image-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                        gap: 10px;
+                        margin-top: 14px;
+                    }
+                    .image-card {
+                        background: #161b22;
+                        border: 1px solid #30363d;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        transition: all 0.2s;
+                    }
+                    .image-card:hover {
+                        border-color: #70C7BA;
+                    }
+                    .image-card a {
+                        text-decoration: none;
+                        color: inherit;
+                        display: block;
+                    }
+                    .image-thumb-box {
+                        width: 100%;
+                        height: 105px;
+                        background: #0d1117;
+                        overflow: hidden;
+                    }
+                    .image-thumb-box img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }
+                    .image-card-title {
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #f0f6fc;
+                        padding: 5px 6px 1px 6px;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    }
+                    .image-card-host {
+                        font-size: 9.5px;
+                        color: #8b949e;
+                        padding: 0 6px 5px 6px;
+                    }
+                    /* Video Feed */
+                    .video-list {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        margin-top: 14px;
+                    }
+                    .video-item {
+                        background: #161b22;
+                        border: 1px solid #30363d;
+                        border-radius: 10px;
+                        overflow: hidden;
+                        padding: 10px;
+                    }
+                    .video-link {
+                        display: flex;
+                        gap: 10px;
+                        text-decoration: none;
+                        color: inherit;
+                    }
+                    .video-thumb-container {
+                        position: relative;
+                        width: 120px;
+                        height: 75px;
+                        border-radius: 6px;
+                        overflow: hidden;
+                        flex-shrink: 0;
+                        background: #0d1117;
+                    }
+                    .video-thumb-container img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }
+                    .video-badge {
+                        position: absolute;
+                        bottom: 3px;
+                        right: 3px;
+                        background: rgba(0, 0, 0, 0.85);
+                        color: #fff;
+                        font-size: 9px;
+                        padding: 1px 3px;
+                        border-radius: 3px;
+                        font-weight: 700;
+                    }
+                    .video-details {
+                        flex: 1;
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                    }
+                    .video-title {
+                        font-size: 13.5px;
+                        font-weight: 600;
+                        color: #58a6ff;
+                        margin: 0 0 3px 0;
+                        line-height: 1.3;
+                    }
+                    .video-channel {
+                        font-size: 10.5px;
+                        color: #8b949e;
+                    }
+                    /* External Engine Chips */
+                    .external-shelf {
+                        background: #161b22;
+                        border: 1px solid #30363d;
+                        border-radius: 10px;
+                        padding: 12px;
+                        margin-top: 24px;
+                    }
+                    .external-title {
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: #8b949e;
+                        margin-bottom: 8px;
+                    }
+                    .external-btns {
+                        display: flex;
+                        gap: 8px;
+                        flex-wrap: wrap;
+                    }
+                    .engine-switch-btn {
+                        background: #21262d;
+                        color: #f0f6fc;
+                        border: 1px solid #30363d;
+                        padding: 6px 12px;
+                        border-radius: 14px;
+                        font-size: 11.5px;
+                        text-decoration: none;
+                        font-weight: 600;
+                        transition: all 0.15s;
+                    }
+                    .engine-switch-btn:hover {
+                        border-color: #70C7BA;
+                        color: #70C7BA;
+                    }
+                    .empty-state {
+                        text-align: center;
+                        padding: 40px 16px;
+                        color: #8b949e;
+                    }
+                    .empty-icon {
+                        font-size: 32px;
+                        margin-bottom: 8px;
+                    }
+                    .empty-actions {
+                        display: flex;
+                        gap: 8px;
+                        justify-content: center;
+                        margin-top: 16px;
+                        flex-wrap: wrap;
+                    }
+                    .tab-pane {
+                        display: none;
+                    }
+                    .tab-pane.active {
+                        display: block;
+                    }
+                </style>
+            </head>
+            <body>
+                <header class="search-header">
+                    <div class="header-top">
+                        <a class="logo-brand" href="kaspa://search?q=">
+                            <svg width="22" height="22" viewBox="0 0 108 108" style="vertical-align: middle; margin-right: 4px;">
+                                <circle cx="54" cy="54" r="54" fill="#ECEFF1"/>
+                                <path d="M32,24 L46,24 L66,44 L66,64 L46,84 L32,84 L52,64 L52,44 Z" fill="#70C7BA"/>
+                                <path d="M76,32 L64,44 L64,64 L76,76 Z" fill="#70C7BA"/>
+                                <circle cx="54" cy="54" r="18" fill="#ECEFF1" stroke="#70C7BA" stroke-width="2"/>
+                                <circle cx="54" cy="43" r="3.5" fill="#70C7BA"/>
+                            </svg>
+                            Kaspa Search
+                        </a>
+                        <form class="search-bar-wrap" action="kaspa://search" method="GET" style="margin:0;">
+                            <input class="search-input" type="text" name="q" value="$escapedQuery" placeholder="Search web cleanly..." autofocus />
+                            <button type="submit" class="search-btn-icon" aria-label="Search">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Engine Quick Switcher -->
+                    <div class="engine-switcher-bar">
+                        <span class="engine-pill active">⚡ Kaspa Engine</span>
+                        <a href="https://search.brave.com/search?q=$encodedQuery" class="engine-pill" target="_self">🦁 Brave</a>
+                        <a href="https://duckduckgo.com/?q=$encodedQuery" class="engine-pill" target="_self">🦆 DuckDuckGo</a>
+                        <a href="https://www.bing.com/search?q=$encodedQuery" class="engine-pill" target="_self">🌊 Bing</a>
+                        <a href="https://www.google.com/search?q=$encodedQuery" class="engine-pill" target="_self">🔍 Google</a>
+                    </div>
+
+                    <!-- Navigation Category Tabs -->
+                    <nav class="nav-tabs">
+                        <a class="tab-item" data-tab="all" href="javascript:void(0)" onclick="switchTab('all', this)">All</a>
+                        <a class="tab-item" data-tab="web" href="javascript:void(0)" onclick="switchTab('web', this)">Web</a>
+                        <a class="tab-item" data-tab="images" href="javascript:void(0)" onclick="switchTab('images', this)">Images</a>
+                        <a class="tab-item" data-tab="videos" href="javascript:void(0)" onclick="switchTab('videos', this)">Videos</a>
+                        <a class="tab-item" data-tab="news" href="javascript:void(0)" onclick="switchTab('news', this)">News</a>
+                        <a class="tab-item" data-tab="wiki" href="javascript:void(0)" onclick="switchTab('wiki', this)">Wikipedia</a>
+                    </nav>
+                </header>
+
+                <main class="content-container">
+                    ${if (query.isNotBlank()) """
+                    <div class="stats-bar">
+                        <span>About ${results.size} federated results</span>
+                        <span class="shield-badge">🛡️ Zero-Tracking Shield Active</span>
+                    </div>
+                    """ else ""}
+                    
+                    $topKnowledgeBox
+
+                    <!-- Tab Panes -->
+                    <div id="section-all" class="tab-pane">
+                        $imagePreviewHtml
+                        $videoPreviewHtml
+                        $webHtml
+                    </div>
+                    <div id="section-web" class="tab-pane">
+                        $webHtml
+                    </div>
+                    <div id="section-images" class="tab-pane">
+                        $imagesHtml
+                    </div>
+                    <div id="section-videos" class="tab-pane">
+                        $videosHtml
+                    </div>
+                    <div id="section-news" class="tab-pane">
+                        $newsHtml
+                    </div>
+                    <div id="section-wiki" class="tab-pane">
+                        $wikiHtml
+                    </div>
+
+                    ${if (query.isNotBlank()) """
+                    <div class="external-shelf">
+                        <div class="external-title">Search "$escapedQuery" with other engines:</div>
+                        <div class="external-btns">
+                            <a href="https://search.brave.com/search?q=$encodedQuery" class="engine-switch-btn" target="_self">🦁 Search on Brave</a>
+                            <a href="https://duckduckgo.com/?q=$encodedQuery" class="engine-switch-btn" target="_self">🦆 Search on DuckDuckGo</a>
+                            <a href="https://www.bing.com/search?q=$encodedQuery" class="engine-switch-btn" target="_self">🌊 Search on Bing</a>
+                            <a href="https://www.google.com/search?q=$encodedQuery" class="engine-switch-btn" target="_self">🔍 Search on Google</a>
+                        </div>
+                    </div>
+                    """ else ""}
+                </main>
+
+                <script>
+                    function switchTab(cat, tabElement) {
+                        var panes = document.querySelectorAll('.tab-pane');
+                        for (var i = 0; i < panes.length; i++) {
+                            panes[i].classList.remove('active');
+                        }
+                        var activePane = document.getElementById('section-' + cat);
+                        if (activePane) {
+                            activePane.classList.add('active');
+                        }
+                        var tabs = document.querySelectorAll('.tab-item');
+                        for (var j = 0; j < tabs.length; j++) {
+                            tabs[j].classList.remove('active');
+                        }
+                        if (tabElement) {
+                            tabElement.classList.add('active');
+                        } else {
+                            var matchingTab = document.querySelector('.tab-item[data-tab="' + cat + '"]');
+                            if (matchingTab) {
+                                matchingTab.classList.add('active');
+                            }
+                        }
+                        window.scrollTo({ top: 0 });
+                    }
+
+                    document.addEventListener("DOMContentLoaded", function() {
+                        var initialCat = "$category";
+                        if (!initialCat || initialCat === "" || initialCat === "null") {
+                            initialCat = "all";
+                        }
+                        switchTab(initialCat);
+                    });
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
     }
 }

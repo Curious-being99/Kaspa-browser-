@@ -51,8 +51,13 @@ enum class AppTab {
 }
 
 enum class SearchEngine(val baseUrl: String, val displayName: String) {
-    KASPA_ENGINE("https://html.duckduckgo.com/html/?q=", "Kaspa Engine"),
-    GOOGLE("https://www.google.com/search?q=", "Google")
+    DUCKDUCKGO("https://duckduckgo.com/?q=", "DuckDuckGo"),
+    BRAVE("https://search.brave.com/search?q=", "Brave Search"),
+    BING("https://www.bing.com/search?q=", "Bing"),
+    GOOGLE("https://www.google.com/search?q=", "Google"),
+    STARTPAGE("https://www.startpage.com/sp/search?query=", "Startpage"),
+    ECOSIA("https://www.ecosia.org/search?q=", "Ecosia"),
+    QWANT("https://www.qwant.com/?q=", "Qwant")
 }
 
 data class ActiveDownload(
@@ -432,7 +437,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _showWebAuthnRpIdDialog = MutableStateFlow(false)
     val showWebAuthnRpIdDialog: StateFlow<Boolean> = _showWebAuthnRpIdDialog.asStateFlow()
 
-    private val _searchEngine = MutableStateFlow(SearchEngine.KASPA_ENGINE)
+    private val _searchEngine = MutableStateFlow(
+        runCatching {
+            val saved = browserSettingsPrefs.getString("default_search_engine", SearchEngine.DUCKDUCKGO.name)
+            SearchEngine.valueOf(saved ?: SearchEngine.DUCKDUCKGO.name)
+        }.getOrDefault(SearchEngine.DUCKDUCKGO)
+    )
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
 
     private val _liveSuggestions = MutableStateFlow<List<String>>(emptyList())
@@ -571,7 +581,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
     fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }
     fun setShowWebAuthnRpIdDialog(show: Boolean) { _showWebAuthnRpIdDialog.value = show }
-    fun setSearchEngine(engine: SearchEngine) { _searchEngine.value = engine }
+    fun setSearchEngine(engine: SearchEngine) {
+        _searchEngine.value = engine
+        browserSettingsPrefs.edit().putString("default_search_engine", engine.name).apply()
+    }
 
     fun addToHistory(url: String, title: String) {
         if (url.startsWith("about:") || url.startsWith("data:") || _incognitoMode.value) return
@@ -904,8 +917,11 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun onUserSubmitUrl(rawUrl: String? = null) {
         viewModelScope.launch {
-            val target = normalizeUrlOrQuery(rawUrl ?: _urlInput.value)
+            val input = rawUrl ?: _urlInput.value
+            val target = normalizeUrlOrQuery(input)
             if (target.isBlank()) return@launch
+
+            _urlInput.value = target
 
             val activeId = _activeTabId.value
             val activeTab = if (activeId != null) database.browserTabDao().getTabById(activeId) else null
@@ -923,10 +939,8 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 )
                 database.browserTabDao().insert(newTab)
                 _activeTabId.value = newId
-                _urlInput.value = target
                 resolveUrl(target)
             } else {
-                _urlInput.value = target
                 resolveUrl(target)
             }
         }
@@ -974,6 +988,15 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         // Explicit protocols
+        if (trimmed.startsWith("https://search", ignoreCase = true) ||
+            trimmed.startsWith("http://search", ignoreCase = true) ||
+            trimmed.startsWith("kaspa://search", ignoreCase = true) ||
+            trimmed.startsWith("kas://search", ignoreCase = true)
+        ) {
+            val q = if (trimmed.contains("q=")) trimmed.substringAfter("q=").substringBefore("&") else ""
+            return "${_searchEngine.value.baseUrl}$q"
+        }
+
         if (trimmed.startsWith("http://", ignoreCase = true) ||
             trimmed.startsWith("https://", ignoreCase = true) ||
             trimmed.startsWith("ipfs://", ignoreCase = true) ||
@@ -1029,10 +1052,81 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         return "${_searchEngine.value.baseUrl}$encoded"
     }
 
+    fun extractSearchQuery(url: String): String? {
+        if (url.isBlank()) return null
+        return try {
+            val uri = android.net.Uri.parse(url)
+            val host = uri.host?.lowercase() ?: ""
+            val path = uri.path?.lowercase() ?: ""
+
+            when {
+                // DuckDuckGo
+                host.contains("duckduckgo.com") || host.contains("duck.com") -> {
+                    uri.getQueryParameter("q")
+                }
+                // Brave Search
+                host.contains("search.brave.com") || host.contains("brave.com") -> {
+                    uri.getQueryParameter("q")
+                }
+                // Google
+                host.contains("google.") && (path.contains("search") || path.contains("webhp") || path.isEmpty() || path == "/") -> {
+                    uri.getQueryParameter("q") ?: uri.getQueryParameter("query")
+                }
+                // Bing
+                host.contains("bing.com") -> {
+                    uri.getQueryParameter("q")
+                }
+                // Startpage
+                host.contains("startpage.com") -> {
+                    uri.getQueryParameter("query") ?: uri.getQueryParameter("q")
+                }
+                // Ecosia
+                host.contains("ecosia.org") -> {
+                    uri.getQueryParameter("q")
+                }
+                // Qwant
+                host.contains("qwant.com") -> {
+                    uri.getQueryParameter("q")
+                }
+                // Yahoo
+                host.contains("yahoo.com") && path.contains("search") -> {
+                    uri.getQueryParameter("p") ?: uri.getQueryParameter("q")
+                }
+                // Baidu
+                host.contains("baidu.com") -> {
+                    uri.getQueryParameter("wd") ?: uri.getQueryParameter("word")
+                }
+                // Yandex
+                host.contains("yandex.") && path.contains("search") -> {
+                    uri.getQueryParameter("text") ?: uri.getQueryParameter("q")
+                }
+                // Kagi
+                host.contains("kagi.com") -> {
+                    uri.getQueryParameter("q")
+                }
+                // General /search?q=... or ?q=...
+                path.contains("search") && !uri.getQueryParameter("q").isNullOrBlank() -> {
+                    uri.getQueryParameter("q")
+                }
+                else -> null
+            }
+        } catch (_: Exception) {
+            when {
+                url.contains("?q=") -> url.substringAfter("?q=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
+                url.contains("&q=") -> url.substringAfter("&q=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
+                url.contains("?query=") -> url.substringAfter("?query=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
+                url.contains("?p=") && url.contains("yahoo") -> url.substringAfter("?p=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
+                else -> null
+            }
+        }
+    }
+
     fun updateCurrentUrl(newUrl: String) {
-        if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:")) return
-        if (_urlInput.value == newUrl) return
-        _urlInput.value = newUrl
+        if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:") || newUrl.contains(".ipfs.dweb.link")) return
+        val extractedQuery = extractSearchQuery(newUrl)
+        val displayUrl = if (!extractedQuery.isNullOrBlank()) extractedQuery else newUrl
+        if (_urlInput.value == displayUrl) return
+        _urlInput.value = displayUrl
         val activeId = _activeTabId.value
         if (activeId != null) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1094,7 +1188,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         val target = normalizeUrlOrQuery(raw)
-        _urlInput.value = target
+        val extractedQuery = extractSearchQuery(target)
+        val displayInput = if (!extractedQuery.isNullOrBlank() && !raw.startsWith("http://", true) && !raw.startsWith("https://", true)) {
+            extractedQuery
+        } else {
+            target
+        }
+        _urlInput.value = displayInput
         _isLoading.value = true
 
         val isHttp = target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)
@@ -1124,7 +1224,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         val currentSessionId = _navigationSessionId.value
         viewModelScope.launch {
             try {
-                val result = resolver.resolve(target, _selectedProtocol.value)
+                val result = resolver.resolve(target, _selectedProtocol.value, _desktopModeEnabled.value, _searchEngine.value.baseUrl)
                 if (_navigationSessionId.value == currentSessionId) {
                     if (!isHttp) {
                         _currentResource.value = result

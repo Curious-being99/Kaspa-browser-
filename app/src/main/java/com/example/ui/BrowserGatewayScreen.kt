@@ -538,6 +538,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
+    LaunchedEffect(currentResource) {
+        if (currentResource != null && currentResource?.content?.isNotBlank() == true) {
+            isWebLoading = false
+            webProgress = 1.0f
+            viewModel.setIsLoading(false)
+        }
+    }
+
     LaunchedEffect(urlInput, currentResource?.title) {
         val title = currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput
         viewModel.updateActiveTabMetadata(urlInput, title)
@@ -1714,7 +1722,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         this,
                                         KaspaPrivacyEngine.getPrivacyShieldScript(
                                             safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
-                                            isDesktop = desktopModeEnabled,
+                                            isDesktop = false,
                                             baseUa = defaultDeviceUa
                                         ),
                                         setOf("*")
@@ -1732,6 +1740,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
 
                             val nativeActionBridge = object {
+                                @android.webkit.JavascriptInterface
+                                fun isDesktopMode(): Boolean = viewModel.desktopModeEnabled.value
+
                                 @android.webkit.JavascriptInterface
                                 fun retryConnection(url: String?) {
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -2907,10 +2918,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                             if (tagUrl != loadKey || tagId != navigationSessionId) {
                                 webView.tag = Pair(loadKey, navigationSessionId)
-                                val baseUrl = if (resource.cid.isNotBlank()) {
+                                val isSearch = resource.url.startsWith("kaspa://search", ignoreCase = true) ||
+                                    resource.url.startsWith("https://search", ignoreCase = true) ||
+                                    resource.url.startsWith("http://search", ignoreCase = true)
+
+                                val baseUrl = if (!isSearch && resource.cid.isNotBlank()) {
                                     "https://${resource.cid}.ipfs.dweb.link/"
                                 } else {
-                                    "https://kaspa.org/"
+                                    "https://kaspa.org/search/"
                                 }
                                 webView.loadDataWithBaseURL(
                                     baseUrl,
@@ -2919,6 +2934,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     "UTF-8",
                                     baseUrl
                                 )
+                                isWebLoading = false
+                                webProgress = 1.0f
+                                viewModel.setIsLoading(false)
                             }
                         }
                     } catch (e: Throwable) {
@@ -3181,13 +3199,163 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        val query = urlInput.trim().lowercase()
+                        val currentTyping = textFieldValue.text.trim()
+                        val query = currentTyping.lowercase()
                         val liveFetchedSuggestions by viewModel.liveSuggestions.collectAsState()
 
                         LaunchedEffect(query) {
                             if (query.length >= 2) {
                                 viewModel.fetchSearchSuggestions(query)
                             }
+                        }
+
+                        // Smart Omnibar Intelligent Resolvers (Instantaneous Real-Time Feedback on Keystroke)
+                        val mathResult = remember(currentTyping) { com.example.omnibar.SmartOmnibarEngine.evaluateMath(currentTyping) }
+                        val isKaspaPrice = remember(query) { com.example.omnibar.SmartOmnibarEngine.isKaspaPriceQuery(query) }
+                        var marketData by remember { mutableStateOf(com.example.omnibar.KaspaMarketData()) }
+                        LaunchedEffect(isKaspaPrice) {
+                            if (isKaspaPrice) {
+                                marketData = com.example.omnibar.SmartOmnibarEngine.getLiveMarketData()
+                            }
+                        }
+                        val isBuyKaspa = remember(query) { com.example.omnibar.SmartOmnibarEngine.isBuyKaspaQuery(query) }
+                        val typoCorrection = remember(query) { com.example.omnibar.SmartOmnibarEngine.findTypoCorrection(query) }
+                        val websitePreview = remember(currentTyping) { com.example.omnibar.SmartOmnibarEngine.getWebsitePreview(currentTyping) }
+                        var expandedPreviewUrl by remember { mutableStateOf<String?>(null) }
+
+                        if (expandedPreviewUrl != null) {
+                            com.example.ui.components.WebsiteLivePreviewModal(
+                                previewUrl = expandedPreviewUrl!!,
+                                onOpenFullPage = { url ->
+                                    expandedPreviewUrl = null
+                                    viewModel.setUrlInput(url)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = url,
+                                        selection = androidx.compose.ui.text.TextRange(url.length)
+                                    )
+                                    viewModel.onUserSubmitUrl(url)
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                },
+                                onDismiss = {
+                                    expandedPreviewUrl = null
+                                }
+                            )
+                        }
+
+                        // 1. Instant Math Calculator Result Card
+                        if (mathResult != null) {
+                            SmartMathCard(
+                                result = mathResult,
+                                onCopy = { ans ->
+                                    try {
+                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(ans))
+                                        viewModel.setStatusMessage("Result copied: $ans")
+                                    } catch (_: Exception) {}
+                                },
+                                onApply = { ans ->
+                                    viewModel.setUrlInput(ans)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = ans,
+                                        selection = androidx.compose.ui.text.TextRange(ans.length)
+                                    )
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        // 2. Real-Time Kaspa Price & Market Ticker Card
+                        if (isKaspaPrice) {
+                            KaspaPriceMarketCard(
+                                marketData = marketData,
+                                onBuyKaspa = {
+                                    val buyUrl = "https://www.mexc.com/exchange/KAS_USDT"
+                                    viewModel.setUrlInput(buyUrl)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = buyUrl,
+                                        selection = androidx.compose.ui.text.TextRange(buyUrl.length)
+                                    )
+                                    viewModel.onUserSubmitUrl(buyUrl)
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                },
+                                onOpenChart = {
+                                    val chartUrl = "https://www.coingecko.com/en/coins/kaspa"
+                                    viewModel.setUrlInput(chartUrl)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = chartUrl,
+                                        selection = androidx.compose.ui.text.TextRange(chartUrl.length)
+                                    )
+                                    viewModel.onUserSubmitUrl(chartUrl)
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        // 3. Where to Buy Kaspa Direct Action Gateway
+                        if (isBuyKaspa) {
+                            BuyKaspaGatewayCard(
+                                options = com.example.omnibar.SmartOmnibarEngine.verifiedBuyOptions,
+                                onSelectOption = { targetUrl ->
+                                    viewModel.setUrlInput(targetUrl)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = targetUrl,
+                                        selection = androidx.compose.ui.text.TextRange(targetUrl.length)
+                                    )
+                                    viewModel.onUserSubmitUrl(targetUrl)
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        // 4. Smart Typo Correction ("Did You Mean?")
+                        if (!typoCorrection.isNullOrBlank() && typoCorrection != query) {
+                            DidYouMeanBanner(
+                                suggestion = typoCorrection,
+                                onApplySuggestion = { corrected ->
+                                    viewModel.setUrlInput(corrected)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = corrected,
+                                        selection = androidx.compose.ui.text.TextRange(corrected.length)
+                                    )
+                                    val normalized = viewModel.normalizeUrlOrQuery(corrected)
+                                    viewModel.onUserSubmitUrl(normalized)
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        // 5. Instant Website Real-Time Preview Card
+                        if (websitePreview != null && !isKaspaPrice && !isBuyKaspa) {
+                            WebsitePreviewCard(
+                                preview = websitePreview,
+                                onOpen = { targetUrl ->
+                                    viewModel.setUrlInput(targetUrl)
+                                    textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                                        text = targetUrl,
+                                        selection = androidx.compose.ui.text.TextRange(targetUrl.length)
+                                    )
+                                    viewModel.onUserSubmitUrl(targetUrl)
+                                    isInputFocused = false
+                                    focusManager.clearFocus()
+                                },
+                                onCopyUrl = { targetUrl ->
+                                    try {
+                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(targetUrl))
+                                        viewModel.setStatusMessage("Website URL copied: $targetUrl")
+                                    } catch (_: Exception) {}
+                                },
+                                onExpandPreview = { targetUrl ->
+                                    expandedPreviewUrl = targetUrl
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                         }
 
                         val predefined = listOf(

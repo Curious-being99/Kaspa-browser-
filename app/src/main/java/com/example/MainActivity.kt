@@ -59,6 +59,16 @@ class MainActivity : FragmentActivity() {
       defaultHandler?.uncaughtException(thread, throwable)
     }
 
+    // Ensure WebView cache directories exist synchronously before UI / WebView initialization
+    try {
+      val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
+      if (!crashpadDir.exists()) crashpadDir.mkdirs()
+      val wasmCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
+      if (!wasmCacheDir.exists()) wasmCacheDir.mkdirs()
+      val jsCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
+      if (!jsCacheDir.exists()) jsCacheDir.mkdirs()
+    } catch (_: Exception) {}
+
     enableEdgeToEdge()
     handleIncomingIntent(intent)
 
@@ -74,6 +84,10 @@ class MainActivity : FragmentActivity() {
         val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
         if (!crashpadDir.exists()) {
           crashpadDir.mkdirs()
+        }
+        val wasmCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
+        if (!wasmCacheDir.exists()) {
+          wasmCacheDir.mkdirs()
         }
       } catch (e: Exception) {
         Log.d("MainActivity", "WebView directory notice: ${e.message}")

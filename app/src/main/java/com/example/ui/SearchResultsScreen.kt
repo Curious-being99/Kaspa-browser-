@@ -58,7 +58,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.network.EmbeddedRustSearchEngine
+import com.example.network.KaspaPriceService
 import com.example.network.SearchEngine
+import com.example.ui.components.KaspaPriceHubCard
+import com.example.ui.components.WebpagePreviewHubCard
+import com.example.ui.components.isWebpagePreviewQuery
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.KaspaTea
 import com.example.ui.theme.ObsidianBg
@@ -211,47 +215,55 @@ fun SearchResultsScreen(
             }
         }
 
-        // Search Results List / Loading State
+        // Search Results List / Loading State / Kaspa Price Hub
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.TopCenter
         ) {
-            if (isLoading) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(36.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "Executing zero-tracking Rust query...",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
+            val isKaspaPriceSearch = KaspaPriceService.isKaspaPriceQuery(searchQuery)
+            val isPreviewableWebpage = !isKaspaPriceSearch && isWebpagePreviewQuery(searchQuery)
+            val hasSpecialHub = isKaspaPriceSearch || isPreviewableWebpage
+
+            if (isLoading && !hasSpecialHub) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(36.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Executing zero-tracking Rust query...",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
                 }
-            } else if (results.isEmpty() && searchQuery.isNotBlank()) {
-                Column(
-                    modifier = Modifier.padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Shield,
-                        contentDescription = "No Results",
-                        tint = TextMuted,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "No results found for \"$searchQuery\"",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Try checking for typos or searching with broader keywords.",
-                        fontSize = 12.sp,
-                        color = TextMuted
-                    )
+            } else if (results.isEmpty() && searchQuery.isNotBlank() && !hasSpecialHub) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        modifier = Modifier.padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = "No Results",
+                            tint = TextMuted,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "No results found for \"$searchQuery\"",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Try checking for typos or searching with broader keywords.",
+                            fontSize = 12.sp,
+                            color = TextMuted
+                        )
+                    }
                 }
             } else {
                 LazyColumn(
@@ -259,6 +271,51 @@ fun SearchResultsScreen(
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (isKaspaPriceSearch) {
+                        item(key = "kaspa_price_hub") {
+                            KaspaPriceHubCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                onNavigateToUrl = onResultClicked
+                            )
+                        }
+                    } else if (isPreviewableWebpage) {
+                        item(key = "webpage_preview_hub") {
+                            WebpagePreviewHubCard(
+                                urlQuery = searchQuery,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                onOpenUrl = onResultClicked
+                            )
+                        }
+                    }
+
+                    if (isLoading && hasSpecialHub) {
+                        item(key = "loading_web_indicator") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    color = KaspaTea,
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Loading additional web indexes...",
+                                    fontSize = 11.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+
                     items(results) { item ->
                         SearchResultCard(
                             result = item,
