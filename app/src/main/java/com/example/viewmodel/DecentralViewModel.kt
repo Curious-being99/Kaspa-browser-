@@ -1503,7 +1503,8 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // Use Application-level process scope to ensure download survives screen backgrounding/leaving
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             var streamSuccess = false
             val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
@@ -1515,12 +1516,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 var redirectCount = 0
                 var connection: java.net.HttpURLConnection? = null
 
-                while (redirectCount < 6) {
+                while (redirectCount < 8) {
                     val url = java.net.URL(currentUrl)
                     connection = url.openConnection() as java.net.HttpURLConnection
                     connection.instanceFollowRedirects = true
-                    connection.connectTimeout = 15000
-                    connection.readTimeout = 30000
+                    connection.connectTimeout = 20000
+                    connection.readTimeout = 45000
                     connection.requestMethod = "GET"
                     val defaultUa = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
                     connection.setRequestProperty("User-Agent", if (!userAgent.isNullOrBlank()) userAgent else defaultUa)
@@ -1530,13 +1531,17 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     if (!referer.isNullOrBlank()) {
                         connection.setRequestProperty("Referer", referer)
                     }
+                    connection.setRequestProperty("Accept-Encoding", "identity")
                     connection.connect()
 
                     val responseCode = connection.responseCode
                     if (responseCode in 300..399) {
                         val newUrl = connection.getHeaderField("Location")
                         if (!newUrl.isNullOrBlank()) {
-                            currentUrl = newUrl
+                            currentUrl = if (newUrl.startsWith("http", ignoreCase = true)) newUrl else {
+                                val base = java.net.URL(currentUrl)
+                                java.net.URL(base, newUrl).toString()
+                            }
                             redirectCount++
                             connection.disconnect()
                             continue
@@ -1550,7 +1555,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     val totalBytes = conn.contentLengthLong.let { if (it > 0) it else 0L }
                     
                     var bytesDownloaded = 0L
-                    val buffer = ByteArray(32768)
+                    val buffer = ByteArray(65536)
                     var bytesRead: Int
                     val inputStream = conn.inputStream
                     val outputStream = java.io.FileOutputStream(targetFile)
@@ -1561,9 +1566,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                         outputStream.write(buffer, 0, bytesRead)
                         bytesDownloaded += bytesRead
                         val now = System.currentTimeMillis()
-                        if (now - lastUpdate > 100) {
+                        if (now - lastUpdate > 120) {
                             lastUpdate = now
-                            val progress = if (totalBytes > 0) (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0.02f, 0.99f) else 0.50f
+                            val progress = if (totalBytes > 0) {
+                                (bytesDownloaded.toFloat() / totalBytes.toFloat()).coerceIn(0.02f, 0.99f)
+                            } else {
+                                (1f - (1f / (1f + bytesDownloaded.toFloat() / 1000000f))) * 0.95f
+                            }
                             updateDownloadProgress(downloadId, progress, bytesDownloaded, totalBytes, "Downloading")
                         }
                     }
@@ -1572,18 +1581,37 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     inputStream.close()
                     conn.disconnect()
 
-                    updateDownloadProgress(downloadId, 1.0f, bytesDownloaded, if (totalBytes > 0) totalBytes else bytesDownloaded, "Success")
+                    val finalTotal = if (totalBytes > 0) totalBytes else bytesDownloaded
+                    updateDownloadProgress(downloadId, 1.0f, bytesDownloaded, finalTotal, "Success")
                     streamSuccess = true
 
-                    // Export to public MediaStore downloads so file is visible in device system Downloads app and gallery
-                    try {
-                        val mimeType = if (fileName.endsWith(".png", true)) "image/png"
-                            else if (fileName.endsWith(".webp", true)) "image/webp"
-                            else if (fileName.endsWith(".svg", true)) "image/svg+xml"
-                            else if (fileName.endsWith(".gif", true)) "image/gif"
-                            else if (fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true)) "image/jpeg"
-                            else "application/octet-stream"
+                    val mimeType = if (fileName.endsWith(".apk", true)) "application/vnd.android.package-archive"
+                        else if (fileName.endsWith(".png", true)) "image/png"
+                        else if (fileName.endsWith(".webp", true)) "image/webp"
+                        else if (fileName.endsWith(".svg", true)) "image/svg+xml"
+                        else if (fileName.endsWith(".gif", true)) "image/gif"
+                        else if (fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true)) "image/jpeg"
+                        else if (fileName.endsWith(".pdf", true)) "application/pdf"
+                        else if (fileName.endsWith(".zip", true)) "application/zip"
+                        else "application/octet-stream"
 
+                    // Register with System DownloadManager so OS posts completed notification and shows in Downloads app
+                    try {
+                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                        @Suppress("DEPRECATION")
+                        dm?.addCompletedDownload(
+                            fileName,
+                            "Downloaded via Kaspa Browser",
+                            true,
+                            mimeType,
+                            targetFile.absolutePath,
+                            bytesDownloaded,
+                            true
+                        )
+                    } catch (_: Exception) {}
+
+                    // Export to public MediaStore downloads so file is visible in device system Downloads app
+                    try {
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                             val values = android.content.ContentValues().apply {
                                 put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -1695,50 +1723,21 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         val testUrl = "https://proof.ovh.net/files/10Mb.dat"
         val filename = "test_10mb.dat"
         val downloadId = System.currentTimeMillis()
-        try {
-            val request = android.app.DownloadManager.Request(android.net.Uri.parse(testUrl)).apply {
-                setDescription("Downloading real 10MB test file...")
-                setTitle(filename)
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
-                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-            }
-            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-            val dmId = try { dm.enqueue(request) } catch (e: Exception) { downloadId }
-            addDownload(dmId, filename, testUrl)
-            startDownload(context, dmId, testUrl, filename)
-            _statusMessage.value = "Real download initiated: $filename"
-        } catch (e: Exception) {
-            addDownload(downloadId, filename, testUrl)
-            startDownload(context, downloadId, testUrl, filename)
-            _statusMessage.value = "Real download initiated: $filename"
-        }
+        addDownload(downloadId, filename, testUrl)
+        startDownload(context, downloadId, testUrl, filename)
+        _statusMessage.value = "Real download initiated: $filename"
     }
 
     fun redownload(context: android.content.Context, url: String, filename: String) {
         val downloadId = System.currentTimeMillis()
-        try {
-            val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-                setDescription("Redownloading file...")
-                setTitle(filename)
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
-                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-            }
-            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-            val dmId = try { dm.enqueue(request) } catch (e: Exception) { downloadId }
-            addDownload(dmId, filename, url)
-            startDownload(context, dmId, url, filename)
-            _statusMessage.value = "Redownload started: $filename"
-        } catch (e: Exception) {
-            addDownload(downloadId, filename, url)
-            startDownload(context, downloadId, url, filename)
-            _statusMessage.value = "Redownload started: $filename"
+        val cookies = try {
+            android.webkit.CookieManager.getInstance().getCookie(url)
+        } catch (_: Exception) {
+            null
         }
+        addDownload(downloadId, filename, url)
+        startDownload(context, downloadId, url, filename, cookies)
+        _statusMessage.value = "Redownload started: $filename"
     }
 
     fun setDetectedPwa(

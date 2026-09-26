@@ -294,38 +294,8 @@ internal fun executeImageDownload(
         val userAgent = webViewInstance?.settings?.userAgentString
         val referer = webViewInstance?.url ?: targetImgUrl
 
-        val dmId = try {
-            val request = android.app.DownloadManager.Request(android.net.Uri.parse(targetImgUrl)).apply {
-                setTitle(sanitizedFileName)
-                setDescription("Downloading image")
-                setAllowedOverMetered(true)
-                setAllowedOverRoaming(true)
-                setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
-                setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, sanitizedFileName)
-                if (!userAgent.isNullOrBlank()) {
-                    addRequestHeader("User-Agent", userAgent)
-                }
-                if (!cookies.isNullOrBlank()) {
-                    addRequestHeader("Cookie", cookies)
-                }
-                if (!referer.isNullOrBlank()) {
-                    addRequestHeader("Referer", referer)
-                }
-            }
-            val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-            dm.enqueue(request)
-        } catch (_: Exception) {
-            -1L
-        }
-
-        if (dmId > 0L) {
-            viewModel.addDownload(dmId, sanitizedFileName, targetImgUrl)
-            viewModel.startMonitoringDownload(context, dmId, sanitizedFileName)
-        } else {
-            viewModel.addDownload(downloadId, sanitizedFileName, targetImgUrl)
-            viewModel.startDownload(context, downloadId, targetImgUrl, sanitizedFileName, cookies, userAgent, referer)
-        }
+        viewModel.addDownload(downloadId, sanitizedFileName, targetImgUrl)
+        viewModel.startDownload(context, downloadId, targetImgUrl, sanitizedFileName, cookies, userAgent, referer)
         viewModel.setStatusMessage("Downloading image: $sanitizedFileName")
         android.widget.Toast.makeText(context, "Downloading $sanitizedFileName", android.widget.Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
@@ -2210,43 +2180,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 try {
                                     val filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype)
-                                    val fallbackId = System.currentTimeMillis()
+                                    val downloadId = System.currentTimeMillis()
                                     val cookies = try {
                                         android.webkit.CookieManager.getInstance().getCookie(url)
                                     } catch (_: Exception) {
                                         null
                                     }
-                                    val dmId = try {
-                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
-                                            setMimeType(mimetype)
-                                            if (!cookies.isNullOrBlank()) {
-                                                addRequestHeader("Cookie", cookies)
-                                            }
-                                            if (!userAgent.isNullOrBlank()) {
-                                                addRequestHeader("User-Agent", userAgent)
-                                            }
-                                            setDescription("Downloading file...")
-                                            setTitle(filename)
-                                            setAllowedOverMetered(true)
-                                            setAllowedOverRoaming(true)
-                                            setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
-                                            setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename)
-                                        }
-                                        val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                                        dm.enqueue(request)
-                                    } catch (_: Exception) {
-                                        -1L
-                                    }
-
-                                    if (dmId > 0L) {
-                                        viewModel.addDownload(dmId, filename, url)
-                                        viewModel.startMonitoringDownload(context, dmId, filename)
-                                    } else {
-                                        viewModel.addDownload(fallbackId, filename, url)
-                                        viewModel.startDownload(context, fallbackId, url, filename, cookies, userAgent)
-                                    }
+                                    val referer = try { webViewInstance?.url } catch (_: Exception) { null }
+                                    viewModel.addDownload(downloadId, filename, url)
+                                    viewModel.startDownload(context, downloadId, url, filename, cookies, userAgent, referer)
                                     viewModel.setStatusMessage("Download started: $filename")
+                                    android.widget.Toast.makeText(context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
                                 } catch (e: Exception) {
                                     viewModel.setStatusMessage("Download failed: ${e.message}")
                                 }

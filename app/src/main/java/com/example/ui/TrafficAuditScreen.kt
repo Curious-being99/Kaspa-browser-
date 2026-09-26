@@ -793,8 +793,16 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                                 }
                                             } else "Unknown"
 
+                                            val sizeDisplay = if (download.bytesTotal > 0) {
+                                                "$formattedDownloaded / $formattedTotal"
+                                            } else if (download.bytesDownloaded > 0) {
+                                                "$formattedDownloaded downloaded"
+                                            } else {
+                                                "0 KB / Unknown"
+                                            }
+
                                             Text(
-                                                text = "$formattedDownloaded / $formattedTotal",
+                                                text = sizeDisplay,
                                                 fontSize = 10.sp,
                                                 color = TextMuted
                                             )
