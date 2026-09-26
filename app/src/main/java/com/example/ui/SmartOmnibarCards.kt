@@ -182,18 +182,18 @@ fun KaspaPriceMarketCard(
     val changeSign = if (isPositive) "+" else ""
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         color = SurfaceElevated,
         border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 3.dp)
             .testTag("kaspa_price_card")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -203,7 +203,7 @@ fun KaspaPriceMarketCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(KaspaTea.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
@@ -212,63 +212,63 @@ fun KaspaPriceMarketCard(
                             imageVector = Icons.Default.TrendingUp,
                             contentDescription = "Kaspa Ticker",
                             tint = KaspaTea,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Kaspa (KAS) • Real-Time Market Ticker",
+                        text = "Kaspa (KAS) Market",
                         color = KaspaTea,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
+                        letterSpacing = 0.3.sp
                     )
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(6.dp),
                     color = changeColor.copy(alpha = 0.15f),
                     border = androidx.compose.foundation.BorderStroke(1.dp, changeColor.copy(alpha = 0.4f))
                 ) {
                     Text(
                         text = "$changeSign%.2f%% 24h".format(marketData.change24h),
                         color = changeColor,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column {
                     Text(
                         text = "$%.4f".format(marketData.priceUsd),
                         color = TextPrimary,
-                        fontSize = 26.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
                         text = "Cap: ${marketData.marketCapUsd}",
                         color = TextMuted,
-                        fontSize = 11.sp
+                        fontSize = 10.sp
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
                         onClick = onOpenChart,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
                         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 34.dp)
                     ) {
                         Text("Chart", fontSize = 11.sp)
                     }
@@ -279,13 +279,13 @@ fun KaspaPriceMarketCard(
                             containerColor = KaspaTea,
                             contentColor = Color.Black
                         ),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp)
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 34.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ShoppingCart,
                             contentDescription = "Buy",
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Buy KAS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -306,18 +306,18 @@ fun BuyKaspaGatewayCard(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         color = SurfaceElevated,
         border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 3.dp)
             .testTag("buy_kaspa_card")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -325,7 +325,7 @@ fun BuyKaspaGatewayCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(24.dp)
                         .clip(CircleShape)
                         .background(KaspaTea.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
@@ -334,41 +334,41 @@ fun BuyKaspaGatewayCard(
                         imageVector = Icons.Default.LocalMall,
                         contentDescription = "Buy Kaspa",
                         tint = KaspaTea,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(
                         text = "Where to Buy Kaspa (KAS)",
                         color = KaspaTea,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "Verified exchanges and non-custodial swaps",
                         color = TextMuted,
-                        fontSize = 10.sp
+                        fontSize = 9.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            options.take(4).forEach { opt ->
+            options.take(3).forEach { opt ->
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = SurfaceCard,
                     border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 3.dp)
+                        .padding(vertical = 2.dp)
                         .clickable { onSelectOption(opt.url) }
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -377,10 +377,10 @@ fun BuyKaspaGatewayCard(
                                 Text(
                                     text = opt.name,
                                     color = TextPrimary,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
                                     color = ElectricCyan.copy(alpha = 0.12f)
@@ -388,16 +388,16 @@ fun BuyKaspaGatewayCard(
                                     Text(
                                         text = opt.badge,
                                         color = ElectricCyan,
-                                        fontSize = 9.sp,
+                                        fontSize = 8.sp,
                                         fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                             Text(
                                 text = opt.description,
                                 color = TextMuted,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -407,7 +407,7 @@ fun BuyKaspaGatewayCard(
                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = "Open",
                             tint = TextMuted,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }
@@ -500,18 +500,18 @@ fun WebsitePreviewCard(
     var pageTitle by remember(preview.fullUrl) { mutableStateOf(preview.title) }
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         color = SurfaceElevated,
         border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 3.dp)
             .testTag("website_preview_card")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             // Header Row: Favicon/Icon + Title + Domain + Security + Real-time Live Badge
             Row(
@@ -525,7 +525,7 @@ fun WebsitePreviewCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(24.dp)
                             .clip(CircleShape)
                             .background(if (preview.isDecentralized) KaspaTea.copy(alpha = 0.2f) else ElectricCyan.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
@@ -534,15 +534,15 @@ fun WebsitePreviewCard(
                             imageVector = if (preview.isDecentralized) Icons.Default.Hub else Icons.Default.Language,
                             contentDescription = null,
                             tint = if (preview.isDecentralized) KaspaTea else ElectricCyan,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = pageTitle.ifBlank { preview.title },
                             color = TextPrimary,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -550,7 +550,7 @@ fun WebsitePreviewCard(
                         Text(
                             text = preview.domain,
                             color = ElectricCyan,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -571,21 +571,21 @@ fun WebsitePreviewCard(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(6.dp)
+                                    .size(5.dp)
                                     .clip(CircleShape)
                                     .background(EmeraldMesh)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = "LIVE",
                                 color = EmeraldMesh,
-                                fontSize = 9.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
                     Surface(
                         shape = RoundedCornerShape(6.dp),
@@ -596,20 +596,20 @@ fun WebsitePreviewCard(
                         )
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = if (preview.isSecure) Icons.Default.Lock else Icons.Default.Shield,
                                 contentDescription = null,
                                 tint = if (preview.isDecentralized) KaspaTea else EmeraldMesh,
-                                modifier = Modifier.size(10.dp)
+                                modifier = Modifier.size(9.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = preview.protocolBadge,
                                 color = if (preview.isDecentralized) KaspaTea else EmeraldMesh,
-                                fontSize = 9.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -619,7 +619,7 @@ fun WebsitePreviewCard(
 
             // Real-Time Progress Bar while rendering page
             if (isLoading && pageProgress < 1.0f) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 LinearProgressIndicator(
                     progress = { pageProgress },
                     color = ElectricCyan,
@@ -631,16 +631,16 @@ fun WebsitePreviewCard(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Real-Time Embedded Live Web Viewport (renders site in real time!)
+            // Real-Time Embedded Live Web Viewport
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(130.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .height(95.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(SurfaceDark)
-                    .border(0.5.dp, SurfaceCardBorder, RoundedCornerShape(10.dp))
+                    .border(0.5.dp, SurfaceCardBorder, RoundedCornerShape(8.dp))
                     .clickable { onOpen(preview.fullUrl) }
             ) {
                 AndroidView(
