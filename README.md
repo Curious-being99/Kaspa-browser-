@@ -1,7 +1,7 @@
 # Kaspa Browser 🌐
 
 <p align="left">
-  <img src="https://img.shields.io/badge/Kotlin-98.5%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 98.5%" />
+  <img src="https://img.shields.io/badge/Kotlin-98.5%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 98.8%" />
   <img src="https://img.shields.io/badge/Rust-1.2%25-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust 1.5%" />
   <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-1E40AF.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
