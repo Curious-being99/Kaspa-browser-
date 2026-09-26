@@ -1677,7 +1677,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = false
                                 setSupportMultipleWindows(false)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
@@ -6708,7 +6708,7 @@ fun YouTubeVideoCard(
                                     @Suppress("DEPRECATION")
                                     databaseEnabled = true
                                     domStorageEnabled = true
-                                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                    mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                     // Dark mode forcing removed to prevent rendering issues
                                     cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
                                 }

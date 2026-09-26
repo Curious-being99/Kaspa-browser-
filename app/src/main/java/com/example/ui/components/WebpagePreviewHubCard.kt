@@ -263,7 +263,7 @@ fun WebpagePreviewHubCard(
                                 setSupportZoom(false)
                                 displayZoomControls = false
                                 cacheMode = WebSettings.LOAD_DEFAULT
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                 userAgentString = CHROME_MOBILE_USER_AGENT
                                 allowFileAccess = false
                                 allowContentAccess = false
@@ -328,9 +328,11 @@ fun WebpagePreviewHubCard(
 
                                 @SuppressLint("WebViewClientOnReceivedSslError")
                                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                                    // In preview sandbox mode, allow viewing preview
-                                    handler?.proceed()
+                                    handler?.cancel()
                                     isSecure = false
+                                    hasError = true
+                                    errorMessage = "Untrusted SSL Certificate"
+                                    isLoading = false
                                 }
 
                                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {

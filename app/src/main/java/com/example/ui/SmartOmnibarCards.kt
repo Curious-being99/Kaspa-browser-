@@ -659,8 +659,8 @@ fun WebsitePreviewCard(
                                 useWideViewPort = true
                                 setSupportZoom(false)
                                 displayZoomControls = false
-                                cacheMode = WebSettings.LOAD_DEFAULT
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                 cacheMode = WebSettings.LOAD_DEFAULT
+                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                 allowFileAccess = false
                                 allowContentAccess = false
                             }
@@ -701,7 +701,8 @@ fun WebsitePreviewCard(
 
                                 @SuppressLint("WebViewClientOnReceivedSslError")
                                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                                    handler?.proceed()
+                                    handler?.cancel()
+                                    isLoading = false
                                 }
 
                                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
