@@ -2479,6 +2479,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("hyper://", ignoreCase = true)
 
                                         if (isNavigableUrl && it != urlInput) {
+                                            view?.tag = Pair(it, navigationSessionId)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.recordBrowserTraffic(it, 160 * 1024L)
                                         }
@@ -2537,6 +2538,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("hyper://", ignoreCase = true)
 
                                         if (isNavigableUrl) {
+                                            view?.tag = Pair(it, navigationSessionId)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
                                         }
@@ -2631,6 +2633,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             it.startsWith("hyper://", ignoreCase = true)
 
                                         if (isNavigableUrl) {
+                                            view?.tag = Pair(it, navigationSessionId)
                                             viewModel.updateCurrentUrl(it)
                                         }
                                     }
@@ -3103,7 +3106,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val tagUrl = currentTag?.first as? String
                             val tagId = currentTag?.second as? Int ?: (webView.tag as? Int)
                             val isRecentDownload = (resource.url == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
-                            val isUrlChanged = tagUrl != resource.url
+                            val webViewCurrentUrl = webView.url
+                            val isAlreadyAtUrl = !webViewCurrentUrl.isNullOrBlank() && 
+                                (webViewCurrentUrl == resource.url || 
+                                 webViewCurrentUrl.trimEnd('/') == resource.url.trimEnd('/'))
+                            val isUrlChanged = tagUrl != resource.url && !isAlreadyAtUrl
                             val isNewSession = (tagId != navigationSessionId || isUrlChanged) && !isRecentDownload
 
                             if (isNewSession) {
@@ -3422,51 +3429,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
-
-                        // Quick Search Engine Switcher Row
-                        Text(
-                            text = "Search Engine",
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            com.example.viewmodel.SearchEngine.values().forEach { engine ->
-                                val isSelected = searchEngine == engine
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (isSelected) ElectricCyan else SurfaceCard,
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) ElectricCyan else SurfaceCardBorder),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.setSearchEngine(engine)
-                                        }
-                                ) {
-                                    Box(
-                                        modifier = Modifier.padding(vertical = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = engine.displayName,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelected) Color.Black else TextSecondary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
 
                         val currentTyping = textFieldValue.text.trim()
                         val query = currentTyping.lowercase()
