@@ -367,13 +367,43 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
 
     var targetWebView: android.webkit.WebView? = null
     var isGestureAllowed: Boolean = true
+        set(value) {
+            field = value
+            isEnabled = value
+        }
 
-    private var downY: Float = 0f
-    private var downX: Float = 0f
+    private val density = context.resources.displayMetrics.density
+    private var gestureSession = com.example.network.NativeOverscrollEngine.GestureSession(density, isGestureAllowed)
+
     var startedAtTop: Boolean = false
         private set
-    private val scaledTouchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
-    private val refreshDragThreshold = scaledTouchSlop * 3.5f
+
+    override fun onStartNestedScroll(child: android.view.View, target: android.view.View, nestedScrollAxes: Int): Boolean {
+        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
+            return false
+        }
+        return super.onStartNestedScroll(child, target, nestedScrollAxes)
+    }
+
+    override fun onNestedPreScroll(target: android.view.View, dx: Int, dy: Int, consumed: IntArray) {
+        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
+            return
+        }
+        super.onNestedPreScroll(target, dx, dy, consumed)
+    }
+
+    override fun onNestedScroll(
+        target: android.view.View,
+        dxConsumed: Int,
+        dyConsumed: Int,
+        dxUnconsumed: Int,
+        dyUnconsumed: Int
+    ) {
+        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
+            return
+        }
+        super.onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed)
+    }
 
     override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
         if (!isGestureAllowed || !isEnabled) {
@@ -382,28 +412,28 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
         val wv = targetWebView
         when (ev.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
-                downY = ev.rawY
-                downX = ev.rawX
-                // The gesture MUST originate when the webview is already at the top
-                startedAtTop = (wv == null || (wv.scrollY <= 0 && !wv.canScrollVertically(-1)))
+                gestureSession = com.example.network.NativeOverscrollEngine.GestureSession(density, isGestureAllowed)
+                gestureSession.onTouchDown(ev, wv)
+                val scrollY = wv?.scrollY ?: 0
+                val canScrollUp = wv?.canScrollVertically(-1) ?: false
+                startedAtTop = (scrollY <= 0 && !canScrollUp)
             }
             android.view.MotionEvent.ACTION_MOVE -> {
-                if (!startedAtTop) {
+                if (!startedAtTop || gestureSession.isLockedToChild()) {
                     return false
                 }
-                val deltaY = ev.rawY - downY
-                val deltaX = ev.rawX - downX
-                // If scrolling horizontally or scrolling upward, do NOT intercept
-                if (Math.abs(deltaX) > Math.abs(deltaY) || deltaY < refreshDragThreshold) {
-                    return false
-                }
-                // Double check that WebView cannot scroll up
-                if (wv != null && (wv.scrollY > 0 || wv.canScrollVertically(-1))) {
+                val state = gestureSession.onTouchMove(ev, wv)
+                if (state == com.example.network.NativeOverscrollEngine.GestureState.CHILD_SCROLLING) {
                     startedAtTop = false
                     return false
                 }
+                if (gestureSession.shouldIntercept()) {
+                    return super.onInterceptTouchEvent(ev)
+                }
+                return false
             }
             android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                gestureSession.onTouchUp()
                 startedAtTop = false
             }
         }
@@ -411,8 +441,16 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
+        if (!isGestureAllowed || !isEnabled || !startedAtTop || gestureSession.isLockedToChild()) {
             return false
+        }
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP || ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
+            val shouldRefresh = gestureSession.onTouchUp()
+            startedAtTop = false
+            if (!shouldRefresh) {
+                isRefreshing = false
+                return false
+            }
         }
         return super.onTouchEvent(ev)
     }
@@ -725,6 +763,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val allAccounts by viewModel.allAccounts.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
+    val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
 
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -893,7 +932,118 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             shadowElevation = 4.dp
         ) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
-                if (isInputFocused) {
+                if (isStandalonePwaMode) {
+                    // STANDALONE PWA WINDOW HEADER (Chrome / Brave WebAPK style)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (webViewInstance?.canGoBack() == true) {
+                                    webViewInstance?.goBack()
+                                } else {
+                                    viewModel.setStandalonePwaMode(false)
+                                }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(18.dp),
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .padding(horizontal = 4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = EmeraldMesh,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = currentResource?.title ?: (try { Uri.parse(urlInput).host ?: "Web App" } catch (_: Exception) { "Web App" }),
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = EmeraldMesh.copy(alpha = 0.15f),
+                                    modifier = Modifier.padding(start = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "STANDALONE",
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = EmeraldMesh,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (isWebLoading) {
+                                    webViewInstance?.stopLoading()
+                                    isWebLoading = false
+                                    viewModel.setIsLoading(false)
+                                } else {
+                                    webViewInstance?.reload()
+                                }
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isWebLoading) Icons.Default.Close else Icons.Default.Refresh,
+                                contentDescription = if (isWebLoading) "Stop" else "Reload",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.setStandalonePwaMode(false)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInBrowser,
+                                contentDescription = "Open in Full Browser",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else if (isInputFocused) {
                     // FOCUSED SEARCH HEADER (Industry Standard Chrome/Safari/Brave UX)
                     Row(
                         modifier = Modifier
@@ -1963,78 +2113,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )) {
                                     // Suppress non-gesture background redirects attempting to force store downloads or install trackers
                                     true
-                                } else if (cleanUrl.startsWith("intent://", ignoreCase = true)) {
-                                    try {
-                                        val parsedIntent = Intent.parseUri(cleanUrl, Intent.URI_INTENT_SCHEME).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            component = null
-                                        }
-                                        parsedIntent.selector?.let {
-                                            it.component = null
-                                            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        }
-                                        try {
-                                            targetCtx.startActivity(parsedIntent)
-                                            true
-                                        } catch (_: Exception) {
-                                            val fallbackUrl = parsedIntent.getStringExtra("browser_fallback_url")
-                                            if (!fallbackUrl.isNullOrEmpty() &&
-                                                !fallbackUrl.startsWith("market://", ignoreCase = true) &&
-                                                !fallbackUrl.contains("play.google.com/store", ignoreCase = true)
-                                            ) {
-                                                viewModel.setUrlInput(fallbackUrl)
-                                                targetView?.loadUrl(fallbackUrl)
-                                            }
-                                            true
-                                        }
-                                    } catch (_: Exception) {
-                                        true
-                                    }
-                                } else if (!cleanUrl.startsWith("http://", ignoreCase = true) &&
-                                    !cleanUrl.startsWith("https://", ignoreCase = true) &&
-                                    !cleanUrl.startsWith("about:", ignoreCase = true) &&
-                                    !cleanUrl.startsWith("data:", ignoreCase = true) &&
-                                    !cleanUrl.startsWith("javascript:", ignoreCase = true) &&
-                                    !cleanUrl.startsWith("blob:", ignoreCase = true)
-                                ) {
-                                    if (targetScheme != "market" && !cleanUrl.startsWith("market://", ignoreCase = true)) {
-                                        try {
-                                            val customIntent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            targetCtx.startActivity(customIntent)
-                                        } catch (_: Exception) {}
-                                    }
-                                    true
                                 } else {
-                                    // HTTP / HTTPS URL: Check if an installed native application handles this link when clicked by user
-                                    var redirectedToNativeApp = false
-                                    if (hasGesture) {
-                                        try {
-                                            val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse(cleanUrl)).apply {
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            val pm = targetCtx.packageManager
-                                            val resolveList = pm.queryIntentActivities(appIntent, 0)
-                                            val ourPkg = targetCtx.packageName
-                                            val nativeApp = resolveList.firstOrNull { ri ->
-                                                val pkg = ri.activityInfo?.packageName?.lowercase() ?: ""
-                                                pkg.isNotEmpty() && pkg != ourPkg &&
-                                                    !pkg.contains("chrome") &&
-                                                    !pkg.contains("browser") &&
-                                                    !pkg.contains("webview") &&
-                                                    !pkg.contains("firefox") &&
-                                                    !pkg.contains("opera") &&
-                                                    !pkg.contains("duckduckgo")
-                                            }
-                                            if (nativeApp != null) {
-                                                appIntent.setPackage(nativeApp.activityInfo.packageName)
-                                                targetCtx.startActivity(appIntent)
-                                                redirectedToNativeApp = true
-                                            }
-                                        } catch (_: Exception) {}
-                                    }
-                                    redirectedToNativeApp
+                                    com.example.network.NativeIntentRoutingEngine.routeUrl(
+                                        context = targetCtx,
+                                        rawUrl = cleanUrl,
+                                        hasUserGesture = hasGesture,
+                                        onFallbackWebUrl = { fallbackUrl ->
+                                            viewModel.setUrlInput(fallbackUrl)
+                                            targetView?.loadUrl(fallbackUrl)
+                                        }
+                                    )
                                 }
                             }
 

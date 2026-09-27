@@ -70,10 +70,6 @@ class MainActivity : FragmentActivity() {
     } catch (_: Exception) {}
 
     enableEdgeToEdge()
-    window.setFlags(
-      android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-      android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-    )
     handleIncomingIntent(intent)
 
     setContent {
@@ -132,17 +128,22 @@ class MainActivity : FragmentActivity() {
 
   private fun handleIncomingIntent(intent: Intent?) {
     val pwaUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
+    val isPwaStandalone = intent?.getBooleanExtra("IS_PWA_MODE", false) == true ||
+        intent?.getBooleanExtra("PWA_STANDALONE", false) == true ||
+        intent?.action == "com.example.action.LAUNCH_PWA"
     if (!pwaUrl.isNullOrBlank()) {
       val now = System.currentTimeMillis()
       if (pwaUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {
         lastHandledIntentUrl = pwaUrl
         lastHandledIntentTimestamp = now
-        viewModel.openUrlInBrowser(pwaUrl, isExternal = true)
+        viewModel.openUrlInBrowser(pwaUrl, isExternal = true, isStandalonePwa = isPwaStandalone)
       }
       // Consume the intent data so leaving and returning to the task does not replay the intent
       try {
         intent?.data = null
         intent?.removeExtra("PWA_URL")
+        intent?.removeExtra("IS_PWA_MODE")
+        intent?.removeExtra("PWA_STANDALONE")
       } catch (_: Exception) {}
     }
   }

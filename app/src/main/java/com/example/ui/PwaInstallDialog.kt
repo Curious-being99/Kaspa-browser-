@@ -78,7 +78,7 @@ fun PwaInstallDialog(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "INSTALL TO DEVICE",
+                                text = "INSTALL APP",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ElectricCyan
@@ -104,21 +104,21 @@ fun PwaInstallDialog(
                 // App Icon Preview
                 Box(
                     modifier = Modifier
-                        .size(80.dp)
-                        .clip(RoundedCornerShape(20.dp))
+                        .size(76.dp)
+                        .clip(RoundedCornerShape(18.dp))
                         .background(SurfaceCard)
-                        .border(2.dp, ElectricCyan, RoundedCornerShape(20.dp)),
+                        .border(1.5.dp, ElectricCyan, RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     val initialChar = title.trim().firstOrNull()?.uppercase() ?: "W"
                     Text(
                         text = initialChar,
-                        fontSize = 38.sp,
+                        fontSize = 36.sp,
                         fontWeight = FontWeight.Black,
                         color = ElectricCyan
                     )
 
-                    // Small PWA label on bottom
+                    // Small badge on bottom
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -136,10 +136,10 @@ fun PwaInstallDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = "Install Web Application",
+                    text = "Install app",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary

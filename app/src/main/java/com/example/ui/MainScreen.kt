@@ -59,6 +59,7 @@ import com.example.viewmodel.DecentralViewModel
 fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val activeTab by viewModel.activeTab.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
+    val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val context = LocalContext.current
@@ -116,7 +117,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
         }
 
         // PERSISTENT FIRST-LAUNCH ONLY SPLASH OVERLAY (Minimalist with all card boxes and writeups removed)
-        if (onboardingStep < 2) {
+        if (onboardingStep < 2 && !isStandalonePwaMode) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

@@ -253,6 +253,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         .getAllTabs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _isStandalonePwaMode = MutableStateFlow(false)
+    val isStandalonePwaMode: StateFlow<Boolean> = _isStandalonePwaMode.asStateFlow()
+
+    fun setStandalonePwaMode(enabled: Boolean) {
+        _isStandalonePwaMode.value = enabled
+    }
+
     val newsFeedItems: StateFlow<List<KaspaNewsItem>> = database.newsArticleDao()
         .getAllNews()
         .map { list ->
@@ -972,8 +979,11 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
 
-    fun openUrlInBrowser(url: String, isExternal: Boolean = true) {
+    fun openUrlInBrowser(url: String, isExternal: Boolean = true, isStandalonePwa: Boolean = false) {
         viewModelScope.launch {
+            if (isStandalonePwa) {
+                _isStandalonePwaMode.value = true
+            }
             _activeTab.value = AppTab.BROWSER_GATEWAY
             val cleanTarget = url.trim()
             if (cleanTarget.isBlank()) return@launch
