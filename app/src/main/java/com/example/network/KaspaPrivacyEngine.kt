@@ -233,51 +233,10 @@ object KaspaPrivacyEngine {
                     Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });
                 } catch(e) {}
 
-                // 3. Canvas Fingerprint Noise Injection (Anti-Canvas-Tracking)
+                // 3. Global Privacy Control & Do-Not-Track
                 try {
-                    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-                    const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
-
-                    HTMLCanvasElement.prototype.toDataURL = function(type, encoderOptions) {
-                        try {
-                            const ctx = this.getContext('2d');
-                            if (ctx && this.width > 0 && this.height > 0) {
-                                const imgData = ctx.getImageData(0, 0, Math.min(this.width, 10), Math.min(this.height, 10));
-                                if (imgData && imgData.data && imgData.data.length > 0) {
-                                    imgData.data[0] = imgData.data[0] ^ 1;
-                                    ctx.putImageData(imgData, 0, 0);
-                                }
-                            }
-                        } catch(_) {}
-                        return originalToDataURL.apply(this, arguments);
-                    };
-
-                    if (HTMLCanvasElement.prototype.toBlob) {
-                        const originalToBlob = HTMLCanvasElement.prototype.toBlob;
-                        HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
-                            try {
-                                const ctx = this.getContext('2d');
-                                if (ctx && this.width > 0 && this.height > 0) {
-                                    const imgData = ctx.getImageData(0, 0, Math.min(this.width, 10), Math.min(this.height, 10));
-                                    if (imgData && imgData.data && imgData.data.length > 0) {
-                                        imgData.data[0] = imgData.data[0] ^ 1;
-                                        ctx.putImageData(imgData, 0, 0);
-                                    }
-                                }
-                            } catch(_) {}
-                            return originalToBlob.apply(this, arguments);
-                        };
-                    }
-
-                    CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
-                        const res = originalGetImageData.apply(this, arguments);
-                        try {
-                            if (res && res.data && res.data.length > 4) {
-                                res.data[0] = (res.data[0] + 1) % 256;
-                            }
-                        } catch(_) {}
-                        return res;
-                    };
+                    Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
+                    Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
                 } catch(e) {}
 
                 // 4. WebGL GPU Vendor & Renderer Masking & Rendernode Guard

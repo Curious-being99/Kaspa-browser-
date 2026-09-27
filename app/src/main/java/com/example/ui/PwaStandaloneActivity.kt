@@ -212,8 +212,8 @@ fun PwaStandaloneScreen(
             } else {
                 KaspaPrivacyEngine.getMobileUserAgent(defaultUa)
             }
-            useWideViewPort = true
-            loadWithOverviewMode = true
+            useWideViewPort = desktop
+            loadWithOverviewMode = desktop
         }
         val target = wv.url ?: currentUrl
         if (target.isNotBlank() && !target.startsWith("data:")) {
@@ -228,6 +228,7 @@ fun PwaStandaloneScreen(
             .background(ObsidianBg)
             .statusBarsPadding()
             .navigationBarsPadding()
+            .imePadding()
     ) {
         // Fullscreen standalone web view
         AndroidView(
@@ -250,7 +251,7 @@ fun PwaStandaloneScreen(
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
 
-                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    setLayerType(View.LAYER_TYPE_NONE, null)
                     isHapticFeedbackEnabled = true
                     isVerticalScrollBarEnabled = false
                     isHorizontalScrollBarEnabled = false
@@ -278,14 +279,17 @@ fun PwaStandaloneScreen(
                         javaScriptEnabled = true
                         domStorageEnabled = true
                         databaseEnabled = true
+                        allowFileAccess = true
+                        allowContentAccess = true
+                        javaScriptCanOpenWindowsAutomatically = true
                         mediaPlaybackRequiresUserGesture = false
                         setSupportZoom(true)
                         builtInZoomControls = true
                         displayZoomControls = false
-                        useWideViewPort = true
-                        loadWithOverviewMode = true
+                        useWideViewPort = isDesktopMode
+                        loadWithOverviewMode = isDesktopMode
                         cacheMode = WebSettings.LOAD_DEFAULT
-                        mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                         userAgentString = if (isDesktopMode) {
                             KaspaPrivacyEngine.getDesktopUserAgent(defaultUa)
                         } else {
@@ -302,7 +306,6 @@ fun PwaStandaloneScreen(
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
                             url?.let { currentUrl = it }
-                            // Inject privacy shield & viewport scripts
                             val shieldScript = KaspaPrivacyEngine.getPrivacyShieldScript(
                                 safeGpuMode = false,
                                 isDesktop = isDesktopMode,
@@ -319,20 +322,44 @@ fun PwaStandaloneScreen(
                             url?.let { currentUrl = it }
                             view?.title?.let { if (it.isNotBlank()) pageTitle = it }
                             CookieManager.getInstance().flush()
+
+                            // Soft Keyboard Focus Auto-Scroll Helper: Ensures input fields are never covered by keyboard
+                            view?.evaluateJavascript("""
+                                (function() {
+                                    if (window.__kaspaAutoKeyboardScrollInit) return;
+                                    window.__kaspaAutoKeyboardScrollInit = true;
+                                    document.addEventListener('focusin', function(e) {
+                                        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+                                            setTimeout(function() {
+                                                try {
+                                                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                                                } catch(_) {}
+                                            }, 300);
+                                        }
+                                    }, true);
+                                })();
+                            """.trimIndent(), null)
                         }
 
                         override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                            val reqUrl = request?.url?.toString() ?: return null
-                            // Ad & Tracker blocking
-                            if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
-                                blockedAdsCount++
-                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
-                            }
-                            // Zero-copy local asset cache
+                            if (request == null) return null
+                            val reqUrl = request.url?.toString() ?: return null
+
+                            // CRITICAL: NEVER intercept or block main frame pages
+                            if (request.isForMainFrame) return null
+
+                            // Fast zero-copy cache check for static assets
                             if (WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
                                 val cached = WebViewAssetLruCache.get(reqUrl)
                                 if (cached != null) return cached
                             }
+
+                            // Ad & Tracker blocking for third-party scripts only
+                            if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
+                                blockedAdsCount++
+                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+                            }
+
                             return super.shouldInterceptRequest(view, request)
                         }
 

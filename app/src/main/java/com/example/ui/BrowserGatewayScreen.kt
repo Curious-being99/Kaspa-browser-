@@ -42,6 +42,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -929,6 +932,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .then(backgroundModifier)
     ) {
         // TOP BROWSER BAR: Directly starting with the search/URL bar
@@ -1582,8 +1586,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
                                             }
                                             wv.settings.userAgentString = currentUa
-                                            wv.settings.useWideViewPort = true
-                                            wv.settings.loadWithOverviewMode = true
+                                            wv.settings.useWideViewPort = newMode
+                                            wv.settings.loadWithOverviewMode = newMode
                                             val rawUrl = wv.url ?: (if (urlInput.isNotBlank()) urlInput else currentResource?.url)
                                             val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
                                                 KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
@@ -1877,11 +1881,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                if (!KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0) {
-                                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                                } else {
-                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
-                                }
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isNestedScrollingEnabled = false
@@ -1924,7 +1924,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 databaseEnabled = true
                                 mediaPlaybackRequiresUserGesture = false
                                 setGeolocationEnabled(false)
-                                allowFileAccess = false
+                                allowFileAccess = true
                                 allowContentAccess = true
                                 @Suppress("DEPRECATION")
                                 allowFileAccessFromFileURLs = false
@@ -1933,12 +1933,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setSupportZoom(true)
                                 builtInZoomControls = true
                                 displayZoomControls = false
-                                useWideViewPort = true
-                                loadWithOverviewMode = true
+                                useWideViewPort = desktopModeEnabled
+                                loadWithOverviewMode = desktopModeEnabled
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(true)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
 
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
@@ -2482,6 +2482,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
+                                    // Soft Keyboard Focus Auto-Scroll Helper: Ensures input fields are never covered by keyboard
+                                    view?.evaluateJavascript("""
+                                        (function() {
+                                            if (window.__kaspaAutoKeyboardScrollInit) return;
+                                            window.__kaspaAutoKeyboardScrollInit = true;
+                                            document.addEventListener('focusin', function(e) {
+                                                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+                                                    setTimeout(function() {
+                                                        try {
+                                                            e.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                                                        } catch(_) {}
+                                                    }, 300);
+                                                }
+                                            }, true);
+                                        })();
+                                    """.trimIndent(), null)
                                     isWebLoading = false
                                     (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                     webProgress = 1.0f
@@ -3065,8 +3081,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val uaChanged = webView.settings.userAgentString != desiredUa
                             if (uaChanged) {
                                 webView.settings.userAgentString = desiredUa
-                                webView.settings.useWideViewPort = true
-                                webView.settings.loadWithOverviewMode = true
+                                webView.settings.useWideViewPort = (desktopModeEnabled || isWebStore)
+                                webView.settings.loadWithOverviewMode = (desktopModeEnabled || isWebStore)
                             }
                             
                             val currentTag = webView.tag as? Pair<*, *>
@@ -6797,11 +6813,7 @@ fun YouTubeVideoCard(
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                     android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                if (!com.example.network.KaspaPrivacyEngine.isDrmRendernodeAvailable) {
-                                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                                } else {
-                                    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
-                                }
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 overScrollMode = android.view.View.OVER_SCROLL_NEVER
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
@@ -6815,11 +6827,11 @@ fun YouTubeVideoCard(
                                     javaScriptEnabled = true
                                     domStorageEnabled = true
                                     mediaPlaybackRequiresUserGesture = false
-                                    loadWithOverviewMode = true
-                                    useWideViewPort = true
+                                    loadWithOverviewMode = false
+                                    useWideViewPort = false
                                     textZoom = 100
-                                    allowFileAccess = false
-                                    allowContentAccess = false
+                                    allowFileAccess = true
+                                    allowContentAccess = true
                                     @Suppress("DEPRECATION")
                                     allowFileAccessFromFileURLs = false
                                     @Suppress("DEPRECATION")
