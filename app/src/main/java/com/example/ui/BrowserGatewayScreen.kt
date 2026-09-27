@@ -1422,16 +1422,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                     isWebLoading = false
                                                     viewModel.setIsLoading(false)
                                                 } else {
-                                                    val normalized = viewModel.normalizeUrlOrQuery(urlInput)
-                                                    if ((normalized.startsWith("http://", ignoreCase = true) || normalized.startsWith("https://", ignoreCase = true)) && webViewInstance != null) {
-                                                        viewModel.setIsLoading(true)
-                                                        val isWebStore = normalized.contains("chromewebstore.google.com") || normalized.contains("chrome.google.com/webstore")
-                                                        val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
-                                                        webViewInstance?.tag = Pair(normalized, System.currentTimeMillis().toInt())
-                                                        webViewInstance?.loadUrl(normalized, headers)
-                                                    } else {
-                                                        viewModel.onUserSubmitUrl(normalized)
-                                                    }
+                                                    webViewInstance?.reload()
                                                 }
                                             },
                                             modifier = Modifier.size(26.dp)
@@ -3017,10 +3008,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
                             if (normalized.startsWith("http://", ignoreCase = true) || normalized.startsWith("https://", ignoreCase = true)) {
                                 viewModel.setIsLoading(true)
-                                val isWebStore = normalized.contains("chromewebstore.google.com") || normalized.contains("chrome.google.com/webstore")
-                                val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
-                                webView.tag = Pair(normalized, System.currentTimeMillis().toInt())
-                                webView.loadUrl(normalized, headers)
+                                webView.reload()
                             } else {
                                 viewModel.resolveUrl()
                             }
