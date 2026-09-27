@@ -109,7 +109,7 @@ fun HistoryList(history: List<HistoryEntity>, viewModel: DecentralViewModel) {
                         title = item.title,
                         subtitle = item.url,
                         timestamp = item.timestamp,
-                        onClick = { viewModel.openUrlInBrowser(item.url) },
+                        onClick = { viewModel.openUrlInBrowser(item.url, isExternal = false) },
                         onDelete = { viewModel.deleteHistoryItem(item.id) }
                     )
                 }
@@ -129,7 +129,7 @@ fun BookmarkList(bookmarks: List<BookmarkEntity>, viewModel: DecentralViewModel)
                     title = item.title,
                     subtitle = item.url,
                     timestamp = item.timestamp,
-                    onClick = { viewModel.openUrlInBrowser(item.url) },
+                    onClick = { viewModel.openUrlInBrowser(item.url, isExternal = false) },
                     onDelete = { viewModel.toggleBookmark(item.url, item.title) }
                 )
             }

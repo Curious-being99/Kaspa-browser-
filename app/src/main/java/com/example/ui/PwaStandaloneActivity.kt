@@ -169,8 +169,8 @@ fun PwaStandaloneScreen(
 
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var pageTitle by remember { mutableStateOf(initialTitle) }
-    var isLoading by remember { mutableStateOf(true) }
-    var webProgress by remember { mutableFloatStateOf(0.1f) }
+    var isLoading by remember { mutableStateOf(false) }
+    var webProgress by remember { mutableFloatStateOf(0f) }
     var isRefreshing by remember { mutableStateOf(false) }
     var isDesktopMode by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
@@ -305,6 +305,7 @@ fun PwaStandaloneScreen(
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
+                            webProgress = 0.1f
                             url?.let { currentUrl = it }
                             val shieldScript = KaspaPrivacyEngine.getPrivacyShieldScript(
                                 safeGpuMode = false,
@@ -374,8 +375,11 @@ fun PwaStandaloneScreen(
 
                     webChromeClient = object : WebChromeClient() {
                         override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                            webProgress = (newProgress / 100f).coerceIn(0f, 1f)
-                            if (newProgress >= 100) {
+                            webProgress = newProgress / 100f
+                            if (newProgress < 100) {
+                                isLoading = true
+                            } else {
+                                webProgress = 1.0f
                                 isLoading = false
                                 isRefreshing = false
                                 swipeLayout.isRefreshing = false

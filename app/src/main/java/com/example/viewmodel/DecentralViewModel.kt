@@ -421,8 +421,15 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateTab(id: String, url: String, title: String) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val existing = database.browserTabDao().getTabById(id)
-            if (existing != null && existing.url == url && existing.title == title) {
-                return@launch
+            if (existing != null) {
+                // If the update tries to write an empty URL but the existing tab already has a valid URL,
+                // do NOT overwrite it unless explicitly requested (handled via resetToHome)
+                if (url.isBlank() && existing.url.isNotBlank()) {
+                    return@launch
+                }
+                if (existing.url == url && existing.title == title) {
+                    return@launch
+                }
             }
             val isSuspended = existing?.isSuspended ?: false
             val isExternal = existing?.isExternal ?: false
@@ -993,59 +1000,46 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             val activeTab = tabs.find { it.id == activeId }
             val host = try { java.net.URI(cleanTarget).host ?: cleanTarget } catch (_: Exception) { cleanTarget }
             val tabTitle = if (!host.isNullOrBlank()) host else "External Link"
-            val normTarget = cleanTarget.removeSuffix("/").lowercase()
 
-            // 1. Check if the active tab is already on this exact URL or same page
-            if (activeTab != null && activeTab.url.trim().removeSuffix("/").equals(normTarget, ignoreCase = true)) {
-                _urlInput.value = activeTab.url
-                updateTabAccessTime(activeTab.id)
-                return@launch
-            }
-
-            // 2. Check if an existing open tab already matches this exact URL or site
-            val existingTab = tabs.find { tab ->
-                val tabNorm = tab.url.trim().removeSuffix("/").lowercase()
-                tabNorm.isNotEmpty() && tabNorm.equals(normTarget, ignoreCase = true)
-            } ?: tabs.find { tab ->
-                if (tab.url.isBlank()) return@find false
-                val tabHost = try { java.net.URI(tab.url).host ?: "" } catch (_: Exception) { "" }
-                tabHost.isNotEmpty() && tabHost.equals(host, ignoreCase = true) &&
-                    (tab.url.trim().removeSuffix("/").equals(normTarget, ignoreCase = true))
-            }
-
-            if (existingTab != null) {
-                _activeTabId.value = existingTab.id
-                _urlInput.value = existingTab.url
-                database.browserTabDao().insert(existingTab.copy(lastAccessed = System.currentTimeMillis()))
-                resolveUrl(existingTab.url)
-                return@launch
-            }
-
-            // 3. If active tab is blank, reuse it
-            if (activeTab != null && activeTab.url.isBlank()) {
-                val updatedTab = activeTab.copy(
-                    url = cleanTarget,
-                    title = tabTitle,
-                    lastAccessed = System.currentTimeMillis(),
-                    isExternal = isExternal
-                )
-                database.browserTabDao().insert(updatedTab)
-                _urlInput.value = cleanTarget
-                resolveUrl(cleanTarget)
-            } else {
-                // 4. Create new tab
+            if (isExternal) {
+                // For external intents (app launching from outside), always open in a brand new tab to protect the user's active tabs.
                 val newId = java.util.UUID.randomUUID().toString()
                 val newTab = BrowserTabEntity(
                     id = newId,
                     url = cleanTarget,
                     title = tabTitle,
                     lastAccessed = System.currentTimeMillis(),
-                    isExternal = isExternal
+                    isExternal = true
                 )
                 database.browserTabDao().insert(newTab)
                 _activeTabId.value = newId
                 _urlInput.value = cleanTarget
                 resolveUrl(cleanTarget)
+            } else {
+                // Inside the browser (clicking bookmark, history, or speed dial), load it in the CURRENT active tab.
+                if (activeTab != null) {
+                    val updatedTab = activeTab.copy(
+                        url = cleanTarget,
+                        title = tabTitle,
+                        lastAccessed = System.currentTimeMillis()
+                    )
+                    database.browserTabDao().insert(updatedTab)
+                    _urlInput.value = cleanTarget
+                    resolveUrl(cleanTarget)
+                } else {
+                    // Fallback: create new tab if no active tab exists
+                    val newId = java.util.UUID.randomUUID().toString()
+                    val newTab = BrowserTabEntity(
+                        id = newId,
+                        url = cleanTarget,
+                        title = tabTitle,
+                        lastAccessed = System.currentTimeMillis()
+                    )
+                    database.browserTabDao().insert(newTab)
+                    _activeTabId.value = newId
+                    _urlInput.value = cleanTarget
+                    resolveUrl(cleanTarget)
+                }
             }
         }
     }
@@ -1110,6 +1104,18 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         _urlInput.value = ""
         _currentResource.value = null
         _statusMessage.value = null
+
+        val activeId = _activeTabId.value
+        if (activeId != null) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val existing = database.browserTabDao().getTabById(activeId)
+                if (existing != null) {
+                    database.browserTabDao().insert(
+                        existing.copy(url = "", title = "Home", lastAccessed = System.currentTimeMillis())
+                    )
+                }
+            }
+        }
     }
 
     fun normalizeUrlOrQuery(raw: String): String {

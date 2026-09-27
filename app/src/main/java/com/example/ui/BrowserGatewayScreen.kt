@@ -896,6 +896,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             showTabSwitcher = false
         } else if (webViewInstance?.canGoBack() == true) {
             webViewInstance?.goBack()
+        } else if (tabs.size > 1 && activeTabId != null) {
+            viewModel.closeTab(activeTabId!!)
         } else if (currentResource != null) {
             viewModel.resetToHome()
         }
@@ -1148,6 +1150,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .focusRequester(urlFocusRequester)
+                                            .onFocusChanged { focusState ->
+                                                if (focusState.isFocused) {
+                                                    isInputFocused = true
+                                                }
+                                            }
                                             .testTag("url_input_field"),
                                         singleLine = true,
                                         cursorBrush = SolidColor(if (isKaspaAddress) KaspaTea else ElectricCyan),
@@ -1407,26 +1414,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     if (urlInput.isNotEmpty()) {
-                                        val isBookmarked = remember(urlInput, bookmarks) {
-                                            bookmarks.any { it.url == urlInput }
-                                        }
-
-                                        IconButton(
-                                            onClick = {
-                                                viewModel.toggleBookmark(urlInput, currentResource?.title ?: urlInput)
-                                            },
-                                            modifier = Modifier.size(26.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                                contentDescription = "Bookmark",
-                                                tint = if (isBookmarked) ElectricCyan else TextMuted,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                        }
-
-                                        Spacer(modifier = Modifier.width(2.dp))
-
                                         IconButton(
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1437,8 +1424,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 } else {
                                                     val normalized = viewModel.normalizeUrlOrQuery(urlInput)
                                                     if ((normalized.startsWith("http://", ignoreCase = true) || normalized.startsWith("https://", ignoreCase = true)) && webViewInstance != null) {
-                                                        isWebLoading = true
-                                                        webProgress = 0.1f
                                                         viewModel.setIsLoading(true)
                                                         val isWebStore = normalized.contains("chromewebstore.google.com") || normalized.contains("chrome.google.com/webstore")
                                                         val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
@@ -1540,6 +1525,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 onDismissRequest = { showBrowserMenu = false },
                                 modifier = Modifier.background(SurfaceDark)
                             ) {
+                                if (urlInput.isNotEmpty()) {
+                                    val isBookmarked = remember(urlInput, bookmarks) {
+                                        bookmarks.any { it.url == urlInput }
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text(if (isBookmarked) "Remove Bookmark" else "Bookmark Page", color = TextPrimary) },
+                                        leadingIcon = { Icon(if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, contentDescription = null, tint = ElectricCyan) },
+                                        onClick = {
+                                            showBrowserMenu = false
+                                            viewModel.toggleBookmark(urlInput, currentResource?.title ?: urlInput)
+                                        }
+                                    )
+                                    HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
+                                }
                                 DropdownMenuItem(
                                     text = { Text("New Tab", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = ElectricCyan) },
@@ -1738,7 +1737,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         .fillMaxWidth()
                         .height(2.dp)
                 ) {
-                    if (isWebLoading && webProgress in 0.01f..0.99f) {
+                    if (isWebLoading && webProgress > 0f && webProgress < 1f) {
                         LinearProgressIndicator(
                             progress = { webProgress },
                             modifier = Modifier.fillMaxSize(),
@@ -1859,7 +1858,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 )
             } else if (isHtml && !viewSourceMode) {
                 // IN-APP WEB VIEW: Renders full web pages inside the browser itself!
-                androidx.compose.runtime.key(webViewRecreateKey) {
+                androidx.compose.runtime.key(activeTabId, webViewRecreateKey) {
                     AndroidView(
                         factory = { ctx ->
                         val browserBgColor = currentBgColor.toArgb()
@@ -2009,8 +2008,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                                         val target = if (!url.isNullOrBlank()) url else (this@apply.url ?: urlInput)
                                         if (target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)) {
-                                            isWebLoading = true
-                                            webProgress = 0.1f
                                             viewModel.updateCurrentUrl(target)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = target.contains("chromewebstore.google.com") || target.contains("chrome.google.com/webstore")
@@ -2222,13 +2219,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         lastProgressChangeTime = now
                                     }
                                     webProgress = newProgress / 100f
-                                    if (newProgress >= 95) {
-                                        isWebLoading = false
-                                        viewModel.setIsLoading(false)
-                                    } else {
+                                    if (newProgress < 100) {
                                         isWebLoading = true
-                                    }
-                                    if (newProgress == 100) {
+                                    } else {
                                         webProgress = 1.0f
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
@@ -2275,16 +2268,41 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 ): Boolean {
                                     if (resultMsg == null || view == null) return false
 
+                                    val parentUrl = view.url ?: ""
+                                    val parentHost = runCatching { android.net.Uri.parse(parentUrl).host?.lowercase() }.getOrNull() ?: ""
+
+                                    fun handleTargetUrl(wv: WebView?, target: String, gesture: Boolean): Boolean {
+                                        if (target.isBlank() || target == "about:blank") return false
+                                        val targetHost = runCatching { android.net.Uri.parse(target).host?.lowercase() }.getOrNull() ?: ""
+                                        if (targetHost.isNotEmpty() && targetHost == parentHost) {
+                                            wv?.stopLoading()
+                                            view.loadUrl(target)
+                                            return true
+                                        } else {
+                                            wv?.stopLoading()
+                                            viewModel.createNewTab(target, "New Tab", isExternal = true)
+                                            return true
+                                        }
+                                    }
+
                                     val tempWebView = WebView(view.context).apply {
                                         settings.javaScriptEnabled = true
                                         settings.setSupportMultipleWindows(false)
                                         webViewClient = object : WebViewClient() {
+                                            override fun onPageStarted(wv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                                super.onPageStarted(wv, url, favicon)
+                                                val target = url ?: return
+                                                handleTargetUrl(wv, target, isUserGesture)
+                                            }
+
                                             override fun shouldOverrideUrlLoading(wv: WebView?, request: WebResourceRequest?): Boolean {
                                                 val target = request?.url?.toString() ?: return false
                                                 val gesture = request?.hasGesture() ?: isUserGesture
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, gesture)
                                                 if (!intercepted) {
-                                                    viewModel.openUrlInBrowser(target, isExternal = true)
+                                                    if (!handleTargetUrl(wv, target, gesture)) {
+                                                        viewModel.createNewTab(target, "New Tab", isExternal = true)
+                                                    }
                                                 }
                                                 return true
                                             }
@@ -2294,7 +2312,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val target = url ?: return false
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, isUserGesture)
                                                 if (!intercepted) {
-                                                    viewModel.openUrlInBrowser(target, isExternal = true)
+                                                    if (!handleTargetUrl(wv, target, isUserGesture)) {
+                                                        viewModel.createNewTab(target, "New Tab", isExternal = true)
+                                                    }
                                                 }
                                                 return true
                                             }
@@ -2442,7 +2462,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         isExtractingOrLoadingReaderMode = false
                                     }
                                     isWebLoading = true
-                                    webProgress = 0.05f
+                                    webProgress = 0.1f
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -2762,8 +2782,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         val paramUrl = android.net.Uri.parse(targetUrl).getQueryParameter("url") ?: ""
                                         val cleanUrl = if (paramUrl.isNotBlank()) paramUrl else (view?.url ?: urlInput)
                                         if (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true)) {
-                                            isWebLoading = true
-                                            webProgress = 0.1f
                                             viewModel.updateCurrentUrl(cleanUrl)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = cleanUrl.contains("chromewebstore.google.com") || cleanUrl.contains("chrome.google.com/webstore")
@@ -2809,8 +2827,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         val paramUrl = android.net.Uri.parse(targetUrl).getQueryParameter("url") ?: ""
                                         val cleanUrl = if (paramUrl.isNotBlank()) paramUrl else (view?.url ?: urlInput)
                                         if (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true)) {
-                                            isWebLoading = true
-                                            webProgress = 0.1f
                                             viewModel.updateCurrentUrl(cleanUrl)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = cleanUrl.contains("chromewebstore.google.com") || cleanUrl.contains("chrome.google.com/webstore")
@@ -2997,8 +3013,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 ?: (if (webView.url?.startsWith("kaspa-error://") == true) urlInput else (webView.url ?: urlInput))
                             val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
                             if (normalized.startsWith("http://", ignoreCase = true) || normalized.startsWith("https://", ignoreCase = true)) {
-                                isWebLoading = true
-                                webProgress = 0.1f
                                 viewModel.setIsLoading(true)
                                 val isWebStore = normalized.contains("chromewebstore.google.com") || normalized.contains("chrome.google.com/webstore")
                                 val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
@@ -3086,9 +3100,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                             
                             val currentTag = webView.tag as? Pair<*, *>
+                            val tagUrl = currentTag?.first as? String
                             val tagId = currentTag?.second as? Int ?: (webView.tag as? Int)
                             val isRecentDownload = (resource.url == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
-                            val isNewSession = (tagId != navigationSessionId) && !isRecentDownload
+                            val isUrlChanged = tagUrl != resource.url
+                            val isNewSession = (tagId != navigationSessionId || isUrlChanged) && !isRecentDownload
 
                             if (isNewSession) {
                                 webView.tag = Pair(resource.url, navigationSessionId)
@@ -3406,6 +3422,51 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
+
+                        // Quick Search Engine Switcher Row
+                        Text(
+                            text = "Search Engine",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            com.example.viewmodel.SearchEngine.values().forEach { engine ->
+                                val isSelected = searchEngine == engine
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) ElectricCyan else SurfaceCard,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) ElectricCyan else SurfaceCardBorder),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.setSearchEngine(engine)
+                                        }
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = engine.displayName,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) Color.Black else TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         val currentTyping = textFieldValue.text.trim()
                         val query = currentTyping.lowercase()
