@@ -141,6 +141,22 @@ fun KaspaPriceHubCard(
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    if (priceInfo.marketCapRank > 0) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = SurfaceDark,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, ElectricCyan.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = priceInfo.formattedRank,
+                                color = ElectricCyan,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.width(6.dp))
 
                     // Pulse dot

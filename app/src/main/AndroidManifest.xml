@@ -72,14 +72,15 @@
         <activity
             android:name=".ui.PwaStandaloneActivity"
             android:exported="true"
-            android:taskAffinity=""
+            android:taskAffinity="com.example.pwa.standalone"
             android:documentLaunchMode="always"
-            android:launchMode="standard"
+            android:launchMode="singleInstancePerTask"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.MyApplication" >
             <intent-filter>
                 <action android:name="com.example.action.LAUNCH_PWA" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
             </intent-filter>
         </activity>
 

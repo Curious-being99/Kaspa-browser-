@@ -64,10 +64,7 @@ class DualStackResolver(
                 cleanUrl.startsWith("kaspasim:", ignoreCase = true) ||
                 cleanUrl.startsWith("kns://", ignoreCase = true)
 
-        val normalizedUrl = if (!isExplicitP2p && !isKaspa &&
-            !cleanUrl.startsWith("http://", ignoreCase = true) &&
-            !cleanUrl.startsWith("https://", ignoreCase = true)
-        ) {
+        val normalizedUrl = if (!cleanUrl.startsWith("http://", ignoreCase = true) && !cleanUrl.startsWith("https://", ignoreCase = true)) {
             if (cleanUrl.contains(".") && !cleanUrl.contains(" ")) {
                 "https://$cleanUrl"
             } else if (cleanUrl.isNotBlank()) {

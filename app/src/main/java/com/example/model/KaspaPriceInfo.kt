@@ -11,6 +11,8 @@ data class KaspaPriceInfo(
     val marketCapUsd: Double = 0.0,
     val volume24hUsd: Double = 0.0,
     val circulatingSupply: Double = 0.0,
+    val marketCapRank: Int = 0,
+    val athPriceUsd: Double = 0.0,
     val selectedTimeframe: String = "24H",
     val chartPoints: List<Float> = emptyList(),
     val lastUpdatedTimestamp: Long = 0L,
@@ -19,6 +21,9 @@ data class KaspaPriceInfo(
     val errorMessage: String? = null
 ) {
     val isPositive: Boolean get() = change24hPercent >= 0.0
+
+    val formattedRank: String
+        get() = if (marketCapRank > 0) "#$marketCapRank" else "---"
 
     val formattedPrice: String
         get() = if (priceUsd > 0) String.format("$%.4f", priceUsd) else "---"

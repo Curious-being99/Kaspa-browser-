@@ -1,0 +1,26 @@
+{
+  "short_name": "Kaspa Browser",
+  "name": "Kaspa Browser - Decentralized Web Gateway",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0F172A",
+  "background_color": "#0B0E14",
+  "description": "Kaspa Browser is a privacy-first, decentralized Android web browser and Web3 gateway designed for peer-to-peer web browsing and Kaspa network integration."
+}

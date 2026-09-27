@@ -781,7 +781,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     var showSecuritySheet by remember { mutableStateOf(false) }
     var showInstallSheet by remember { mutableStateOf(false) }
-    var showPwaDialog by remember { mutableStateOf(false) }
     var showProtocolMenu by remember { mutableStateOf(false) }
     var showAccountDialog by remember { mutableStateOf(false) }
     var accountDialogInitialTab by remember { mutableStateOf(0) }
@@ -1621,7 +1620,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     leadingIcon = { Icon(Icons.Default.InstallMobile, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
-                                        showPwaDialog = true
+                                        val activeRes = viewModel.currentResource.value
+                                        val detectedPwa = viewModel.currentPagePwa.value
+                                        val rawUrl = detectedPwa?.url ?: activeRes?.url ?: if (urlInput.isNotBlank()) urlInput else "https://kaspa.org"
+                                        val pwaUrl = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) rawUrl else "https://$rawUrl"
+                                        val defaultHostTitle = try {
+                                            android.net.Uri.parse(pwaUrl).host?.removePrefix("www.")?.split(".")?.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Kaspa App"
+                                        } catch (_: Exception) {
+                                            "Kaspa App"
+                                        }
+                                        val pwaTitle = detectedPwa?.name?.takeIf { it.isNotBlank() }
+                                            ?: activeRes?.title?.takeIf { it.isNotBlank() }
+                                            ?: defaultHostTitle
+                                        viewModel.installPwa(context, pwaTitle, pwaUrl, detectedPwa?.manifestUrl, detectedPwa?.iconUrl)
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1925,8 +1936,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 textZoom = 100
-                                javaScriptCanOpenWindowsAutomatically = false
-                                setSupportMultipleWindows(false)
+                                javaScriptCanOpenWindowsAutomatically = true
+                                setSupportMultipleWindows(true)
                                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
@@ -2263,8 +2274,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     resultMsg: android.os.Message?
                                 ): Boolean {
                                     if (resultMsg == null || view == null) return false
-                                    // Strictly reject automatic window opening without explicit user gesture (e.g. scroll popups)
-                                    if (!isUserGesture) return false
 
                                     val tempWebView = WebView(view.context).apply {
                                         settings.javaScriptEnabled = true
@@ -3697,26 +3706,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
 
 
-    // PWA & Web App Device Installation Dialog
-    if (showPwaDialog) {
-        val detectedPwa by viewModel.currentPagePwa.collectAsState()
-        val pwaTitle = detectedPwa?.name ?: currentResource?.title ?: if (urlInput.isNotBlank()) urlInput else "Web App"
-        val pwaUrl = detectedPwa?.url ?: if (urlInput.isNotBlank()) urlInput else currentResource?.url ?: "https://kaspa.org"
 
-        PwaInstallDialog(
-            initialTitle = pwaTitle,
-            url = pwaUrl,
-            onInstall = { title, url ->
-                showPwaDialog = false
-                viewModel.installPwa(context, title, url)
-            },
-            onAddShortcut = { title, url ->
-                showPwaDialog = false
-                viewModel.installPwa(context, title, url)
-            },
-            onDismiss = { showPwaDialog = false }
-        )
-    }
 
     // Decentralized Identity & Google zk-Bridge Dialog
     if (showAccountDialog) {
@@ -6271,98 +6261,34 @@ fun InstallSheetContent(
 
                                 Spacer(modifier = Modifier.height(10.dp))
 
-                                // In the UL you have: install, shortcut and button
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                // Real-time Install Action Button
+                                Button(
+                                    onClick = {
+                                        android.widget.Toast.makeText(context, "Installing \"$activeTitle\" in real-time...", android.widget.Toast.LENGTH_SHORT).show()
+                                        viewModel.installPwa(context, activeTitle, activeUrl)
+                                        onClose()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = ElectricCyan,
+                                        contentColor = Color.Black
+                                    ),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp),
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    // 1. INSTALL BUTTON
-                                    Button(
-                                        onClick = {
-                                            viewModel.installCurrentPwa(context)
-                                        },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = ElectricCyan,
-                                            contentColor = Color.Black
-                                        ),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(30.dp),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.InstallMobile,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Add to device",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    // 2. SHORTCUT BUTTON
-                                    OutlinedButton(
-                                        onClick = {
-                                            viewModel.createDownloadShortcut(
-                                                context = context,
-                                                fileName = activeTitle,
-                                                url = activeUrl,
-                                                downloadId = 0L
-                                            )
-                                        },
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            contentColor = EmeraldMesh
-                                        ),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.5f)),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(30.dp),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Shortcut,
-                                            contentDescription = null,
-                                            tint = EmeraldMesh,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Add to Home screen",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = EmeraldMesh
-                                        )
-                                    }
-
-                                    // 3. BUTTON (Open)
-                                    OutlinedButton(
-                                        onClick = {
-                                            onClose()
-                                        },
-                                        colors = ButtonDefaults.outlinedButtonColors(
-                                            contentColor = TextSecondary
-                                        ),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                        modifier = Modifier.height(30.dp),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.OpenInBrowser,
-                                            contentDescription = null,
-                                            tint = TextSecondary,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Open",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Normal,
-                                            color = TextSecondary
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.InstallMobile,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Add to device",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }

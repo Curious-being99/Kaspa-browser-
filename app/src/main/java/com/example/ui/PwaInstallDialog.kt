@@ -14,15 +14,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.ui.theme.*
 
+/**
+ * Chromium-Style Clean PWA Installation Dialog.
+ *
+ * Professional, distraction-free installation flow matching Google Chrome:
+ * 1. App Icon with Web App maskable badge.
+ * 2. Real-time Domain & Editable Title.
+ * 3. Immediate real-time installation to device on tap without marketing clutter.
+ */
 @Composable
 fun PwaInstallDialog(
     initialTitle: String,
@@ -32,6 +40,8 @@ fun PwaInstallDialog(
     onDismiss: () -> Unit
 ) {
     var title by remember { mutableStateOf(if (initialTitle.isNotBlank()) initialTitle else "Web App") }
+    var isInstalling by remember { mutableStateOf(false) }
+
     val displayHost = remember(url) {
         try {
             android.net.Uri.parse(url).host ?: url
@@ -40,31 +50,34 @@ fun PwaInstallDialog(
         }
     }
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = { if (!isInstalling) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = SurfaceDark,
             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp)
+                .fillMaxWidth(0.92f)
+                .padding(vertical = 16.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header with PWA badge
+                // Top Action Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        color = ElectricCyan.copy(alpha = 0.15f),
+                        color = ElectricCyan.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.3f))
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.25f))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -74,9 +87,9 @@ fun PwaInstallDialog(
                                 imageVector = Icons.Default.InstallMobile,
                                 contentDescription = null,
                                 tint = ElectricCyan,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(13.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
                                 text = "INSTALL APP",
                                 fontSize = 10.sp,
@@ -88,6 +101,7 @@ fun PwaInstallDialog(
 
                     IconButton(
                         onClick = onDismiss,
+                        enabled = !isInstalling,
                         modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
@@ -99,26 +113,26 @@ fun PwaInstallDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // App Icon Preview
+                // App Icon Preview (Squircle container with web badge)
                 Box(
                     modifier = Modifier
-                        .size(76.dp)
+                        .size(72.dp)
                         .clip(RoundedCornerShape(18.dp))
                         .background(SurfaceCard)
-                        .border(1.5.dp, ElectricCyan, RoundedCornerShape(18.dp)),
+                        .border(1.5.dp, ElectricCyan.copy(alpha = 0.8f), RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     val initialChar = title.trim().firstOrNull()?.uppercase() ?: "W"
                     Text(
                         text = initialChar,
-                        fontSize = 36.sp,
+                        fontSize = 32.sp,
                         fontWeight = FontWeight.Black,
                         color = ElectricCyan
                     )
 
-                    // Small badge on bottom
+                    // Web App bottom indicator badge
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -153,7 +167,7 @@ fun PwaInstallDialog(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 // Editable Title Field
                 OutlinedTextField(
@@ -161,6 +175,7 @@ fun PwaInstallDialog(
                     onValueChange = { title = it },
                     label = { Text("App Name", fontSize = 12.sp) },
                     singleLine = true,
+                    enabled = !isInstalling,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
                         unfocusedTextColor = TextPrimary,
@@ -172,127 +187,70 @@ fun PwaInstallDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-                // Feature Highlights
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SurfaceCard, RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Direct Action Buttons (Chrome-Style Cancel & Install)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    PwaFeatureRow(
-                        icon = Icons.AutoMirrored.Filled.AddToHomeScreen,
-                        title = "Home Screen Integration",
-                        subtitle = "Launch directly from your Android device home screen"
-                    )
-                    PwaFeatureRow(
-                        icon = Icons.Default.FlashOn,
-                        title = "Fast Standalone Window",
-                        subtitle = "Runs in a dedicated distraction-free browser window"
-                    )
-                    PwaFeatureRow(
-                        icon = Icons.Default.Security,
-                        title = "Sandboxed Security",
-                        subtitle = "Hardware-isolated cache with decentralized integrity"
-                    )
-                }
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !isInstalling,
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text("Cancel", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Action Buttons
-                Button(
-                    onClick = { onInstall(title, url) },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ElectricCyan,
-                        contentColor = Color.Black
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.InstallMobile,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Add to device",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = { onAddShortcut(title, url) },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = TextPrimary
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Shortcut,
-                        contentDescription = null,
-                        tint = EmeraldMesh,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Add to Home screen",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Button(
+                        onClick = {
+                            isInstalling = true
+                            onInstall(title, url)
+                        },
+                        enabled = !isInstalling && title.isNotBlank(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElectricCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        modifier = Modifier
+                            .weight(1.3f)
+                            .height(48.dp)
+                    ) {
+                        if (isInstalling) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = ObsidianBg,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Installing...",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.InstallMobile,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Install",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PwaFeatureRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    subtitle: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .background(ObsidianBg, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = ElectricCyan,
-                modifier = Modifier.size(14.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column {
-            Text(
-                text = title,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
-            )
-            Text(
-                text = subtitle,
-                fontSize = 9.sp,
-                color = TextMuted
-            )
         }
     }
 }

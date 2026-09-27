@@ -138,11 +138,11 @@ object PwaShortcutHelper {
             withContext(Dispatchers.Main) {
                 Toast.makeText(
                     context,
-                    "Website does not support PWA (no PWA manifest or webpage logo found)",
+                    "Website does not support PWA (no web app manifest found)",
                     Toast.LENGTH_LONG
                 ).show()
             }
-            return@withContext Pair(false, "Website does not support PWA (no PWA manifest or webpage logo found)")
+            return@withContext Pair(false, "Website does not support PWA (no web app manifest found)")
         }
 
         val appTitle = pwaInfo.second?.ifBlank { null } 
@@ -150,7 +150,7 @@ object PwaShortcutHelper {
             ?: Uri.parse(url).host?.removePrefix("www.")?.replaceFirstChar { it.uppercase() } 
             ?: "Web App"
 
-        // Pin to device using the downloaded webpage PWA logo (strictly NO custom logo)
+        // Pin to device as a full standalone PWA with the downloaded logo
         withContext(Dispatchers.Main) {
             installPwaToDeviceWithWebLogo(context, appTitle, url, logoBitmap)
         }
@@ -169,7 +169,7 @@ object PwaShortcutHelper {
             val cleanTitle = title.trim().ifBlank { "Web App" }
             val pwaId = "pwa_${url.hashCode()}"
             val shortcutIntent = Intent(context, com.example.ui.PwaStandaloneActivity::class.java).apply {
-                action = Intent.ACTION_VIEW
+                action = "com.example.action.LAUNCH_PWA"
                 data = Uri.parse(url)
                 putExtra("PWA_URL", url)
                 putExtra("PWA_TITLE", cleanTitle)
@@ -265,14 +265,22 @@ object PwaShortcutHelper {
             } catch (_: Exception) {}
         }
 
+        // If website has no manifest and no PWA support indication, reject
+        if (targetManifestUrl.isNullOrBlank() && !isPwaSupported && iconUrl.isNullOrBlank()) {
+            return@withContext Pair(null, null)
+        }
+
         // 2. Fallback to iconUrl if manifest did not specify an icon or as secondary source
         if (foundIconUrl.isNullOrBlank() && !iconUrl.isNullOrBlank()) {
             foundIconUrl = resolveAbsoluteUrl(pageUrl, iconUrl)
         }
 
-        // If website has no manifest and no PWA support indication, reject
-        if (targetManifestUrl.isNullOrBlank() && !isPwaSupported && iconUrl.isNullOrBlank()) {
-            return@withContext Pair(null, null)
+        // Fallback 1: Try Google Favicon Service if no manifest icon was found
+        if (foundIconUrl.isNullOrBlank()) {
+            val domain = Uri.parse(pageUrl).host ?: ""
+            if (domain.isNotBlank()) {
+                foundIconUrl = "https://www.google.com/s2/favicons?domain=$domain&sz=192"
+            }
         }
 
         // 3. Download the actual webpage PWA logo from foundIconUrl
@@ -299,7 +307,13 @@ object PwaShortcutHelper {
             } catch (_: Exception) {}
         }
 
-        Pair(null, null)
+        if (isPwaSupported) {
+            val hostTitle = Uri.parse(pageUrl).host?.removePrefix("www.")?.replaceFirstChar { it.uppercase() } ?: "Web App"
+            val fallbackBitmap = generateCustomBadgeBitmap(pwaTitle ?: hostTitle, Color.parseColor("#00E5FF"))
+            Pair(fallbackBitmap, pwaTitle)
+        } else {
+            Pair(null, null)
+        }
     }
 
     private fun discoverManifestUrl(pageUrl: String): String? {

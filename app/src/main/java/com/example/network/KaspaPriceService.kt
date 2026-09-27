@@ -96,10 +96,12 @@ object KaspaPriceService {
         var mcap = _priceState.value.marketCapUsd
         var vol = _priceState.value.volume24hUsd
         var circulating = _priceState.value.circulatingSupply
+        var rank = _priceState.value.marketCapRank
+        var athPrice = _priceState.value.athPriceUsd
         var realChartPoints: List<Float> = _priceState.value.chartPoints
         var isLive = false
 
-        // 1. Fetch Real-time Cap & Change from CoinPaprika Global Index
+        // 1. Fetch Real-time Rank, Cap & Change from CoinPaprika Global Index
         try {
             val paprikaUrl = "https://api.coinpaprika.com/v1/tickers/kas-kaspa"
             val req = Request.Builder().url(paprikaUrl).header("User-Agent", "KaspaBrowser/1.0").build()
@@ -108,17 +110,24 @@ object KaspaPriceService {
                     val body = resp.body?.string()
                     if (!body.isNullOrBlank()) {
                         val json = JSONObject(body)
+                        val r = json.optInt("rank", 0)
+                        if (r > 0) rank = r
+                        val circ = json.optDouble("circulating_supply", 0.0)
+                        if (circ > 0) circulating = circ
+
                         val quotes = json.optJSONObject("quotes")?.optJSONObject("USD")
                         if (quotes != null) {
                             val p = quotes.optDouble("price", 0.0)
                             val chg = quotes.optDouble("percent_change_24h", 0.0)
                             val cap = quotes.optDouble("market_cap", 0.0)
                             val v = quotes.optDouble("volume_24h", 0.0)
+                            val ath = quotes.optDouble("ath_price", 0.0)
 
                             if (p > 0) currentPrice = p
                             if (chg != 0.0) change24h = chg
                             if (cap > 0) mcap = cap
                             if (v > 0) vol = v
+                            if (ath > 0) athPrice = ath
                             isLive = true
                         }
                     }
@@ -388,6 +397,8 @@ object KaspaPriceService {
             marketCapUsd = mcap,
             volume24hUsd = vol,
             circulatingSupply = circulating,
+            marketCapRank = rank,
+            athPriceUsd = athPrice,
             selectedTimeframe = timeframe,
             chartPoints = realChartPoints,
             lastUpdatedTimestamp = System.currentTimeMillis(),

@@ -99,7 +99,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxSize()
                 .background(ObsidianBg),
-            contentWindowInsets = WindowInsets.safeDrawing,
+            contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { paddingValues ->
             Box(
