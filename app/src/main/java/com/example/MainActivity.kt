@@ -70,6 +70,10 @@ class MainActivity : FragmentActivity() {
     } catch (_: Exception) {}
 
     enableEdgeToEdge()
+    if (checkAndRoutePwaIntent(intent)) {
+      finish()
+      return
+    }
     handleIncomingIntent(intent)
 
     setContent {
@@ -123,31 +127,40 @@ class MainActivity : FragmentActivity() {
     } catch (_: Exception) {}
   }
 
+  private fun checkAndRoutePwaIntent(intent: Intent?): Boolean {
+    if (intent == null) return false
+    val pwaUrl = intent.getStringExtra("PWA_URL")
+    val isPwa = intent.getBooleanExtra("IS_PWA_MODE", false) ||
+        intent.getBooleanExtra("PWA_STANDALONE", false) ||
+        intent.action == "com.example.action.LAUNCH_PWA"
+    if (!pwaUrl.isNullOrBlank() && isPwa) {
+      val pwaIntent = Intent(this, com.example.ui.PwaStandaloneActivity::class.java).apply {
+        action = Intent.ACTION_VIEW
+        data = android.net.Uri.parse(pwaUrl)
+        putExtra("PWA_URL", pwaUrl)
+        putExtra("PWA_TITLE", intent.getStringExtra("PWA_TITLE") ?: "")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+      }
+      startActivity(pwaIntent)
+      return true
+    }
+    return false
+  }
+
   private var lastHandledIntentUrl: String? = null
   private var lastHandledIntentTimestamp: Long = 0L
 
   private fun handleIncomingIntent(intent: Intent?) {
-    val pwaUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
-    val isPwaStandalone = intent?.getBooleanExtra("IS_PWA_MODE", false) == true ||
-        intent?.getBooleanExtra("PWA_STANDALONE", false) == true ||
-        intent?.action == "com.example.action.LAUNCH_PWA"
-    if (!pwaUrl.isNullOrBlank()) {
-      if (isPwaStandalone) {
-        val pwaIntent = Intent(this, com.example.ui.PwaStandaloneActivity::class.java).apply {
-          action = Intent.ACTION_VIEW
-          data = android.net.Uri.parse(pwaUrl)
-          putExtra("PWA_URL", pwaUrl)
-          putExtra("PWA_TITLE", intent?.getStringExtra("PWA_TITLE") ?: "")
-          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-        }
-        startActivity(pwaIntent)
-        return
-      }
+    if (checkAndRoutePwaIntent(intent)) {
+      return
+    }
+    val targetUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
+    if (!targetUrl.isNullOrBlank()) {
       val now = System.currentTimeMillis()
-      if (pwaUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {
-        lastHandledIntentUrl = pwaUrl
+      if (targetUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {
+        lastHandledIntentUrl = targetUrl
         lastHandledIntentTimestamp = now
-        viewModel.openUrlInBrowser(pwaUrl, isExternal = true, isStandalonePwa = false)
+        viewModel.openUrlInBrowser(targetUrl, isExternal = true, isStandalonePwa = false)
       }
       // Consume the intent data so leaving and returning to the task does not replay the intent
       try {

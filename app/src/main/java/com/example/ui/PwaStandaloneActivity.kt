@@ -6,56 +6,63 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.fragment.app.FragmentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.OpenInBrowser
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.fragment.app.FragmentActivity
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.example.MainActivity
 import com.example.network.KaspaPrivacyEngine
 import com.example.network.NativeIntentRoutingEngine
 import com.example.network.WebViewAssetLruCache
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.EmeraldMesh
-import com.example.ui.theme.MyApplicationTheme
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.SurfaceDark
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.*
+import java.io.ByteArrayInputStream
 
 /**
  * Dedicated Standalone Web Application (PWA / WebAPK) Activity.
  *
- * Implements the architecture used by Google Chrome and Brave:
- * 1. Independent Task Space: Runs with `FLAG_ACTIVITY_NEW_DOCUMENT` in its own separate
- *    window in Android's Recents/Multitasking overview screen.
- * 2. Standalone Viewport: 100% full screen web application window with ZERO browser bars,
- *    zero Omnibar, zero tab count, zero bottom navigation bar.
- * 3. Native Integration: Full GPU acceleration, zero-copy mmap asset caching,
- *    safe pull-to-refresh overscroll physics, and hardware back-stack integration.
+ * Provides:
+ * 1. 100% Standalone Web Viewport (No Omnibar, no tab switcher button, no bottom bar).
+ * 2. Full Browser Engine Parity:
+ *    - Desktop Site Mode Toggle (Desktop User-Agent + Viewport scaling)
+ *    - Privacy Shield & Ad/Tracker Blocking via KaspaPrivacyEngine
+ *    - Full File Chooser & Camera KYC upload integration
+ *    - Geolocation & Media Permissions
+ *    - Fullscreen HTML5 Video playback
+ *    - External Native App Intent Routing (Spotify, Telegram, YouTube, Wallets)
+ *    - Zero-copy GPU caching & pull-to-refresh without accidental triggers
+ * 3. Independent Task Space with FLAG_ACTIVITY_NEW_DOCUMENT for separate window in Android Multitasking.
  */
 class PwaStandaloneActivity : FragmentActivity() {
 
@@ -111,6 +118,7 @@ class PwaStandaloneActivity : FragmentActivity() {
                             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                         }
                         startActivity(browserIntent)
+                        finish()
                     },
                     onCloseApp = { finish() },
                     onWebViewCreated = { wv -> webView = wv }
@@ -157,12 +165,62 @@ fun PwaStandaloneScreen(
     onWebViewCreated: (WebView) -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var pageTitle by remember { mutableStateOf(initialTitle) }
     var isLoading by remember { mutableStateOf(true) }
     var webProgress by remember { mutableFloatStateOf(0.1f) }
     var isRefreshing by remember { mutableStateOf(false) }
-    var showMinimalControls by remember { mutableStateOf(false) }
+    var isDesktopMode by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var blockedAdsCount by remember { mutableIntStateOf(0) }
+
+    var customVideoView by remember { mutableStateOf<View?>(null) }
+    var customVideoCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+    var uploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+
+    val fileChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (uploadCallback != null) {
+            val results: Array<Uri>? = when {
+                result.resultCode == android.app.Activity.RESULT_OK -> {
+                    val data = result.data
+                    val clipData = data?.clipData
+                    if (clipData != null && clipData.itemCount > 0) {
+                        (0 until clipData.itemCount).mapNotNull { clipData.getItemAt(it).uri }.toTypedArray()
+                    } else {
+                        val singleUri = data?.data
+                        if (singleUri != null) arrayOf(singleUri) else null
+                    }
+                }
+                else -> null
+            }
+            uploadCallback?.onReceiveValue(results)
+            uploadCallback = null
+        }
+    }
+
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    fun applyDesktopMode(wv: WebView, desktop: Boolean) {
+        val defaultUa = WebSettings.getDefaultUserAgent(context)
+        wv.settings.apply {
+            userAgentString = if (desktop) {
+                KaspaPrivacyEngine.getDesktopUserAgent(defaultUa)
+            } else {
+                KaspaPrivacyEngine.getMobileUserAgent(defaultUa)
+            }
+            useWideViewPort = true
+            loadWithOverviewMode = true
+        }
+        val target = wv.url ?: currentUrl
+        if (target.isNotBlank() && !target.startsWith("data:")) {
+            val headers = KaspaPrivacyEngine.getDesktopHeaders(desktop, defaultUa)
+            wv.loadUrl(target, headers)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -192,15 +250,30 @@ fun PwaStandaloneScreen(
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
 
-                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     isHapticFeedbackEnabled = true
                     isVerticalScrollBarEnabled = false
                     isHorizontalScrollBarEnabled = false
+                    isNestedScrollingEnabled = false
+                    overScrollMode = View.OVER_SCROLL_NEVER
+
+                    setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                        val atTop = (scrollY <= 0 && !canScrollVertically(-1))
+                        if (!atTop) {
+                            swipeLayout.isEnabled = false
+                            if (swipeLayout.isRefreshing) {
+                                swipeLayout.isRefreshing = false
+                            }
+                        } else {
+                            swipeLayout.isEnabled = true
+                        }
+                    }
 
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, false)
                     }
 
+                    val defaultUa = WebSettings.getDefaultUserAgent(ctx)
                     settings.apply {
                         javaScriptEnabled = true
                         domStorageEnabled = true
@@ -213,7 +286,11 @@ fun PwaStandaloneScreen(
                         loadWithOverviewMode = true
                         cacheMode = WebSettings.LOAD_DEFAULT
                         mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                        userAgentString = KaspaPrivacyEngine.getMobileUserAgent()
+                        userAgentString = if (isDesktopMode) {
+                            KaspaPrivacyEngine.getDesktopUserAgent(defaultUa)
+                        } else {
+                            KaspaPrivacyEngine.getMobileUserAgent(defaultUa)
+                        }
                     }
 
                     val cookieManager = CookieManager.getInstance()
@@ -225,6 +302,13 @@ fun PwaStandaloneScreen(
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
                             url?.let { currentUrl = it }
+                            // Inject privacy shield & viewport scripts
+                            val shieldScript = KaspaPrivacyEngine.getPrivacyShieldScript(
+                                safeGpuMode = false,
+                                isDesktop = isDesktopMode,
+                                baseUa = defaultUa
+                            )
+                            view?.evaluateJavascript(shieldScript, null)
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
@@ -234,10 +318,17 @@ fun PwaStandaloneScreen(
                             swipeLayout.isRefreshing = false
                             url?.let { currentUrl = it }
                             view?.title?.let { if (it.isNotBlank()) pageTitle = it }
+                            CookieManager.getInstance().flush()
                         }
 
                         override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                             val reqUrl = request?.url?.toString() ?: return null
+                            // Ad & Tracker blocking
+                            if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
+                                blockedAdsCount++
+                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
+                            }
+                            // Zero-copy local asset cache
                             if (WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
                                 val cached = WebViewAssetLruCache.get(reqUrl)
                                 if (cached != null) return cached
@@ -268,9 +359,60 @@ fun PwaStandaloneScreen(
                             super.onReceivedTitle(view, title)
                             title?.let { if (it.isNotBlank()) pageTitle = it }
                         }
+
+                        override fun onShowFileChooser(
+                            webView: WebView?,
+                            filePathCallback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?
+                        ): Boolean {
+                            uploadCallback?.onReceiveValue(null)
+                            uploadCallback = filePathCallback
+                            return try {
+                                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                    addCategory(Intent.CATEGORY_OPENABLE)
+                                    type = "*/*"
+                                }
+                                val chooser = Intent.createChooser(intent, "Select File to Upload")
+                                fileChooserLauncher.launch(chooser)
+                                true
+                            } catch (_: Exception) {
+                                uploadCallback?.onReceiveValue(null)
+                                uploadCallback = null
+                                false
+                            }
+                        }
+
+                        override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                            if (customVideoView != null) {
+                                callback?.onCustomViewHidden()
+                                return
+                            }
+                            customVideoView = view
+                            customVideoCallback = callback
+                        }
+
+                        override fun onHideCustomView() {
+                            try {
+                                customVideoCallback?.onCustomViewHidden()
+                            } catch (_: Throwable) {}
+                            customVideoView = null
+                            customVideoCallback = null
+                        }
+
+                        override fun onGeolocationPermissionsShowPrompt(
+                            origin: String?,
+                            callback: GeolocationPermissions.Callback?
+                        ) {
+                            callback?.invoke(origin, true, false)
+                        }
+
+                        override fun onPermissionRequest(request: PermissionRequest?) {
+                            request?.grant(request.resources)
+                        }
                     }
 
-                    loadUrl(initialUrl)
+                    val headers = KaspaPrivacyEngine.getDesktopHeaders(isDesktopMode, defaultUa)
+                    loadUrl(initialUrl, headers)
                 }
 
                 swipeLayout.setOnRefreshListener {
@@ -279,10 +421,21 @@ fun PwaStandaloneScreen(
                 }
 
                 swipeLayout.addView(wv)
+                webViewRef = wv
                 onWebViewCreated(wv)
                 swipeLayout
             }
         )
+
+        // Fullscreen Custom Video Player Overlay
+        customVideoView?.let { videoView ->
+            AndroidView(
+                factory = { videoView },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            )
+        }
 
         // Loading Progress Bar at the top
         AnimatedVisibility(
@@ -301,60 +454,188 @@ fun PwaStandaloneScreen(
             )
         }
 
-        // Minimalist Standalone Overlay Button (Top-Right subtle icon for quick controls)
-        Box(
+        // Minimalist Standalone Overlay Button & Status Pill (Top-Right subtle controls)
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(12.dp)
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Surface(
-                shape = CircleShape,
-                color = SurfaceDark.copy(alpha = 0.75f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
-                modifier = Modifier.size(32.dp)
-            ) {
-                IconButton(
-                    onClick = { showMinimalControls = !showMinimalControls },
-                    modifier = Modifier.fillMaxSize()
+            // Desktop site indicator badge if active
+            if (isDesktopMode) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SurfaceDark.copy(alpha = 0.85f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
+                    modifier = Modifier.clickable {
+                        isDesktopMode = false
+                        webViewRef?.let { applyDesktopMode(it, false) }
+                    }
                 ) {
-                    Icon(
-                        imageVector = if (showMinimalControls) Icons.Default.Close else Icons.Default.OpenInBrowser,
-                        contentDescription = "PWA Options",
-                        tint = ElectricCyan,
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.DesktopWindows, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(12.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("DESKTOP", color = ElectricCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
-            DropdownMenu(
-                expanded = showMinimalControls,
-                onDismissRequest = { showMinimalControls = false },
-                modifier = Modifier.background(SurfaceDark)
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Open in Browser Tabs", color = TextPrimary, fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp)) },
-                    onClick = {
-                        showMinimalControls = false
-                        onOpenInBrowser(currentUrl)
-                        onCloseApp()
+            // Quick Menu Button
+            Box {
+                Surface(
+                    shape = CircleShape,
+                    color = SurfaceDark.copy(alpha = 0.8f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    IconButton(
+                        onClick = { showMenu = !showMenu },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = if (showMenu) Icons.Default.Close else Icons.Default.MoreVert,
+                            contentDescription = "PWA Menu",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
-                )
-                DropdownMenuItem(
-                    text = { Text("Reload Web App", color = TextPrimary, fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(16.dp)) },
-                    onClick = {
-                        showMinimalControls = false
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier
+                        .background(SurfaceDark)
+                        .widthIn(min = 220.dp)
+                ) {
+                    // App Title & URL Header
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                        Text(
+                            text = pageTitle,
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = try { Uri.parse(currentUrl).host ?: currentUrl } catch (_: Exception) { currentUrl },
+                            color = EmeraldMesh,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                )
-                DropdownMenuItem(
-                    text = { Text("Exit App", color = TextMuted, fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Default.Close, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp)) },
-                    onClick = {
-                        showMinimalControls = false
-                        onCloseApp()
-                    }
-                )
+
+                    HorizontalDivider(color = SurfaceCardBorder)
+
+                    // Desktop Site Toggle
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Desktop site", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Checkbox(
+                                    checked = isDesktopMode,
+                                    onCheckedChange = { checked ->
+                                        isDesktopMode = checked
+                                        showMenu = false
+                                        webViewRef?.let { applyDesktopMode(it, checked) }
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = ElectricCyan,
+                                        checkmarkColor = ObsidianBg
+                                    ),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.DesktopWindows,
+                                contentDescription = null,
+                                tint = if (isDesktopMode) ElectricCyan else TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            isDesktopMode = !isDesktopMode
+                            showMenu = false
+                            webViewRef?.let { applyDesktopMode(it, isDesktopMode) }
+                        }
+                    )
+
+                    // Reload
+                    DropdownMenuItem(
+                        text = { Text("Reload", color = TextPrimary, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = {
+                            showMenu = false
+                            webViewRef?.reload()
+                        }
+                    )
+
+                    // Share
+                    DropdownMenuItem(
+                        text = { Text("Share Link", color = TextPrimary, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = {
+                            showMenu = false
+                            try {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    putExtra(Intent.EXTRA_TEXT, currentUrl)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share $pageTitle"))
+                            } catch (_: Exception) {}
+                        }
+                    )
+
+                    // Copy Link
+                    DropdownMenuItem(
+                        text = { Text("Copy Link", color = TextPrimary, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = {
+                            showMenu = false
+                            clipboardManager.setText(AnnotatedString(currentUrl))
+                        }
+                    )
+
+                    HorizontalDivider(color = SurfaceCardBorder)
+
+                    // Open in Full Browser
+                    DropdownMenuItem(
+                        text = { Text("Open in Browser", color = TextPrimary, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = {
+                            showMenu = false
+                            onOpenInBrowser(currentUrl)
+                        }
+                    )
+
+                    // Close PWA
+                    DropdownMenuItem(
+                        text = { Text("Exit Web App", color = TextMuted, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
+                        },
+                        onClick = {
+                            showMenu = false
+                            onCloseApp()
+                        }
+                    )
+                }
             }
         }
     }
