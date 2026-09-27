@@ -70,6 +70,10 @@ class MainActivity : FragmentActivity() {
     } catch (_: Exception) {}
 
     enableEdgeToEdge()
+    window.setFlags(
+      android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+      android.view.WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+    )
     handleIncomingIntent(intent)
 
     setContent {

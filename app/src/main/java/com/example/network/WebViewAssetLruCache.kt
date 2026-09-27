@@ -161,7 +161,7 @@ object WebViewAssetLruCache {
             hitCount.incrementAndGet()
 
             return try {
-                val inputStream = FileInputStream(dataFile)
+                val inputStream = NativeMmapCacheEngine.openMmapStream(dataFile)
                 
                 // CRITICAL: Overwrite MIME type for .wasm and .mjs on cache hit, 
                 // in case it was previously cached with a bad MIME type (e.g. application/octet-stream)

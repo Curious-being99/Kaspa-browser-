@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
@@ -158,6 +159,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val blockTrackers by viewModel.blockTrackers.collectAsState()
     val enableDownloads by viewModel.enableDownloads.collectAsState()
     val enableUploads by viewModel.enableUploads.collectAsState()
+    val enablePullToRefresh by viewModel.enablePullToRefresh.collectAsState()
     val encryptedLocalStorage by viewModel.encryptedLocalStorage.collectAsState()
     val thirdPartyCookies by viewModel.thirdPartyCookies.collectAsState()
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
@@ -409,6 +411,16 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         icon = Icons.Default.Storage,
                         checked = enableUploads,
                         onCheckedChange = { viewModel.toggleUploads(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Pull-to-Refresh Gestures",
+                        desc = "Swipe down at top of page to reload. Disable to prevent accidental refreshes",
+                        icon = Icons.Default.Refresh,
+                        checked = enablePullToRefresh,
+                        onCheckedChange = { viewModel.togglePullToRefresh(it) }
                     )
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)

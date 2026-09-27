@@ -189,8 +189,8 @@ object PwaShortcutHelper {
             if (ShortcutManagerCompat.isRequestPinShortcutSupported(context)) {
                 val pinned = ShortcutManagerCompat.requestPinShortcut(context, shortcutInfo, null)
                 if (pinned) {
-                    Toast.makeText(context, "PWA \"$cleanTitle\" installed with website logo!", Toast.LENGTH_SHORT).show()
-                    return Pair(true, "PWA \"$cleanTitle\" installed with website logo!")
+                    Toast.makeText(context, "\"$cleanTitle\" added to home screen with website logo!", Toast.LENGTH_SHORT).show()
+                    return Pair(true, "\"$cleanTitle\" added to home screen with website logo!")
                 }
             }
 
@@ -203,10 +203,10 @@ object PwaShortcutHelper {
                 putExtra("duplicate", false)
             }
             context.sendBroadcast(legacyIntent)
-            Toast.makeText(context, "PWA shortcut requested with website logo", Toast.LENGTH_SHORT).show()
-            return Pair(true, "PWA shortcut created with website logo")
+            Toast.makeText(context, "\"$cleanTitle\" shortcut added to home screen", Toast.LENGTH_SHORT).show()
+            return Pair(true, "\"$cleanTitle\" shortcut added to home screen")
         } catch (e: Exception) {
-            return Pair(false, "Failed to install PWA: ${e.localizedMessage ?: e.message}")
+            return Pair(false, "Failed to add to device: ${e.localizedMessage ?: e.message}")
         }
     }
 

@@ -83,6 +83,124 @@ data class KaspaAddressValidationResult(
     val explorerUrl: String = ""
 )
 
+fun extractFilenameFromDisposition(disposition: String?): String? {
+    if (disposition.isNullOrBlank()) return null
+    try {
+        val utf8Match = Regex("filename\\*=(?:UTF-8|utf-8)''([^;\\r\\n]+)").find(disposition)
+        if (utf8Match != null) {
+            val encoded = utf8Match.groupValues[1].trim('"', '\'')
+            return try {
+                java.net.URLDecoder.decode(encoded, "UTF-8")
+            } catch (_: Exception) { encoded }
+        }
+        val standardMatch = Regex("filename=\"?([^\";\\r\\n]+)\"?").find(disposition)
+        if (standardMatch != null) {
+            return standardMatch.groupValues[1].trim('"', '\'')
+        }
+    } catch (_: Exception) {}
+    return null
+}
+
+fun resolveUniversalMimeType(fileName: String, serverContentType: String? = null): String {
+    val cleanServerType = serverContentType?.split(";")?.firstOrNull()?.trim()?.lowercase()
+    if (!cleanServerType.isNullOrBlank() &&
+        cleanServerType != "application/octet-stream" &&
+        cleanServerType != "binary/octet-stream" &&
+        cleanServerType != "application/download" &&
+        cleanServerType != "application/force-download" &&
+        cleanServerType != "text/plain") {
+        return cleanServerType
+    }
+
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    if (ext.isNotEmpty()) {
+        val mapMime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+        if (!mapMime.isNullOrBlank()) {
+            return mapMime
+        }
+    }
+
+    return when (ext) {
+        // Android / Package Executables
+        "apk" -> "application/vnd.android.package-archive"
+        "aab" -> "application/octet-stream"
+        "xapk", "apks" -> "application/zip"
+        
+        // Documents
+        "pdf" -> "application/pdf"
+        "doc" -> "application/msword"
+        "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "xls" -> "application/vnd.ms-excel"
+        "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "ppt" -> "application/vnd.ms-powerpoint"
+        "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        "odt" -> "application/vnd.oasis.opendocument.text"
+        "ods" -> "application/vnd.oasis.opendocument.spreadsheet"
+        "odp" -> "application/vnd.oasis.opendocument.presentation"
+        "rtf" -> "application/rtf"
+        "txt", "log", "ini", "conf" -> "text/plain"
+        "csv" -> "text/csv"
+        "tsv" -> "text/tab-separated-values"
+        "epub" -> "application/epub+zip"
+        "mobi" -> "application/x-mobipocket-ebook"
+
+        // Audio
+        "mp3" -> "audio/mpeg"
+        "wav" -> "audio/wav"
+        "ogg", "oga" -> "audio/ogg"
+        "flac" -> "audio/flac"
+        "m4a", "aac" -> "audio/mp4"
+        "opus" -> "audio/opus"
+        "mid", "midi" -> "audio/midi"
+        "wma" -> "audio/x-ms-wma"
+
+        // Video
+        "mp4", "m4v" -> "video/mp4"
+        "mkv" -> "video/x-matroska"
+        "webm" -> "video/webm"
+        "avi" -> "video/x-msvideo"
+        "mov" -> "video/quicktime"
+        "wmv" -> "video/x-ms-wmv"
+        "3gp", "3gpp" -> "video/3gpp"
+        "flv" -> "video/x-flv"
+        "ts" -> "video/mp2t"
+
+        // Images
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        "svg" -> "image/svg+xml"
+        "avif" -> "image/avif"
+        "bmp" -> "image/bmp"
+        "ico" -> "image/x-icon"
+        "tiff", "tif" -> "image/tiff"
+        "heic" -> "image/heic"
+        "heif" -> "image/heif"
+
+        // Archives
+        "zip" -> "application/zip"
+        "rar" -> "application/x-rar-compressed"
+        "7z" -> "application/x-7z-compressed"
+        "tar" -> "application/x-tar"
+        "gz", "tgz" -> "application/gzip"
+        "bz2" -> "application/x-bzip2"
+        "xz" -> "application/x-xz"
+        "iso" -> "application/x-iso9660-image"
+
+        // Code / Web / Data
+        "json" -> "application/json"
+        "xml" -> "application/xml"
+        "html", "htm" -> "text/html"
+        "css" -> "text/css"
+        "js", "mjs" -> "text/javascript"
+        "wasm" -> "application/wasm"
+        "torrent" -> "application/x-bittorrent"
+
+        else -> if (!cleanServerType.isNullOrBlank()) cleanServerType else "application/octet-stream"
+    }
+}
+
 class DecentralViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AppDatabase.getDatabase(application)
@@ -428,6 +546,9 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     private val _desktopModeEnabled = MutableStateFlow(browserSettingsPrefs.getBoolean("desktop_mode_enabled", false))
     val desktopModeEnabled: StateFlow<Boolean> = _desktopModeEnabled.asStateFlow()
 
+    private val _enablePullToRefresh = MutableStateFlow(browserSettingsPrefs.getBoolean("pull_to_refresh_enabled", true))
+    val enablePullToRefresh: StateFlow<Boolean> = _enablePullToRefresh.asStateFlow()
+
     private val _httpsOnlyMode = MutableStateFlow(true)
     val httpsOnlyMode: StateFlow<Boolean> = _httpsOnlyMode.asStateFlow()
 
@@ -577,6 +698,10 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleDesktopMode(enabled: Boolean) {
         _desktopModeEnabled.value = enabled
         browserSettingsPrefs.edit().putBoolean("desktop_mode_enabled", enabled).apply()
+    }
+    fun togglePullToRefresh(enabled: Boolean) {
+        _enablePullToRefresh.value = enabled
+        browserSettingsPrefs.edit().putBoolean("pull_to_refresh_enabled", enabled).apply()
     }
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
     fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }
@@ -1410,6 +1535,12 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         _activeDownloads.value = _activeDownloads.value.filter { it.downloadId != id } + newDownload
     }
 
+    fun updateDownloadFileName(id: Long, newFileName: String) {
+        _activeDownloads.value = _activeDownloads.value.map {
+            if (it.downloadId == id) it.copy(fileName = newFileName) else it
+        }
+    }
+
     fun updateDownloadProgress(id: Long, progress: Float, bytesDownloaded: Long, bytesTotal: Long, status: String) {
         _activeDownloads.value = _activeDownloads.value.map {
             if (it.downloadId == id) {
@@ -1432,12 +1563,13 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
-            val targetFile = java.io.File(appDownloadsDir, fileName)
             try {
                 updateDownloadProgress(downloadId, 0.1f, 0L, 0L, "Saving")
                 val commaIndex = dataUrl.indexOf(',')
+                var mimeFromData: String? = null
                 val bytes = if (commaIndex != -1) {
                     val metadata = dataUrl.substring(5, commaIndex)
+                    mimeFromData = metadata.split(";").firstOrNull()?.trim()
                     val rawData = dataUrl.substring(commaIndex + 1)
                     if (metadata.contains("base64", ignoreCase = true)) {
                         android.util.Base64.decode(rawData, android.util.Base64.DEFAULT)
@@ -1448,21 +1580,41 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     android.util.Base64.decode(dataUrl, android.util.Base64.DEFAULT)
                 }
 
+                var actualFileName = fileName
+                val mimeType = resolveUniversalMimeType(actualFileName, mimeFromData)
+                if (!actualFileName.contains(".")) {
+                    val ext = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+                    if (!ext.isNullOrBlank()) {
+                        actualFileName = "$actualFileName.$ext"
+                        updateDownloadFileName(downloadId, actualFileName)
+                    }
+                }
+
+                val targetFile = java.io.File(appDownloadsDir, actualFileName)
                 targetFile.outputStream().use { fos ->
                     fos.write(bytes)
                     fos.flush()
                 }
 
-                // Export to public MediaStore downloads so file is visible in device system Downloads app and gallery
-                val mimeType = if (fileName.endsWith(".png", true)) "image/png"
-                    else if (fileName.endsWith(".webp", true)) "image/webp"
-                    else if (fileName.endsWith(".svg", true)) "image/svg+xml"
-                    else if (fileName.endsWith(".gif", true)) "image/gif"
-                    else "image/jpeg"
+                // Register with System DownloadManager so OS posts completed notification and shows in Downloads app
+                try {
+                    val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
+                    @Suppress("DEPRECATION")
+                    dm?.addCompletedDownload(
+                        actualFileName,
+                        "Downloaded via Kaspa Browser",
+                        true,
+                        mimeType,
+                        targetFile.absolutePath,
+                        bytes.size.toLong(),
+                        true
+                    )
+                } catch (_: Exception) {}
 
+                // Export to public MediaStore downloads so file is visible in device system Downloads app and gallery
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                     val values = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, actualFileName)
                         put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                     }
@@ -1475,7 +1627,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                 } else {
                     val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                     if (publicDir.exists() || publicDir.mkdirs()) {
-                        val publicFile = java.io.File(publicDir, fileName)
+                        val publicFile = java.io.File(publicDir, actualFileName)
                         publicFile.outputStream().use { os ->
                             os.write(bytes)
                         }
@@ -1508,7 +1660,8 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
             var streamSuccess = false
             val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
-            val targetFile = java.io.File(appDownloadsDir, fileName)
+            var activeFileName = fileName.replace(Regex("[/\\\\?%*:|\"<>]"), "_")
+            var targetFile = java.io.File(appDownloadsDir, activeFileName)
 
             try {
                 updateDownloadProgress(downloadId, 0.02f, 0L, 0L, "Downloading")
@@ -1552,6 +1705,31 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
 
                 val conn = connection
                 if (conn != null && conn.responseCode in 200..299) {
+                    val serverContentType = conn.contentType
+                    val disposition = conn.getHeaderField("Content-Disposition")
+                    val extractedName = extractFilenameFromDisposition(disposition)
+
+                    if (!extractedName.isNullOrBlank()) {
+                        activeFileName = extractedName.replace(Regex("[/\\\\?%*:|\"<>]"), "_")
+                    } else if (activeFileName.endsWith(".bin", ignoreCase = true) || !activeFileName.contains(".")) {
+                        // Check if server provides a recognizable Content-Type to enrich extension
+                        val cleanMime = serverContentType?.split(";")?.firstOrNull()?.trim()
+                        val extFromMime = if (!cleanMime.isNullOrBlank()) {
+                            android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(cleanMime)
+                        } else null
+                        if (!extFromMime.isNullOrBlank()) {
+                            val baseName = if (activeFileName.endsWith(".bin", ignoreCase = true)) {
+                                activeFileName.removeSuffix(".bin")
+                            } else activeFileName
+                            activeFileName = "$baseName.$extFromMime"
+                        }
+                    }
+
+                    if (activeFileName != fileName) {
+                        updateDownloadFileName(downloadId, activeFileName)
+                        targetFile = java.io.File(appDownloadsDir, activeFileName)
+                    }
+
                     val totalBytes = conn.contentLengthLong.let { if (it > 0) it else 0L }
                     
                     var bytesDownloaded = 0L
@@ -1585,22 +1763,14 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                     updateDownloadProgress(downloadId, 1.0f, bytesDownloaded, finalTotal, "Success")
                     streamSuccess = true
 
-                    val mimeType = if (fileName.endsWith(".apk", true)) "application/vnd.android.package-archive"
-                        else if (fileName.endsWith(".png", true)) "image/png"
-                        else if (fileName.endsWith(".webp", true)) "image/webp"
-                        else if (fileName.endsWith(".svg", true)) "image/svg+xml"
-                        else if (fileName.endsWith(".gif", true)) "image/gif"
-                        else if (fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true)) "image/jpeg"
-                        else if (fileName.endsWith(".pdf", true)) "application/pdf"
-                        else if (fileName.endsWith(".zip", true)) "application/zip"
-                        else "application/octet-stream"
+                    val mimeType = resolveUniversalMimeType(activeFileName, serverContentType)
 
                     // Register with System DownloadManager so OS posts completed notification and shows in Downloads app
                     try {
                         val dm = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as? android.app.DownloadManager
                         @Suppress("DEPRECATION")
                         dm?.addCompletedDownload(
-                            fileName,
+                            activeFileName,
                             "Downloaded via Kaspa Browser",
                             true,
                             mimeType,
@@ -1610,11 +1780,11 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                         )
                     } catch (_: Exception) {}
 
-                    // Export to public MediaStore downloads so file is visible in device system Downloads app
+                    // Export to public MediaStore downloads so file is visible in device system Downloads app and third party viewers
                     try {
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                             val values = android.content.ContentValues().apply {
-                                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, activeFileName)
                                 put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                                 put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                             }
@@ -1629,7 +1799,7 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                         } else {
                             val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                             if (publicDir.exists() || publicDir.mkdirs()) {
-                                val publicFile = java.io.File(publicDir, fileName)
+                                val publicFile = java.io.File(publicDir, activeFileName)
                                 java.io.FileInputStream(targetFile).use { isStream ->
                                     java.io.FileOutputStream(publicFile).use { os ->
                                         isStream.copyTo(os)
@@ -1638,6 +1808,16 @@ class DecentralViewModel(application: Application) : AndroidViewModel(applicatio
                                 android.media.MediaScannerConnection.scanFile(context, arrayOf(publicFile.absolutePath), arrayOf(mimeType), null)
                             }
                         }
+                    } catch (_: Exception) {}
+
+                    // Scan file so MediaStore and Files app recognize any format immediately
+                    try {
+                        android.media.MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(targetFile.absolutePath),
+                            arrayOf(mimeType),
+                            null
+                        )
                     } catch (_: Exception) {}
                 }
             } catch (_: Exception) {

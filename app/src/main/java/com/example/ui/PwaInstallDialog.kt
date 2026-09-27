@@ -128,7 +128,7 @@ fun PwaInstallDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "PWA APP",
+                            text = "WEB APP",
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
                             color = EmeraldMesh
@@ -220,7 +220,7 @@ fun PwaInstallDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Install App to Device",
+                        text = "Add to device",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -247,7 +247,7 @@ fun PwaInstallDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Pin Shortcut Only",
+                        text = "Add to Home screen",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )

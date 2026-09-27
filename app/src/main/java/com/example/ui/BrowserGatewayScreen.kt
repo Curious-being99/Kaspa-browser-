@@ -57,6 +57,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -345,11 +347,83 @@ private fun HubActionRow(
     }
 }
 
+/**
+ * Custom SwipeRefreshLayout designed specifically for WebViews.
+ * Solves the critical bug where scrolling up and down inside a webpage
+ * accidentally triggers pull-to-refresh.
+ *
+ * Requirements enforced:
+ * 1. Touch gesture MUST start (ACTION_DOWN) when WebView is already at the absolute top
+ *    (scrollY <= 0 && !canScrollVertically(-1)). If the user touched the screen while scrolled down,
+ *    this gesture can NEVER trigger refresh even if the user scrolls to the top.
+ * 2. Only vertical downward pulls with substantial distance (scaledTouchSlop * 3.5f) activate refresh.
+ * 3. Horizontal panning / swipes (e.g. carousels, tabs, sliders) are never intercepted.
+ * 4. Respects the user's enablePullToRefresh setting.
+ */
+class BrowserSwipeRefreshLayout @JvmOverloads constructor(
+    context: android.content.Context,
+    attrs: android.util.AttributeSet? = null
+) : androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context, attrs) {
+
+    var targetWebView: android.webkit.WebView? = null
+    var isGestureAllowed: Boolean = true
+
+    private var downY: Float = 0f
+    private var downX: Float = 0f
+    var startedAtTop: Boolean = false
+        private set
+    private val scaledTouchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+    private val refreshDragThreshold = scaledTouchSlop * 3.5f
+
+    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!isGestureAllowed || !isEnabled) {
+            return false
+        }
+        val wv = targetWebView
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downY = ev.rawY
+                downX = ev.rawX
+                // The gesture MUST originate when the webview is already at the top
+                startedAtTop = (wv == null || (wv.scrollY <= 0 && !wv.canScrollVertically(-1)))
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (!startedAtTop) {
+                    return false
+                }
+                val deltaY = ev.rawY - downY
+                val deltaX = ev.rawX - downX
+                // If scrolling horizontally or scrolling upward, do NOT intercept
+                if (Math.abs(deltaX) > Math.abs(deltaY) || deltaY < refreshDragThreshold) {
+                    return false
+                }
+                // Double check that WebView cannot scroll up
+                if (wv != null && (wv.scrollY > 0 || wv.canScrollVertically(-1))) {
+                    startedAtTop = false
+                    return false
+                }
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                startedAtTop = false
+            }
+        }
+        return super.onInterceptTouchEvent(ev)
+    }
+
+    override fun onTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
+            return false
+        }
+        return super.onTouchEvent(ev)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled", "WrongConstant", "NewApi")
 @Composable
 fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val defaultDeviceUa = remember {
         try {
             android.webkit.WebSettings.getDefaultUserAgent(context)
@@ -639,6 +713,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val blockTrackers by viewModel.blockTrackers.collectAsState()
     val enableDownloads by viewModel.enableDownloads.collectAsState()
     val enableUploads by viewModel.enableUploads.collectAsState()
+    val enablePullToRefresh by viewModel.enablePullToRefresh.collectAsState()
     val encryptedLocalStorage by viewModel.encryptedLocalStorage.collectAsState()
     val thirdPartyCookies by viewModel.thirdPartyCookies.collectAsState()
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
@@ -814,7 +889,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 .fillMaxWidth()
                 .testTag("browser_address_bar"),
             color = SurfaceDark,
-            tonalElevation = 4.dp
+            tonalElevation = 6.dp,
+            shadowElevation = 4.dp
         ) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
                 if (isInputFocused) {
@@ -1040,6 +1116,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 .weight(1f)
                                 .height(44.dp)
                                 .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     isInputFocused = true
                                 }
                         ) {
@@ -1188,6 +1265,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                         IconButton(
                                             onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 if (isWebLoading) {
                                                     webViewInstance?.stopLoading()
                                                     isWebLoading = false
@@ -1220,7 +1298,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         Spacer(modifier = Modifier.width(2.dp))
 
                                         IconButton(
-                                            onClick = { toggleReaderMode() },
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                toggleReaderMode()
+                                            },
                                             modifier = Modifier.size(26.dp)
                                         ) {
                                             Icon(
@@ -1238,7 +1319,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         Spacer(modifier = Modifier.width(6.dp))
 
                         IconButton(
-                            onClick = { viewModel.createNewTab() },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.createNewTab()
+                            },
                             modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
@@ -1255,7 +1339,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             modifier = Modifier
                                 .size(22.dp)
                                 .border(1.2.dp, TextPrimary, RoundedCornerShape(5.dp))
-                                .clickable { showTabSwitcher = true },
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    showTabSwitcher = true
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -1270,7 +1357,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         
                         Box {
                             IconButton(
-                                onClick = { showBrowserMenu = true },
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    showBrowserMenu = true
+                                },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
@@ -1363,6 +1453,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             putExtra(Intent.EXTRA_TEXT, urlInput)
                                         }
                                         context.startActivity(Intent.createChooser(intent, "Share URL"))
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Add to device", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.InstallMobile, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        showPwaDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1590,7 +1688,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         factory = { ctx ->
                         val browserBgColor = currentBgColor.toArgb()
 
-                        androidx.swiperefreshlayout.widget.SwipeRefreshLayout(ctx).apply {
+                        BrowserSwipeRefreshLayout(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -1614,10 +1712,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
-                            isHapticFeedbackEnabled = false
+                            isHapticFeedbackEnabled = true
                             isVerticalScrollBarEnabled = false
                             isHorizontalScrollBarEnabled = false
                             scrollBarStyle = android.view.View.SCROLLBARS_INSIDE_OVERLAY
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                setRendererPriorityPolicy(android.webkit.WebView.RENDERER_PRIORITY_BOUND, false)
+                            }
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                                 webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
                                     override fun onRenderProcessUnresponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
@@ -1824,7 +1925,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setAcceptThirdPartyCookies(wv, thirdPartyCookies)
                             }
                             setBackgroundColor(browserBgColor)
-                            isHapticFeedbackEnabled = false
+                            isHapticFeedbackEnabled = true
 
                             fun handleDeepLinkOrNavigate(targetWv: WebView?, rawUrl: String, hasGesture: Boolean): Boolean {
                                 val targetView = targetWv ?: wv
@@ -2747,12 +2848,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
 
                         addView(webView)
+                        targetWebView = webView
 
                         setOnChildScrollUpCallback { _, _ ->
-                            webView.canScrollVertically(-1) || webView.scrollY > 0
+                            webView.canScrollVertically(-1) || webView.scrollY > 0 || !startedAtTop
                         }
 
                         setOnRefreshListener {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             val currentUrl = (webView.tag as? Pair<*, *>)?.first as? String
                                 ?: (if (webView.url?.startsWith("kaspa-error://") == true) urlInput else (webView.url ?: urlInput))
                             val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
@@ -2776,9 +2879,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                             .firstOrNull() ?: return@AndroidView
 
-                        val swipeRefresh = containerLayout as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                        val swipeRefresh = containerLayout as? BrowserSwipeRefreshLayout
                         if (swipeRefresh != null) {
-                            swipeRefresh.isEnabled = !showFindInPage && !isReaderMode
+                            swipeRefresh.targetWebView = webView
+                            swipeRefresh.isGestureAllowed = enablePullToRefresh && !showFindInPage && !isReaderMode
+                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed
                             if (!isWebLoading && swipeRefresh.isRefreshing) {
                                 swipeRefresh.isRefreshing = false
                             }
@@ -2908,7 +3013,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     }
                 },
                 onRelease = { containerLayout ->
-                    val swipeRefresh = containerLayout as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                    val swipeRefresh = containerLayout as? BrowserSwipeRefreshLayout
+                    swipeRefresh?.targetWebView = null
                     swipeRefresh?.setOnRefreshListener(null)
                     swipeRefresh?.setOnChildScrollUpCallback(null)
                     val webView = (0 until containerLayout.childCount)
@@ -5878,20 +5984,37 @@ fun openDownloadedFile(context: android.content.Context, downloadId: Long, fileN
             if (physicalFile != null && physicalFile.exists()) {
                 val authority = "${context.packageName}.fileprovider"
                 uri = androidx.core.content.FileProvider.getUriForFile(context, authority, physicalFile)
-                val ext = physicalFile.extension.lowercase()
-                mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                mime = com.example.viewmodel.resolveUniversalMimeType(physicalFile.name, null)
             }
+        }
+
+        if (mime.isNullOrBlank() || mime == "*/*") {
+            mime = com.example.viewmodel.resolveUniversalMimeType(fileName, null)
         }
         
         // 3. Launch ACTION_VIEW Intent if we found a valid Uri
         if (uri != null) {
             val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime ?: "*/*")
+                setDataAndType(uri, mime)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
-            return
+            try {
+                if (mime == "application/vnd.android.package-archive") {
+                    context.startActivity(intent)
+                } else {
+                    val chooser = android.content.Intent.createChooser(intent, "Open $fileName").apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(chooser)
+                }
+                return
+            } catch (actEx: Exception) {
+                try {
+                    context.startActivity(intent)
+                    return
+                } catch (_: Exception) {}
+            }
         }
         
         // Fallback: Open system downloads manager app
@@ -5950,7 +6073,7 @@ fun InstallSheetContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "PWA",
+                    text = "Add to Device",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -6024,7 +6147,7 @@ fun InstallSheetContent(
                                         modifier = Modifier.padding(start = 4.dp)
                                     ) {
                                         Text(
-                                            text = if (isPwaSupported) "PWA Supported" else "Web App",
+                                            text = if (isPwaSupported) "App Ready to Install" else "Web App",
                                             color = if (isPwaSupported) EmeraldMesh else ElectricCyan,
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
@@ -6061,7 +6184,7 @@ fun InstallSheetContent(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "Install",
+                                            text = "Add to device",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -6093,7 +6216,7 @@ fun InstallSheetContent(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "Shortcut",
+                                            text = "Add to Home screen",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = EmeraldMesh
