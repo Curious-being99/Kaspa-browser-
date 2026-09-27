@@ -69,6 +69,20 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.PwaStandaloneActivity"
+            android:exported="true"
+            android:taskAffinity=""
+            android:documentLaunchMode="always"
+            android:launchMode="standard"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.MyApplication" >
+            <intent-filter>
+                <action android:name="com.example.action.LAUNCH_PWA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

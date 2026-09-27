@@ -132,11 +132,22 @@ class MainActivity : FragmentActivity() {
         intent?.getBooleanExtra("PWA_STANDALONE", false) == true ||
         intent?.action == "com.example.action.LAUNCH_PWA"
     if (!pwaUrl.isNullOrBlank()) {
+      if (isPwaStandalone) {
+        val pwaIntent = Intent(this, com.example.ui.PwaStandaloneActivity::class.java).apply {
+          action = Intent.ACTION_VIEW
+          data = android.net.Uri.parse(pwaUrl)
+          putExtra("PWA_URL", pwaUrl)
+          putExtra("PWA_TITLE", intent?.getStringExtra("PWA_TITLE") ?: "")
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+        }
+        startActivity(pwaIntent)
+        return
+      }
       val now = System.currentTimeMillis()
       if (pwaUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {
         lastHandledIntentUrl = pwaUrl
         lastHandledIntentTimestamp = now
-        viewModel.openUrlInBrowser(pwaUrl, isExternal = true, isStandalonePwa = isPwaStandalone)
+        viewModel.openUrlInBrowser(pwaUrl, isExternal = true, isStandalonePwa = false)
       }
       // Consume the intent data so leaving and returning to the task does not replay the intent
       try {

@@ -168,10 +168,11 @@ object PwaShortcutHelper {
         try {
             val cleanTitle = title.trim().ifBlank { "Web App" }
             val pwaId = "pwa_${url.hashCode()}"
-            val shortcutIntent = Intent(context, MainActivity::class.java).apply {
+            val shortcutIntent = Intent(context, com.example.ui.PwaStandaloneActivity::class.java).apply {
                 action = Intent.ACTION_VIEW
                 data = Uri.parse(url)
                 putExtra("PWA_URL", url)
+                putExtra("PWA_TITLE", cleanTitle)
                 putExtra("IS_PWA_MODE", true)
                 putExtra("PWA_STANDALONE", true)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
