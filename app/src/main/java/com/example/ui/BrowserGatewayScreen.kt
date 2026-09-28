@@ -741,13 +741,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     LaunchedEffect(currentResource) {
         if (currentResource == null) {
             try {
-                webViewInstance?.apply {
-                    tag = null
-                    stopLoading()
-                    loadUrl("about:blank")
-                }
+                webViewInstance?.stopLoading()
             } catch (_: Exception) {}
-            webViewInstance = null
             webProgress = 0f
             isWebLoading = false
         }
@@ -891,7 +886,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 res.url.startsWith("kns://", ignoreCase = true)
     }
 
-    androidx.activity.compose.BackHandler(enabled = isInputFocused || showTabSwitcher || canGoBack || currentResource != null) {
+    androidx.activity.compose.BackHandler(enabled = isInputFocused || showTabSwitcher || isReaderMode || showFindInPage || (currentResource != null && (canGoBack || webViewInstance?.canGoBack() == true)) || currentResource != null || (tabs.size > 1 && activeTabId != null)) {
         if (isInputFocused) {
             isInputFocused = false
             focusManager.clearFocus()
@@ -899,14 +894,27 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 text = urlInput,
                 selection = androidx.compose.ui.text.TextRange(urlInput.length)
             )
+        } else if (showFindInPage) {
+            showFindInPage = false
+            findInPageQuery = ""
+            webViewInstance?.clearMatches()
+        } else if (isReaderMode) {
+            toggleReaderMode()
         } else if (showTabSwitcher) {
             showTabSwitcher = false
-        } else if (webViewInstance?.canGoBack() == true) {
+        } else if (currentResource != null && webViewInstance?.canGoBack() == true) {
             webViewInstance?.goBack()
+            canGoBack = webViewInstance?.canGoBack() == true
+            canGoForward = webViewInstance?.canGoForward() == true
+        } else if (currentResource != null) {
+            val activeTab = tabs.find { it.id == activeTabId }
+            if (activeTab != null && activeTab.isExternal && tabs.size > 1 && activeTabId != null) {
+                viewModel.closeTab(activeTabId!!)
+            } else {
+                viewModel.resetToHome()
+            }
         } else if (tabs.size > 1 && activeTabId != null) {
             viewModel.closeTab(activeTabId!!)
-        } else if (currentResource != null) {
-            viewModel.resetToHome()
         }
     }
 
@@ -1174,6 +1182,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             val input = textFieldValue.text.trim()
                                             if (input.isNotBlank()) {
                                                 val normalized = viewModel.normalizeUrlOrQuery(input)
+                                                webViewInstance?.tag = null
                                                 viewModel.onUserSubmitUrl(normalized)
                                             }
                                         }),
@@ -1269,16 +1278,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             .height(48.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(
-                            onClick = { viewModel.resetToHome() },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Home,
-                                contentDescription = "Home",
-                                tint = TextMuted,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        if (currentResource != null) {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    if (webViewInstance?.canGoBack() == true) {
+                                        webViewInstance?.goBack()
+                                    } else {
+                                        val activeTab = tabs.find { it.id == activeTabId }
+                                        if (activeTab != null && activeTab.isExternal && tabs.size > 1 && activeTabId != null) {
+                                            viewModel.closeTab(activeTabId!!)
+                                        } else {
+                                            viewModel.resetToHome()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = TextPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { viewModel.resetToHome() },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Home,
+                                    contentDescription = "Home",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(4.dp))
 
@@ -2278,21 +2313,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 ): Boolean {
                                     if (resultMsg == null || view == null) return false
 
-                                    val parentUrl = view.url ?: ""
-                                    val parentHost = runCatching { android.net.Uri.parse(parentUrl).host?.lowercase() }.getOrNull() ?: ""
-
                                     fun handleTargetUrl(wv: WebView?, target: String, gesture: Boolean): Boolean {
                                         if (target.isBlank() || target == "about:blank") return false
-                                        val targetHost = runCatching { android.net.Uri.parse(target).host?.lowercase() }.getOrNull() ?: ""
-                                        if (targetHost.isNotEmpty() && targetHost == parentHost) {
-                                            wv?.stopLoading()
-                                            view.loadUrl(target)
-                                            return true
-                                        } else {
-                                            wv?.stopLoading()
-                                            viewModel.createNewTab(target, "New Tab", isExternal = true)
-                                            return true
-                                        }
+                                        wv?.stopLoading()
+                                        viewModel.createNewTab(target, title = "New Tab", isExternal = true)
+                                        return true
                                     }
 
                                     val tempWebView = WebView(view.context).apply {
@@ -2310,9 +2335,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val gesture = request?.hasGesture() ?: isUserGesture
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, gesture)
                                                 if (!intercepted) {
-                                                    if (!handleTargetUrl(wv, target, gesture)) {
-                                                        viewModel.createNewTab(target, "New Tab", isExternal = true)
-                                                    }
+                                                    handleTargetUrl(wv, target, gesture)
                                                 }
                                                 return true
                                             }
@@ -2322,9 +2345,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val target = url ?: return false
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, isUserGesture)
                                                 if (!intercepted) {
-                                                    if (!handleTargetUrl(wv, target, isUserGesture)) {
-                                                        viewModel.createNewTab(target, "New Tab", isExternal = true)
-                                                    }
+                                                    handleTargetUrl(wv, target, isUserGesture)
                                                 }
                                                 return true
                                             }
@@ -3135,20 +3156,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             
                             val currentTag = webView.tag as? Pair<*, *>
                             val tagUrl = currentTag?.first as? String
-                            val tagId = currentTag?.second as? Int ?: (webView.tag as? Int)
                             val isRecentDownload = (resource.url == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
                             val webViewCurrentUrl = webView.url
-                            val isAlreadyAtUrl = !webViewCurrentUrl.isNullOrBlank() && 
-                                (com.example.util.BrowserTabWebViewManager.isSameUrl(webViewCurrentUrl, resource.url) || 
-                                 webViewCurrentUrl.trimEnd('/') == resource.url.trimEnd('/'))
-                            val isUrlChanged = tagUrl != resource.url && !isAlreadyAtUrl
-                            val isNewSession = (tagId != navigationSessionId || isUrlChanged) && !isRecentDownload
 
-                            if (isAlreadyAtUrl) {
-                                com.example.util.BrowserStateLog.loadUrl("Prevented unnecessary reload: currentUrl ($webViewCurrentUrl) matches requested destination (${resource.url})")
+                            val matchesCurrentUrl = !webViewCurrentUrl.isNullOrBlank() && com.example.util.BrowserTabWebViewManager.isSameUrl(webViewCurrentUrl, resource.url)
+                            val matchesTagUrl = !tagUrl.isNullOrBlank() && com.example.util.BrowserTabWebViewManager.isSameUrl(tagUrl, resource.url)
+                            val isAlreadyAtOrLoadingUrl = matchesCurrentUrl || matchesTagUrl
+
+                            if (isAlreadyAtOrLoadingUrl && !uaChanged) {
+                                com.example.util.BrowserStateLog.loadUrl("Prevented unnecessary reload: currentUrl ($webViewCurrentUrl) / tagUrl ($tagUrl) matches requested destination (${resource.url})")
                                 webView.tag = Pair(resource.url, navigationSessionId)
-                            } else if (isNewSession) {
-                                com.example.util.BrowserStateLog.loadUrl("Navigating tab to ${resource.url} (was: $webViewCurrentUrl)")
+                            } else if (!isAlreadyAtOrLoadingUrl && !isRecentDownload) {
+                                com.example.util.BrowserStateLog.loadUrl("Navigating tab to ${resource.url} (was: $webViewCurrentUrl, tagUrl: $tagUrl)")
                                 webView.tag = Pair(resource.url, navigationSessionId)
                                 val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
                                     resource.url.replaceFirst("http://", "https://", ignoreCase = true)
@@ -3180,9 +3199,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val loadKey = "${resource.url}_$cidKey"
                             val currentTag = webView.tag as? Pair<*, *>
                             val tagUrl = currentTag?.first as? String
-                            val tagId = currentTag?.second as? Int ?: (webView.tag as? Int)
 
-                            if (tagUrl != loadKey || tagId != navigationSessionId) {
+                            if (tagUrl != loadKey) {
                                 webView.tag = Pair(loadKey, navigationSessionId)
                                 val isSearch = resource.url.startsWith("kaspa://search", ignoreCase = true) ||
                                     resource.url.startsWith("https://search", ignoreCase = true) ||

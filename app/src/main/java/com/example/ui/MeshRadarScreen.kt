@@ -99,6 +99,10 @@ import com.example.viewmodel.DecentralViewModel
 
 @Composable
 fun MeshRadarScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
+    androidx.activity.compose.BackHandler {
+        viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
+    }
+
     val metrics by viewModel.metrics.collectAsState()
     val peers by viewModel.peers.collectAsState()
     val nsdState by viewModel.nsdState.collectAsState()

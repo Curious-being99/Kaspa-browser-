@@ -321,6 +321,14 @@ fun PwaStandaloneScreen(
         }
     }
 
+    androidx.activity.compose.BackHandler(enabled = canGoBack || webViewRef?.canGoBack() == true) {
+        if (webViewRef?.canGoBack() == true) {
+            webViewRef?.goBack()
+        } else {
+            onCloseApp()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()

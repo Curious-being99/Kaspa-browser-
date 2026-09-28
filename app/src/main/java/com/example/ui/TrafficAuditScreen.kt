@@ -96,6 +96,10 @@ import java.util.Locale
 
 @Composable
 fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier) {
+    androidx.activity.compose.BackHandler {
+        viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
+    }
+
     val context = androidx.compose.ui.platform.LocalContext.current
     val audits by viewModel.trafficAudits.collectAsState()
     val metrics by viewModel.metrics.collectAsState()

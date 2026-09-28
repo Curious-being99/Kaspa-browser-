@@ -580,9 +580,6 @@ class DecentralViewModel(
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val existing = database.browserTabDao().getTabById(id)
             if (existing != null) {
-                if (url.isBlank() && existing.url.isNotBlank()) {
-                    return@launch
-                }
                 if (existing.url == url && existing.title == title) {
                     return@launch
                 }
@@ -1326,14 +1323,25 @@ class DecentralViewModel(
         _urlInput.value = ""
         _currentResource.value = null
         _statusMessage.value = null
+        _isLoading.value = false
 
         val activeId = _activeTabId.value
         if (activeId != null) {
+            webViewTabManager.destroyTab(activeId, "reset to home")
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val existing = database.browserTabDao().getTabById(activeId)
                 if (existing != null) {
                     database.browserTabDao().insert(
-                        existing.copy(url = "", title = "Home", lastAccessed = System.currentTimeMillis())
+                        existing.copy(
+                            url = "",
+                            title = "Home",
+                            webViewState = null,
+                            scrollX = 0,
+                            scrollY = 0,
+                            historyJson = "[]",
+                            isExternal = false,
+                            lastAccessed = System.currentTimeMillis()
+                        )
                     )
                 }
             }
@@ -1488,13 +1496,14 @@ class DecentralViewModel(
         if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:") || newUrl.contains(".ipfs.dweb.link")) return
         val extractedQuery = extractSearchQuery(newUrl)
         val displayUrl = if (!extractedQuery.isNullOrBlank()) extractedQuery else newUrl
-        if (_urlInput.value == displayUrl) return
-        _urlInput.value = displayUrl
+        if (_urlInput.value != displayUrl && !com.example.util.BrowserTabWebViewManager.isSameUrl(_urlInput.value, displayUrl)) {
+            _urlInput.value = displayUrl
+        }
         val activeId = _activeTabId.value
         if (activeId != null) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val tab = database.browserTabDao().getTabById(activeId)
-                if (tab != null && tab.url != newUrl) {
+                if (tab != null && !com.example.util.BrowserTabWebViewManager.isSameUrl(tab.url, newUrl)) {
                     database.browserTabDao().insert(tab.copy(url = newUrl, lastAccessed = System.currentTimeMillis()))
                 }
             }
@@ -1524,7 +1533,7 @@ class DecentralViewModel(
         }
         if (newUrl.startsWith("http://") || newUrl.startsWith("https://")) {
             val host = try { java.net.URI(newUrl).host ?: newUrl } catch (_: Exception) { newUrl }
-            if (current.url == newUrl) return
+            if (com.example.util.BrowserTabWebViewManager.isSameUrl(current.url, newUrl)) return
             _currentResource.value = current.copy(
                 url = newUrl,
                 title = if (current.title.isBlank() || current.title == "HTTP Connection Error") host else current.title,

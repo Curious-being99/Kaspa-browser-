@@ -31,6 +31,10 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(viewModel: DecentralViewModel) {
+    androidx.activity.compose.BackHandler {
+        viewModel.setTab(AppTab.BROWSER_GATEWAY)
+    }
+
     var selectedTab by remember { mutableStateOf(0) } // 0: History, 1: Bookmarks
     val history by viewModel.history.collectAsState()
     val bookmarks by viewModel.bookmarks.collectAsState()
