@@ -337,195 +337,18 @@ fun PwaStandaloneScreen(
             .navigationBarsPadding()
             .imePadding()
     ) {
-        // Standalone PWA Minimal Header
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF0F172A),
-            tonalElevation = 3.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (canGoBack) {
-                        IconButton(
-                            onClick = { webViewRef?.goBack() },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White
-                            )
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF1E293B)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.Language,
-                                contentDescription = "PWA",
-                                tint = ElectricCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                    }
-
-                    Column(modifier = Modifier.padding(horizontal = 4.dp)) {
-                        Text(
-                            text = pageTitle.ifBlank { "Web App" },
-                            color = Color.White,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        val hostDisplay = try { Uri.parse(currentUrl).host ?: currentUrl } catch (_: Exception) { currentUrl }
-                        Text(
-                            text = hostDisplay,
-                            color = TextMuted,
-                            fontSize = 10.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = {
-                            isRefreshing = true
-                            webViewRef?.reload()
-                        },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Box {
-                        IconButton(
-                            onClick = { showMenu = true },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = "Options",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            modifier = Modifier.background(Color(0xFF1E293B))
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            "Desktop Site",
-                                            color = Color.White,
-                                            fontSize = 13.5.sp
-                                        )
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Switch(
-                                            checked = isDesktopMode,
-                                            onCheckedChange = { checked ->
-                                                isDesktopMode = checked
-                                                webViewRef?.let { wv -> applyDesktopModeToggle(wv, checked) }
-                                                showMenu = false
-                                            },
-                                            modifier = Modifier.padding(start = 8.dp)
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    isDesktopMode = !isDesktopMode
-                                    webViewRef?.let { wv -> applyDesktopModeToggle(wv, isDesktopMode) }
-                                    showMenu = false
-                                }
-                            )
-
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Open in Kaspa Browser",
-                                        color = Color.White,
-                                        fontSize = 13.5.sp
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.OpenInNew,
-                                        contentDescription = null,
-                                        tint = ElectricCyan
-                                    )
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    onOpenInBrowser(webViewRef?.url ?: currentUrl)
-                                }
-                            )
-
-                            HorizontalDivider(color = Color(0xFF334155))
-
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Close App",
-                                        color = Color(0xFFEF4444),
-                                        fontSize = 13.5.sp
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = null,
-                                        tint = Color(0xFFEF4444)
-                                    )
-                                },
-                                onClick = {
-                                    showMenu = false
-                                    onCloseApp()
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Loading Progress Indicator
+        // Standalone PWA Native Layout - 2dp Chromium progress indicator during page navigation
         AnimatedVisibility(
             visible = isLoading && webProgress < 1f,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(durationMillis = 150)),
+            exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = 150))
         ) {
             LinearProgressIndicator(
                 progress = { webProgress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.5.dp),
-                color = ElectricCyan,
+                    .height(2.dp),
+                color = ElectricCyan.copy(alpha = 0.85f),
                 trackColor = Color.Transparent
             )
         }
@@ -533,8 +356,7 @@ fun PwaStandaloneScreen(
         // Standalone Web Viewport
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
+                .fillMaxSize()
         ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),

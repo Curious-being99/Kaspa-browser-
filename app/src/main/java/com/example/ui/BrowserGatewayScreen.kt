@@ -952,130 +952,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             .imePadding()
             .then(backgroundModifier)
     ) {
-        // TOP BROWSER BAR: Directly starting with the search/URL bar
+        // TOP BROWSER BAR: Directly starting with the search/URL bar (Hidden in Standalone PWA Native App Mode)
         val scope = rememberCoroutineScope()
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("browser_address_bar"),
-            color = SurfaceDark,
-            tonalElevation = 6.dp,
-            shadowElevation = 4.dp
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
-                if (isStandalonePwaMode) {
-                    // STANDALONE PWA WINDOW HEADER (Chrome / Brave WebAPK style)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (webViewInstance?.canGoBack() == true) {
-                                    webViewInstance?.goBack()
-                                } else {
-                                    viewModel.setStandalonePwaMode(false)
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = TextPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(18.dp),
-                            color = SurfaceCard,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .padding(horizontal = 4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = null,
-                                    tint = EmeraldMesh,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = currentResource?.title ?: (try { Uri.parse(urlInput).host ?: "Web App" } catch (_: Exception) { "Web App" }),
-                                    color = TextPrimary,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = EmeraldMesh.copy(alpha = 0.15f),
-                                    modifier = Modifier.padding(start = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "STANDALONE",
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = EmeraldMesh,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                if (isWebLoading) {
-                                    webViewInstance?.stopLoading()
-                                    isWebLoading = false
-                                    viewModel.setIsLoading(false)
-                                } else {
-                                    com.example.util.BrowserStateLog.reload("User clicked reload button")
-                                    webViewInstance?.reload()
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isWebLoading) Icons.Default.Close else Icons.Default.Refresh,
-                                contentDescription = if (isWebLoading) "Stop" else "Reload",
-                                tint = ElectricCyan,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                viewModel.setStandalonePwaMode(false)
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInBrowser,
-                                contentDescription = "Open in Full Browser",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                } else if (isInputFocused) {
+        if (!isStandalonePwaMode) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("browser_address_bar"),
+                color = SurfaceDark,
+                tonalElevation = 6.dp,
+                shadowElevation = 4.dp
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
+                    if (isInputFocused) {
                     // FOCUSED SEARCH HEADER (Industry Standard Chrome/Safari/Brave UX)
                     Row(
                         modifier = Modifier
@@ -1658,19 +1547,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     leadingIcon = { Icon(Icons.Default.InstallMobile, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
-                                        val activeRes = viewModel.currentResource.value
-                                        val detectedPwa = viewModel.currentPagePwa.value
-                                        val rawUrl = detectedPwa?.url ?: activeRes?.url ?: if (urlInput.isNotBlank()) urlInput else "https://kaspa.org"
-                                        val pwaUrl = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) rawUrl else "https://$rawUrl"
-                                        val defaultHostTitle = try {
-                                            android.net.Uri.parse(pwaUrl).host?.removePrefix("www.")?.split(".")?.firstOrNull()?.replaceFirstChar { it.uppercase() } ?: "Kaspa App"
-                                        } catch (_: Exception) {
-                                            "Kaspa App"
-                                        }
-                                        val pwaTitle = detectedPwa?.name?.takeIf { it.isNotBlank() }
-                                            ?: activeRes?.title?.takeIf { it.isNotBlank() }
-                                            ?: defaultHostTitle
-                                        viewModel.installPwa(context, pwaTitle, pwaUrl, detectedPwa?.manifestUrl, detectedPwa?.iconUrl)
+                                        showInstallSheet = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1874,6 +1751,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
             }
         }
+    }
 
     // BROWSER VIEWPORT: Full-Screen in-app rendering
         Box(
