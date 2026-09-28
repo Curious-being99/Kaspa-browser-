@@ -62,10 +62,11 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val onboardingCompleted by viewModel.onboardingCompleted.collectAsState()
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
-    var onboardingStep by remember {
-        mutableStateOf(if (sharedPrefs.getBoolean("has_seen_tutorial_v1", false)) 2 else 0)
+    var onboardingStep by remember(onboardingCompleted) {
+        mutableStateOf(if (onboardingCompleted || sharedPrefs.getBoolean("has_seen_tutorial_v1", false)) 2 else 0)
     }
 
     val defaultBrowserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -141,6 +142,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     ) {
                         TextButton(
                             onClick = {
+                                viewModel.setOnboardingCompleted(true)
                                 sharedPrefs.edit().putBoolean("has_seen_tutorial_v1", true).apply()
                                 onboardingStep = 2
                                 requestDefaultBrowser()
@@ -316,6 +318,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         // Enter Browser Button
                         Button(
                             onClick = {
+                                viewModel.setOnboardingCompleted(true)
                                 sharedPrefs.edit().putBoolean("has_seen_tutorial_v1", true).apply()
                                 onboardingStep = 2
                                 requestDefaultBrowser()

@@ -100,6 +100,7 @@ class MainActivity : FragmentActivity() {
       try {
         com.example.network.CronetClientFactory.initialize(applicationContext)
         com.example.network.WebViewAssetLruCache.initialize(applicationContext)
+        com.example.util.KaspaWebViewConfigurator.initServiceWorkerSupport()
       } catch (e: Exception) {
         Log.w("MainActivity", "Failed to initialize network services: ${e.message}")
       }
@@ -110,6 +111,35 @@ class MainActivity : FragmentActivity() {
         Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
       }
     }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    com.example.util.BrowserStateLog.navigation("MainActivity onStart - preserving state without reload")
+  }
+
+  override fun onResume() {
+    super.onResume()
+    com.example.util.BrowserStateLog.navigation("MainActivity onResume - preserving state without reload")
+    viewModel.webViewTabManager.updateActivityContext(this)
+  }
+
+  override fun onPause() {
+    super.onPause()
+    com.example.util.BrowserStateLog.save("MainActivity onPause - saving tabs state")
+    viewModel.saveAllTabsState("onPause")
+  }
+
+  override fun onStop() {
+    super.onStop()
+    com.example.util.BrowserStateLog.save("MainActivity onStop - saving tabs state")
+    viewModel.saveAllTabsState("onStop")
+  }
+
+  override fun onSaveInstanceState(outState: Bundle) {
+    super.onSaveInstanceState(outState)
+    com.example.util.BrowserStateLog.save("MainActivity onSaveInstanceState - preserving tabs")
+    viewModel.saveAllTabsState("onSaveInstanceState")
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -129,16 +159,21 @@ class MainActivity : FragmentActivity() {
 
   private fun checkAndRoutePwaIntent(intent: Intent?): Boolean {
     if (intent == null) return false
-    val pwaUrl = intent.getStringExtra("PWA_URL")
     val isPwa = intent.getBooleanExtra("IS_PWA_MODE", false) ||
         intent.getBooleanExtra("PWA_STANDALONE", false) ||
         intent.action == "com.example.action.LAUNCH_PWA"
+    val pwaUrl = intent.getStringExtra("PWA_URL")
+        ?: intent.getStringExtra("PWA_START_URL")
+        ?: (if (isPwa) intent.dataString else null)
     if (!pwaUrl.isNullOrBlank() && isPwa) {
+      Log.d("PWA", "[PWA] MainActivity routing PWA intent: $pwaUrl")
       val pwaIntent = Intent(this, com.example.ui.PwaStandaloneActivity::class.java).apply {
-        action = Intent.ACTION_VIEW
+        action = "com.example.action.LAUNCH_PWA"
         data = android.net.Uri.parse(pwaUrl)
         putExtra("PWA_URL", pwaUrl)
         putExtra("PWA_TITLE", intent.getStringExtra("PWA_TITLE") ?: "")
+        putExtra("IS_PWA_MODE", true)
+        putExtra("PWA_STANDALONE", true)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
       }
       startActivity(pwaIntent)
@@ -156,6 +191,8 @@ class MainActivity : FragmentActivity() {
     }
     val targetUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
     if (!targetUrl.isNullOrBlank()) {
+      Log.d("PWA", "[PWA] MainActivity handling external VIEW intent: $targetUrl")
+      viewModel.setPendingExplicitUrl(targetUrl)
       val now = System.currentTimeMillis()
       if (targetUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {
         lastHandledIntentUrl = targetUrl

@@ -1,6 +1,5 @@
 package com.example.ui
 
-import android.util.Log
 import com.example.data.*
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -549,13 +548,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
                 try {
+                    com.example.util.BrowserStateLog.save("Lifecycle ON_PAUSE: saving active tab state")
+                    viewModel.saveActiveTabState("Lifecycle ON_PAUSE")
                     webViewInstance?.onPause()
-                    webViewInstance?.pauseTimers()
+                } catch (_: Exception) {}
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                try {
+                    com.example.util.BrowserStateLog.save("Lifecycle ON_STOP: saving active tab state")
+                    viewModel.saveActiveTabState("Lifecycle ON_STOP")
                 } catch (_: Exception) {}
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 try {
+                    com.example.util.BrowserStateLog.navigation("Lifecycle ON_RESUME: preserving active tab without reload")
                     webViewInstance?.onResume()
-                    webViewInstance?.resumeTimers()
                 } catch (_: Exception) {}
             }
         }
@@ -575,8 +580,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 customVideoCallback = null
             } catch (_: Exception) {}
             try {
+                viewModel.saveActiveTabState("DisposableEffect onDispose")
                 webViewInstance?.onPause()
-                webViewInstance?.pauseTimers()
             } catch (_: Exception) {}
         }
     }
@@ -661,6 +666,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             if (restoreUrl.isNotBlank() && !restoreUrl.startsWith("data:")) {
                 webViewInstance?.loadUrl(restoreUrl)
             } else {
+                com.example.util.BrowserStateLog.reload("Exit Reader Mode reload")
                 webViewInstance?.reload()
             }
             viewModel.setStatusMessage("Exited Reader Mode")
@@ -1032,6 +1038,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     isWebLoading = false
                                     viewModel.setIsLoading(false)
                                 } else {
+                                    com.example.util.BrowserStateLog.reload("User clicked reload button")
                                     webViewInstance?.reload()
                                 }
                             },
@@ -1423,6 +1430,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                     isWebLoading = false
                                                     viewModel.setIsLoading(false)
                                                 } else {
+                                                    com.example.util.BrowserStateLog.reload("User clicked omnibar reload")
                                                     webViewInstance?.reload()
                                                 }
                                             },
@@ -1867,7 +1875,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             )
                             setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
 
-                            val webView = WebView(ctx).apply {
+                            val currentTabId = activeTabId ?: tabs.firstOrNull()?.id ?: "default_tab"
+                            val currentTab = tabs.find { it.id == currentTabId }
+                            val savedBundle = com.example.util.BrowserTabWebViewManager.byteArrayToBundle(currentTab?.webViewState)
+
+                            val (webView, isNewlyCreated) = viewModel.webViewTabManager.getOrCreateWebView(
+                                tabId = currentTabId,
+                                context = ctx,
+                                savedStateBundle = savedBundle
+                            ) { newWv ->
+                                newWv.apply {
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -1876,7 +1893,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             setInitialScale(0)
                             overScrollMode = android.view.View.OVER_SCROLL_NEVER
                             isNestedScrollingEnabled = false
-                            setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                            setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
                                 val atTop = (scrollY <= 0 && !canScrollVertically(-1))
                                 val swipe = parent as? BrowserSwipeRefreshLayout
                                 if (!atTop) {
@@ -1887,6 +1904,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } else if (swipe?.isGestureAllowed == true) {
                                     swipe.isEnabled = true
                                 }
+                                viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
                             }
                             isHapticFeedbackEnabled = true
                             isVerticalScrollBarEnabled = false
@@ -1929,7 +1947,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(true)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
@@ -2000,17 +2018,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                                         val target = if (!url.isNullOrBlank()) url else (this@apply.url ?: urlInput)
                                         if (target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)) {
-                                            if (this@apply.url == target) {
-                                                Log.d("BrowserState", "[BrowserState] retryConnection: URL match, skipping reload")
-                                                return@post
-                                            }
                                             viewModel.updateCurrentUrl(target)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = target.contains("chromewebstore.google.com") || target.contains("chrome.google.com/webstore")
                                             val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
                                             this@apply.tag = Pair(target, System.currentTimeMillis().toInt())
                                             this@apply.loadUrl(target, headers)
-                                            Log.d("BrowserState", "[BrowserState] retryConnection: $target")
                                         } else {
                                             isWebLoading = true
                                             viewModel.resolveUrl()
@@ -2538,9 +2551,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             view?.tag = Pair(it, navigationSessionId)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
-                                            // Persist state: URL change
-                                            viewModel.updateActiveTabMetadata(it, view?.title ?: it)
-                                            Log.d("BrowserState", "[BrowserState] navigation: $it")
+                                            com.example.util.BrowserStateLog.navigation("Navigation complete for $it")
+                                            viewModel.scheduleSaveDebounced("Navigation complete: $it")
+                                            activeTabId?.let { tabId ->
+                                                val savedScroll = viewModel.webViewTabManager.getTabScroll(tabId)
+                                                if (savedScroll != null && (savedScroll.first > 0 || savedScroll.second > 0)) {
+                                                    view?.post {
+                                                        try {
+                                                            view.scrollTo(savedScroll.first, savedScroll.second)
+                                                        } catch (_: Throwable) {}
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
 
@@ -3002,9 +3024,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                             webViewInstance = this
                         }
+                        }
 
+                        (webView.parent as? ViewGroup)?.removeView(webView)
                         addView(webView)
+                        webViewInstance = webView
                         targetWebView = webView
+
+                        if (!isNewlyCreated) {
+                            com.example.util.BrowserStateLog.tabSwitch("Reusing preserved WebView for tab $currentTabId (current url=${webView.url})")
+                            if (currentTab != null && (currentTab.scrollX > 0 || currentTab.scrollY > 0)) {
+                                webView.scrollTo(currentTab.scrollX, currentTab.scrollY)
+                                com.example.util.BrowserStateLog.restore("Restored scroll for tab $currentTabId to (${currentTab.scrollX}, ${currentTab.scrollY})")
+                            }
+                        }
 
                         setOnChildScrollUpCallback { _, _ ->
                             webView.canScrollVertically(-1) || webView.scrollY > 0 || !startedAtTop
@@ -3012,6 +3045,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         setOnRefreshListener {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            com.example.util.BrowserStateLog.reload("User pulled to refresh")
                             val currentUrl = (webView.tag as? Pair<*, *>)?.first as? String
                                 ?: (if (webView.url?.startsWith("kaspa-error://") == true) urlInput else (webView.url ?: urlInput))
                             val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
@@ -3105,12 +3139,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val isRecentDownload = (resource.url == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
                             val webViewCurrentUrl = webView.url
                             val isAlreadyAtUrl = !webViewCurrentUrl.isNullOrBlank() && 
-                                (webViewCurrentUrl == resource.url || 
+                                (com.example.util.BrowserTabWebViewManager.isSameUrl(webViewCurrentUrl, resource.url) || 
                                  webViewCurrentUrl.trimEnd('/') == resource.url.trimEnd('/'))
                             val isUrlChanged = tagUrl != resource.url && !isAlreadyAtUrl
                             val isNewSession = (tagId != navigationSessionId || isUrlChanged) && !isRecentDownload
 
-                            if (isNewSession) {
+                            if (isAlreadyAtUrl) {
+                                com.example.util.BrowserStateLog.loadUrl("Prevented unnecessary reload: currentUrl ($webViewCurrentUrl) matches requested destination (${resource.url})")
+                                webView.tag = Pair(resource.url, navigationSessionId)
+                            } else if (isNewSession) {
+                                com.example.util.BrowserStateLog.loadUrl("Navigating tab to ${resource.url} (was: $webViewCurrentUrl)")
                                 webView.tag = Pair(resource.url, navigationSessionId)
                                 val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
                                     resource.url.replaceFirst("http://", "https://", ignoreCase = true)
@@ -3132,6 +3170,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     viewModel.setUrlInput(targetUrl)
                                 }
                                 if (!targetUrl.isNullOrBlank()) {
+                                    com.example.util.BrowserStateLog.loadUrl("User-Agent toggled, reloading with new UA: $targetUrl")
                                     val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
                                     webView.loadUrl(targetUrl, desktopHeaders)
                                 }
@@ -3178,9 +3217,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     val webView = (0 until containerLayout.childCount)
                         .mapNotNull { containerLayout.getChildAt(it) as? WebView }
                         .firstOrNull()
-                    webView?.stopLoading()
-                    webView?.loadUrl("about:blank")
-                    webView?.destroy()
+                    if (webView != null) {
+                        val tabId = activeTabId ?: ""
+                        if (tabId.isNotBlank()) {
+                            viewModel.updateTabScroll(tabId, webView.scrollX, webView.scrollY)
+                            viewModel.webViewTabManager.saveTabBundle(tabId)
+                        }
+                        com.example.util.BrowserStateLog.save("Preserved WebView on UI release for tab $tabId (no reload/destroy)")
+                        containerLayout.removeView(webView)
+                    }
                 },
                     modifier = Modifier.fillMaxSize()
                 )

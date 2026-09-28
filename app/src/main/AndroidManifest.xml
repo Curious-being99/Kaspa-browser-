@@ -81,6 +81,14 @@
                 <action android:name="com.example.action.LAUNCH_PWA" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:scheme="kas" />
+                <data android:scheme="kaspa" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.example.action.LAUNCH_PWA" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

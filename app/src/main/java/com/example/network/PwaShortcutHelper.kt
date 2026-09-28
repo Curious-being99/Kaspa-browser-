@@ -34,7 +34,18 @@ data class InstalledPwa(
     val iconUrl: String? = null,
     val manifestUrl: String? = null,
     val hasManifest: Boolean = false,
+    val startUrl: String? = null,
+    val scope: String? = null,
+    val display: String? = "standalone",
     val installedAt: Long = System.currentTimeMillis()
+)
+
+data class PwaManifestResult(
+    val logoBitmap: Bitmap?,
+    val title: String?,
+    val startUrl: String? = null,
+    val scope: String? = null,
+    val display: String = "standalone"
 )
 
 object PwaShortcutHelper {
@@ -133,7 +144,7 @@ object PwaShortcutHelper {
 
         // Fetch manifest and download the official website webpage PWA logo
         val pwaInfo = fetchAndDownloadWebsitePwa(url, manifestUrl, iconUrl)
-        val logoBitmap = pwaInfo.first
+        val logoBitmap = pwaInfo.logoBitmap
         if (logoBitmap == null) {
             withContext(Dispatchers.Main) {
                 Toast.makeText(
@@ -145,14 +156,23 @@ object PwaShortcutHelper {
             return@withContext Pair(false, "Website does not support PWA (no web app manifest found)")
         }
 
-        val appTitle = pwaInfo.second?.ifBlank { null } 
+        val appTitle = pwaInfo.title?.ifBlank { null } 
             ?: fallbackTitle.ifBlank { null } 
             ?: Uri.parse(url).host?.removePrefix("www.")?.replaceFirstChar { it.uppercase() } 
             ?: "Web App"
 
+        val launchUrl = pwaInfo.startUrl ?: url
+
         // Pin to device as a full standalone PWA with the downloaded logo
         withContext(Dispatchers.Main) {
-            installPwaToDeviceWithWebLogo(context, appTitle, url, logoBitmap)
+            installPwaToDeviceWithWebLogo(
+                context = context,
+                title = appTitle,
+                url = launchUrl,
+                webpageLogoBitmap = logoBitmap,
+                startUrl = pwaInfo.startUrl,
+                scope = pwaInfo.scope
+            )
         }
     }
 
@@ -163,7 +183,9 @@ object PwaShortcutHelper {
         context: Context,
         title: String,
         url: String,
-        webpageLogoBitmap: Bitmap
+        webpageLogoBitmap: Bitmap,
+        startUrl: String? = null,
+        scope: String? = null
     ): Pair<Boolean, String> {
         try {
             val cleanTitle = title.trim().ifBlank { "Web App" }
@@ -173,6 +195,8 @@ object PwaShortcutHelper {
                 data = Uri.parse(url)
                 putExtra("PWA_URL", url)
                 putExtra("PWA_TITLE", cleanTitle)
+                if (!startUrl.isNullOrBlank()) putExtra("PWA_START_URL", startUrl)
+                if (!scope.isNullOrBlank()) putExtra("PWA_SCOPE", scope)
                 putExtra("IS_PWA_MODE", true)
                 putExtra("PWA_STANDALONE", true)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
@@ -220,10 +244,13 @@ object PwaShortcutHelper {
         pageUrl: String,
         manifestUrl: String?,
         iconUrl: String?
-    ): Pair<Bitmap?, String?> = withContext(Dispatchers.IO) {
+    ): PwaManifestResult = withContext(Dispatchers.IO) {
         var foundIconUrl: String? = null
         var pwaTitle: String? = null
         var isPwaSupported = false
+        var pwaStartUrl: String? = null
+        var pwaScope: String? = null
+        var pwaDisplay: String = "standalone"
 
         // 1. Discover or resolve manifest URL
         val targetManifestUrl = manifestUrl?.ifBlank { null } ?: discoverManifestUrl(pageUrl)
@@ -240,6 +267,16 @@ object PwaShortcutHelper {
                     val body = conn.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(body)
                     pwaTitle = json.optString("short_name", "").ifBlank { json.optString("name", "") }
+                    val rawStart = json.optString("start_url", "").ifBlank { null }
+                    if (!rawStart.isNullOrBlank()) {
+                        pwaStartUrl = resolveAbsoluteUrl(resolvedManifestUrl, rawStart)
+                    }
+                    val rawScope = json.optString("scope", "").ifBlank { null }
+                    if (!rawScope.isNullOrBlank()) {
+                        pwaScope = resolveAbsoluteUrl(resolvedManifestUrl, rawScope)
+                    }
+                    pwaDisplay = json.optString("display", "standalone").ifBlank { "standalone" }
+
                     val iconsArray = json.optJSONArray("icons")
                     if (iconsArray != null && iconsArray.length() > 0) {
                         isPwaSupported = true
@@ -267,7 +304,7 @@ object PwaShortcutHelper {
 
         // If website has no manifest and no PWA support indication, reject
         if (targetManifestUrl.isNullOrBlank() && !isPwaSupported && iconUrl.isNullOrBlank()) {
-            return@withContext Pair(null, null)
+            return@withContext PwaManifestResult(null, null)
         }
 
         // 2. Fallback to iconUrl if manifest did not specify an icon or as secondary source
@@ -301,7 +338,7 @@ object PwaShortcutHelper {
                         } else {
                             rawBitmap
                         }
-                        return@withContext Pair(scaledBitmap, pwaTitle)
+                        return@withContext PwaManifestResult(scaledBitmap, pwaTitle, pwaStartUrl, pwaScope, pwaDisplay)
                     }
                 }
             } catch (_: Exception) {}
@@ -310,9 +347,9 @@ object PwaShortcutHelper {
         if (isPwaSupported) {
             val hostTitle = Uri.parse(pageUrl).host?.removePrefix("www.")?.replaceFirstChar { it.uppercase() } ?: "Web App"
             val fallbackBitmap = generateCustomBadgeBitmap(pwaTitle ?: hostTitle, Color.parseColor("#00E5FF"))
-            Pair(fallbackBitmap, pwaTitle)
+            PwaManifestResult(fallbackBitmap, pwaTitle, pwaStartUrl, pwaScope, pwaDisplay)
         } else {
-            Pair(null, null)
+            PwaManifestResult(null, null)
         }
     }
 

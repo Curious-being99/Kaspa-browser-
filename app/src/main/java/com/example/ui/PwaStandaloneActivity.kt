@@ -1,15 +1,19 @@
 package com.example.ui
 
 import android.annotation.SuppressLint
+import android.app.DownloadManager
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
-import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -19,12 +23,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,47 +37,43 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.example.MainActivity
+import com.example.network.CronetClientFactory
 import com.example.network.KaspaPrivacyEngine
 import com.example.network.NativeIntentRoutingEngine
 import com.example.network.WebViewAssetLruCache
 import com.example.ui.theme.*
+import com.example.util.BrowserTabWebViewManager
+import com.example.util.KaspaWebViewConfigurator
 import java.io.ByteArrayInputStream
+import java.io.File
 
 /**
  * Dedicated Standalone Web Application (PWA / WebAPK) Activity.
  *
- * Provides:
- * 1. 100% Standalone Web Viewport (No Omnibar, no tab switcher button, no bottom bar).
- * 2. Full Browser Engine Parity:
- *    - Desktop Site Mode Toggle (Desktop User-Agent + Viewport scaling)
- *    - Privacy Shield & Ad/Tracker Blocking via KaspaPrivacyEngine
- *    - Full File Chooser & Camera KYC upload integration
- *    - Geolocation & Media Permissions
- *    - Fullscreen HTML5 Video playback
- *    - External Native App Intent Routing (Spotify, Telegram, YouTube, Wallets)
- *    - Zero-copy GPU caching & pull-to-refresh without accidental triggers
- * 3. Independent Task Space with FLAG_ACTIVITY_NEW_DOCUMENT for separate window in Android Multitasking.
+ * Implements complete Web Platform standards for installed PWAs:
+ * 1. Full Browser Engine Parity (JavaScript, DOM Storage, IndexedDB, Cookies, Service Worker).
+ * 2. Independent Window / Document Space (FLAG_ACTIVITY_NEW_DOCUMENT).
+ * 3. Lifecycle-safe state restoration with zero unnecessary reloads.
+ * 4. Error recovery protection against blank screens.
  */
 class PwaStandaloneActivity : FragmentActivity() {
 
     companion object {
-        private const val TAG = "PwaStandaloneActivity"
+        private const val TAG = "PWA"
     }
 
     private var targetUrl: String = ""
     private var appTitle: String = ""
     private var webView: WebView? = null
+    private var savedWebViewBundle: Bundle? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,7 +94,30 @@ class PwaStandaloneActivity : FragmentActivity() {
             defaultHandler?.uncaughtException(thread, throwable)
         }
 
+        // Initialize WebView cache directories synchronously before UI / WebView initialization
+        try {
+            val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
+            if (!crashpadDir.exists()) crashpadDir.mkdirs()
+            val wasmCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
+            if (!wasmCacheDir.exists()) wasmCacheDir.mkdirs()
+            val jsCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
+            if (!jsCacheDir.exists()) jsCacheDir.mkdirs()
+        } catch (_: Exception) {}
+
+        // Initialize background networking and ServiceWorker subsystem
+        try {
+            CronetClientFactory.initialize(applicationContext)
+            WebViewAssetLruCache.initialize(applicationContext)
+            KaspaWebViewConfigurator.initServiceWorkerSupport()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to initialize network services in PWA: ${e.message}")
+        }
+
         extractIntentData(intent)
+        savedWebViewBundle = savedInstanceState?.getBundle("PWA_WEBVIEW_STATE")
+        if (savedWebViewBundle != null) {
+            Log.d(TAG, "[PWA] state restored from savedInstanceState")
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -110,6 +134,7 @@ class PwaStandaloneActivity : FragmentActivity() {
                 PwaStandaloneScreen(
                     initialUrl = targetUrl,
                     initialTitle = appTitle,
+                    savedStateBundle = savedWebViewBundle,
                     onOpenInBrowser = { url ->
                         val browserIntent = Intent(this@PwaStandaloneActivity, MainActivity::class.java).apply {
                             action = Intent.ACTION_VIEW
@@ -121,9 +146,43 @@ class PwaStandaloneActivity : FragmentActivity() {
                         finish()
                     },
                     onCloseApp = { finish() },
-                    onWebViewCreated = { wv -> webView = wv }
+                    onWebViewCreated = { wv ->
+                        webView = wv
+                        Log.d(TAG, "[PWA] WebView created for $targetUrl")
+                    }
                 )
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Idempotent: Never call webView.reload() or loadUrl() from onStart
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Idempotent: Never call webView.reload() or loadUrl() from onResume
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            CookieManager.getInstance().flush()
+        } catch (_: Exception) {}
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        try {
+            val bundle = Bundle()
+            webView?.saveState(bundle)
+            outState.putBundle("PWA_WEBVIEW_STATE", bundle)
+            outState.putString("PWA_SAVED_URL", webView?.url ?: targetUrl)
+            outState.putString("PWA_SAVED_TITLE", appTitle)
+            Log.d(TAG, "[PWA] state saved")
+        } catch (e: Exception) {
+            Log.w(TAG, "Notice saving PWA instance state: ${e.message}")
         }
     }
 
@@ -131,17 +190,39 @@ class PwaStandaloneActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         extractIntentData(intent)
-        if (targetUrl.isNotBlank()) {
+        val currentWvUrl = webView?.url
+        if (targetUrl.isNotBlank() && !BrowserTabWebViewManager.isSameUrl(currentWvUrl, targetUrl)) {
+            Log.d(TAG, "[PWA] onNewIntent: loading new URL $targetUrl (was: $currentWvUrl)")
             webView?.loadUrl(targetUrl)
+        } else {
+            Log.d(TAG, "[PWA] onNewIntent: prevented reload because URL matches ($currentWvUrl)")
         }
     }
 
     private fun extractIntentData(intent: Intent?) {
-        targetUrl = intent?.getStringExtra("PWA_URL")
-            ?: intent?.dataString
-            ?: "https://kaspa.org"
+        val action = intent?.action ?: Intent.ACTION_VIEW
+        val dataUri = intent?.data
+        val dataUrl = dataUri?.toString()
+        val extraUrl = intent?.getStringExtra("PWA_URL")
+            ?: intent?.getStringExtra("PWA_START_URL")
+
+        // Priority: Explicit PWA Intent extra > Intent data URI > default fallback
+        targetUrl = when {
+            !extraUrl.isNullOrBlank() -> extraUrl
+            !dataUrl.isNullOrBlank() -> dataUrl
+            else -> "https://kaspa.org"
+        }
+
         appTitle = intent?.getStringExtra("PWA_TITLE")
-            ?: try { Uri.parse(targetUrl).host ?: "Web App" } catch (_: Exception) { "Web App" }
+            ?: intent?.getStringExtra("title")
+            ?: runCatching { Uri.parse(targetUrl).host }.getOrNull()
+            ?: "Web App"
+
+        // Diagnostics logging (Requirements 1 & 16)
+        Log.d(TAG, "[PWA] intent=$intent")
+        Log.d(TAG, "[PWA] action=$action")
+        Log.d(TAG, "[PWA] data=$dataUri")
+        Log.d(TAG, "[PWA] launchUrl=$targetUrl")
     }
 
     override fun onDestroy() {
@@ -160,12 +241,12 @@ class PwaStandaloneActivity : FragmentActivity() {
 fun PwaStandaloneScreen(
     initialUrl: String,
     initialTitle: String,
+    savedStateBundle: Bundle? = null,
     onOpenInBrowser: (String) -> Unit,
     onCloseApp: () -> Unit,
     onWebViewCreated: (WebView) -> Unit
 ) {
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
 
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var pageTitle by remember { mutableStateOf(initialTitle) }
@@ -174,11 +255,13 @@ fun PwaStandaloneScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var isDesktopMode by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var blockedAdsCount by remember { mutableIntStateOf(0) }
+    var canGoBack by remember { mutableStateOf(false) }
 
     var customVideoView by remember { mutableStateOf<View?>(null) }
     var customVideoCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     var uploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
+    var pendingPermissionRequest by remember { mutableStateOf<PermissionRequest?>(null) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     val fileChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -202,27 +285,43 @@ fun PwaStandaloneScreen(
         }
     }
 
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val req = pendingPermissionRequest
+        if (req != null) {
+            val allGranted = grants.values.all { it }
+            if (allGranted) {
+                req.grant(req.resources)
+            } else {
+                req.deny()
+            }
+            pendingPermissionRequest = null
+        }
+    }
 
-    fun applyDesktopMode(wv: WebView, desktop: Boolean) {
-        val defaultUa = WebSettings.getDefaultUserAgent(context)
+    fun applyDesktopModeToggle(wv: WebView, desktop: Boolean) {
+        val defaultDeviceUa = try {
+            WebSettings.getDefaultUserAgent(context)
+        } catch (_: Throwable) {
+            null
+        }
         wv.settings.apply {
             userAgentString = if (desktop) {
-                KaspaPrivacyEngine.getDesktopUserAgent(defaultUa)
+                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
             } else {
-                KaspaPrivacyEngine.getMobileUserAgent(defaultUa)
+                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
             }
             useWideViewPort = desktop
             loadWithOverviewMode = desktop
         }
         val target = wv.url ?: currentUrl
         if (target.isNotBlank() && !target.startsWith("data:")) {
-            val headers = KaspaPrivacyEngine.getDesktopHeaders(desktop, defaultUa)
-            wv.loadUrl(target, headers)
+            wv.loadUrl(target)
         }
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(ObsidianBg)
@@ -230,250 +329,188 @@ fun PwaStandaloneScreen(
             .navigationBarsPadding()
             .imePadding()
     ) {
-        // Fullscreen standalone web view
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                val density = ctx.resources.displayMetrics.density
-                val swipeLayout = SwipeRefreshLayout(ctx).apply {
-                    setColorSchemeColors(
-                        android.graphics.Color.parseColor("#00E5FF"),
-                        android.graphics.Color.parseColor("#10B981")
-                    )
-                    setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#121824"))
-                    setProgressViewOffset(true, -(64 * density).toInt(), (56 * density).toInt())
-                    setDistanceToTriggerSync((110 * density).toInt())
-                }
-
-                val wv = WebView(ctx).apply {
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-
-                    setLayerType(View.LAYER_TYPE_NONE, null)
-                    isHapticFeedbackEnabled = true
-                    isVerticalScrollBarEnabled = false
-                    isHorizontalScrollBarEnabled = false
-                    isNestedScrollingEnabled = false
-                    overScrollMode = View.OVER_SCROLL_NEVER
-
-                    setOnScrollChangeListener { _, _, scrollY, _, _ ->
-                        val atTop = (scrollY <= 0 && !canScrollVertically(-1))
-                        if (!atTop) {
-                            swipeLayout.isEnabled = false
-                            if (swipeLayout.isRefreshing) {
-                                swipeLayout.isRefreshing = false
-                            }
-                        } else {
-                            swipeLayout.isEnabled = true
-                        }
-                    }
-
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, false)
-                    }
-
-                    val defaultUa = WebSettings.getDefaultUserAgent(ctx)
-                    settings.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        databaseEnabled = true
-                        allowFileAccess = true
-                        allowContentAccess = true
-                        javaScriptCanOpenWindowsAutomatically = true
-                        mediaPlaybackRequiresUserGesture = false
-                        setSupportZoom(true)
-                        builtInZoomControls = true
-                        displayZoomControls = false
-                        useWideViewPort = isDesktopMode
-                        loadWithOverviewMode = isDesktopMode
-                        cacheMode = WebSettings.LOAD_DEFAULT
-                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        userAgentString = if (isDesktopMode) {
-                            KaspaPrivacyEngine.getDesktopUserAgent(defaultUa)
-                        } else {
-                            KaspaPrivacyEngine.getMobileUserAgent(defaultUa)
-                        }
-                    }
-
-                    val cookieManager = CookieManager.getInstance()
-                    cookieManager.setAcceptCookie(true)
-                    cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            super.onPageStarted(view, url, favicon)
-                            isLoading = true
-                            webProgress = 0.1f
-                            url?.let { currentUrl = it }
-                            val shieldScript = KaspaPrivacyEngine.getPrivacyShieldScript(
-                                safeGpuMode = false,
-                                isDesktop = isDesktopMode,
-                                baseUa = defaultUa
-                            )
-                            view?.evaluateJavascript(shieldScript, null)
-                        }
-
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            super.onPageFinished(view, url)
-                            isLoading = false
-                            isRefreshing = false
-                            swipeLayout.isRefreshing = false
-                            url?.let { currentUrl = it }
-                            view?.title?.let { if (it.isNotBlank()) pageTitle = it }
-                            CookieManager.getInstance().flush()
-
-                            // Soft Keyboard Focus Auto-Scroll Helper: Ensures input fields are never covered by keyboard
-                            view?.evaluateJavascript("""
-                                (function() {
-                                    if (window.__kaspaAutoKeyboardScrollInit) return;
-                                    window.__kaspaAutoKeyboardScrollInit = true;
-                                    document.addEventListener('focusin', function(e) {
-                                        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
-                                            setTimeout(function() {
-                                                try {
-                                                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                                                } catch(_) {}
-                                            }, 300);
-                                        }
-                                    }, true);
-                                })();
-                            """.trimIndent(), null)
-                        }
-
-                        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                            if (request == null) return null
-                            val reqUrl = request.url?.toString() ?: return null
-
-                            // CRITICAL: NEVER intercept or block main frame pages
-                            if (request.isForMainFrame) return null
-
-                            // Fast zero-copy cache check for static assets
-                            if (WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
-                                val cached = WebViewAssetLruCache.get(reqUrl)
-                                if (cached != null) return cached
-                            }
-
-                            // Ad & Tracker blocking for third-party scripts only
-                            if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
-                                blockedAdsCount++
-                                return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
-                            }
-
-                            return super.shouldInterceptRequest(view, request)
-                        }
-
-                        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                            val url = request?.url?.toString() ?: return false
-                            val hasGesture = request?.hasGesture() ?: false
-                            return NativeIntentRoutingEngine.routeUrl(ctx, url, hasGesture) { fallback ->
-                                view?.loadUrl(fallback)
-                            }
-                        }
-                    }
-
-                    webChromeClient = object : WebChromeClient() {
-                        override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                            webProgress = newProgress / 100f
-                            if (newProgress < 100) {
-                                isLoading = true
-                            } else {
-                                webProgress = 1.0f
-                                isLoading = false
-                                isRefreshing = false
-                                swipeLayout.isRefreshing = false
-                            }
-                        }
-
-                        override fun onReceivedTitle(view: WebView?, title: String?) {
-                            super.onReceivedTitle(view, title)
-                            title?.let { if (it.isNotBlank()) pageTitle = it }
-                        }
-
-                        override fun onShowFileChooser(
-                            webView: WebView?,
-                            filePathCallback: ValueCallback<Array<Uri>>?,
-                            fileChooserParams: FileChooserParams?
-                        ): Boolean {
-                            uploadCallback?.onReceiveValue(null)
-                            uploadCallback = filePathCallback
-                            return try {
-                                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-                                    type = "*/*"
-                                }
-                                val chooser = Intent.createChooser(intent, "Select File to Upload")
-                                fileChooserLauncher.launch(chooser)
-                                true
-                            } catch (_: Exception) {
-                                uploadCallback?.onReceiveValue(null)
-                                uploadCallback = null
-                                false
-                            }
-                        }
-
-                        override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                            if (customVideoView != null) {
-                                callback?.onCustomViewHidden()
-                                return
-                            }
-                            customVideoView = view
-                            customVideoCallback = callback
-                        }
-
-                        override fun onHideCustomView() {
-                            try {
-                                customVideoCallback?.onCustomViewHidden()
-                            } catch (_: Throwable) {}
-                            customVideoView = null
-                            customVideoCallback = null
-                        }
-
-                        override fun onGeolocationPermissionsShowPrompt(
-                            origin: String?,
-                            callback: GeolocationPermissions.Callback?
-                        ) {
-                            callback?.invoke(origin, true, false)
-                        }
-
-                        override fun onPermissionRequest(request: PermissionRequest?) {
-                            request?.grant(request.resources)
-                        }
-                    }
-
-                    val headers = KaspaPrivacyEngine.getDesktopHeaders(isDesktopMode, defaultUa)
-                    loadUrl(initialUrl, headers)
-                }
-
-                swipeLayout.setOnRefreshListener {
-                    isRefreshing = true
-                    wv.reload()
-                }
-
-                swipeLayout.addView(wv)
-                webViewRef = wv
-                onWebViewCreated(wv)
-                swipeLayout
-            }
-        )
-
-        // Fullscreen Custom Video Player Overlay
-        customVideoView?.let { videoView ->
-            AndroidView(
-                factory = { videoView },
+        // Standalone PWA Minimal Header
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF0F172A),
+            tonalElevation = 3.dp
+        ) {
+            Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black)
-            )
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (canGoBack) {
+                        IconButton(
+                            onClick = { webViewRef?.goBack() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = Color.White
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF1E293B)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Language,
+                                contentDescription = "PWA",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
+                    Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+                        Text(
+                            text = pageTitle.ifBlank { "Web App" },
+                            color = Color.White,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val hostDisplay = try { Uri.parse(currentUrl).host ?: currentUrl } catch (_: Exception) { currentUrl }
+                        Text(
+                            text = hostDisplay,
+                            color = TextMuted,
+                            fontSize = 10.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            isRefreshing = true
+                            webViewRef?.reload()
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Refresh",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "Options",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(Color(0xFF1E293B))
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "Desktop Site",
+                                            color = Color.White,
+                                            fontSize = 13.5.sp
+                                        )
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Switch(
+                                            checked = isDesktopMode,
+                                            onCheckedChange = { checked ->
+                                                isDesktopMode = checked
+                                                webViewRef?.let { wv -> applyDesktopModeToggle(wv, checked) }
+                                                showMenu = false
+                                            },
+                                            modifier = Modifier.padding(start = 8.dp)
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    isDesktopMode = !isDesktopMode
+                                    webViewRef?.let { wv -> applyDesktopModeToggle(wv, isDesktopMode) }
+                                    showMenu = false
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Open in Kaspa Browser",
+                                        color = Color.White,
+                                        fontSize = 13.5.sp
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.OpenInNew,
+                                        contentDescription = null,
+                                        tint = ElectricCyan
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenInBrowser(webViewRef?.url ?: currentUrl)
+                                }
+                            )
+
+                            HorizontalDivider(color = Color(0xFF334155))
+
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Close App",
+                                        color = Color(0xFFEF4444),
+                                        fontSize = 13.5.sp
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = null,
+                                        tint = Color(0xFFEF4444)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onCloseApp()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
 
-        // Loading Progress Bar at the top
+        // Loading Progress Indicator
         AnimatedVisibility(
             visible = isLoading && webProgress < 1f,
             enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            exit = fadeOut()
         ) {
             LinearProgressIndicator(
                 progress = { webProgress },
@@ -483,6 +520,414 @@ fun PwaStandaloneScreen(
                 color = ElectricCyan,
                 trackColor = Color.Transparent
             )
+        }
+
+        // Standalone Web Viewport
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    val swipeLayout = BrowserSwipeRefreshLayout(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setColorSchemeColors(
+                            android.graphics.Color.parseColor("#00E5FF"),
+                            android.graphics.Color.parseColor("#10B981")
+                        )
+                        setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
+                    }
+
+                    val wv = WebView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        setBackgroundColor(android.graphics.Color.parseColor("#0B0F17"))
+                        setLayerType(View.LAYER_TYPE_NONE, null)
+                        isHapticFeedbackEnabled = true
+                        isVerticalScrollBarEnabled = false
+                        isHorizontalScrollBarEnabled = false
+                        isNestedScrollingEnabled = false
+                        overScrollMode = View.OVER_SCROLL_NEVER
+                        setOnScrollChangeListener { _, _, scrollY, _, _ ->
+                            val atTop = (scrollY <= 0 && !canScrollVertically(-1))
+                            if (!atTop) {
+                                swipeLayout.isEnabled = false
+                                if (swipeLayout.isRefreshing) {
+                                    swipeLayout.isRefreshing = false
+                                }
+                            } else if (swipeLayout.isGestureAllowed) {
+                                swipeLayout.isEnabled = true
+                            }
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, false)
+                        }
+
+                        // Apply full web settings parity (Requirement 3)
+                        KaspaWebViewConfigurator.applyWebSettings(this, ctx, isDesktopMode)
+
+                        // Cookie configuration
+                        val cookieManager = CookieManager.getInstance()
+                        cookieManager.setAcceptCookie(true)
+                        cookieManager.setAcceptThirdPartyCookies(this, true)
+
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                super.onPageStarted(view, url, favicon)
+                                isLoading = true
+                                webProgress = 0.1f
+                                canGoBack = view?.canGoBack() == true
+                                url?.let {
+                                    currentUrl = it
+                                    Log.d("PWA", "[PWA] navigation started: $it")
+                                }
+                                val shieldScript = KaspaPrivacyEngine.getPrivacyShieldScript(
+                                    safeGpuMode = false,
+                                    isDesktop = isDesktopMode,
+                                    baseUa = WebSettings.getDefaultUserAgent(ctx)
+                                )
+                                view?.evaluateJavascript(shieldScript, null)
+                            }
+
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                super.onPageFinished(view, url)
+                                isLoading = false
+                                isRefreshing = false
+                                swipeLayout.isRefreshing = false
+                                canGoBack = view?.canGoBack() == true
+                                url?.let {
+                                    currentUrl = it
+                                    Log.d("PWA", "[PWA] navigation finished: $it")
+                                }
+                                view?.title?.let { if (it.isNotBlank()) pageTitle = it }
+                                try {
+                                    CookieManager.getInstance().flush()
+                                } catch (_: Exception) {}
+
+                                // Soft Keyboard Focus Auto-Scroll Helper
+                                view?.evaluateJavascript("""
+                                    (function() {
+                                        if (window.__kaspaAutoKeyboardScrollInit) return;
+                                        window.__kaspaAutoKeyboardScrollInit = true;
+                                        document.addEventListener('focusin', function(e) {
+                                            if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+                                                setTimeout(function() {
+                                                    try {
+                                                        e.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                                                    } catch(_) {}
+                                                }, 300);
+                                            }
+                                        }, true);
+                                    })();
+                                """.trimIndent(), null)
+                            }
+
+                            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                                if (request == null) return null
+                                val reqUrl = request.url?.toString() ?: return null
+
+                                // CRITICAL: NEVER intercept or block main frame pages
+                                if (request.isForMainFrame) return null
+
+                                val path = request.url?.path?.lowercase() ?: ""
+                                val isStyleOrFont = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
+                                        path.endsWith(".ttf") || path.endsWith(".otf") || path.endsWith(".eot")
+                                val isImageOrGraphic = path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+                                        path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".svg") ||
+                                        path.endsWith(".ico") || path.endsWith(".bmp") || path.endsWith(".avif")
+                                val isMedia = path.endsWith(".mp4") || path.endsWith(".webm") || path.endsWith(".mp3") ||
+                                        path.endsWith(".ogg") || path.endsWith(".m4a") || path.endsWith(".wav")
+
+                                if (isStyleOrFont || isImageOrGraphic || isMedia) {
+                                    // Static asset LRU cache lookup
+                                    if (WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
+                                        val cached = WebViewAssetLruCache.get(reqUrl)
+                                        if (cached != null) return cached
+                                    }
+                                    return null
+                                }
+
+                                // Ad & Tracker blocking for third-party scripts only
+                                val mainHost = runCatching { Uri.parse(view?.url ?: currentUrl).host?.lowercase() }.getOrNull()
+                                val reqHost = request.url?.host?.lowercase()
+                                val isFirstParty = mainHost != null && reqHost != null && (reqHost == mainHost || reqHost.endsWith(".$mainHost"))
+
+                                if (!isFirstParty && KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
+                                    return WebResourceResponse(
+                                        "text/plain",
+                                        "UTF-8",
+                                        403,
+                                        "Blocked by Shield",
+                                        mapOf("Access-Control-Allow-Origin" to "*"),
+                                        ByteArrayInputStream(ByteArray(0))
+                                    )
+                                }
+
+                                return super.shouldInterceptRequest(view, request)
+                            }
+
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val url = request?.url?.toString() ?: return false
+                                val hasGesture = request?.hasGesture() ?: false
+                                val uri = request?.url
+
+                                // Support internal PWA routing: same origin / domain stays within the PWA viewport
+                                val currentHost = runCatching { Uri.parse(view?.url ?: currentUrl).host?.lowercase() }.getOrNull() ?: ""
+                                val targetHost = uri?.host?.lowercase() ?: ""
+
+                                val isSameOrigin = targetHost.isNotEmpty() && (targetHost == currentHost || targetHost.endsWith(".$currentHost"))
+                                if (isSameOrigin && (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true))) {
+                                    // Let WebView handle client-side routing & standard same-domain pages internally
+                                    return false
+                                }
+
+                                return NativeIntentRoutingEngine.routeUrl(ctx, url, hasGesture) { fallback ->
+                                    view?.loadUrl(fallback)
+                                }
+                            }
+
+                            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                                super.onReceivedError(view, request, error)
+                                Log.e("PWA", "[PWA] Web resource error: ${error?.description} for ${request?.url}")
+                                if (request == null || request.isForMainFrame) {
+                                    isLoading = false
+                                    isRefreshing = false
+                                    swipeLayout.isRefreshing = false
+                                    Log.e("PWA", "[PWA] resource error: ${error?.description}")
+                                    val failingUrl = request?.url?.toString() ?: view?.url ?: currentUrl
+                                    val errorHtml = KaspaWebViewConfigurator.generateErrorHtml(failingUrl, error?.description?.toString())
+                                    view?.loadDataWithBaseURL("kaspa-error://offline/", errorHtml, "text/html", "UTF-8", failingUrl)
+                                }
+                            }
+
+                            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
+                                super.onReceivedHttpError(view, request, errorResponse)
+                                Log.w("PWA", "[PWA] HTTP error: ${errorResponse?.statusCode} for ${request?.url}")
+                            }
+
+                            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
+                                handler?.cancel()
+                                isLoading = false
+                                isRefreshing = false
+                                swipeLayout.isRefreshing = false
+                                val failingUrl = error?.url ?: currentUrl
+                                val sslReason = when (error?.primaryError) {
+                                    android.net.http.SslError.SSL_EXPIRED -> "The SSL certificate for this site has expired."
+                                    android.net.http.SslError.SSL_IDMISMATCH -> "The SSL certificate host does not match the requested domain."
+                                    android.net.http.SslError.SSL_UNTRUSTED -> "The certificate authority is untrusted or self-signed."
+                                    android.net.http.SslError.SSL_NOTYETVALID -> "The SSL certificate is not yet valid."
+                                    android.net.http.SslError.SSL_DATE_INVALID -> "The device clock or SSL certificate date is invalid."
+                                    else -> "SSL Certificate handshake verification failed."
+                                }
+                                val warningPage = KaspaWebViewConfigurator.generateSslErrorHtml(failingUrl, sslReason)
+                                view?.loadDataWithBaseURL(null, warningPage, "text/html", "UTF-8", null)
+                            }
+
+                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                val didCrash = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) detail?.didCrash() == true else true
+                                Log.e("PWA", "[PWA] renderer process gone (didCrash=$didCrash)")
+                                try {
+                                    (view?.parent as? ViewGroup)?.removeView(view)
+                                    view?.destroy()
+                                } catch (_: Exception) {}
+                                return true
+                            }
+                        }
+
+                        webChromeClient = object : WebChromeClient() {
+                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                webProgress = newProgress / 100f
+                                if (newProgress < 100) {
+                                    isLoading = true
+                                } else {
+                                    webProgress = 1.0f
+                                    isLoading = false
+                                    isRefreshing = false
+                                    swipeLayout.isRefreshing = false
+                                }
+                            }
+
+                            override fun onReceivedTitle(view: WebView?, title: String?) {
+                                super.onReceivedTitle(view, title)
+                                title?.let { if (it.isNotBlank()) pageTitle = it }
+                            }
+
+                            override fun onShowFileChooser(
+                                webView: WebView?,
+                                filePathCallback: ValueCallback<Array<Uri>>?,
+                                fileChooserParams: FileChooserParams?
+                            ): Boolean {
+                                uploadCallback?.onReceiveValue(null)
+                                uploadCallback = filePathCallback
+                                return try {
+                                    val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "*/*"
+                                    }
+                                    val chooser = Intent.createChooser(intent, "Select File to Upload")
+                                    fileChooserLauncher.launch(chooser)
+                                    true
+                                } catch (_: Exception) {
+                                    uploadCallback?.onReceiveValue(null)
+                                    uploadCallback = null
+                                    false
+                                }
+                            }
+
+                            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                                if (customVideoView != null) {
+                                    callback?.onCustomViewHidden()
+                                    return
+                                }
+                                customVideoView = view
+                                customVideoCallback = callback
+                            }
+
+                            override fun onHideCustomView() {
+                                try {
+                                    customVideoCallback?.onCustomViewHidden()
+                                } catch (_: Throwable) {}
+                                customVideoView = null
+                                customVideoCallback = null
+                            }
+
+                            override fun onGeolocationPermissionsShowPrompt(
+                                origin: String?,
+                                callback: GeolocationPermissions.Callback?
+                            ) {
+                                callback?.invoke(origin, true, false)
+                            }
+
+                            override fun onPermissionRequest(request: PermissionRequest?) {
+                                if (request != null) {
+                                    pendingPermissionRequest = request
+                                    val permissions = mutableListOf<String>()
+                                    if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                                        permissions.add(android.Manifest.permission.RECORD_AUDIO)
+                                    }
+                                    if (request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                                        permissions.add(android.Manifest.permission.CAMERA)
+                                    }
+                                    if (permissions.isNotEmpty()) {
+                                        permissionLauncher.launch(permissions.toTypedArray())
+                                    } else {
+                                        request.grant(request.resources)
+                                        pendingPermissionRequest = null
+                                    }
+                                }
+                            }
+
+                            override fun onCreateWindow(
+                                view: WebView?,
+                                isDialog: Boolean,
+                                isUserGesture: Boolean,
+                                resultMsg: android.os.Message?
+                            ): Boolean {
+                                if (resultMsg == null || view == null) return false
+                                val tempWebView = WebView(view.context).apply {
+                                    settings.javaScriptEnabled = true
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onPageStarted(wv: WebView?, url: String?, favicon: Bitmap?) {
+                                            super.onPageStarted(wv, url, favicon)
+                                            val target = url ?: return
+                                            wv?.stopLoading()
+                                            view.loadUrl(target)
+                                        }
+                                    }
+                                }
+                                val transport = resultMsg.obj as? WebView.WebViewTransport
+                                if (transport != null) {
+                                    transport.webView = tempWebView
+                                    resultMsg.sendToTarget()
+                                    return true
+                                }
+                                return false
+                            }
+
+                            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                                Toast.makeText(ctx, message ?: "", Toast.LENGTH_SHORT).show()
+                                result?.confirm()
+                                return true
+                            }
+
+                            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                                result?.confirm()
+                                return true
+                            }
+                        }
+
+                        // Download Handling
+                        setDownloadListener { url, userAgent, contentDisposition, mimetype, contentLength ->
+                            try {
+                                val filename = URLUtil.guessFileName(url, contentDisposition, mimetype)
+                                val cookies = try { CookieManager.getInstance().getCookie(url) } catch (_: Exception) { null }
+                                val request = DownloadManager.Request(Uri.parse(url)).apply {
+                                    setMimeType(mimetype)
+                                    cookies?.let { addRequestHeader("Cookie", it) }
+                                    addRequestHeader("User-Agent", userAgent)
+                                    setDescription("Downloading $filename")
+                                    setTitle(filename)
+                                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                    setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
+                                }
+                                val dm = ctx.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                                dm?.enqueue(request)
+                                Toast.makeText(ctx, "Downloading $filename", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(ctx, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        // In-process state restoration check (Requirement 11)
+                        var stateRestored = false
+                        if (savedStateBundle != null) {
+                            try {
+                                val restored = restoreState(savedStateBundle)
+                                if (restored != null && restored.size > 0 && !url.isNullOrBlank()) {
+                                    stateRestored = true
+                                    Log.d("PWA", "[PWA] WebView restored: true (url: $url)")
+                                }
+                            } catch (e: Exception) {
+                                Log.w("PWA", "Notice restoring WebView state in PWA: ${e.message}")
+                            }
+                        }
+
+                        if (!stateRestored) {
+                            Log.d("PWA", "[PWA] loadUrl: $initialUrl")
+                            loadUrl(initialUrl)
+                        }
+                    }
+
+                    swipeLayout.setOnRefreshListener {
+                        isRefreshing = true
+                        wv.reload()
+                    }
+
+                    swipeLayout.addView(wv)
+                    swipeLayout.targetWebView = wv
+                    webViewRef = wv
+                    onWebViewCreated(wv)
+                    swipeLayout
+                }
+            )
+
+            // Fullscreen Custom Video Player Overlay
+            customVideoView?.let { videoView ->
+                AndroidView(
+                    factory = { videoView },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                )
+            }
         }
     }
 }
