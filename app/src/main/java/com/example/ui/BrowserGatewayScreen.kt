@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.util.Log
 import com.example.data.*
 import android.annotation.SuppressLint
 import android.content.Intent
@@ -1999,12 +2000,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                                         val target = if (!url.isNullOrBlank()) url else (this@apply.url ?: urlInput)
                                         if (target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)) {
+                                            if (this@apply.url == target) {
+                                                Log.d("BrowserState", "[BrowserState] retryConnection: URL match, skipping reload")
+                                                return@post
+                                            }
                                             viewModel.updateCurrentUrl(target)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = target.contains("chromewebstore.google.com") || target.contains("chrome.google.com/webstore")
                                             val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
                                             this@apply.tag = Pair(target, System.currentTimeMillis().toInt())
                                             this@apply.loadUrl(target, headers)
+                                            Log.d("BrowserState", "[BrowserState] retryConnection: $target")
                                         } else {
                                             isWebLoading = true
                                             viewModel.resolveUrl()
@@ -2532,6 +2538,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             view?.tag = Pair(it, navigationSessionId)
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
+                                            // Persist state: URL change
+                                            viewModel.updateActiveTabMetadata(it, view?.title ?: it)
+                                            Log.d("BrowserState", "[BrowserState] navigation: $it")
                                         }
                                     }
 

@@ -25,7 +25,9 @@ data class BrowserTabEntity(
     val title: String,
     val lastAccessed: Long = System.currentTimeMillis(),
     val isSuspended: Boolean = false,
-    @ColumnInfo(defaultValue = "0") val isExternal: Boolean = false
+    @ColumnInfo(defaultValue = "0") val isExternal: Boolean = false,
+    val scrollPosition: Int = 0,
+    val navigationHistory: String = "[]" // JSON array of URLs
 )
 
 @Dao
