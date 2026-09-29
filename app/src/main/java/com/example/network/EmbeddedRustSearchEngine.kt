@@ -24,7 +24,7 @@ object EmbeddedRustSearchEngine {
         try {
             System.loadLibrary("kaspasearch")
             isNativeLoaded = true
-        } catch (_: UnsatisfiedLinkError) {
+        } catch (_: Throwable) {
             isNativeLoaded = false
         }
     }
@@ -77,24 +77,19 @@ object EmbeddedRustSearchEngine {
             } catch (_: Exception) { }
         }
 
-        return try {
-            val uri = android.net.Uri.parse(rawUrl) ?: return rawUrl
-            val builder = uri.buildUpon().clearQuery()
-            val trackingKeys = setOf(
-                "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-                "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "mc_eid", "ref", "trk"
-            )
-            for (param in uri.queryParameterNames) {
-                if (!trackingKeys.contains(param.lowercase())) {
-                    for (valItem in uri.getQueryParameters(param)) {
-                        builder.appendQueryParameter(param, valItem)
-                    }
-                }
-            }
-            builder.build().toString()
-        } catch (_: Exception) {
-            rawUrl
+        val queryIdx = rawUrl.indexOf('?')
+        if (queryIdx == -1) return rawUrl
+        val base = rawUrl.substring(0, queryIdx)
+        val query = rawUrl.substring(queryIdx + 1)
+        val trackingKeys = setOf(
+            "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+            "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "mc_eid", "ref", "trk"
+        )
+        val filteredParams = query.split('&').filter { param ->
+            val key = param.substringBefore('=').lowercase()
+            !trackingKeys.contains(key)
         }
+        return if (filteredParams.isEmpty()) base else "$base?${filteredParams.joinToString("&")}"
     }
 
     /**

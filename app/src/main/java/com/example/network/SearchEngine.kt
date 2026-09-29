@@ -17,13 +17,8 @@ object SearchEngine {
         try {
             System.loadLibrary("kaspasearch")
             isNativeLibraryLoaded = true
-            Log.i(TAG, "Successfully loaded native 'kaspasearch' library.")
-        } catch (e: UnsatisfiedLinkError) {
+        } catch (_: Throwable) {
             isNativeLibraryLoaded = false
-            Log.w(TAG, "Native 'kaspasearch' library not loaded. Falling back to EmbeddedRustSearchEngine engine.")
-        } catch (e: Exception) {
-            isNativeLibraryLoaded = false
-            Log.e(TAG, "Error loading 'kaspasearch' native library", e)
         }
     }
 
@@ -58,7 +53,7 @@ object SearchEngine {
                 val jsonResult = nativeSearch(query)
                 parseResults(jsonResult)
             } catch (e: Exception) {
-                Log.e(TAG, "Native search execution failed, falling back to embedded handler", e)
+                runCatching { Log.e(TAG, "Native search execution failed, falling back to embedded handler", e) }
                 EmbeddedRustSearchEngine.searchOnDevice(query)
             }
         }
@@ -76,11 +71,23 @@ object SearchEngine {
             try {
                 return nativeSanitizeUrl(rawUrl)
             } catch (e: Exception) {
-                Log.e(TAG, "Native URL sanitization failed", e)
+                runCatching { Log.e(TAG, "Native URL sanitization failed", e) }
             }
         }
 
-        return EmbeddedRustSearchEngine.sanitizeUrl(rawUrl)
+        val queryIdx = rawUrl.indexOf('?')
+        if (queryIdx == -1) return rawUrl
+        val base = rawUrl.substring(0, queryIdx)
+        val query = rawUrl.substring(queryIdx + 1)
+        val trackingKeys = setOf(
+            "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+            "fbclid", "gclid", "gbraid", "wbraid", "msclkid", "mc_eid", "ref", "trk"
+        )
+        val filteredParams = query.split('&').filter { param ->
+            val key = param.substringBefore('=').lowercase()
+            !trackingKeys.contains(key)
+        }
+        return if (filteredParams.isEmpty()) base else "$base?${filteredParams.joinToString("&")}"
     }
 
     /**
@@ -93,7 +100,7 @@ object SearchEngine {
             try {
                 return nativeAstFilter(rawHtml)
             } catch (e: Exception) {
-                Log.e(TAG, "Native AST filter execution failed", e)
+                runCatching { Log.e(TAG, "Native AST filter execution failed", e) }
             }
         }
 

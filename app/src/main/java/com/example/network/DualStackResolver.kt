@@ -112,7 +112,13 @@ class DualStackResolver(
                 normalizedUrl.contains("&q=") -> normalizedUrl.substringAfter("&q=").substringBefore("&")
                 else -> ""
             }
-            val searchUrl = if (q.isNotBlank()) "$searchEngineBaseUrl$q" else searchEngineBaseUrl.substringBefore("?")
+            val base = if (searchEngineBaseUrl == "https://search?q=" || searchEngineBaseUrl == "https://search/?q=" || searchEngineBaseUrl.isBlank()) {
+                "https://duckduckgo.com/?q="
+            } else {
+                searchEngineBaseUrl
+            }
+            val enc = try { java.net.URLEncoder.encode(q, "UTF-8") } catch (_: Exception) { q }
+            val searchUrl = if (q.isNotBlank()) "$base$enc" else base.substringBefore("?")
             resolveCentralized(searchUrl)
         } else if (dnsLinkCid != null) {
             val decRes = resolveDecentralized("ipfs://$dnsLinkCid")

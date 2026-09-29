@@ -4,6 +4,32 @@ import java.security.MessageDigest
 
 object CryptoUtils {
 
+    private var isNativeLoaded = false
+
+    init {
+        try {
+            System.loadLibrary("kaspasearch")
+            isNativeLoaded = true
+        } catch (_: Throwable) {
+            isNativeLoaded = false
+        }
+    }
+
+    @JvmStatic
+    private external fun nativeSha256(input: String): String
+
+    @JvmStatic
+    private external fun nativeSha256Raw(input: ByteArray): ByteArray
+
+    @JvmStatic
+    private external fun nativeSha256Bytes(input: ByteArray): String
+
+    @JvmStatic
+    private external fun nativeHexToBytes(hex: String): ByteArray
+
+    @JvmStatic
+    private external fun nativeGenerateCid(content: String): String
+
     private val client: okhttp3.OkHttpClient by lazy {
         CronetClientFactory.buildClient(
             okhttp3.OkHttpClient.Builder()
@@ -15,23 +41,45 @@ object CryptoUtils {
     private const val KASPA_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
     fun sha256(input: String): String {
+        if (isNativeLoaded) {
+            try {
+                return nativeSha256(input)
+            } catch (_: Throwable) {}
+        }
         val digest = MessageDigest.getInstance("SHA-256")
         val hashBytes = digest.digest(input.toByteArray(Charsets.UTF_8))
         return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
     fun sha256Raw(input: ByteArray): ByteArray {
+        if (isNativeLoaded) {
+            try {
+                val res = nativeSha256Raw(input)
+                if (res != null) return res
+            } catch (_: Throwable) {}
+        }
         val digest = MessageDigest.getInstance("SHA-256")
         return digest.digest(input)
     }
 
     fun sha256Bytes(input: ByteArray): String {
+        if (isNativeLoaded) {
+            try {
+                return nativeSha256Bytes(input)
+            } catch (_: Throwable) {}
+        }
         val digest = MessageDigest.getInstance("SHA-256")
         val hashBytes = digest.digest(input)
         return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
     fun hexToBytes(hex: String): ByteArray {
+        if (isNativeLoaded) {
+            try {
+                val res = nativeHexToBytes(hex)
+                if (res != null) return res
+            } catch (_: Throwable) {}
+        }
         var cleanHex = hex.replace(" ", "").replace("0x", "").lowercase()
         if (cleanHex.isEmpty()) return ByteArray(0)
         if (cleanHex.length % 2 != 0) {
@@ -180,6 +228,11 @@ object CryptoUtils {
     }
 
     fun generateCid(content: String): String {
+        if (isNativeLoaded) {
+            try {
+                return nativeGenerateCid(content)
+            } catch (_: Throwable) {}
+        }
         val rawHash = sha256(content)
         val shortBase32 = rawHash.take(32)
             .map { c -> if (c in '0'..'9') ('a' + (c - '0')) else c }

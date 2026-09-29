@@ -29,6 +29,20 @@ object UBlockEngine {
     private const val KEY_CUSTOM_RULES = "custom_rules_cache"
     private const val FILTERS_FILENAME = "ublock_rules.txt"
 
+    private var isNativeLoaded = false
+
+    init {
+        try {
+            System.loadLibrary("kaspasearch")
+            isNativeLoaded = true
+        } catch (_: Throwable) {
+            isNativeLoaded = false
+        }
+    }
+
+    @JvmStatic
+    private external fun nativeShouldBlock(url: String): Boolean
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val httpClient: OkHttpClient by lazy {
@@ -391,6 +405,14 @@ object UBlockEngine {
         "##.native-ad-wrapper"
     )
 
+    init {
+        whitelistedDomains.addAll(GOOGLE_ACCOUNT_DOMAINS)
+        for (rule in BASELINE_UBLOCK_RULES) {
+            parseRule(rule)
+        }
+        _rulesCount.value = blockedDomains.size + whitelistedDomains.size + cosmeticSelectors.size
+    }
+
     /**
      * Initializes the uBlock Engine with baseline rules and loads any cached updates.
      */
@@ -514,6 +536,11 @@ object UBlockEngine {
      * Returns true if the request matches a blocking rule and is not whitelisted.
      */
     fun shouldBlock(url: String): Boolean {
+        if (isNativeLoaded) {
+            try {
+                return nativeShouldBlock(url)
+            } catch (_: Throwable) {}
+        }
         if (url.length < 4) return false
 
         // Fast skip for internal pseudo-schemes

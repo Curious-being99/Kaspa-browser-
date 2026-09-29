@@ -60,11 +60,13 @@ enum class AppTab {
 enum class SearchEngine(val baseUrl: String, val displayName: String) {
     DUCKDUCKGO("https://duckduckgo.com/?q=", "DuckDuckGo"),
     BRAVE("https://search.brave.com/search?q=", "Brave Search"),
-    BING("https://www.bing.com/search?q=", "Bing"),
     GOOGLE("https://www.google.com/search?q=", "Google"),
+    BING("https://www.bing.com/search?q=", "Bing"),
     STARTPAGE("https://www.startpage.com/sp/search?query=", "Startpage"),
     ECOSIA("https://www.ecosia.org/search?q=", "Ecosia"),
-    QWANT("https://www.qwant.com/?q=", "Qwant")
+    QWANT("https://www.qwant.com/?q=", "Qwant"),
+    YAHOO("https://search.yahoo.com/search?p=", "Yahoo"),
+    KAGI("https://kagi.com/search?q=", "Kagi")
 }
 
 data class ActiveDownload(
@@ -747,7 +749,11 @@ class DecentralViewModel(
     private val _searchEngine = MutableStateFlow(
         runCatching {
             val saved = browserSettingsPrefs.getString("default_search_engine", SearchEngine.DUCKDUCKGO.name)
-            SearchEngine.valueOf(saved ?: SearchEngine.DUCKDUCKGO.name)
+            if (saved == "KASPA" || saved.isNullOrBlank()) {
+                SearchEngine.DUCKDUCKGO
+            } else {
+                SearchEngine.valueOf(saved)
+            }
         }.getOrDefault(SearchEngine.DUCKDUCKGO)
     )
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
@@ -1265,11 +1271,19 @@ class DecentralViewModel(
 
     fun onUserSubmitUrl(rawUrl: String? = null) {
         viewModelScope.launch {
-            val input = rawUrl ?: _urlInput.value
+            val input = (rawUrl ?: _urlInput.value).trim()
             val target = normalizeUrlOrQuery(input)
             if (target.isBlank()) return@launch
 
-            _urlInput.value = target
+            val extractedQuery = extractSearchQuery(target)
+            val displayInput = if (!extractedQuery.isNullOrBlank()) {
+                extractedQuery
+            } else if (!input.startsWith("http://", true) && !input.startsWith("https://", true) && !input.contains(".")) {
+                input
+            } else {
+                target
+            }
+            _urlInput.value = displayInput
 
             val activeId = _activeTabId.value
             val activeTab = if (activeId != null) database.browserTabDao().getTabById(activeId) else null
@@ -1287,9 +1301,9 @@ class DecentralViewModel(
                 )
                 database.browserTabDao().insert(newTab)
                 _activeTabId.value = newId
-                resolveUrl(target)
+                resolveUrl(target, overrideDisplayInput = displayInput)
             } else {
-                resolveUrl(target)
+                resolveUrl(target, overrideDisplayInput = displayInput)
             }
         }
     }
@@ -1358,14 +1372,23 @@ class DecentralViewModel(
             return kaspaCheck.cleanAddress
         }
 
-        // Explicit protocols
-        if (trimmed.startsWith("https://search", ignoreCase = true) ||
-            trimmed.startsWith("http://search", ignoreCase = true) ||
-            trimmed.startsWith("kaspa://search", ignoreCase = true) ||
-            trimmed.startsWith("kas://search", ignoreCase = true)
-        ) {
+        // Catch unresolvable internal search placeholder URLs (e.g. https://search?q=...) without breaking search.brave.com or search.yahoo.com
+        val parsedUri = runCatching { android.net.Uri.parse(trimmed) }.getOrNull()
+        val parsedHost = parsedUri?.host?.lowercase()
+        val isInternalSearchPlaceholder = (parsedHost == "search" || trimmed.startsWith("https://search?", ignoreCase = true) ||
+                trimmed.startsWith("http://search?", ignoreCase = true) ||
+                trimmed.startsWith("kaspa://search", ignoreCase = true) ||
+                trimmed.startsWith("kas://search", ignoreCase = true))
+
+        if (isInternalSearchPlaceholder) {
             val q = if (trimmed.contains("q=")) trimmed.substringAfter("q=").substringBefore("&") else ""
-            return "${_searchEngine.value.baseUrl}$q"
+            val enc = try { java.net.URLEncoder.encode(q, "UTF-8") } catch (_: Exception) { q }
+            val base = if (_searchEngine.value.baseUrl == "https://search?q=" || _searchEngine.value.baseUrl.isBlank()) {
+                "https://duckduckgo.com/?q="
+            } else {
+                _searchEngine.value.baseUrl
+            }
+            return "$base$enc"
         }
 
         if (trimmed.startsWith("http://", ignoreCase = true) ||
@@ -1430,7 +1453,7 @@ class DecentralViewModel(
             val host = uri.host?.lowercase() ?: ""
             val path = uri.path?.lowercase() ?: ""
 
-            when {
+            val rawQuery = when {
                 // DuckDuckGo
                 host.contains("duckduckgo.com") || host.contains("duck.com") -> {
                     uri.getQueryParameter("q")
@@ -1475,20 +1498,21 @@ class DecentralViewModel(
                 host.contains("kagi.com") -> {
                     uri.getQueryParameter("q")
                 }
-                // General /search?q=... or ?q=...
-                path.contains("search") && !uri.getQueryParameter("q").isNullOrBlank() -> {
-                    uri.getQueryParameter("q")
+                // General /search?q=... or ?q=... or ?query=...
+                (path.contains("search") || host.contains("search")) && (!uri.getQueryParameter("q").isNullOrBlank() || !uri.getQueryParameter("query").isNullOrBlank()) -> {
+                    uri.getQueryParameter("q") ?: uri.getQueryParameter("query")
                 }
                 else -> null
             }
+            rawQuery?.replace("+", " ")?.trim()?.takeIf { it.isNotBlank() }
         } catch (_: Exception) {
             when {
-                url.contains("?q=") -> url.substringAfter("?q=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
-                url.contains("&q=") -> url.substringAfter("&q=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
-                url.contains("?query=") -> url.substringAfter("?query=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
-                url.contains("?p=") && url.contains("yahoo") -> url.substringAfter("?p=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it }
+                url.contains("?q=") -> url.substringAfter("?q=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it.replace("+", " ") }
+                url.contains("&q=") -> url.substringAfter("&q=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it.replace("+", " ") }
+                url.contains("?query=") -> url.substringAfter("?query=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it.replace("+", " ") }
+                url.contains("?p=") && url.contains("yahoo") -> url.substringAfter("?p=").substringBefore("&").let { runCatching { java.net.URLDecoder.decode(it, "UTF-8") }.getOrNull() ?: it.replace("+", " ") }
                 else -> null
-            }
+            }?.trim()?.takeIf { it.isNotBlank() }
         }
     }
 
@@ -1550,7 +1574,7 @@ class DecentralViewModel(
         }
     }
 
-    fun resolveUrl(url: String? = null) {
+    fun resolveUrl(url: String? = null, overrideDisplayInput: String? = null) {
         _navigationSessionId.value = _navigationSessionId.value + 1
         val raw = url ?: _urlInput.value
         if (raw.isBlank()) {
@@ -1561,8 +1585,10 @@ class DecentralViewModel(
 
         val target = normalizeUrlOrQuery(raw)
         val extractedQuery = extractSearchQuery(target)
-        val displayInput = if (!extractedQuery.isNullOrBlank() && !raw.startsWith("http://", true) && !raw.startsWith("https://", true)) {
+        val displayInput = overrideDisplayInput ?: if (!extractedQuery.isNullOrBlank()) {
             extractedQuery
+        } else if (!raw.startsWith("http://", true) && !raw.startsWith("https://", true) && !raw.contains(".")) {
+            raw
         } else {
             target
         }

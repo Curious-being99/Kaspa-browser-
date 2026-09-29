@@ -11,6 +11,29 @@ import java.net.URI
  */
 object KaspaPrivacyEngine {
 
+    private var isNativeLoaded = false
+
+    init {
+        try {
+            System.loadLibrary("kaspasearch")
+            isNativeLoaded = true
+        } catch (_: Throwable) {
+            isNativeLoaded = false
+        }
+    }
+
+    @JvmStatic
+    private external fun nativeIsTrackerOrAd(url: String): Boolean
+
+    @JvmStatic
+    private external fun nativeExtractHostFast(url: String): String?
+
+    @JvmStatic
+    private external fun nativeIsGoogleAccountDomain(host: String): Boolean
+
+    @JvmStatic
+    private external fun nativeIsGoogleAccountOrAuthUrl(url: String): Boolean
+
     private val TRACKER_AND_AD_DOMAINS = setOf(
         // Ad Networks & Pixels
         "doubleclick.net",
@@ -85,12 +108,26 @@ object KaspaPrivacyEngine {
     /**
      * Checks if a host belongs to Google Account login, profile, authentication or identity services.
      */
-    fun isGoogleAccountDomain(host: String): Boolean = UBlockEngine.isGoogleAccountDomain(host)
+    fun isGoogleAccountDomain(host: String): Boolean {
+        if (isNativeLoaded) {
+            try {
+                return nativeIsGoogleAccountDomain(host)
+            } catch (_: Throwable) {}
+        }
+        return UBlockEngine.isGoogleAccountDomain(host)
+    }
 
     /**
      * Checks if a URL is part of Google Account login, OAuth, account management, or authentication.
      */
-    fun isGoogleAccountOrAuthUrl(url: String): Boolean = UBlockEngine.isGoogleAccountOrAuthUrl(url)
+    fun isGoogleAccountOrAuthUrl(url: String): Boolean {
+        if (isNativeLoaded) {
+            try {
+                return nativeIsGoogleAccountOrAuthUrl(url)
+            } catch (_: Throwable) {}
+        }
+        return UBlockEngine.isGoogleAccountOrAuthUrl(url)
+    }
 
     /**
      * Backward-compatible alias for checking Google Account URLs
@@ -102,6 +139,11 @@ object KaspaPrivacyEngine {
      * Evaluates against the uBlock Origin rule engine with microsecond sub-domain suffix lookups.
      */
     fun isTrackerOrAd(url: String): Boolean {
+        if (isNativeLoaded) {
+            try {
+                return nativeIsTrackerOrAd(url)
+            } catch (_: Throwable) {}
+        }
         if (url.length < 4) return false
 
         // Fast skip for data:, blob:, about:, javascript:
@@ -176,7 +218,13 @@ object KaspaPrivacyEngine {
         return false
     }
 
-    private fun extractHostFast(url: String): String? {
+    fun extractHostFast(url: String): String? {
+        if (isNativeLoaded) {
+            try {
+                val host = nativeExtractHostFast(url)
+                if (host != null) return host
+            } catch (_: Throwable) {}
+        }
         val schemeEnd = url.indexOf("://")
         val start = if (schemeEnd != -1) schemeEnd + 3 else 0
         if (start >= url.length) return null
@@ -302,37 +350,49 @@ object KaspaPrivacyEngine {
                         removeEventListener: function() {},
                         dispatchEvent: function() { return false; }
                     };
-                    const getBatteryFn = function() {
-                        return Promise.resolve(fakeBatteryManager);
-                    };
-                    try {
-                        Object.defineProperty(navigator, 'getBattery', {
-                            get: () => getBatteryFn,
-                            configurable: true,
-                            enumerable: true
-                        });
-                    } catch (_) {
-                        navigator.getBattery = getBatteryFn;
-                    }
-                    if (window.Navigator && Navigator.prototype) {
+                    if (navigator.getBattery) {
+                        const origGetBattery = navigator.getBattery.bind(navigator);
+                        navigator.getBattery = function() {
+                            return origGetBattery().then(function(b) {
+                                try {
+                                    Object.defineProperty(b, 'level', { get: () => 1.0, configurable: true });
+                                    Object.defineProperty(b, 'charging', { get: () => true, configurable: true });
+                                    Object.defineProperty(b, 'chargingTime', { get: () => 0, configurable: true });
+                                    Object.defineProperty(b, 'dischargingTime', { get: () => Infinity, configurable: true });
+                                } catch(_) {}
+                                return b;
+                            }).catch(function() {
+                                return fakeBatteryManager;
+                            });
+                        };
+                    } else {
+                        const getBatteryFn = function() { return Promise.resolve(fakeBatteryManager); };
                         try {
-                            Object.defineProperty(Navigator.prototype, 'getBattery', {
+                            Object.defineProperty(navigator, 'getBattery', {
                                 get: () => getBatteryFn,
                                 configurable: true,
                                 enumerable: true
                             });
-                        } catch (_) {}
+                        } catch (_) {
+                            navigator.getBattery = getBatteryFn;
+                        }
                     }
                 } catch(e) {}
 
-                // 7. WebRTC IP Leak Prevention (Relay Mode)
+                // 7. WebRTC IP Leak Prevention (Relay Mode when TURN available)
                 if (window.RTCPeerConnection) {
                     try {
                         const OrigRTC = window.RTCPeerConnection;
                         window.RTCPeerConnection = function(config, constraints) {
                             try {
-                                if (config && config.iceServers) {
-                                    config.iceTransportPolicy = 'relay';
+                                if (config && config.iceServers && Array.isArray(config.iceServers)) {
+                                    const hasTurn = config.iceServers.some(s => {
+                                        const urls = Array.isArray(s.urls) ? s.urls : [s.urls || s.url || ''];
+                                        return urls.some(u => typeof u === 'string' && (u.startsWith('turn:') || u.startsWith('turns:')));
+                                    });
+                                    if (hasTurn) {
+                                        config.iceTransportPolicy = 'relay';
+                                    }
                                 }
                             } catch(_) {}
                             return new OrigRTC(config, constraints);
@@ -340,21 +400,6 @@ object KaspaPrivacyEngine {
                         window.RTCPeerConnection.prototype = OrigRTC.prototype;
                     } catch(e) {}
                 }
-
-                // 8. Remove Tap Highlight / Click Effects
-                try {
-                    const removeClickEffect = function() {
-                        if (document.getElementById('__kaspa_no_click_effect')) return;
-                        const style = document.createElement('style');
-                        style.id = '__kaspa_no_click_effect';
-                        style.textContent = '*, *:focus, *:active, *:hover { -webkit-tap-highlight-color: transparent !important; -webkit-tap-highlight-color: rgba(0,0,0,0) !important; outline: none !important; }';
-                        (document.head || document.documentElement || document.body)?.appendChild(style);
-                    };
-                    removeClickEffect();
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', removeClickEffect);
-                    }
-                } catch(_) {}
             } catch (e) {}
         })();
     """

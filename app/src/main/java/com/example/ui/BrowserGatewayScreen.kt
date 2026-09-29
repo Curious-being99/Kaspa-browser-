@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.unit.Dp
@@ -75,6 +76,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -463,7 +465,6 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
             startedAtTop = false
             if (!shouldRefresh) {
                 isRefreshing = false
-                return false
             }
         }
         return super.onTouchEvent(ev)
@@ -593,8 +594,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var isRendererUnresponsive by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
-    var webProgress by remember { mutableFloatStateOf(0f) }
+    var webProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var isWebLoading by remember { mutableStateOf(false) }
+    var hasMainPageFinished by remember { mutableStateOf(false) }
+    val animatedWebProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isWebLoading && !hasMainPageFinished) webProgress.coerceIn(0.1f, 1f) else 1f,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "webProgressAnimation"
+    )
     var viewSourceMode by remember { mutableStateOf(false) }
     val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -1070,9 +1077,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewSourceMode = false
                                             val input = textFieldValue.text.trim()
                                             if (input.isNotBlank()) {
-                                                val normalized = viewModel.normalizeUrlOrQuery(input)
                                                 webViewInstance?.tag = null
-                                                viewModel.onUserSubmitUrl(normalized)
+                                                viewModel.onUserSubmitUrl(input)
                                             }
                                         }),
                                         textStyle = TextStyle(
@@ -1367,23 +1373,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 modifier = Modifier.size(15.dp)
                                             )
                                         }
-
-                                        Spacer(modifier = Modifier.width(2.dp))
-
-                                        IconButton(
-                                            onClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                toggleReaderMode()
-                                            },
-                                            modifier = Modifier.size(26.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Article,
-                                                contentDescription = if (isReaderMode) "Exit Reader Mode" else "Reader Mode",
-                                                tint = if (isReaderMode) ElectricCyan else TextMuted,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                        }
                                     }
                                 }
                             }
@@ -1427,27 +1416,66 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
 
                         Spacer(modifier = Modifier.width(6.dp))
+
+                        Surface(
+                            shape = CircleShape,
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    accountDialogInitialTab = 0
+                                    showAccountDialog = true
+                                }
+                                .testTag("account_identity_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
+                                    GoogleLogoIcon(iconSize = 18.dp)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = "Decentralized Account",
+                                        tint = ElectricCyan,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
                         
-                        Box {
+                        Box(contentAlignment = Alignment.TopEnd) {
                             IconButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     showBrowserMenu = true
                                 },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .testTag("three_dots_menu_button")
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Tune,
-                                    contentDescription = "Menu",
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More Options",
                                     tint = TextPrimary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                             
                             DropdownMenu(
                                 expanded = showBrowserMenu,
                                 onDismissRequest = { showBrowserMenu = false },
-                                modifier = Modifier.background(SurfaceDark)
+                                offset = androidx.compose.ui.unit.DpOffset(x = 0.dp, y = 4.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                containerColor = SurfaceDark,
+                                tonalElevation = 6.dp,
+                                shadowElevation = 12.dp,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                modifier = Modifier
+                                    .widthIn(min = 240.dp, max = 290.dp)
+                                    .background(SurfaceDark, RoundedCornerShape(16.dp))
                             ) {
                                 if (urlInput.isNotEmpty()) {
                                     val isBookmarked = remember(urlInput, bookmarks) {
@@ -1593,35 +1621,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )
                             }
                         }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Surface(
-                            shape = CircleShape,
-                            color = SurfaceCard,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .clickable {
-                                    accountDialogInitialTab = 0
-                                    showAccountDialog = true
-                                }
-                                .testTag("account_identity_button")
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 20.dp)
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.AccountCircle,
-                                        contentDescription = "Decentralized Account",
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -1649,9 +1648,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         .fillMaxWidth()
                         .height(2.dp)
                 ) {
-                    if (isWebLoading && webProgress > 0f && webProgress < 1f) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isWebLoading && !hasMainPageFinished && animatedWebProgress < 1f,
+                        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(150)),
+                        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(250))
+                    ) {
                         LinearProgressIndicator(
-                            progress = { webProgress },
+                            progress = { animatedWebProgress },
                             modifier = Modifier.fillMaxSize(),
                             color = ElectricCyan,
                             trackColor = Color.Transparent
@@ -2141,17 +2144,24 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         lastProgressValue = newProgress
                                         lastProgressChangeTime = now
                                     }
-                                    webProgress = newProgress / 100f
-                                    if (newProgress < 100) {
-                                        isWebLoading = true
-                                    } else {
+                                    if (newProgress >= 100) {
                                         webProgress = 1.0f
+                                        hasMainPageFinished = true
                                         isWebLoading = false
                                         viewModel.setIsLoading(false)
+                                        (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.let { swipe ->
+                                            swipe.isRefreshing = false
+                                        }
                                         val cur = view?.url ?: ""
                                         if (cur.isNotBlank() && !cur.startsWith("data:") && !cur.startsWith("about:")) {
                                             viewModel.recordBrowserTraffic(cur, 220 * 1024L)
                                         }
+                                    } else if (!hasMainPageFinished) {
+                                        val progressFraction = (newProgress / 100f).coerceIn(0.15f, 0.98f)
+                                        if (progressFraction >= webProgress) {
+                                            webProgress = progressFraction
+                                        }
+                                        isWebLoading = true
                                     }
                                 }
 
@@ -2370,8 +2380,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         isReaderMode = false
                                         isExtractingOrLoadingReaderMode = false
                                     }
+                                    hasMainPageFinished = false
                                     isWebLoading = true
-                                    webProgress = 0.1f
+                                    webProgress = 0.15f
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -2429,8 +2440,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         })();
                                     """.trimIndent(), null)
                                     isWebLoading = false
+                                    hasMainPageFinished = true
                                     (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                     webProgress = 1.0f
+                                    viewModel.setIsLoading(false)
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -2945,6 +2958,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         setOnRefreshListener {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             com.example.util.BrowserStateLog.reload("User pulled to refresh")
+                            isWebLoading = true
+                            hasMainPageFinished = false
+                            webProgress = 0.15f
+                            postDelayed({
+                                if (isRefreshing) {
+                                    isRefreshing = false
+                                }
+                            }, 3500L)
                             val currentUrl = (webView.tag as? Pair<*, *>)?.first as? String
                                 ?: (if (webView.url?.startsWith("kaspa-error://") == true) urlInput else (webView.url ?: urlInput))
                             val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
@@ -3305,8 +3326,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             text = pasted,
                                             selection = androidx.compose.ui.text.TextRange(pasted.length)
                                         )
-                                        val normalized = viewModel.normalizeUrlOrQuery(pasted)
-                                        viewModel.onUserSubmitUrl(normalized)
+                                        viewModel.onUserSubmitUrl(pasted)
                                         isInputFocused = false
                                         focusManager.clearFocus()
                                     }
@@ -3491,8 +3511,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         text = corrected,
                                         selection = androidx.compose.ui.text.TextRange(corrected.length)
                                     )
-                                    val normalized = viewModel.normalizeUrlOrQuery(corrected)
-                                    viewModel.onUserSubmitUrl(normalized)
+                                    viewModel.onUserSubmitUrl(corrected)
                                     isInputFocused = false
                                     focusManager.clearFocus()
                                 }
@@ -3595,8 +3614,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             selection = androidx.compose.ui.text.TextRange(mainTitle.length)
                                         )
                                         viewSourceMode = false
-                                        val normalized = viewModel.normalizeUrlOrQuery(mainTitle)
-                                        viewModel.onUserSubmitUrl(normalized)
+                                        viewModel.onUserSubmitUrl(mainTitle)
                                         isInputFocused = false
                                         focusManager.clearFocus()
                                     }

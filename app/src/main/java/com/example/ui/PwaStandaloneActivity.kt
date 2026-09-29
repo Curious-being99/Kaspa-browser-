@@ -574,14 +574,16 @@ fun PwaStandaloneScreen(
 
                         webChromeClient = object : WebChromeClient() {
                             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                webProgress = newProgress / 100f
-                                if (newProgress < 100) {
-                                    isLoading = true
-                                } else {
+                                if (newProgress >= 100) {
                                     webProgress = 1.0f
                                     isLoading = false
                                     isRefreshing = false
                                     swipeLayout.isRefreshing = false
+                                } else if (isLoading) {
+                                    val progressFraction = (newProgress / 100f).coerceIn(0.15f, 0.98f)
+                                    if (progressFraction >= webProgress) {
+                                        webProgress = progressFraction
+                                    }
                                 }
                             }
 

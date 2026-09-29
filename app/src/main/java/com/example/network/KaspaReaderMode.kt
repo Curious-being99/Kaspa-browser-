@@ -1,6 +1,165 @@
 package com.example.network
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 object KaspaReaderMode {
+
+    private var isNativeLoaded = false
+
+    init {
+        try {
+            System.loadLibrary("kaspasearch")
+            isNativeLoaded = true
+        } catch (_: Throwable) {
+            isNativeLoaded = false
+        }
+    }
+
+    @JvmStatic
+    private external fun nativeExtractArticle(rawHtml: String, url: String): String
+
+    @JvmStatic
+    private external fun nativeGenerateReaderHtml(rawHtml: String, theme: String, fontSize: Int): String
+
+    data class ExtractedArticle(
+        val title: String,
+        val byline: String? = null,
+        val leadImage: String? = null,
+        val contentHtml: String,
+        val textContent: String = "",
+        val wordCount: Int = 0,
+        val readingTimeMinutes: Int = 1,
+        val hasVideo: Boolean = false,
+        val videoEmbeds: List<String> = emptyList()
+    )
+
+    /**
+     * Extracts article metadata, semantic text, and video embeds from raw HTML.
+     * Uses the on-device Rust engine for zero-jank sub-3ms parsing.
+     */
+    fun extractArticle(rawHtml: String, url: String = ""): ExtractedArticle {
+        if (isNativeLoaded) {
+            try {
+                val jsonStr = nativeExtractArticle(rawHtml, url)
+                if (jsonStr.isNotBlank() && jsonStr != "{}") {
+                    val obj = JSONObject(jsonStr)
+                    val embedsArr = obj.optJSONArray("video_embeds")
+                    val embeds = mutableListOf<String>()
+                    if (embedsArr != null) {
+                        for (i in 0 until embedsArr.length()) {
+                            embeds.add(embedsArr.optString(i))
+                        }
+                    }
+                    return ExtractedArticle(
+                        title = obj.optString("title", "Reader View"),
+                        byline = if (obj.has("byline") && !obj.isNull("byline")) obj.optString("byline") else null,
+                        leadImage = if (obj.has("lead_image") && !obj.isNull("lead_image")) obj.optString("lead_image") else null,
+                        contentHtml = obj.optString("content_html", "<p>No content available.</p>"),
+                        textContent = obj.optString("text_content", ""),
+                        wordCount = obj.optInt("word_count", 0),
+                        readingTimeMinutes = obj.optInt("reading_time_minutes", 1),
+                        hasVideo = obj.optBoolean("has_video", embeds.isNotEmpty()),
+                        videoEmbeds = embeds
+                    )
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // Pure Kotlin Fallback Extractor
+        return fallbackExtractArticle(rawHtml)
+    }
+
+    /**
+     * Directly transforms raw page HTML into a standalone Reader Mode document using native Rust.
+     */
+    fun convertRawHtmlToReaderHtml(rawHtml: String, theme: String = "dark", fontSizeSp: Int = 18): String {
+        if (isNativeLoaded) {
+            try {
+                val nativeHtml = nativeGenerateReaderHtml(rawHtml, theme, fontSizeSp)
+                if (nativeHtml.isNotBlank()) {
+                    return nativeHtml
+                }
+            } catch (_: Throwable) {}
+        }
+
+        val article = extractArticle(rawHtml)
+        return getReaderHtml(
+            title = article.title,
+            content = article.contentHtml,
+            leadImage = article.leadImage ?: "",
+            theme = theme,
+            fontSizeSp = fontSizeSp,
+            byline = article.byline,
+            wordCount = article.wordCount,
+            readingTimeMinutes = article.readingTimeMinutes
+        )
+    }
+
+    private fun fallbackExtractArticle(rawHtml: String): ExtractedArticle {
+        var title = "Reader View"
+        val titleMatch = Regex("(?i)<title[^>]*>(.*?)</title>").find(rawHtml)
+        if (titleMatch != null) {
+            title = titleMatch.groupValues[1].trim()
+        }
+
+        val ogTitle = Regex("(?i)<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)[\"']").find(rawHtml)
+        if (ogTitle != null) {
+            title = ogTitle.groupValues[1].trim()
+        }
+
+        var leadImage: String? = null
+        val ogImage = Regex("(?i)<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']").find(rawHtml)
+        if (ogImage != null) {
+            leadImage = ogImage.groupValues[1].trim()
+        }
+
+        val articleMatch = Regex("(?is)<article[^>]*>(.*?)</article>").find(rawHtml)
+            ?: Regex("(?is)<main[^>]*>(.*?)</main>").find(rawHtml)
+
+        var content = articleMatch?.groupValues?.get(1) ?: rawHtml
+
+        // Strip scripts and styles
+        content = content.replace(Regex("(?is)<script[^>]*>.*?</script>"), "")
+            .replace(Regex("(?is)<style[^>]*>.*?</style>"), "")
+            .replace(Regex("(?is)<nav[^>]*>.*?</nav>"), "")
+            .replace(Regex("(?is)<header[^>]*>.*?</header>"), "")
+            .replace(Regex("(?is)<footer[^>]*>.*?</footer>"), "")
+
+        // Preserve YouTube / Vimeo / Dailymotion iframes and strip ad iframes
+        val embeds = mutableListOf<String>()
+        val iframeRegex = Regex("(?is)<iframe[^>]*>.*?</iframe>")
+        content = iframeRegex.replace(content) { matchResult ->
+            val matched = matchResult.value
+            if (matched.contains("youtube.com", ignoreCase = true) ||
+                matched.contains("youtube-nocookie.com", ignoreCase = true) ||
+                matched.contains("youtu.be", ignoreCase = true) ||
+                matched.contains("vimeo.com", ignoreCase = true) ||
+                matched.contains("dailymotion.com", ignoreCase = true)
+            ) {
+                embeds.add(matched)
+                """<div class="video-container">$matched</div>"""
+            } else {
+                ""
+            }
+        }
+
+        val plainText = content.replace(Regex("<[^>]+>"), " ").trim()
+        val words = plainText.split("\\s+".toRegex()).filter { it.isNotBlank() }.size
+
+        return ExtractedArticle(
+            title = title,
+            byline = null,
+            leadImage = leadImage,
+            contentHtml = content,
+            textContent = plainText,
+            wordCount = words,
+            readingTimeMinutes = maxOf(1, (words + 199) / 200),
+            hasVideo = embeds.isNotEmpty(),
+            videoEmbeds = embeds
+        )
+    }
+
     /**
      * JavaScript to extract main content and format it for reader mode.
      * Encodes output using encodeURIComponent(JSON.stringify(...)) to avoid JSON parsing failures in Android evaluateJavascript.
@@ -82,7 +241,10 @@ object KaspaReaderMode {
         content: String,
         leadImage: String = "",
         theme: String = "dark",
-        fontSizeSp: Int = 18
+        fontSizeSp: Int = 18,
+        byline: String? = null,
+        wordCount: Int = 0,
+        readingTimeMinutes: Int = 1
     ): String {
         val (bgColor, textColor, accentColor, cardBg, borderColor) = when (theme.lowercase()) {
             "sepia" -> listOf("#FBF0D9", "#3D2E1E", "#9A3412", "#F3E5AB", "#E2D1A6")
@@ -93,6 +255,14 @@ object KaspaReaderMode {
 
         val leadImgHtml = if (leadImage.isNotBlank()) {
             """<img src="${leadImage}" class="lead-img" alt="Header Image" />"""
+        } else ""
+
+        val bylineHtml = if (!byline.isNullOrBlank()) {
+            """<div class="byline">By ${byline}</div>"""
+        } else ""
+
+        val metaHtml = if (readingTimeMinutes > 0 || wordCount > 0) {
+            """<div class="meta-row"><span>⏱ ${readingTimeMinutes} min read</span> • <span>${wordCount} words</span></div>"""
         } else ""
 
         return """
@@ -121,6 +291,19 @@ object KaspaReaderMode {
                         line-height: 1.3;
                         margin-bottom: 0.4em;
                         font-weight: 700;
+                    }
+                    .byline {
+                        font-size: 0.9em;
+                        opacity: 0.85;
+                        margin-bottom: 0.4em;
+                        font-weight: 500;
+                    }
+                    .meta-row {
+                        font-size: 0.8em;
+                        opacity: 0.65;
+                        margin-bottom: 1.2em;
+                        padding-bottom: 0.8em;
+                        border-bottom: 1px solid ${borderColor};
                     }
                     .lead-img {
                         width: 100%;
@@ -153,6 +336,24 @@ object KaspaReaderMode {
                         padding-left: 16px;
                         font-style: italic;
                     }
+                    .video-container {
+                        position: relative;
+                        padding-bottom: 56.25%;
+                        height: 0;
+                        overflow: hidden;
+                        max-width: 100%;
+                        margin: 1.5em 0;
+                        border-radius: 12px;
+                        border: 1px solid ${borderColor};
+                    }
+                    .video-container iframe {
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        border: 0;
+                    }
                     hr {
                         border: 0;
                         border-top: 1px solid ${borderColor};
@@ -162,6 +363,8 @@ object KaspaReaderMode {
             </head>
             <body>
                 <h1>${title}</h1>
+                ${bylineHtml}
+                ${metaHtml}
                 ${leadImgHtml}
                 <hr>
                 <div id="content">
