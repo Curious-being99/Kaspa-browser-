@@ -38,13 +38,21 @@ class KaspaWebAuthnBridge(
 
     @JavascriptInterface
     fun isAvailable(): Boolean {
-        return viewModel.webAuthEnabled.value
+        if (!viewModel.webAuthEnabled.value) return false
+        val currentUrl = webViewProvider()?.url ?: ""
+        return currentUrl.startsWith("https://", ignoreCase = true)
     }
 
     @JavascriptInterface
     fun createCredential(requestJson: String, callbackId: String) {
         if (!viewModel.webAuthEnabled.value) {
             rejectCallback(callbackId, "WebAuthn is disabled in browser privacy settings")
+            return
+        }
+
+        val currentUrl = webViewProvider()?.url ?: ""
+        if (!currentUrl.startsWith("https://", ignoreCase = true)) {
+            rejectCallback(callbackId, "WebAuthn requires a secure HTTPS origin")
             return
         }
 
@@ -66,11 +74,12 @@ class KaspaWebAuthnBridge(
                     resolveCallback(callbackId, resultJson)
                     viewModel.setStatusMessage("Passkey registered successfully via FIDO2")
                 } else {
-                    triggerBiometricPasskeyRegistration(requestJson, callbackId)
+                    rejectCallback(callbackId, "Unsupported credential response type")
                 }
             } catch (e: Exception) {
-                Log.w(tag, "CredentialManager createCredential failed, using Biometric Passkey Engine: ${e.message}")
-                triggerBiometricPasskeyRegistration(requestJson, callbackId)
+                Log.w(tag, "CredentialManager createCredential failed: ${e.message}")
+                rejectCallback(callbackId, e.message ?: "Passkey registration failed or was cancelled")
+                viewModel.setStatusMessage("Passkey registration cancelled or unavailable")
             }
         }
     }
@@ -79,6 +88,12 @@ class KaspaWebAuthnBridge(
     fun getCredential(requestJson: String, callbackId: String) {
         if (!viewModel.webAuthEnabled.value) {
             rejectCallback(callbackId, "WebAuthn is disabled in browser privacy settings")
+            return
+        }
+
+        val currentUrl = webViewProvider()?.url ?: ""
+        if (!currentUrl.startsWith("https://", ignoreCase = true)) {
+            rejectCallback(callbackId, "WebAuthn requires a secure HTTPS origin")
             return
         }
 
@@ -102,166 +117,18 @@ class KaspaWebAuthnBridge(
                     resolveCallback(callbackId, resultJson)
                     viewModel.setStatusMessage("Passkey verified successfully via FIDO2")
                 } else {
-                    triggerBiometricPasskeyAssertion(requestJson, callbackId)
+                    rejectCallback(callbackId, "No matching public key credential returned")
                 }
             } catch (e: NoCredentialException) {
-                Log.w(tag, "No credential found in CredentialManager, falling back to Biometric Passkey Engine: ${e.message}")
-                triggerBiometricPasskeyAssertion(requestJson, callbackId)
+                Log.w(tag, "No credential found in CredentialManager: ${e.message}")
+                rejectCallback(callbackId, "No passkey found for this account")
+                viewModel.setStatusMessage("No matching passkey found on this device")
             } catch (e: Exception) {
-                Log.w(tag, "CredentialManager getCredential failed, using Biometric Passkey Engine: ${e.message}")
-                triggerBiometricPasskeyAssertion(requestJson, callbackId)
+                Log.w(tag, "CredentialManager getCredential failed: ${e.message}")
+                rejectCallback(callbackId, e.message ?: "Passkey verification failed or was cancelled")
+                viewModel.setStatusMessage("Passkey verification cancelled")
             }
         }
-    }
-
-    private fun triggerBiometricPasskeyRegistration(requestJson: String, callbackId: String) {
-        val originUrl = webViewProvider()?.url ?: "https://localhost"
-        val uri = android.net.Uri.parse(originUrl)
-        val origin = "${uri.scheme}://${uri.host}${if (uri.port > 0 && uri.port != 80 && uri.port != 443) ":${uri.port}" else ""}"
-
-        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-            context = context,
-            title = "Passkey Registration",
-            subtitle = "Scan fingerprint or face to create biometric Passkey",
-            onSuccess = {
-                try {
-                    val responseJson = generatePasskeyRegistrationResponse(requestJson, origin)
-                    resolveCallback(callbackId, responseJson)
-                    viewModel.setStatusMessage("Passkey registered successfully via Biometric Verification")
-                } catch (e: Exception) {
-                    rejectCallback(callbackId, e.message ?: "Biometric Passkey registration error")
-                    viewModel.setStatusMessage("Passkey registration failed: ${e.message}")
-                }
-            },
-            onError = { err ->
-                rejectCallback(callbackId, err)
-                viewModel.setStatusMessage("Passkey registration cancelled: $err")
-            }
-        )
-    }
-
-    private fun triggerBiometricPasskeyAssertion(requestJson: String, callbackId: String) {
-        val originUrl = webViewProvider()?.url ?: "https://localhost"
-        val uri = android.net.Uri.parse(originUrl)
-        val origin = "${uri.scheme}://${uri.host}${if (uri.port > 0 && uri.port != 80 && uri.port != 443) ":${uri.port}" else ""}"
-
-        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-            context = context,
-            title = "Passkey Authentication",
-            subtitle = "Scan fingerprint or face to sign in with Passkey",
-            onSuccess = {
-                try {
-                    val responseJson = generatePasskeyAssertionResponse(requestJson, origin)
-                    resolveCallback(callbackId, responseJson)
-                    viewModel.setStatusMessage("Passkey verified successfully via Biometric Verification")
-                } catch (e: Exception) {
-                    rejectCallback(callbackId, e.message ?: "Biometric Passkey assertion error")
-                    viewModel.setStatusMessage("Passkey verification failed: ${e.message}")
-                }
-            },
-            onError = { err ->
-                rejectCallback(callbackId, err)
-                viewModel.setStatusMessage("Passkey verification cancelled: $err")
-            }
-        )
-    }
-
-    private fun generatePasskeyRegistrationResponse(requestJson: String, origin: String): String {
-        val reqObj = JSONObject(requestJson)
-        val challenge = reqObj.optString("challenge", "challenge_b64")
-        val rpObj = reqObj.optJSONObject("rp")
-        val rpId = rpObj?.optString("id") ?: "localhost"
-
-        val credIdBytes = java.security.MessageDigest.getInstance("SHA-256")
-            .digest((rpId + System.currentTimeMillis()).toByteArray())
-        val credIdB64 = android.util.Base64.encodeToString(
-            credIdBytes,
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        val clientDataObj = JSONObject().apply {
-            put("type", "webauthn.create")
-            put("challenge", challenge)
-            put("origin", origin)
-            put("crossOrigin", false)
-        }
-        val clientDataB64 = android.util.Base64.encodeToString(
-            clientDataObj.toString().toByteArray(),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        val attestationB64 = android.util.Base64.encodeToString(
-            ("o2JmbXRkbm9uZWdoYXR0U3RtdKCjY2F1dGhEYXRhWE" + credIdB64).toByteArray(),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        return JSONObject().apply {
-            put("id", credIdB64)
-            put("rawId", credIdB64)
-            put("type", "public-key")
-            put("authenticatorAttachment", "platform")
-            put("response", JSONObject().apply {
-                put("clientDataJSON", clientDataB64)
-                put("attestationObject", attestationB64)
-                put("transports", org.json.JSONArray().put("internal"))
-            })
-        }.toString()
-    }
-
-    private fun generatePasskeyAssertionResponse(requestJson: String, origin: String): String {
-        val reqObj = JSONObject(requestJson)
-        val challenge = reqObj.optString("challenge", "challenge_b64")
-        val rpId = reqObj.optString("rpId")
-            .ifEmpty { reqObj.optJSONObject("publicKey")?.optString("rpId") ?: "localhost" }
-
-        val credIdBytes = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(rpId.toByteArray())
-        val credIdB64 = android.util.Base64.encodeToString(
-            credIdBytes,
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        val clientDataObj = JSONObject().apply {
-            put("type", "webauthn.get")
-            put("challenge", challenge)
-            put("origin", origin)
-            put("crossOrigin", false)
-        }
-        val clientDataB64 = android.util.Base64.encodeToString(
-            clientDataObj.toString().toByteArray(),
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        val rpIdHash = java.security.MessageDigest.getInstance("SHA-256").digest(rpId.toByteArray())
-        val authData = ByteArray(37)
-        System.arraycopy(rpIdHash, 0, authData, 0, 32)
-        authData[32] = 0x05.toByte()
-        authData[36] = 0x01.toByte()
-
-        val authDataB64 = android.util.Base64.encodeToString(
-            authData,
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        val dummySig = java.security.MessageDigest.getInstance("SHA-256")
-            .digest((challenge + origin).toByteArray())
-        val sigB64 = android.util.Base64.encodeToString(
-            dummySig,
-            android.util.Base64.NO_WRAP or android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING
-        )
-
-        return JSONObject().apply {
-            put("id", credIdB64)
-            put("rawId", credIdB64)
-            put("type", "public-key")
-            put("authenticatorAttachment", "platform")
-            put("response", JSONObject().apply {
-                put("clientDataJSON", clientDataB64)
-                put("authenticatorData", authDataB64)
-                put("signature", sigB64)
-                put("userHandle", "")
-            })
-        }.toString()
     }
 
     private fun resolveCallback(callbackId: String, resultJson: String) {

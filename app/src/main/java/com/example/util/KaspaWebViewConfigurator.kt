@@ -83,9 +83,8 @@ object KaspaWebViewConfigurator {
             blockNetworkLoads = false
             offscreenPreRaster = true
 
-            // Security Hardening: Compatibility mode allows secure mixed content if required,
-            // avoiding unconditional MIXED_CONTENT_ALWAYS_ALLOW.
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            // Security Hardening: Never allow unencrypted mixed content on HTTPS connections
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true

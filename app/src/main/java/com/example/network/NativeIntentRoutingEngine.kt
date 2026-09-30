@@ -108,9 +108,10 @@ object NativeIntentRoutingEngine {
         if (hasUserGesture && (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true))) {
             val host = uri?.host?.lowercase() ?: ""
             
-            // Check known app domains
+            // Check known app domains with strict host match to prevent subdomain or query spoofing
             for ((domain, packageName) in KNOWN_APP_DOMAINS) {
-                if (host.contains(domain) || cleanUrl.lowercase().contains(domain)) {
+                val isDomainMatch = host == domain || host.endsWith(".$domain")
+                if (isDomainMatch) {
                     try {
                         val appIntent = Intent(Intent.ACTION_VIEW, uri).apply {
                             setPackage(packageName)

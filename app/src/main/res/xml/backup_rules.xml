@@ -8,4 +8,7 @@
     <exclude domain="sharedpref" path="kaspa_node_prefs.xml"/>
     <exclude domain="sharedpref" path="app_prefs.xml"/>
     <exclude domain="sharedpref" path="browser_installed_pwas.xml"/>
+    <!-- Exclude WebView cookies, local storage, and website cache from cloud backup -->
+    <exclude domain="root" path="app_webview"/>
+    <exclude domain="file" path="app_webview"/>
 </full-backup-content>

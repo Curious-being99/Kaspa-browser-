@@ -26,20 +26,20 @@ data class KaspaPriceInfo(
         get() = if (marketCapRank > 0) "#$marketCapRank" else "---"
 
     val formattedPrice: String
-        get() = if (priceUsd > 0) String.format("$%.4f", priceUsd) else "---"
+        get() = if (priceUsd > 0) String.format(java.util.Locale.US, "$%.4f", priceUsd) else "---"
 
     val formattedChange: String
         get() {
             if (priceUsd <= 0 && change24hPercent == 0.0) return "---"
             val sign = if (change24hPercent >= 0) "+" else ""
-            return String.format("%s%.2f%%", sign, change24hPercent)
+            return String.format(java.util.Locale.US, "%s%.2f%%", sign, change24hPercent)
         }
 
     val formattedHigh24h: String
-        get() = if (high24hUsd > 0) String.format("$%.4f", high24hUsd) else "---"
+        get() = if (high24hUsd > 0) String.format(java.util.Locale.US, "$%.4f", high24hUsd) else "---"
 
     val formattedLow24h: String
-        get() = if (low24hUsd > 0) String.format("$%.4f", low24hUsd) else "---"
+        get() = if (low24hUsd > 0) String.format(java.util.Locale.US, "$%.4f", low24hUsd) else "---"
 
     val formattedMarketCap: String
         get() = if (marketCapUsd > 0) formatLargeNumber(marketCapUsd) else "---"
@@ -49,11 +49,11 @@ data class KaspaPriceInfo(
 
     private fun formatLargeNumber(number: Double): String {
         return when {
-            number >= 1_000_000_000_000.0 -> String.format("$%.2fT", number / 1_000_000_000_000.0)
-            number >= 1_000_000_000.0 -> String.format("$%.2fB", number / 1_000_000_000.0)
-            number >= 1_000_000.0 -> String.format("$%.2fM", number / 1_000_000.0)
-            number >= 1_000.0 -> String.format("$%.2fK", number / 1_000.0)
-            number > 0 -> String.format("$%.2f", number)
+            number >= 1_000_000_000_000.0 -> String.format(java.util.Locale.US, "$%.2fT", number / 1_000_000_000_000.0)
+            number >= 1_000_000_000.0 -> String.format(java.util.Locale.US, "$%.2fB", number / 1_000_000_000.0)
+            number >= 1_000_000.0 -> String.format(java.util.Locale.US, "$%.2fM", number / 1_000_000.0)
+            number >= 1_000.0 -> String.format(java.util.Locale.US, "$%.2fK", number / 1_000.0)
+            number > 0 -> String.format(java.util.Locale.US, "$%.2f", number)
             else -> "---"
         }
     }

@@ -9,6 +9,9 @@
         <exclude domain="sharedpref" path="kaspa_node_prefs.xml"/>
         <exclude domain="sharedpref" path="app_prefs.xml"/>
         <exclude domain="sharedpref" path="browser_installed_pwas.xml"/>
+        <!-- Exclude WebView cookies, local storage, and website cache from cloud backup -->
+        <exclude domain="root" path="app_webview"/>
+        <exclude domain="file" path="app_webview"/>
     </cloud-backup>
     <device-transfer>
         <!-- Exclude database and settings from device-to-device transfers to prevent key leakage -->
@@ -19,5 +22,8 @@
         <exclude domain="sharedpref" path="kaspa_node_prefs.xml"/>
         <exclude domain="sharedpref" path="app_prefs.xml"/>
         <exclude domain="sharedpref" path="browser_installed_pwas.xml"/>
+        <!-- Exclude WebView cookies, local storage, and website cache from device transfer -->
+        <exclude domain="root" path="app_webview"/>
+        <exclude domain="file" path="app_webview"/>
     </device-transfer>
 </data-extraction-rules>

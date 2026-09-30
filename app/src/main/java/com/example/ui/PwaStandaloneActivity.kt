@@ -261,6 +261,9 @@ fun PwaStandaloneScreen(
     var customVideoCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     var uploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var pendingPermissionRequest by remember { mutableStateOf<PermissionRequest?>(null) }
+    var pendingPermissionOrigin by remember { mutableStateOf<String?>(null) }
+    var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
+    var pendingGeoCallback by remember { mutableStateOf<GeolocationPermissions.Callback?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
     val fileChooserLauncher = rememberLauncherForActivityResult(
@@ -289,14 +292,24 @@ fun PwaStandaloneScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         val req = pendingPermissionRequest
+        val expectedUri = pendingPermissionOrigin?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        val expectedHost = expectedUri?.host?.lowercase()
+        val activeUrl = webViewRef?.url ?: currentUrl
+        val currentOrigin = runCatching { Uri.parse(activeUrl) }.getOrNull()
+        val currentHost = currentOrigin?.host?.lowercase()
+        val isOriginStillValid = expectedUri?.scheme?.equals("https", ignoreCase = true) == true &&
+            expectedHost != null && currentHost != null &&
+            (expectedHost == currentHost || expectedHost.endsWith(".$currentHost"))
+
         if (req != null) {
             val allGranted = grants.values.all { it }
-            if (allGranted) {
+            if (allGranted && isOriginStillValid) {
                 req.grant(req.resources)
             } else {
                 req.deny()
             }
             pendingPermissionRequest = null
+            pendingPermissionOrigin = null
         }
     }
 
@@ -635,12 +648,28 @@ fun PwaStandaloneScreen(
                                 origin: String?,
                                 callback: GeolocationPermissions.Callback?
                             ) {
-                                callback?.invoke(origin, true, false)
+                                pendingGeoOrigin = origin
+                                pendingGeoCallback = callback
                             }
 
                             override fun onPermissionRequest(request: PermissionRequest?) {
                                 if (request != null) {
+                                    val reqOrigin = request.origin
+                                    val isSecure = reqOrigin?.scheme?.equals("https", ignoreCase = true) == true
+                                    val reqHost = reqOrigin?.host?.lowercase()
+                                    val activeUrl = webViewRef?.url ?: currentUrl
+                                    val currentOrigin = runCatching { Uri.parse(activeUrl) }.getOrNull()
+                                    val currentHost = currentOrigin?.host?.lowercase()
+                                    val matchesCurrentHost = reqHost != null && currentHost != null &&
+                                        (reqHost == currentHost || reqHost.endsWith(".$currentHost"))
+
+                                    if (!isSecure || !matchesCurrentHost) {
+                                        request.deny()
+                                        return
+                                    }
+
                                     pendingPermissionRequest = request
+                                    pendingPermissionOrigin = reqOrigin?.toString()
                                     val permissions = mutableListOf<String>()
                                     if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
                                         permissions.add(android.Manifest.permission.RECORD_AUDIO)
@@ -653,6 +682,7 @@ fun PwaStandaloneScreen(
                                     } else {
                                         request.grant(request.resources)
                                         pendingPermissionRequest = null
+                                        pendingPermissionOrigin = null
                                     }
                                 }
                             }
@@ -666,6 +696,13 @@ fun PwaStandaloneScreen(
                                 if (resultMsg == null || view == null) return false
                                 val tempWebView = WebView(view.context).apply {
                                     settings.javaScriptEnabled = true
+                                    settings.setSupportMultipleWindows(false)
+                                    settings.allowFileAccess = false
+                                    settings.allowContentAccess = false
+                                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                    settings.domStorageEnabled = true
+                                    settings.databaseEnabled = false
                                     webViewClient = object : WebViewClient() {
                                         override fun onPageStarted(wv: WebView?, url: String?, favicon: Bitmap?) {
                                             super.onPageStarted(wv, url, favicon)
@@ -758,6 +795,57 @@ fun PwaStandaloneScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black)
+                )
+            }
+
+            // Location Access Consent Dialog
+            if (pendingGeoOrigin != null) {
+                AlertDialog(
+                    onDismissRequest = {
+                        pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+                        pendingGeoOrigin = null
+                        pendingGeoCallback = null
+                    },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Location Permission Request", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                        }
+                    },
+                    text = {
+                        Text(
+                            text = "The standalone web application at \"$pendingGeoOrigin\" wants to access your device location.",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 14.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                pendingGeoCallback?.invoke(pendingGeoOrigin, true, false)
+                                pendingGeoOrigin = null
+                                pendingGeoCallback = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Color(0xFF0B0F17)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Allow Access", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
+                                pendingGeoOrigin = null
+                                pendingGeoCallback = null
+                            }
+                        ) {
+                            Text("Deny", color = Color(0xFF94A3B8))
+                        }
+                    },
+                    containerColor = Color(0xFF151A26),
+                    shape = RoundedCornerShape(16.dp)
                 )
             }
         }

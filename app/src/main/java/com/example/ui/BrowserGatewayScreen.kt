@@ -467,7 +467,15 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
                 isRefreshing = false
             }
         }
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) {
+            performClick()
+        }
         return super.onTouchEvent(ev)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 }
 
@@ -800,18 +808,28 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val installSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var pendingPermissionRequest by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
+    var pendingPermissionOrigin by remember { mutableStateOf<String?>(null) }
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val granted = permissions.entries.all { it.value }
-        if (granted) {
-            pendingPermissionRequest?.let { req ->
-                req.grant(req.resources)
-            }
+        val req = pendingPermissionRequest
+        val expectedUri = pendingPermissionOrigin?.let { runCatching { Uri.parse(it) }.getOrNull() }
+        val expectedHost = expectedUri?.host?.lowercase()
+        val currentUrl = webViewInstance?.url ?: ""
+        val currentOrigin = runCatching { Uri.parse(currentUrl) }.getOrNull()
+        val currentHost = currentOrigin?.host?.lowercase()
+        val isOriginStillValid = expectedUri?.scheme?.equals("https", ignoreCase = true) == true &&
+            expectedHost != null && currentHost != null &&
+            (expectedHost == currentHost || expectedHost.endsWith(".$currentHost"))
+
+        if (granted && isOriginStillValid && req != null) {
+            req.grant(req.resources)
         } else {
-            pendingPermissionRequest?.deny()
+            req?.deny()
         }
         pendingPermissionRequest = null
+        pendingPermissionOrigin = null
     }
 
     val fileChooserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -1863,7 +1881,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 textZoom = 100
                                 javaScriptCanOpenWindowsAutomatically = true
                                 setSupportMultipleWindows(true)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
@@ -1932,7 +1950,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 @android.webkit.JavascriptInterface
                                 fun retryConnection(url: String?) {
                                     android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                        val target = if (!url.isNullOrBlank()) url else (this@apply.url ?: urlInput)
+                                        val currentWvUrl = this@apply.url
+                                        // Only permit retryConnection on internal error pages or blank state
+                                        val isErrorPage = currentWvUrl == null ||
+                                            currentWvUrl.startsWith("kaspa-error://") ||
+                                            currentWvUrl.startsWith("data:") ||
+                                            currentWvUrl == "about:blank"
+                                        if (!isErrorPage) {
+                                            return@post
+                                        }
+                                        val target = if (!url.isNullOrBlank()) url else (currentWvUrl ?: urlInput)
                                         if (target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)) {
                                             viewModel.updateCurrentUrl(target)
                                             viewModel.setIsLoading(true)
@@ -2176,7 +2203,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
                                     if (request != null) {
+                                        val reqOrigin = request.origin
+                                        val isSecure = reqOrigin?.scheme?.equals("https", ignoreCase = true) == true
+                                        val reqHost = reqOrigin?.host?.lowercase()
+                                        val currentUrl = this@apply.url ?: webViewInstance?.url ?: ""
+                                        val currentOrigin = runCatching { Uri.parse(currentUrl) }.getOrNull()
+                                        val currentHost = currentOrigin?.host?.lowercase()
+                                        val matchesCurrentHost = reqHost != null && currentHost != null &&
+                                            (reqHost == currentHost || reqHost.endsWith(".$currentHost"))
+
+                                        if (!isSecure || !matchesCurrentHost) {
+                                            request.deny()
+                                            return
+                                        }
+
                                         pendingPermissionRequest = request
+                                        pendingPermissionOrigin = reqOrigin?.toString()
                                         val androidPermissions = mutableListOf<String>()
                                         if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
                                             androidPermissions.add(android.Manifest.permission.RECORD_AUDIO)
@@ -2189,6 +2231,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         } else {
                                             request.grant(request.resources)
                                             pendingPermissionRequest = null
+                                            pendingPermissionOrigin = null
                                         }
                                     }
                                 }
@@ -2211,6 +2254,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val tempWebView = WebView(view.context).apply {
                                         settings.javaScriptEnabled = true
                                         settings.setSupportMultipleWindows(false)
+                                        settings.allowFileAccess = false
+                                        settings.allowContentAccess = false
+                                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                        settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                        settings.domStorageEnabled = true
+                                        settings.databaseEnabled = false
                                         webViewClient = object : WebViewClient() {
                                             override fun onPageStarted(wv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                                 super.onPageStarted(wv, url, favicon)
