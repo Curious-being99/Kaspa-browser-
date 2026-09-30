@@ -190,7 +190,7 @@ fun KaspaPriceHubCard(
 
                 // Right: Live Price + 24h Change Pill
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val displayPrice = scrubbedPrice?.let { String.format("$%.4f", it) } ?: priceInfo.formattedPrice
+                    val displayPrice = scrubbedPrice?.let { String.format(java.util.Locale.US, "$%.4f", it) } ?: priceInfo.formattedPrice
                     Text(
                         text = displayPrice,
                         color = TextPrimary,

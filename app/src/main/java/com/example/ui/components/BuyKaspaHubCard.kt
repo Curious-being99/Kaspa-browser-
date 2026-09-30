@@ -116,7 +116,7 @@ fun BuyKaspaHubCard(
                     border = androidx.compose.foundation.BorderStroke(0.5.dp, KaspaTea.copy(alpha = 0.3f))
                 ) {
                     Text(
-                        text = String.format("$100 ≈ %,.0f KAS", estimated100Usd),
+                        text = String.format(java.util.Locale.US, "$100 ≈ %,.0f KAS", estimated100Usd),
                         color = KaspaTea,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,

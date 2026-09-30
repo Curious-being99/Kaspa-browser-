@@ -49,7 +49,7 @@ object KaspaWebViewConfigurator {
      * Complies with Google Play policy and web standards.
      */
     @SuppressLint("SetJavaScriptEnabled")
-    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false) {
+    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false, acceptThirdPartyCookies: Boolean = false) {
         val defaultDeviceUa = try {
             WebSettings.getDefaultUserAgent(context)
         } catch (_: Throwable) {
@@ -101,7 +101,7 @@ object KaspaWebViewConfigurator {
         try {
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
         } catch (e: Exception) {
             Log.w(TAG, "CookieManager setup notice: ${e.message}")
         }
@@ -156,12 +156,6 @@ object KaspaWebViewConfigurator {
                             btn.innerHTML = '<span class="spinner"></span>Reconnecting...';
                         }
                         var targetUrl = '$escapedUrl';
-                        try {
-                            if (window.KaspaNative && typeof window.KaspaNative.retryConnection === 'function') {
-                                window.KaspaNative.retryConnection(targetUrl);
-                                return;
-                            }
-                        } catch(e) {}
                         window.location.href = targetUrl;
                     }
                 </script>

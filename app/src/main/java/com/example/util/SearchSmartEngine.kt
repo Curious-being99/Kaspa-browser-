@@ -191,10 +191,10 @@ object SearchSmartEngine {
             val usdTotal = amount * currentPrice
             return MathResult(
                 expression = "$amount KAS → USD",
-                resultString = String.format("$%.2f USD", usdTotal),
+                resultString = String.format(java.util.Locale.US, "$%.2f USD", usdTotal),
                 numericResult = usdTotal,
                 isCryptoConversion = true,
-                details = "1 KAS = $${String.format("%.4f", currentPrice)} USD"
+                details = "1 KAS = $${String.format(java.util.Locale.US, "%.4f", currentPrice)} USD"
             )
         }
 
@@ -206,10 +206,10 @@ object SearchSmartEngine {
             val kasTotal = amount / currentPrice
             return MathResult(
                 expression = "$$amount USD → KAS",
-                resultString = String.format("%.2f KAS", kasTotal),
+                resultString = String.format(java.util.Locale.US, "%.2f KAS", kasTotal),
                 numericResult = kasTotal,
                 isCryptoConversion = true,
-                details = "1 KAS = $${String.format("%.4f", currentPrice)} USD"
+                details = "1 KAS = $${String.format(java.util.Locale.US, "%.4f", currentPrice)} USD"
             )
         }
 

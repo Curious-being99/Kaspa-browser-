@@ -823,8 +823,24 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             expectedHost != null && currentHost != null &&
             (expectedHost == currentHost || expectedHost.endsWith(".$currentHost"))
 
-        if (granted && isOriginStillValid && req != null) {
-            req.grant(req.resources)
+        if (isOriginStillValid && req != null) {
+            val resourcesToGrant = mutableListOf<String>()
+            if (req.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+                permissions[android.Manifest.permission.RECORD_AUDIO] == true
+            ) {
+                resourcesToGrant.add(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+            }
+            if (req.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+                permissions[android.Manifest.permission.CAMERA] == true
+            ) {
+                resourcesToGrant.add(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+            }
+
+            if (resourcesToGrant.isNotEmpty()) {
+                req.grant(resourcesToGrant.toTypedArray())
+            } else {
+                req.deny()
+            }
         } else {
             req?.deny()
         }
@@ -876,14 +892,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
                 try {
                     androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(wv.settings, supportLevel)
-                } catch (_: Throwable) {}
-            }
-            if (webAuthEnabled) {
-                try {
-                    wv.evaluateJavascript(
-                        com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
-                        null
-                    )
                 } catch (_: Throwable) {}
             }
         }
@@ -1934,47 +1942,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } catch (_: Throwable) {}
                             }
 
-                            // Attach WebAuthn FIDO2 / Passkey Javascript Interface & Credential Manager Bridge
-                            val webAuthnBridge = com.example.network.KaspaWebAuthnBridge(
-                                context = ctx,
-                                webViewProvider = { webViewInstance },
-                                viewModel = viewModel,
-                                scope = scope
-                            )
-                            addJavascriptInterface(webAuthnBridge, "KaspaWebAuthnBridge")
-
-                            val nativeActionBridge = object {
-                                @android.webkit.JavascriptInterface
-                                fun isDesktopMode(): Boolean = viewModel.desktopModeEnabled.value
-
-                                @android.webkit.JavascriptInterface
-                                fun retryConnection(url: String?) {
-                                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                        val currentWvUrl = this@apply.url
-                                        // Only permit retryConnection on internal error pages or blank state
-                                        val isErrorPage = currentWvUrl == null ||
-                                            currentWvUrl.startsWith("kaspa-error://") ||
-                                            currentWvUrl.startsWith("data:") ||
-                                            currentWvUrl == "about:blank"
-                                        if (!isErrorPage) {
-                                            return@post
-                                        }
-                                        val target = if (!url.isNullOrBlank()) url else (currentWvUrl ?: urlInput)
-                                        if (target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)) {
-                                            viewModel.updateCurrentUrl(target)
-                                            viewModel.setIsLoading(true)
-                                            val isWebStore = target.contains("chromewebstore.google.com") || target.contains("chrome.google.com/webstore")
-                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
-                                            this@apply.tag = Pair(target, System.currentTimeMillis().toInt())
-                                            this@apply.loadUrl(target, headers)
-                                        } else {
-                                            isWebLoading = true
-                                            viewModel.resolveUrl()
-                                        }
-                                    }
-                                }
-                            }
-                            addJavascriptInterface(nativeActionBridge, "KaspaNative")
+                            // Zero native JS bridges registered for maximum security and zero interface exposure to untrusted web content
 
                             // Long-press context menu for links and images (Chrome-style Hub trigger)
                             setOnLongClickListener { v ->
@@ -2217,6 +2185,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             return
                                         }
 
+                                        // Explicitly reject unknown future resources: only support audio and video
+                                        val requestedKnownResources = request.resources.filter {
+                                            it == android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE ||
+                                            it == android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                                        }
+
+                                        if (requestedKnownResources.isEmpty()) {
+                                            request.deny()
+                                            return
+                                        }
+
                                         pendingPermissionRequest = request
                                         pendingPermissionOrigin = reqOrigin?.toString()
                                         val androidPermissions = mutableListOf<String>()
@@ -2229,7 +2208,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         if (androidPermissions.isNotEmpty()) {
                                             permissionLauncher.launch(androidPermissions.toTypedArray())
                                         } else {
-                                            request.grant(request.resources)
+                                            request.deny()
                                             pendingPermissionRequest = null
                                             pendingPermissionOrigin = null
                                         }
@@ -2463,12 +2442,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
-                                    if (webAuthEnabled) {
-                                        view?.evaluateJavascript(
-                                            com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
-                                            null
-                                        )
-                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -2535,13 +2508,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         ),
                                         null
                                     )
-
-                                    if (webAuthEnabled) {
-                                        view?.evaluateJavascript(
-                                            com.example.network.KaspaWebAuthnBridge.getInjectionScript(),
-                                            null
-                                        )
-                                    }
 
                                     if (blockTrackers) {
                                         view?.evaluateJavascript(
@@ -3063,8 +3029,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         // Algorithmic darkening removed to prevent "black page" issues.
 
                         val currentUrl = resource.url
-                        val isGoogleAccountSession = KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(currentUrl)
-                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies || isGoogleAccountSession)
+                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
 
                         // Sync WebAuthn support state with settings safely
                         if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
@@ -6801,21 +6766,6 @@ fun YouTubeVideoCard(
         it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
     } ?: "By_Zw58PN6o"
     var isPlaying by remember { mutableStateOf(false) }
-    
-    var pendingPermissionRequest by remember { mutableStateOf<android.webkit.PermissionRequest?>(null) }
-    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val granted = permissions.entries.all { it.value }
-        if (granted) {
-            pendingPermissionRequest?.let { req ->
-                req.grant(req.resources)
-            }
-        } else {
-            pendingPermissionRequest?.deny()
-        }
-        pendingPermissionRequest = null
-    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
@@ -6846,10 +6796,10 @@ fun YouTubeVideoCard(
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
 
-                                // Enable cookies & third-party cookies required by YouTube embed player
+                                // Disable third-party cookies by default in embed player
                                 val cookieManager = android.webkit.CookieManager.getInstance()
                                 cookieManager.setAcceptCookie(true)
-                                cookieManager.setAcceptThirdPartyCookies(this, true)
+                                cookieManager.setAcceptThirdPartyCookies(this, false)
 
                                 settings.apply {
                                     javaScriptEnabled = true
@@ -6883,22 +6833,8 @@ fun YouTubeVideoCard(
                                         return android.graphics.Bitmap.createBitmap(16, 16, android.graphics.Bitmap.Config.ARGB_8888)
                                     }
                                     override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                                        if (request != null) {
-                                            pendingPermissionRequest = request
-                                            val androidPermissions = mutableListOf<String>()
-                                            if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
-                                                androidPermissions.add(android.Manifest.permission.RECORD_AUDIO)
-                                            }
-                                            if (request.resources.contains(android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
-                                                androidPermissions.add(android.Manifest.permission.CAMERA)
-                                            }
-                                            if (androidPermissions.isNotEmpty()) {
-                                                permissionLauncher.launch(androidPermissions.toTypedArray())
-                                            } else {
-                                                request.grant(request.resources)
-                                                pendingPermissionRequest = null
-                                            }
-                                        }
+                                        // Embedded player helper views never require hardware capture permissions
+                                        request?.deny()
                                     }
                                 }
                                 webViewClient = object : android.webkit.WebViewClient() {

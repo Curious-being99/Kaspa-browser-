@@ -186,7 +186,7 @@ object SmartOmniboxEngine {
                 val pct = match.groupValues[1].toDouble()
                 val total = match.groupValues[2].toDouble()
                 val result = (pct / 100.0) * total
-                val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format("%.4f", result).trimEnd('0').trimEnd('.')
+                val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format(java.util.Locale.US, "%.4f", result).trimEnd('0').trimEnd('.')
                 return MathResult(
                     expression = "$pct% of $total",
                     formattedResult = formatted,

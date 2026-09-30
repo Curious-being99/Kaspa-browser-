@@ -302,9 +302,20 @@ fun PwaStandaloneScreen(
             (expectedHost == currentHost || expectedHost.endsWith(".$currentHost"))
 
         if (req != null) {
-            val allGranted = grants.values.all { it }
-            if (allGranted && isOriginStillValid) {
-                req.grant(req.resources)
+            val resourcesToGrant = mutableListOf<String>()
+            if (req.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+                grants[android.Manifest.permission.RECORD_AUDIO] == true
+            ) {
+                resourcesToGrant.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+            }
+            if (req.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+                grants[android.Manifest.permission.CAMERA] == true
+            ) {
+                resourcesToGrant.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+            }
+
+            if (isOriginStillValid && resourcesToGrant.isNotEmpty()) {
+                req.grant(resourcesToGrant.toTypedArray())
             } else {
                 req.deny()
             }
@@ -415,12 +426,12 @@ fun PwaStandaloneScreen(
                         }
 
                         // Apply full web settings parity (Requirement 3)
-                        KaspaWebViewConfigurator.applyWebSettings(this, ctx, isDesktopMode)
+                        KaspaWebViewConfigurator.applyWebSettings(this, ctx, isDesktopMode, acceptThirdPartyCookies = false)
 
                         // Cookie configuration
                         val cookieManager = CookieManager.getInstance()
                         cookieManager.setAcceptCookie(true)
-                        cookieManager.setAcceptThirdPartyCookies(this, true)
+                        cookieManager.setAcceptThirdPartyCookies(this, false)
 
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -668,6 +679,16 @@ fun PwaStandaloneScreen(
                                         return
                                     }
 
+                                    // Explicitly reject unknown future resources: only support audio and video
+                                    val requestedKnownResources = request.resources.filter {
+                                        it == PermissionRequest.RESOURCE_AUDIO_CAPTURE ||
+                                        it == PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                                    }
+                                    if (requestedKnownResources.isEmpty()) {
+                                        request.deny()
+                                        return
+                                    }
+
                                     pendingPermissionRequest = request
                                     pendingPermissionOrigin = reqOrigin?.toString()
                                     val permissions = mutableListOf<String>()
@@ -680,7 +701,7 @@ fun PwaStandaloneScreen(
                                     if (permissions.isNotEmpty()) {
                                         permissionLauncher.launch(permissions.toTypedArray())
                                     } else {
-                                        request.grant(request.resources)
+                                        request.deny()
                                         pendingPermissionRequest = null
                                         pendingPermissionOrigin = null
                                     }

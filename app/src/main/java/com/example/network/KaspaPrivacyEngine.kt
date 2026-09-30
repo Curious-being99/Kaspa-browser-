@@ -504,9 +504,7 @@ object KaspaPrivacyEngine {
         (function() {
             try {
                 var ua = navigator.userAgent || '';
-                var isDesktopMode = (window.KaspaNative && typeof window.KaspaNative.isDesktopMode === 'function')
-                    ? window.KaspaNative.isDesktopMode()
-                    : (!ua.includes('Android') && !ua.includes('Mobile'));
+                var isDesktopMode = (!ua.includes('Android') && !ua.includes('Mobile'));
 
                 if (navigator.userAgentData) {
                     try {
