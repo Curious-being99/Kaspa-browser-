@@ -215,7 +215,7 @@ object SmartOmniboxEngine {
             val formatted = if (abs(evalVal - evalVal.toLong()) < 0.000001) {
                 evalVal.toLong().toString()
             } else {
-                String.format("%.6f", evalVal).trimEnd('0').trimEnd('.')
+                String.format(java.util.Locale.US, "%.6f", evalVal).trimEnd('0').trimEnd('.')
             }
 
             MathResult(
