@@ -47,6 +47,7 @@ import androidx.fragment.app.FragmentActivity
 import com.example.MainActivity
 import com.example.network.CronetClientFactory
 import com.example.network.KaspaPrivacyEngine
+import com.example.network.KaspaPrivacyRelayEngine
 import com.example.network.NativeIntentRoutingEngine
 import com.example.network.WebViewAssetLruCache
 import com.example.ui.theme.*
@@ -492,28 +493,6 @@ fun PwaStandaloneScreen(
                                 if (request == null) return null
                                 val reqUrl = request.url?.toString() ?: return null
 
-                                // CRITICAL: NEVER intercept or block main frame pages
-                                if (request.isForMainFrame) return null
-
-                                val path = request.url?.path?.lowercase() ?: ""
-                                val isStyleOrFont = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
-                                        path.endsWith(".ttf") || path.endsWith(".otf") || path.endsWith(".eot")
-                                val isImageOrGraphic = path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
-                                        path.endsWith(".webp") || path.endsWith(".gif") || path.endsWith(".svg") ||
-                                        path.endsWith(".ico") || path.endsWith(".bmp") || path.endsWith(".avif")
-                                val isMedia = path.endsWith(".mp4") || path.endsWith(".webm") || path.endsWith(".mp3") ||
-                                        path.endsWith(".ogg") || path.endsWith(".m4a") || path.endsWith(".wav")
-
-                                if (isStyleOrFont || isImageOrGraphic || isMedia) {
-                                    // Static asset LRU cache lookup
-                                    if (WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
-                                        val cached = WebViewAssetLruCache.get(reqUrl)
-                                        if (cached != null) return cached
-                                    }
-                                    return null
-                                }
-
-                                // Ad & Tracker blocking for third-party scripts only
                                 val mainHost = runCatching { Uri.parse(view?.url ?: currentUrl).host?.lowercase() }.getOrNull()
                                 val reqHost = request.url?.host?.lowercase()
                                 val isFirstParty = mainHost != null && reqHost != null && (reqHost == mainHost || reqHost.endsWith(".$mainHost"))
@@ -527,6 +506,16 @@ fun PwaStandaloneScreen(
                                         mapOf("Access-Control-Allow-Origin" to "*"),
                                         ByteArrayInputStream(ByteArray(0))
                                     )
+                                }
+
+                                if (KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
+                                    try {
+                                        val headers = request.requestHeaders ?: emptyMap()
+                                        val resp: WebResourceResponse? = kotlinx.coroutines.runBlocking {
+                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers)
+                                        }
+                                        if (resp != null) return resp
+                                    } catch (_: Exception) {}
                                 }
 
                                 return super.shouldInterceptRequest(view, request)

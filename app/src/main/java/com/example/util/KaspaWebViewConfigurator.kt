@@ -32,7 +32,18 @@ object KaspaWebViewConfigurator {
             swSettings.cacheMode = WebSettings.LOAD_DEFAULT
             swController.setServiceWorkerClient(object : ServiceWorkerClient() {
                 override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
-                    Log.d("PWA", "[PWA] service worker: intercepting ${request.url}")
+                    val reqUrl = request.url?.toString()
+                    if (!reqUrl.isNullOrBlank() && com.example.network.KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
+                        try {
+                            val headers = request.requestHeaders ?: emptyMap()
+                            val resp = kotlinx.coroutines.runBlocking {
+                                com.example.network.KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers)
+                            }
+                            if (resp != null) return resp
+                        } catch (e: Exception) {
+                            Log.w("PWA", "ServiceWorker KRP interception notice: ${e.message}")
+                        }
+                    }
                     return super.shouldInterceptRequest(request)
                 }
             })

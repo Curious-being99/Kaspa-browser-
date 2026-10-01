@@ -7,6 +7,7 @@ pub mod federator;
 pub mod privacy;
 pub mod reader;
 pub mod relay;
+pub mod relay_server;
 pub mod security;
 
 use std::sync::OnceLock;

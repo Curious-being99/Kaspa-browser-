@@ -2700,6 +2700,31 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val reqUrlLower = reqUrl.lowercase()
                                     val path = request.url?.path?.lowercase() ?: ""
 
+                                    // KRP/1 Privacy Relay Circuit Interception
+                                    if (viewModel.isPrivacyRelayEnabled.value && KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
+                                        val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer")
+                                        val pageHost = referer?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
+                                            ?: viewModel.urlInput.value.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
+                                        val resourceHost = request.url?.host?.lowercase()
+                                        val isGoogleAccountRequest = KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(reqUrl) ||
+                                            (resourceHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(resourceHost)) ||
+                                            (pageHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(pageHost))
+
+                                        if (!isGoogleAccountRequest) {
+                                            try {
+                                                val headers = request.requestHeaders ?: emptyMap()
+                                                val relayResp = kotlinx.coroutines.runBlocking {
+                                                    KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers)
+                                                }
+                                                if (relayResp != null) {
+                                                    return relayResp
+                                                }
+                                            } catch (e: Exception) {
+                                                android.util.Log.w("KaspaRelay", "KRP Interception notice: ${e.message}")
+                                            }
+                                        }
+                                    }
+
                                     // CRITICAL: NEVER block the main frame navigation (the website itself).
                                     if (request.isForMainFrame) {
                                         return null

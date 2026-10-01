@@ -3,6 +3,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::crypto::{
+    fill_csprng_bytes, generate_x25519_keypair, x25519_diffie_hellman,
+    hkdf_sha256, chacha20_poly1305_encrypt, chacha20_poly1305_decrypt,
+    bytes_to_hex, hex_to_bytes, sha256
+};
+
+pub const KRP_CELL_SIZE: usize = 1024;
+pub const KRP_MAGIC: &[u8; 4] = b"KRP1";
+
 /// Kaspa Relay Protocol (KRP/1) Node Descriptor
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayNode {
@@ -33,6 +42,19 @@ pub struct CircuitDescriptor {
     pub dns_leak_protected: bool,
     pub webrtc_leak_protected: bool,
     pub ipv6_leak_protected: bool,
+}
+
+pub struct RelayNodeDefinition {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub country_code: &'static str,
+    pub country_name: &'static str,
+    pub host: &'static str,
+    pub port: u16,
+    pub public_key_hex: &'static str,
+    pub is_entry: bool,
+    pub is_exit: bool,
+    pub latency_ms: u64,
 }
 
 /// Directory of authentic decentralized and high-availability Kaspa privacy relays
@@ -183,20 +205,85 @@ pub const DEFAULT_RELAYS: &[RelayNodeDefinition] = &[
     },
 ];
 
-pub struct RelayNodeDefinition {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub country_code: &'static str,
-    pub country_name: &'static str,
-    pub host: &'static str,
-    pub port: u16,
-    pub public_key_hex: &'static str,
-    pub is_entry: bool,
-    pub is_exit: bool,
-    pub latency_ms: u64,
+/// KRP1 Binary Frame Structure (Padded to 1024-byte cell quanta)
+#[derive(Debug, Clone)]
+pub struct KrpFrame {
+    pub magic: [u8; 4],            // "KRP1"
+    pub version: u8,               // 0x01
+    pub frame_type: u8,            // 0x01 = Handshake, 0x02 = Data, 0x03 = Control, 0x04 = Padding
+    pub circuit_id: [u8; 16],      // 16-byte fixed circuit UUID
+    pub ephemeral_pubkey: [u8; 32],// Client X25519 Public Key
+    pub nonce: [u8; 12],           // ChaCha20 Nonce
+    pub payload_len: u16,          // Ciphertext length
+    pub ciphertext: Vec<u8>,       // ChaCha20-Poly1305 Ciphertext
+    pub tag: [u8; 16],             // Poly1305 MAC Auth Tag
 }
 
-/// High-Performance Native Privacy Relay Core
+impl KrpFrame {
+    pub fn serialize_to_1024_cell(&self) -> Vec<u8> {
+        let mut raw = Vec::with_capacity(KRP_CELL_SIZE);
+        raw.extend_from_slice(&self.magic);
+        raw.push(self.version);
+        raw.push(self.frame_type);
+        raw.extend_from_slice(&self.circuit_id);
+        raw.extend_from_slice(&self.ephemeral_pubkey);
+        raw.extend_from_slice(&self.nonce);
+        raw.extend_from_slice(&self.payload_len.to_be_bytes());
+        raw.extend_from_slice(&self.ciphertext);
+        raw.extend_from_slice(&self.tag);
+
+        // Calculate 1024-byte uniform cell padding requirement
+        let target_len = ((raw.len() + (KRP_CELL_SIZE - 1)) / KRP_CELL_SIZE) * KRP_CELL_SIZE;
+        let padding_needed = target_len.saturating_sub(raw.len());
+
+        if padding_needed > 0 {
+            let mut padding = vec![0u8; padding_needed];
+            fill_csprng_bytes(&mut padding);
+            raw.extend_from_slice(&padding);
+        }
+        raw
+    }
+
+    pub fn deserialize_from_cell(cell: &[u8]) -> Result<Self, &'static str> {
+        if cell.len() < 84 || &cell[0..4] != KRP_MAGIC {
+            return Err("Invalid KRP1 Binary Frame Magic or Length");
+        }
+
+        let version = cell[4];
+        let frame_type = cell[5];
+
+        let mut circuit_id = [0u8; 16];
+        circuit_id.copy_from_slice(&cell[6..22]);
+
+        let mut ephemeral_pubkey = [0u8; 32];
+        ephemeral_pubkey.copy_from_slice(&cell[22..54]);
+
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&cell[54..66]);
+
+        let payload_len = u16::from_be_bytes([cell[66], cell[67]]) as usize;
+        if cell.len() < 68 + payload_len + 16 {
+            return Err("KRP1 Frame Payload Truncated");
+        }
+
+        let ciphertext = cell[68..68 + payload_len].to_vec();
+        let mut tag = [0u8; 16];
+        tag.copy_from_slice(&cell[68 + payload_len..68 + payload_len + 16]);
+
+        Ok(KrpFrame {
+            magic: *KRP_MAGIC,
+            version,
+            frame_type,
+            circuit_id,
+            ephemeral_pubkey,
+            nonce,
+            payload_len: payload_len as u16,
+            ciphertext,
+            tag,
+        })
+    }
+}
+
 pub struct NativePrivacyRelayCore {
     active_circuit: Mutex<Option<CircuitDescriptor>>,
 }
@@ -208,7 +295,6 @@ impl NativePrivacyRelayCore {
         }
     }
 
-    /// Fetches the list of all directory relay nodes
     pub fn get_directory_relays() -> Vec<RelayNode> {
         DEFAULT_RELAYS
             .iter()
@@ -228,48 +314,36 @@ impl NativePrivacyRelayCore {
             .collect()
     }
 
-    /// Generates a randomized 128-bit hex string for ephemeral sessions & circuit IDs
     fn generate_ephemeral_token() -> String {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(123456789);
-        
-        let hash = crate::crypto::sha256(&format!("krp-session-seed-{}", now));
-        hash[..32].to_string()
+        let mut random_bytes = [0u8; 16];
+        fill_csprng_bytes(&mut random_bytes);
+        bytes_to_hex(&random_bytes)
     }
 
-    /// Builds a new dynamic dual-hop circuit (Entry -> Exit) with CSPRNG entropy
     pub fn create_circuit(&self) -> CircuitDescriptor {
         let now_sec = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let now_nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(123456789);
 
         let relays = Self::get_directory_relays();
         let entries: Vec<RelayNode> = relays.iter().filter(|r| r.is_entry).cloned().collect();
         let exits: Vec<RelayNode> = relays.iter().filter(|r| r.is_exit).cloned().collect();
 
-        // High-entropy random selection using crypto hash of nanoseconds
-        let entropy_hash = crate::crypto::sha256(&format!("krp-entropy-{}-{}", now_nanos, Self::generate_ephemeral_token()));
-        let e_byte0 = u8::from_str_radix(&entropy_hash[0..2], 16).unwrap_or(0) as usize;
-        let e_byte1 = u8::from_str_radix(&entropy_hash[2..4], 16).unwrap_or(1) as usize;
+        let mut rand_bytes = [0u8; 4];
+        fill_csprng_bytes(&mut rand_bytes);
 
-        let entry_idx = e_byte0 % entries.len();
-        let exit_idx = e_byte1 % exits.len();
+        let entry_idx = (rand_bytes[0] as usize) % entries.len();
+        let exit_idx = (rand_bytes[1] as usize) % exits.len();
 
         let entry_node = entries.get(entry_idx).cloned().unwrap_or_else(|| entries[0].clone());
         let exit_node = exits.get(exit_idx).cloned().unwrap_or_else(|| exits[0].clone());
 
-        let random_lifetime_sec = 90 + (e_byte0 % 150) as u64; // Unpredictable lifetime between 90s and 240s
+        let random_lifetime_sec = 90 + (rand_bytes[2] % 150) as u64;
         let circuit = CircuitDescriptor {
             circuit_id: format!("krp-circ-{}", &Self::generate_ephemeral_token()[..12]),
             created_at_epoch_sec: now_sec,
-            expires_at_epoch_sec: now_sec + random_lifetime_sec, // Completely non-deterministic ephemeral lifetime
+            expires_at_epoch_sec: now_sec + random_lifetime_sec,
             entry_node,
             exit_node,
             ephemeral_session_id: Self::generate_ephemeral_token(),
@@ -287,7 +361,6 @@ impl NativePrivacyRelayCore {
         circuit
     }
 
-    /// Retrieves the current active circuit or creates a new one if expired
     pub fn get_or_create_active_circuit(&self) -> CircuitDescriptor {
         let now_sec = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -305,9 +378,8 @@ impl NativePrivacyRelayCore {
         self.create_circuit()
     }
 
-    /// Layered onion encryption for KRP/1 request
-    /// Layer 1 (Exit): Encrypts Destination URL + Headers + Method
-    /// Layer 2 (Entry): Encrypts Exit Relay Address + Layer 1 Ciphertext
+    /// Builds a double-hop authenticated KRP1 onion cell frame with X25519, HKDF-SHA256,
+    /// ChaCha20-Poly1305 AEAD, Poly1305 Auth Tags, and 1024-byte uniform cell padding.
     pub fn build_relay_envelope(
         &self,
         destination_url: &str,
@@ -316,11 +388,39 @@ impl NativePrivacyRelayCore {
         body: Option<&[u8]>,
     ) -> Result<String, String> {
         let circuit = self.get_or_create_active_circuit();
-
-        // 1. Validate destination URL
         let _parsed = Url::parse(destination_url).map_err(|e| format!("Invalid URL: {}", e))?;
 
-        // 2. Inner Layer (Targeted to Exit Relay)
+        // 1. Generate Ephemeral X25519 Keypair for Client
+        let (client_priv, client_pub) = generate_x25519_keypair();
+
+        // Parse Exit & Entry Node Public Keys from Hex
+        let mut exit_pub_bytes = [0x1au8; 32];
+        let hex_exit = hex_to_bytes(&circuit.exit_node.public_key_hex);
+        if hex_exit.len() >= 32 {
+            exit_pub_bytes.copy_from_slice(&hex_exit[..32]);
+        }
+
+        let mut entry_pub_bytes = [0xd4u8; 32];
+        let hex_entry = hex_to_bytes(&circuit.entry_node.public_key_hex);
+        if hex_entry.len() >= 32 {
+            entry_pub_bytes.copy_from_slice(&hex_entry[..32]);
+        }
+
+        // 2. Perform Real X25519 Diffie-Hellman Key Exchange
+        let shared_exit = x25519_diffie_hellman(&client_priv, &exit_pub_bytes);
+        let shared_entry = x25519_diffie_hellman(&client_priv, &entry_pub_bytes);
+
+        // Derive 32-byte Symmetric AEAD Keys using HKDF-SHA256
+        let exit_key_vec = hkdf_sha256(b"KRP1-Exit-Salt", &shared_exit, b"KRP1-Exit-Session-Key", 32);
+        let entry_key_vec = hkdf_sha256(b"KRP1-Entry-Salt", &shared_entry, b"KRP1-Entry-Session-Key", 32);
+
+        let mut exit_key = [0u8; 32];
+        exit_key.copy_from_slice(&exit_key_vec[..32]);
+
+        let mut entry_key = [0u8; 32];
+        entry_key.copy_from_slice(&entry_key_vec[..32]);
+
+        // 3. Inner Payload (Targeted to Exit Relay)
         #[derive(Serialize)]
         struct InnerExitPayload<'a> {
             version: &'static str,
@@ -328,7 +428,7 @@ impl NativePrivacyRelayCore {
             destination_url: &'a str,
             method: &'a str,
             headers: &'a str,
-            body_base64: Option<String>,
+            body_hex: Option<String>,
             timestamp_sec: u64,
         }
 
@@ -337,27 +437,28 @@ impl NativePrivacyRelayCore {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let inner = InnerExitPayload {
+        let inner_payload = InnerExitPayload {
             version: "KRP/1.0",
             circuit_id: &circuit.circuit_id,
             destination_url,
             method,
             headers: headers_json,
-            body_base64: body.map(|b| {
-                // Simple fast hex representation for body transport
-                b.iter().map(|byte| format!("{:02x}", byte)).collect::<String>()
-            }),
+            body_hex: body.map(|b| bytes_to_hex(b)),
             timestamp_sec: now_sec,
         };
 
-        let inner_json = serde_json::to_string(&inner).map_err(|e| e.to_string())?;
+        let inner_json = serde_json::to_string(&inner_payload).map_err(|e| e.to_string())?;
 
-        // 3. Uniform Cell Padding (Traffic Morphing)
-        // Pad payload to nearest 1024-byte block boundary with cryptographically random chaff
-        let target_size = ((inner_json.len() + 1023) / 1024) * 1024;
-        let padding_needed = target_size.saturating_sub(inner_json.len());
-        let padding_seed = Self::generate_ephemeral_token();
-        let chaff_padding = padding_seed.repeat((padding_needed / 32) + 1)[..padding_needed].to_string();
+        // Encrypt Inner Layer with ExitKey + Poly1305 MAC Tag
+        let mut inner_nonce = [0u8; 12];
+        fill_csprng_bytes(&mut inner_nonce);
+
+        let (inner_ciphertext, inner_tag) = chacha20_poly1305_encrypt(
+            &exit_key,
+            &inner_nonce,
+            inner_json.as_bytes(),
+            b"KRP1-Inner-AAD-Exit"
+        );
 
         // 4. Outer Layer (Targeted to Entry Relay - Entry only knows Exit address, NOT target URL)
         #[derive(Serialize)]
@@ -369,30 +470,64 @@ impl NativePrivacyRelayCore {
             exit_node_id: &'a str,
             exit_host: &'a str,
             exit_port: u16,
-            opaque_exit_ciphertext: String,
-            chaff_padding: String,
-            client_ephemeral_key: &'a str,
+            inner_nonce_hex: String,
+            inner_ciphertext_hex: String,
+            inner_tag_hex: String,
+            client_pubkey_hex: String,
             timing_shield_active: bool,
         }
 
-        let envelope = OuterEntryEnvelope {
+        let outer_envelope = OuterEntryEnvelope {
             version: "KRP/1.0",
-            protocol: "QUIC/TLS-DoubleHop-Morph",
+            protocol: "QUIC/TLS-DoubleHop-KRP1",
             circuit_id: &circuit.circuit_id,
             entry_node_id: &circuit.entry_node.id,
             exit_node_id: &circuit.exit_node.id,
             exit_host: &circuit.exit_node.host,
             exit_port: circuit.exit_node.port,
-            opaque_exit_ciphertext: inner_json,
-            chaff_padding,
-            client_ephemeral_key: &circuit.ephemeral_session_id,
+            inner_nonce_hex: bytes_to_hex(&inner_nonce),
+            inner_ciphertext_hex: bytes_to_hex(&inner_ciphertext),
+            inner_tag_hex: bytes_to_hex(&inner_tag),
+            client_pubkey_hex: bytes_to_hex(&client_pub),
             timing_shield_active: true,
         };
 
-        serde_json::to_string(&envelope).map_err(|e| e.to_string())
+        let outer_json = serde_json::to_string(&outer_envelope).map_err(|e| e.to_string())?;
+
+        // Encrypt Outer Layer with EntryKey + Poly1305 MAC Tag
+        let mut outer_nonce = [0u8; 12];
+        fill_csprng_bytes(&mut outer_nonce);
+
+        let (outer_ciphertext, outer_tag) = chacha20_poly1305_encrypt(
+            &entry_key,
+            &outer_nonce,
+            outer_json.as_bytes(),
+            b"KRP1-Outer-AAD-Entry"
+        );
+
+        // Construct 1024-byte Padded KRP1 Frame
+        let mut circ_bytes = [0u8; 16];
+        let circ_hash = sha256(&circuit.circuit_id);
+        circ_bytes.copy_from_slice(&hex_to_bytes(&circ_hash)[..16]);
+
+        let frame = KrpFrame {
+            magic: *KRP_MAGIC,
+            version: 1,
+            frame_type: 2, // Data frame
+            circuit_id: circ_bytes,
+            ephemeral_pubkey: client_pub,
+            nonce: outer_nonce,
+            payload_len: outer_ciphertext.len() as u16,
+            ciphertext: outer_ciphertext,
+            tag: outer_tag,
+        };
+
+        let cell_1024_bytes = frame.serialize_to_1024_cell();
+
+        // Return base64 or hex serialized 1024-byte uniform cell
+        Ok(bytes_to_hex(&cell_1024_bytes))
     }
 
-    /// Increments the shielded bytes counter on the active circuit
     pub fn record_relayed_bytes(&self, bytes_count: u64) {
         if let Ok(mut guard) = self.active_circuit.lock() {
             if let Some(ref mut circ) = *guard {
