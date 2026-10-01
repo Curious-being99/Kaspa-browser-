@@ -60,6 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import coil.compose.AsyncImage
 import com.example.network.KaspaPriceService
 import com.example.network.SmartOmniboxEngine
@@ -154,11 +156,12 @@ fun SmartOmniboxOverlay(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoFixHigh,
+                                Image(
+                                    painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
                                     contentDescription = "Auto-Correction",
-                                    tint = KaspaTea,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {

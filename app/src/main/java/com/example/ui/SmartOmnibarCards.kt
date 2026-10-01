@@ -38,6 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import com.example.omnibar.KaspaBuyOption
 import com.example.omnibar.KaspaMarketData
 import com.example.omnibar.MathCalculationResult
@@ -446,11 +449,12 @@ fun DidYouMeanBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = Icons.Default.AutoFixHigh,
-                    contentDescription = "Auto-correct",
-                    tint = AmberCentral,
-                    modifier = Modifier.size(16.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
+                    contentDescription = "Kaspa Suggest",
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(

@@ -1078,11 +1078,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             .testTag("kaspa_address_indicator_icon")
                                     )
                                 } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = "Search",
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(18.dp)
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
+                                        contentDescription = "Kaspa Search",
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .testTag("kaspa_search_logo_icon")
                                     )
                                 }
 
@@ -1295,31 +1297,25 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             .clickable { showProtocolMenu = true }
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = if (isKaspaAddress) {
-                                                    Icons.Default.CheckCircle
-                                                } else {
-                                                    when (selectedProtocol) {
-                                                        NetworkProtocol.HYBRID_COEXISTENCE -> Icons.Default.Hub
-                                                        NetworkProtocol.DECENTRALIZED_P2P -> Icons.Default.Language
-                                                        NetworkProtocol.CENTRALIZED_HTTP -> Icons.Default.Cloud
-                                                    }
-                                                },
-                                                contentDescription = "Protocol Mode Logo",
-                                                tint = if (isKaspaAddress) {
-                                                    KaspaTea
-                                                } else {
-                                                    when (selectedProtocol) {
-                                                        NetworkProtocol.HYBRID_COEXISTENCE -> ElectricCyan
-                                                        NetworkProtocol.DECENTRALIZED_P2P -> EmeraldMesh
-                                                        NetworkProtocol.CENTRALIZED_HTTP -> AmberCentral
-                                                    }
-                                                },
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                            if (isKaspaAddress) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Kaspa Valid Address",
+                                                    tint = KaspaTea,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            } else {
+                                                Image(
+                                                    painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
+                                                    contentDescription = "Kaspa Protocol Logo",
+                                                    modifier = Modifier
+                                                        .size(20.dp)
+                                                        .clip(CircleShape)
+                                                )
+                                            }
                                         }
                                     }
 
