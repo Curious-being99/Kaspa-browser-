@@ -386,11 +386,11 @@ private fun SplashLaunchLogo(
         modifier = modifier
             .size(sizeDp.dp)
             .clip(CircleShape)
-            .background(Color(0xFFECEFF1)),
+            .background(Color(0xFF0C0D10)),
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(id = R.drawable.ic_kaspa_ant_logo),
+            painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
             contentDescription = "Kaspa Logo",
             contentScale = ContentScale.Fit,
             modifier = Modifier

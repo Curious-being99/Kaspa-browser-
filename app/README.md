@@ -1,6 +1,14 @@
-# DecentralNet Browser
+<p align="center">
+  <img src="logo.png" alt="Kaspa Browser Logo" width="180" height="180" style="border-radius: 28px;" />
+</p>
 
-DecentralNet is a modern, fully decentralized Android web browser built with **Jetpack Compose**, **Kotlin**, and a **Dual-Stack P2P Gateway Architecture**. It serves standard `http://` and `https://` web content without relying on centralized web servers, traditional ICANN DNS, or single points of failure.
+<h1 align="center">Kaspa Browser 🌐</h1>
+
+<p align="center">
+  <i>The Privacy-First, Decentralized Web3 & P2P Android Browser</i>
+</p>
+
+Kaspa Browser (formerly DecentralNet) is a modern, fully decentralized Android web browser built with **Jetpack Compose**, **Kotlin**, and a **Dual-Stack P2P Gateway Architecture**. It serves standard `http://` and `https://` web content without relying on centralized web servers, traditional ICANN DNS, or single points of failure.
 
 ---
 

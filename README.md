@@ -1,6 +1,14 @@
-# Kaspa Browser 🌐
+<p align="center">
+  <img src="logo.png" alt="Kaspa Browser Logo" width="180" height="180" style="border-radius: 28px;" />
+</p>
 
-<p align="left">
+<h1 align="center">Kaspa Browser 🌐</h1>
+
+<p align="center">
+  <i>The Privacy-First, Decentralized Web3 & P2P Android Browser</i>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Kotlin-98.8%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 98.8%" />
   <img src="https://img.shields.io/badge/Rust-1.2%25-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust 1.5%" />
   <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
