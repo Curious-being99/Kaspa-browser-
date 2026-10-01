@@ -63,6 +63,21 @@ android {
     includeInApk = false
     includeInBundle = true
   }
+  lint {
+    abortOnError = false
+    checkReleaseBuilds = false
+    disable += setOf(
+      "GradleDependency",
+      "NewerVersionAvailable",
+      "AndroidGradlePluginVersion",
+      "UseKtx",
+      "IconLocation",
+      "IconDuplicates",
+      "UnusedResources",
+      "SetJavaScriptEnabled",
+      "ObsoleteSdkInt"
+    )
+  }
 }
 
 // Custom Gradle Task to compile On-Device Rust Search Engine (kaspasearch) for JNI

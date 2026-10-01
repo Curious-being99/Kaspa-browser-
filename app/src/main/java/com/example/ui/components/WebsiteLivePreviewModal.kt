@@ -181,7 +181,8 @@ fun WebsiteLivePreviewModal(
             ) {
                 AndroidView(
                     factory = { ctx ->
-                        WebView(ctx).apply {
+                        @android.annotation.SuppressLint("SetJavaScriptEnabled")
+                        val wv = WebView(ctx).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             settings.useWideViewPort = true
@@ -194,6 +195,7 @@ fun WebsiteLivePreviewModal(
                             }
                             loadUrl(previewUrl)
                         }
+                        wv
                     },
                     modifier = Modifier.fillMaxSize()
                 )

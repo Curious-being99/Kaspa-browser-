@@ -126,33 +126,6 @@ object NativeIntentRoutingEngine {
                     }
                 }
             }
-
-            // Check if user has an associated native app handler for this link
-            try {
-                val genericIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                val pm = context.packageManager
-                val resolveList = pm.queryIntentActivities(genericIntent, 0)
-                val ourPkg = context.packageName
-
-                val nativeApp = resolveList.firstOrNull { ri ->
-                    val pkg = ri.activityInfo?.packageName?.lowercase() ?: ""
-                    pkg.isNotEmpty() && pkg != ourPkg &&
-                        !pkg.contains("chrome") &&
-                        !pkg.contains("browser") &&
-                        !pkg.contains("webview") &&
-                        !pkg.contains("firefox") &&
-                        !pkg.contains("opera") &&
-                        !pkg.contains("duckduckgo")
-                }
-
-                if (nativeApp != null) {
-                    genericIntent.setPackage(nativeApp.activityInfo.packageName)
-                    context.startActivity(genericIntent)
-                    return true
-                }
-            } catch (_: Exception) {}
         }
 
         return false

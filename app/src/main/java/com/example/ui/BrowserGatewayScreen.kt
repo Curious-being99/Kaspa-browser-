@@ -239,6 +239,30 @@ data class BrowserTab(
     val resource: ResolvedResource? = null
 )
 
+internal val DIRECT_DOWNLOAD_EXTENSIONS = setOf(
+    // Video
+    "mp4", "m4v", "mkv", "webm", "avi", "mov", "wmv", "3gp", "3gpp", "flv", "ts", "ogv",
+    "vob", "m2ts", "asf", "rm", "rmvb", "f4v", "divx", "mpg", "mpeg",
+    // Audio
+    "mp3", "wav", "ogg", "oga", "flac", "m4a", "aac", "opus", "wma", "mid", "midi",
+    "m4b", "alac", "aiff", "aif", "amr", "awb", "mp2", "ra",
+    // Documents & eBooks
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "txt",
+    "csv", "tsv", "epub", "mobi", "azw", "azw3", "djvu", "fb2", "pages", "numbers", "key",
+    // Archives & Compressed
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "iso", "torrent",
+    "cab", "cpio", "lz", "lzma", "z", "dmg", "pkg", "deb", "rpm",
+    // Android Executables / Packages / Installers
+    "apk", "xapk", "apks", "aab", "exe", "msi", "bin", "jar",
+    // Code / Config / Databases
+    "xml", "json", "yaml", "yml", "toml", "sql", "sqlite", "db", "sqlite3", "bak", "diff", "patch",
+    // Creative & 3D
+    "psd", "ai", "eps", "blend", "stl", "obj", "fbx", "3ds", "dwg", "dxf"
+)
+
+internal fun isDownloadableExtension(ext: String): Boolean =
+    DIRECT_DOWNLOAD_EXTENSIONS.contains(ext.lowercase())
+
 internal fun executeImageDownload(
     context: android.content.Context,
     targetImgUrl: String,
@@ -2041,6 +2065,53 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val targetPath = targetUri?.path?.lowercase() ?: ""
                                 val targetScheme = targetUri?.scheme?.lowercase() ?: ""
                                 
+                                val pathExt = targetPath.substringAfterLast('.', "")
+                                val queryExt = targetUri?.query?.let { q ->
+                                    val cleanQ = q.lowercase()
+                                    DIRECT_DOWNLOAD_EXTENSIONS.firstOrNull { ext ->
+                                        cleanQ.contains(".$ext") || cleanQ.contains("format=$ext") || cleanQ.contains("type=$ext") || cleanQ.contains("ext=$ext")
+                                    }
+                                }
+                                val hasExplicitDownloadFlag = targetUri?.query?.let { q ->
+                                    val cleanQ = q.lowercase()
+                                    cleanQ.contains("export=download") ||
+                                    cleanQ.contains("download=1") ||
+                                    cleanQ.contains("download=true") ||
+                                    cleanQ.contains("dl=1") ||
+                                    cleanQ.contains("dl=true") ||
+                                    cleanQ.contains("action=download")
+                                } == true || targetPath.endsWith("/download") || targetPath.endsWith("/download/")
+
+                                val targetExt = if (pathExt.isNotEmpty() && isDownloadableExtension(pathExt)) pathExt else queryExt ?: ""
+                                val isDownloadableMediaOrFile = (targetScheme == "http" || targetScheme == "https") &&
+                                    (targetExt.isNotEmpty() && isDownloadableExtension(targetExt) || hasExplicitDownloadFlag)
+
+                                if (isDownloadableMediaOrFile) {
+                                    if (!enableDownloads) {
+                                        viewModel.setStatusMessage("Downloads are disabled in Settings")
+                                        return true
+                                    }
+                                    val now = System.currentTimeMillis()
+                                    if (cleanUrl != lastDownloadedUrl || (now - lastDownloadTimestamp >= 4000L)) {
+                                        lastDownloadedUrl = cleanUrl
+                                        lastDownloadTimestamp = now
+                                        val filename = android.webkit.URLUtil.guessFileName(cleanUrl, null, null)
+                                        val downloadId = System.currentTimeMillis()
+                                        val cookies = try {
+                                            android.webkit.CookieManager.getInstance().getCookie(cleanUrl)
+                                        } catch (_: Exception) {
+                                            null
+                                        }
+                                        val userAgent = try { targetView?.settings?.userAgentString } catch (_: Exception) { null }
+                                        val referer = try { targetView?.url } catch (_: Exception) { null }
+                                        viewModel.addDownload(downloadId, filename, cleanUrl)
+                                        viewModel.startDownload(context, downloadId, cleanUrl, filename, cookies, userAgent, referer)
+                                        viewModel.setStatusMessage("Download started: $filename")
+                                        android.widget.Toast.makeText(context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    return true
+                                }
+
                                 return if (cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
                                     cleanUrl.startsWith("mesh://", ignoreCase = true) ||
                                     cleanUrl.startsWith("dweb://", ignoreCase = true) ||
@@ -4422,6 +4493,32 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                             }
                         )
+
+                        HubActionRow(
+                            icon = Icons.Default.Download,
+                            title = "Download link",
+                            onClick = {
+                                scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                    showLinkContextMenu = false
+                                    val target = longPressedLinkUrl ?: ""
+                                    longPressedLinkUrl = null
+                                    longPressedImageUrl = null
+                                    longPressedImageTitle = null
+                                    isLongPressedImage = false
+                                    if (target.isNotBlank()) {
+                                        val filename = android.webkit.URLUtil.guessFileName(target, null, null)
+                                        val downloadId = System.currentTimeMillis()
+                                        val cookies = try { android.webkit.CookieManager.getInstance().getCookie(target) } catch (_: Exception) { null }
+                                        val userAgent = try { webViewInstance?.settings?.userAgentString } catch (_: Exception) { null }
+                                        val referer = try { webViewInstance?.url } catch (_: Exception) { null }
+                                        viewModel.addDownload(downloadId, filename, target)
+                                        viewModel.startDownload(context, downloadId, target, filename, cookies, userAgent, referer)
+                                        viewModel.setStatusMessage("Download started: $filename")
+                                        android.widget.Toast.makeText(context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
                     }
                 } else {
                     // Pure Link actions
@@ -4491,6 +4588,32 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     putExtra(Intent.EXTRA_TEXT, target)
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Share Link"))
+                            }
+                        }
+                    )
+
+                    HubActionRow(
+                        icon = Icons.Default.Download,
+                        title = "Download link",
+                        onClick = {
+                            scope.launch { linkContextMenuSheetState.hide() }.invokeOnCompletion {
+                                showLinkContextMenu = false
+                                val target = linkUrl
+                                longPressedLinkUrl = null
+                                longPressedImageUrl = null
+                                longPressedImageTitle = null
+                                isLongPressedImage = false
+                                if (target.isNotBlank()) {
+                                    val filename = android.webkit.URLUtil.guessFileName(target, null, null)
+                                    val downloadId = System.currentTimeMillis()
+                                    val cookies = try { android.webkit.CookieManager.getInstance().getCookie(target) } catch (_: Exception) { null }
+                                    val userAgent = try { webViewInstance?.settings?.userAgentString } catch (_: Exception) { null }
+                                    val referer = try { webViewInstance?.url } catch (_: Exception) { null }
+                                    viewModel.addDownload(downloadId, filename, target)
+                                    viewModel.startDownload(context, downloadId, target, filename, cookies, userAgent, referer)
+                                    viewModel.setStatusMessage("Download started: $filename")
+                                    android.widget.Toast.makeText(context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     )

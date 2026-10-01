@@ -308,7 +308,7 @@ fun WebpagePreviewHubCard(
                                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                                     if (request?.isForMainFrame == true) {
                                         // Ignore benign net errors (e.g. subresource aborts)
-                                        val errCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.errorCode ?: 0 else 0
+                                        val errCode = error?.errorCode ?: 0
                                         if (errCode != ERROR_TIMEOUT && errCode != ERROR_CONNECT && errCode != ERROR_HOST_LOOKUP) {
                                             // Soft error, still allow display if partial content rendered
                                         } else {

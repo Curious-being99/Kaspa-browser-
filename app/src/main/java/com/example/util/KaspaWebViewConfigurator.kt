@@ -23,24 +23,22 @@ object KaspaWebViewConfigurator {
      * work properly for PWAs and modern web applications.
      */
     fun initServiceWorkerSupport() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                val swController = ServiceWorkerController.getInstance()
-                val swSettings = swController.serviceWorkerWebSettings
-                swSettings.allowContentAccess = true
-                swSettings.allowFileAccess = true
-                swSettings.blockNetworkLoads = false
-                swSettings.cacheMode = WebSettings.LOAD_DEFAULT
-                swController.setServiceWorkerClient(object : ServiceWorkerClient() {
-                    override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
-                        Log.d("PWA", "[PWA] service worker: intercepting ${request.url}")
-                        return super.shouldInterceptRequest(request)
-                    }
-                })
-                Log.d("PWA", "[PWA] service worker: active")
-            } catch (e: Exception) {
-                Log.w(TAG, "ServiceWorkerController initialization notice: ${e.message}")
-            }
+        try {
+            val swController = ServiceWorkerController.getInstance()
+            val swSettings = swController.serviceWorkerWebSettings
+            swSettings.allowContentAccess = true
+            swSettings.allowFileAccess = true
+            swSettings.blockNetworkLoads = false
+            swSettings.cacheMode = WebSettings.LOAD_DEFAULT
+            swController.setServiceWorkerClient(object : ServiceWorkerClient() {
+                override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+                    Log.d("PWA", "[PWA] service worker: intercepting ${request.url}")
+                    return super.shouldInterceptRequest(request)
+                }
+            })
+            Log.d("PWA", "[PWA] service worker: active")
+        } catch (e: Exception) {
+            Log.w(TAG, "ServiceWorkerController initialization notice: ${e.message}")
         }
     }
 
