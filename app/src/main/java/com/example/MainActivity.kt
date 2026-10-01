@@ -45,8 +45,11 @@ class MainActivity : FragmentActivity() {
           msg.contains("egl") ||
           msg.contains("webview") ||
           msg.contains("deadobjectexception") ||
+          msg.contains("supervised") ||
+          msg.contains("timeout") ||
           stack.contains("android.webkit") ||
           stack.contains("org.chromium") ||
+          stack.contains("superviseduser") ||
           stack.contains("cronet") ||
           stack.contains("cursorwindow") ||
           stack.contains("blobtoobig") ||

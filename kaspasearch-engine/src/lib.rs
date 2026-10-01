@@ -6,12 +6,18 @@ pub mod crypto;
 pub mod federator;
 pub mod privacy;
 pub mod reader;
+pub mod relay;
 pub mod security;
 
 use std::sync::OnceLock;
 
 static SEARCH_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static SEARCH_ENGINE: OnceLock<federator::FederatedSearchEngine> = OnceLock::new();
+static RELAY_CORE: OnceLock<relay::NativePrivacyRelayCore> = OnceLock::new();
+
+fn get_relay_core() -> &'static relay::NativePrivacyRelayCore {
+    RELAY_CORE.get_or_init(relay::NativePrivacyRelayCore::new)
+}
 
 fn get_search_runtime() -> &'static tokio::runtime::Runtime {
     SEARCH_RUNTIME.get_or_init(|| {
@@ -362,6 +368,85 @@ pub extern "system" fn Java_com_example_network_KaspaSecurityGuard_nativeInspect
     let verdict = security::SecurityGuard::inspect_url(&raw_url);
     let json = serde_json::to_string(&verdict).unwrap_or_else(|_| "{}".to_string());
     env.new_string(json).unwrap().into_raw()
+}
+
+// ============================================================================
+// KaspaPrivacyRelayEngine (KRP/1 Dual-Hop Privacy Circuit) JNI Exports
+// ============================================================================
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeGetDirectoryRelays(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    let relays = relay::NativePrivacyRelayCore::get_directory_relays();
+    let json = serde_json::to_string(&relays).unwrap_or_else(|_| "[]".to_string());
+    env.new_string(json).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeCreateCircuit(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    let core = get_relay_core();
+    let circuit = core.create_circuit();
+    let json = serde_json::to_string(&circuit).unwrap_or_else(|_| "{}".to_string());
+    env.new_string(json).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeGetActiveCircuit(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    let core = get_relay_core();
+    let circuit = core.get_or_create_active_circuit();
+    let json = serde_json::to_string(&circuit).unwrap_or_else(|_| "{}".to_string());
+    env.new_string(json).unwrap().into_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeBuildRelayEnvelope(
+    mut env: JNIEnv,
+    _class: JClass,
+    destination_url: JString,
+    method: JString,
+    headers_json: JString,
+) -> jstring {
+    let raw_url: String = match env.get_string(&destination_url) {
+        Ok(s) => s.into(),
+        Err(_) => return env.new_string("{}").unwrap().into_raw(),
+    };
+    let raw_method: String = match env.get_string(&method) {
+        Ok(s) => s.into(),
+        Err(_) => "GET".to_string(),
+    };
+    let raw_headers: String = match env.get_string(&headers_json) {
+        Ok(s) => s.into(),
+        Err(_) => "{}".to_string(),
+    };
+
+    let core = get_relay_core();
+    match core.build_relay_envelope(&raw_url, &raw_method, &raw_headers, None) {
+        Ok(envelope) => env.new_string(envelope).unwrap().into_raw(),
+        Err(e) => {
+            let err_json = serde_json::json!({ "error": e }).to_string();
+            env.new_string(err_json).unwrap().into_raw()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeRecordBytes(
+    _env: JNIEnv,
+    _class: JClass,
+    bytes_count: jni::sys::jlong,
+) {
+    if bytes_count > 0 {
+        let core = get_relay_core();
+        core.record_relayed_bytes(bytes_count as u64);
+    }
 }
 
 

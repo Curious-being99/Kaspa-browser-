@@ -38,6 +38,8 @@ import com.example.model.VerificationStatus
 import com.example.network.CryptoUtils
 import com.example.network.DomainConstants
 import com.example.network.DualStackResolver
+import com.example.network.KaspaPrivacyRelayEngine
+import com.example.network.KaspaRelayCircuit
 import com.example.network.KaspaWalletService
 import com.example.network.LocalNodeManager
 import com.example.network.UBlockEngine
@@ -757,6 +759,37 @@ class DecentralViewModel(
         }.getOrDefault(SearchEngine.DUCKDUCKGO)
     )
     val searchEngine: StateFlow<SearchEngine> = _searchEngine.asStateFlow()
+
+    private val _isPrivacyRelayEnabled = MutableStateFlow(
+        browserSettingsPrefs.getBoolean("kaspa_privacy_relay_enabled", true)
+    )
+    val isPrivacyRelayEnabled: StateFlow<Boolean> = _isPrivacyRelayEnabled.asStateFlow()
+
+    private val _activeRelayCircuit = MutableStateFlow<KaspaRelayCircuit?>(
+        try { KaspaPrivacyRelayEngine.getActiveCircuit() } catch (_: Throwable) { null }
+    )
+    val activeRelayCircuit: StateFlow<KaspaRelayCircuit?> = _activeRelayCircuit.asStateFlow()
+
+    fun togglePrivacyRelay(enabled: Boolean) {
+        _isPrivacyRelayEnabled.value = enabled
+        browserSettingsPrefs.edit().putBoolean("kaspa_privacy_relay_enabled", enabled).apply()
+        if (enabled) {
+            _activeRelayCircuit.value = KaspaPrivacyRelayEngine.getActiveCircuit()
+            _statusMessage.value = "Kaspa Privacy Relay Active: Dual-Hop KRP/1 Circuit Enabled"
+        } else {
+            _statusMessage.value = "Kaspa Privacy Relay Disabled"
+        }
+    }
+
+    fun rotatePrivacyRelayCircuit() {
+        val newCircuit = KaspaPrivacyRelayEngine.rotateCircuit()
+        _activeRelayCircuit.value = newCircuit
+        _statusMessage.value = "Rotated Privacy Circuit: ${newCircuit.circuitId} (${newCircuit.entryNode.countryCode} ➔ ${newCircuit.exitNode.countryCode})"
+    }
+
+    fun refreshRelayCircuitState() {
+        _activeRelayCircuit.value = KaspaPrivacyRelayEngine.getActiveCircuit()
+    }
 
     private val _liveSuggestions = MutableStateFlow<List<String>>(emptyList())
     val liveSuggestions: StateFlow<List<String>> = _liveSuggestions.asStateFlow()

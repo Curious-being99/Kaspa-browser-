@@ -222,6 +222,7 @@ import com.example.ui.theme.SurfaceElevated
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.network.KaspaPrivacyEngine
+import com.example.network.KaspaPrivacyRelayEngine
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.KaspaTea
 import com.example.ui.theme.VioletBridge
@@ -2506,6 +2507,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             isDesktop = desktopModeEnabled,
                                             baseUa = defaultDeviceUa
                                         ),
+                                        null
+                                    )
+
+                                    // Inject WebRTC STUN/TURN UDP Leak Shield (Zero IP Exposure)
+                                    view?.evaluateJavascript(
+                                        KaspaPrivacyRelayEngine.getWebRtcLeakShieldScript(),
                                         null
                                     )
 

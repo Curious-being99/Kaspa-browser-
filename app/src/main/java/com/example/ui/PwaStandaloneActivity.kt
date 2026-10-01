@@ -82,11 +82,15 @@ class PwaStandaloneActivity : FragmentActivity() {
         // Global crash handler to protect background renderers
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val msg = throwable.message.orEmpty().lowercase()
             val stack = Log.getStackTraceString(throwable).lowercase()
             val isNonFatal = thread.name.contains("Render", ignoreCase = true) ||
                     thread.name.contains("Chromium", ignoreCase = true) ||
+                    msg.contains("supervised") ||
+                    msg.contains("timeout") ||
                     stack.contains("android.webkit") ||
-                    stack.contains("org.chromium")
+                    stack.contains("org.chromium") ||
+                    stack.contains("superviseduser")
             if (isNonFatal) {
                 Log.w(TAG, "Suppressed non-fatal renderer crash in PWA: ${throwable.message}")
                 return@setDefaultUncaughtExceptionHandler

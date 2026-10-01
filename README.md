@@ -106,6 +106,67 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 
 ---
 
+## 🛡️ Kaspa Relay Protocol (KRP/1) Specification
+
+KaspaBrowser implements **KRP/1 (Kaspa Relay Protocol v1)**, a dual-hop oblivious transport protocol designed to cryptographically separate user network identity (IP address) from destination targets while preserving mobile browsing performance.
+
+### 1. Oblivious Dual-Hop Topology
+
+```
++---------------+              +--------------------+              +-------------------+              +----------------+
+| Client Device |  === [E1] => |    Entry Relay     |  === [E2] => |    Exit Relay     |  === [TLS] =>| Target Server  |
+|  (User IP)    |              | (Knows Client IP)  |              | (Knows Target URL)|              | (Destination)  |
++---------------+              +--------------------+              +-------------------+              +----------------+
+                               | Knows: Client + E2 |              | Knows: E1 + Target|
+                               | Denied: Target URL |              | Denied: Client IP |
+```
+
+### 2. Cryptographic Parameters & Layering
+
+* **Key Exchange**: Ephemeral X25519 (ECDH) negotiated per established circuit.
+* **Symmetric Encryption**: ChaCha20-Poly1305 authenticated encryption with 12-byte initialization vectors (IV).
+* **Key Derivation**: HKDF-SHA256 with domain-separated salts.
+* **Layered Onion Envelopes**: Double-wrapped ciphertext ($E_{entry}(E_{exit}(\text{Payload})) $).
+  * **Outer Layer ($E_{entry}$)**: Addressed to Entry Node. Contains the Exit Node routing identifier and the opaque inner payload.
+  * **Inner Layer ($E_{exit}$)**: Addressed to Exit Node. Contains destination URI, HTTP method, headers, and request body.
+
+### 3. Wire Format & Cell Framing
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Magic: "KRP1"                 | Frame Type    | Stream ID     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Payload Length (Big-Endian)   | Reserved / Flags              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Nonce / IV (12 Bytes)                                         |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Poly1305 Auth Tag (16 Bytes)                                  |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Encrypted Body Data (Variable) ...                            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Padding to 1024-Byte Boundary (PKCS#7 / Chaff)                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+### 4. Anti-Traffic Analysis Defenses
+
+* **Poisson Micro-Jitter Injection**: Randomized timing delay of $\Delta t = 10\text{ms} + \text{CSPRNG}(0, 25)\text{ms}$ injected before dispatching frames to defeat passive ISP timing correlation.
+* **Traffic Morphing (Uniform 1024-Byte Quanta)**: All payloads are padded to exact 1024-byte multiples using random chaff bytes to prevent packet size fingerprinting.
+* **Non-Deterministic Circuit Auto-Rotation**:
+  * **Randomized Query Stride**: Evaluates a dynamic threshold generated via `SecureRandom` ($N \in [2, 7]$ queries).
+  * **Randomized Time Jitter**: Rotates circuit lifetime on unpredictable intervals ($T \in [50\text{s}, 160\text{s}]$).
+* **Client-Side Leak Neutralization**:
+  * **DNS Leak Shield**: DNS resolutions occur exclusively at the exit relay.
+  * **WebRTC STUN/TURN Neutralizer**: Blocks local and public candidate IP probing via `RTCPeerConnection` interception.
+  * **Zero-Tracking Standards**: Injects `Sec-GPC: 1` and `DNT: 1` while stripping identifying headers (`X-Forwarded-For`, `Client-IP`).
+
+---
+
 ##  End-to-End Connection & Flow Diagram
 
 The following diagram illustrates how user input, network resolution, peer discovery, protocol fallback, and DOM rendering flow through the KaspaBrowser subsystems:
