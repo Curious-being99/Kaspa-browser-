@@ -2,15 +2,15 @@
   <img src="logo.png" alt="Kaspa Browser Logo" width="180" height="180" style="border-radius: 28px;" />
 </p>
 
-<h1 align="center">Kaspa Browser 🌐</h1>
+<h1 align="center">Kaspa Browser </h1>
 
 <p align="center">
   <i>The Privacy-First, Decentralized Web3 & P2P Android Browser</i>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Kotlin-98.8%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 98.8%" />
-  <img src="https://img.shields.io/badge/Rust-1.2%25-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust 1.5%" />
+  <img src="https://img.shields.io/badge/Kotlin-94.4%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 94.4%" />
+  <img src="https://img.shields.io/badge/Rust-5.4%25-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust 1.5%" />
   <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-1E40AF.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
   <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20Clean-9A3412.svg?style=for-the-badge" alt="Clean Architecture" />
@@ -22,7 +22,7 @@
 
 ---
 
-## 🎨 System Architecture & Visual Overview
+## System Architecture & Visual Overview
 
 <p align="center">
   <a href="architecture_3d_overview.mp4" title="Click to open full MP4 Video Player">
@@ -36,23 +36,23 @@
   </a>
   &nbsp;
   <a href="architecture_diagram.jpg">
-    <img src="https://img.shields.io/badge/🖼️_Blueprint-4K_JPG-7F52FF.svg?style=for-the-badge" alt="View Blueprint" />
+    <img src="https://img.shields.io/badge/_Blueprint-4K_JPG-7F52FF.svg?style=for-the-badge" alt="View Blueprint" />
   </a>
   &nbsp;
   <a href="architecture_3d_overview.gif">
-    <img src="https://img.shields.io/badge/⚡_Animation-GIF-10B981.svg?style=for-the-badge" alt="View GIF" />
+    <img src="https://img.shields.io/badge/_Animation-GIF-10B981.svg?style=for-the-badge" alt="View GIF" />
   </a>
 </p>
 
 <p align="center">
-  <sub>🎬 <b>Click the preview above or the badge to play the high-definition 60 FPS MP4 video directly in GitHub's media player.</b></sub>
+  <sub> <b>Click the preview above or the badge to play the high-definition 60 FPS MP4 video directly in GitHub's media player.</b></sub>
 </p>
 
 ---
 
 ---
 
-## ✨ Newly Added Production Features
+##  Newly Added Production Features
 
 1. **Unified Settings & Privacy Hub (`TrafficAuditScreen.kt`)**:
    - Centralized management console combining network audits, privacy toggles, search engine preferences, and security settings into a single clean Material 3 screen.
@@ -80,7 +80,7 @@
 
 
 
-## 🌐 Browser Rendering Engine & Gateway Architecture
+## Browser Rendering Engine & Gateway Architecture
 
 KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, native ARM64 Rust v9 JNI modules, and privacy content shields.
 
@@ -106,7 +106,7 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 
 ---
 
-## 🔄 End-to-End Connection & Flow Diagram
+##  End-to-End Connection & Flow Diagram
 
 The following diagram illustrates how user input, network resolution, peer discovery, protocol fallback, and DOM rendering flow through the KaspaBrowser subsystems:
 
@@ -208,41 +208,41 @@ The following diagram illustrates how user input, network resolution, peer disco
 
 ---
 
-## 🌟 Key Features
+##  Key Features
 
-### 🌐 1. Dual-Stack Gateway & Web Browser
+###  1. Dual-Stack Gateway & Web Browser
 - **Unified Protocol Handler**: Seamlessly navigates standard web addresses (`http://`, `https://`) and decentralized Web3 protocols (`ipfs://`, `hyper://`, `.kas`, `.mesh`, and custom local peer endpoints).
 - **Dual-Stack DNS & Mesh Resolver**: Automatically resolves local and peer nodes on local mesh networks before routing out to public gateways.
 - **Modern Web Engine**: Powered by an integrated Android WebView equipped with safe file picker fallbacks, cookie isolation, progressive Web App (PWA) manifest auto-detection, and customizable desktop/mobile User Agents.
 - **Offline & Cache Mode**: Offline browsing cache with granular cache-clearing controls.
 
-### 🛡️ 2. Cryptographic Identity & Key Management
+###  2. Cryptographic Identity & Key Management
 - **Decentralized Accounts**: Create, import, and manage hierarchical deterministic (HD) seed phrases and keypairs.
 - **Ed25519 & Secp256k1 Cryptography**: Hardware-backed key derivation with cryptographic hashing (SHA-256, Blake2b).
 - **Account Backup & Export**: Safe export of private keys and recovery phrases with PIN and biometric protection.
 
-### 📡 3. P2P Mesh Radar & Local Node Hosting
+### 3. P2P Mesh Radar & Local Node Hosting
 - **Live Mesh Radar**: Discovers nearby nodes, peers, and local web services over Wi-Fi Direct, Local Area Networks (LAN), and NSD (Network Service Discovery).
 - **On-Device Micro Daemon**: Host lightweight local web pages, decentralized documents, or P2P data packets directly from your phone.
 - **Peer Latency & Routing Metrics**: Real-time ping, hops, bandwidth consumption, and signal strength auditing.
 
-### 📊 4. Real-Time Traffic Audit & Privacy Shield
+### 4. Real-Time Traffic Audit & Privacy Shield
 - **Data Usage Analytics**: Monitor upstream and downstream bandwidth in real time.
 - **Tracker & Script Protection**: Built-in content shielding to mitigate intrusive tracking and reduce mobile data overhead.
 - **Live Traffic Logs**: Detailed ledger of intercepted network calls, DNS queries, and decentralized gateway lookups.
 
-### 📱 5. PWA Launcher & Desktop Integration
+### 5. PWA Launcher & Desktop Integration
 - **Zero-Install Web Apps**: Pin decentralized dApps and standard web apps directly to the Android Home Screen using Android Pin Shortcut APIs.
 - **Dynamic Icons & Standalone Viewing**: Launches installed web apps in dedicated immersive views.
 
-### 🖥️ 6. Natural Desktop / Mobile View (100% Chrome Parity)
+###  6. Natural Desktop / Mobile View (100% Chrome Parity)
 - **1-Tap Menu Control**: Quick toggle located directly inside the browser's 3-dots (`⋮`) menu with a reactive `[✓] Desktop site` checkbox.
 - **Standard Chromium Viewport**: Utilizes the official **980px** layout viewport width (`width=980, user-scalable=yes`) and Chromium's native `useWideViewPort` and `loadWithOverviewMode` engines.
 - **Pure Native Layout**: No artificial DOM `<meta>` mutation scripts or micro-scaling hacks; websites and single-page apps (SPAs) render naturally.
 - **Scale Reset on Mode Toggle**: Automatically restores native 100% device scale (`setInitialScale(0)`) when switching between Desktop and Mobile modes.
 - **Touch & Gesture Integrity**: Complete native multi-touch pass-through (`maxTouchPoints`), pinch-to-zoom, fling inertia, and swipe-to-refresh top-boundary guards.
 
-### 🛡️ 7. Security & Anti-Malware Architecture
+### 7. Security & Anti-Malware Architecture
 - **Sandboxed Local File Isolation**:
   - `allowFileAccess = false`, `allowFileAccessFromFileURLs = false`, and `allowUniversalAccessFromFileURLs = false` prevent cross-origin file theft and block web scripts from accessing local device storage.
 - **Google Safe Browsing Integration**:
@@ -255,9 +255,7 @@ The following diagram illustrates how user input, network resolution, peer disco
 ---
 
 
-## 🎨 Component Visual Identity & Brand Logo Color Palette
-
-![KaspaBrowser Brand Palette](brand_palette.jpg)
+##  Component Visual Identity & Brand Logo Color Palette
 
 KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's signature tea turquoise and electric cyan brand palette:
 
@@ -266,7 +264,7 @@ KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's
 | **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | Primary Logo Gradient, Action Buttons, Active Navigation Tab, Verified Indicators |
 | **Electric Cyan** (Vibrant Accent)| `#00F5D4` | `#00F5D4` | Brand Logo Glow, Antennae Nodes, Live Mesh Radar Pulse, Focus Rings |
 | **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | App Background, Adaptive Icon Canvas, WebView Scrim |
-| **Crisp Emblem** (Ant/Text) | `#FFFFFF` | `#FFFFFF` | Center Cyber Ant Logo, Primary High-Contrast Headlines, Icon Foreground |
+| **Crisp Emblem** (drag on/Text) | `#70C7BA` | `#70C7BA` | dragon Logo, Primary High-Contrast Headlines, Icon Foreground |
 | **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Floating Sheet Headers |
 | **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
 | **Deep Royal Violet** (zk/Badges)| `#5B21B6` | `#5B21B6` | Decentralized ID (DID) Badges, Ed25519 Keys, GitHub Badges |
@@ -276,7 +274,7 @@ KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's
 
 ---
 
-## 🏗️ Project Architecture & Structure
+##  Project Architecture & Structure
 
 The codebase is engineered following modern Android architecture guidelines (**MVVM**, **Unidirectional Data Flow**, and **Clean Architecture**):
 
