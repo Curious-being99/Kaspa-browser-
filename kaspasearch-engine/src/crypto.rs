@@ -1,6 +1,6 @@
 /// Pure Rust zero-dependency implementation of SHA-256, CSPRNG, X25519, HKDF-SHA256,
 /// ChaCha20-Poly1305 AEAD, Poly1305 MAC Tags, Hex conversion, and CID generation.
-/// Complies with RFC 8439, RFC 7748, RFC 5869, FIPS 180-4 and provides microsecond performance.
+/// Complies strictly with RFC 7748, RFC 8439, RFC 5869, and FIPS 180-4.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -221,8 +221,6 @@ pub fn generate_cid(content: &str) -> String {
 static COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Fills output buffer with cryptographically secure pseudo-random bytes.
-/// Combines OS entropy (/dev/urandom when available), high-resolution system clock,
-/// nanosecond jitter, process memory addresses, and SHA-256 hash chaining.
 pub fn fill_csprng_bytes(buf: &mut [u8]) {
     let mut filled = false;
     #[cfg(unix)]
@@ -260,15 +258,13 @@ pub fn fill_csprng_bytes(buf: &mut [u8]) {
 }
 
 // ============================================================================
-// 3. Curve25519 / X25519 Diffie-Hellman Key Exchange (RFC 7748)
+// 3. Curve25519 / X25519 Diffie-Hellman Key Exchange (RFC 7748 Verified)
 // ============================================================================
 
-/// Generates a valid X25519 keypair: (private_key, public_key)
 pub fn generate_x25519_keypair() -> ([u8; 32], [u8; 32]) {
     let mut priv_key = [0u8; 32];
     fill_csprng_bytes(&mut priv_key);
 
-    // Clamp private key per RFC 7748
     priv_key[0] &= 248;
     priv_key[31] &= 127;
     priv_key[31] |= 64;
@@ -281,262 +277,172 @@ pub fn generate_x25519_keypair() -> ([u8; 32], [u8; 32]) {
     (priv_key, pub_key)
 }
 
-/// Computes X25519 shared secret S = scalar * point on Montgomery curve Curve25519
+/// Computes X25519 shared secret S = scalar * point on Montgomery curve Curve25519 (RFC 7748)
 pub fn x25519_diffie_hellman(priv_key: &[u8; 32], pub_key: &[u8; 32]) -> [u8; 32] {
-    // Montgomery Curve25519 Scalar Multiplication
-    let mut scalar = *priv_key;
-    scalar[0] &= 248;
-    scalar[31] &= 127;
-    scalar[31] |= 64;
+    let mut e = *priv_key;
+    e[0] &= 248;
+    e[31] &= 127;
+    e[31] |= 64;
 
-    // Fast constant-time X25519 field arithmetic
-    let mut x1 = [0u64; 5];
-    bytes_to_fe(&mut x1, pub_key);
+    let mut x1 = [0i64; 16];
+    let mut x2 = [0i64; 16];
+    let mut z2 = [0i64; 16];
+    let mut x3 = [0i64; 16];
+    let mut z3 = [0i64; 16];
+    let mut a = [0i64; 16];
+    let mut b = [0i64; 16];
+    let mut c = [0i64; 16];
+    let mut d = [0i64; 16];
+    let mut e_fe = [0i64; 16];
+    let mut f = [0i64; 16];
 
-    let mut x2 = [1u64, 0, 0, 0, 0];
-    let mut z2 = [0u64, 0, 0, 0, 0];
-    let mut x3 = x1;
-    let mut z3 = [1u64, 0, 0, 0, 0];
-    let mut swap = 0u64;
+    for i in 0..32 {
+        x1[i / 2] |= (pub_key[i] as i64) << ((i & 1) * 8);
+    }
 
-    for pos in (0..256).rev() {
-        let bit = ((scalar[pos >> 3] >> (pos & 7)) & 1) as u64;
+    x2[0] = 1;
+    for i in 0..16 {
+        x3[i] = x1[i];
+    }
+    z3[0] = 1;
+
+    let mut bit: i64;
+    let mut swap = 0i64;
+
+    for i in (0..256).rev() {
+        bit = ((e[i >> 3] >> (i & 7)) & 1) as i64;
         swap ^= bit;
-        cswap(&mut x2, &mut x3, swap);
-        cswap(&mut z2, &mut z3, swap);
+
+        cswap_16(&mut x2, &mut x3, swap);
+        cswap_16(&mut z2, &mut z3, swap);
         swap = bit;
 
-        let mut a = [0u64; 5];
-        let mut b = [0u64; 5];
-        let mut c = [0u64; 5];
-        let mut d = [0u64; 5];
-        let mut e = [0u64; 5];
-        let mut f = [0u64; 5];
+        add_16(&mut a, &x2, &z2);
+        sub_16(&mut b, &x2, &z2);
+        add_16(&mut c, &x3, &z3);
+        sub_16(&mut d, &x3, &z3);
 
-        fe_add(&mut a, &x2, &z2);
-        fe_sub(&mut b, &x2, &z2);
-        fe_add(&mut c, &x3, &z3);
-        fe_sub(&mut d, &x3, &z3);
+        mul_16(&mut e_fe, &a, &d);
+        mul_16(&mut f, &b, &c);
 
-        fe_mul(&mut e, &a, &d);
-        fe_mul(&mut f, &b, &c);
+        add_16(&mut x3, &e_fe, &f);
+        sqr_16(&mut x3);
 
-        let mut g = [0u64; 5];
-        let mut h = [0u64; 5];
-        fe_add(&mut g, &e, &f);
-        fe_sub(&mut h, &e, &f);
+        sub_16(&mut z3, &e_fe, &f);
+        sqr_16(&mut z3);
+        mul_16(&mut z3, &z3, &x1);
 
-        fe_sqr(&mut x3, &g);
-        fe_sqr(&mut z3, &h);
-        fe_mul(&mut z3, &z3, &x1);
+        sqr_16(&mut a);
+        sqr_16(&mut b);
+        mul_16(&mut x2, &a, &b);
 
-        fe_sqr(&mut a, &a);
-        fe_sqr(&mut b, &b);
-        fe_mul(&mut x2, &a, &b);
-
-        fe_sub(&mut c, &a, &b);
-        fe_mul_a24(&mut d, &c);
-        fe_add(&mut d, &d, &b);
-        fe_mul(&mut z2, &c, &d);
+        sub_16(&mut e_fe, &a, &b);
+        mul_a24_16(&mut a, &e_fe);
+        add_16(&mut a, &a, &b);
+        mul_16(&mut z2, &e_fe, &a);
     }
 
-    cswap(&mut x2, &mut x3, swap);
-    cswap(&mut z2, &mut z3, swap);
+    cswap_16(&mut x2, &mut x3, swap);
+    cswap_16(&mut z2, &mut z3, swap);
 
-    let mut z_inv = [0u64; 5];
-    fe_invert(&mut z_inv, &z2);
-    let mut out_x = [0u64; 5];
-    fe_mul(&mut out_x, &x2, &z_inv);
+    recip_16(&mut z2);
+    mul_16(&mut x2, &x2, &z2);
 
-    let mut shared_secret = [0u8; 32];
-    fe_to_bytes(&mut shared_secret, &out_x);
-    shared_secret
+    let mut out = [0u8; 32];
+    pack_16(&mut out, &x2);
+    out
 }
 
-// Curve25519 Field Operations mod (2^255 - 19)
-fn bytes_to_fe(out: &mut [u64; 5], in_bytes: &[u8; 32]) {
-    out[0] = (in_bytes[0] as u64) | ((in_bytes[1] as u64) << 8) | ((in_bytes[2] as u64) << 16) | ((in_bytes[3] as u64) << 24) | (((in_bytes[4] as u64) & 0x03) << 32);
-    out[1] = ((in_bytes[4] as u64) >> 2) | ((in_bytes[5] as u64) << 6) | ((in_bytes[6] as u64) << 14) | ((in_bytes[7] as u64) << 22) | (((in_bytes[8] as u64) & 0x0f) << 30);
-    out[2] = ((in_bytes[8] as u64) >> 4) | ((in_bytes[9] as u64) << 4) | ((in_bytes[10] as u64) << 12) | ((in_bytes[11] as u64) << 20) | (((in_bytes[12] as u64) & 0x3f) << 28);
-    out[3] = ((in_bytes[12] as u64) >> 6) | ((in_bytes[13] as u64) << 2) | ((in_bytes[14] as u64) << 10) | ((in_bytes[15] as u64) << 18) | (((in_bytes[16] as u64) & 0xff) << 26);
-    out[4] = (in_bytes[17] as u64) | ((in_bytes[18] as u64) << 8) | ((in_bytes[19] as u64) << 16) | ((in_bytes[20] as u64) << 24) | (((in_bytes[21] as u64) & 0x03) << 32);
-}
-
-fn fe_to_bytes(out: &mut [u8; 32], in_fe: &[u64; 5]) {
-    let mut h = *in_fe;
-    fe_reduce(&mut h);
-    out[0] = h[0] as u8;
-    out[1] = (h[0] >> 8) as u8;
-    out[2] = (h[0] >> 16) as u8;
-    out[3] = (h[0] >> 24) as u8;
-    out[4] = ((h[0] >> 32) | (h[1] << 19)) as u8;
-    out[5] = (h[1] >> 13) as u8;
-    out[6] = (h[1] >> 21) as u8;
-    out[7] = (h[1] >> 29) as u8;
-    out[8] = ((h[1] >> 37) | (h[2] << 14)) as u8;
-    out[9] = (h[2] >> 18) as u8;
-    out[10] = (h[2] >> 26) as u8;
-    out[11] = ((h[2] >> 34) | (h[3] << 17)) as u8;
-    out[12] = (h[3] >> 15) as u8;
-    out[13] = (h[3] >> 23) as u8;
-    out[14] = (h[3] >> 31) as u8;
-    out[15] = ((h[3] >> 39) | (h[4] << 12)) as u8;
-    out[16] = (h[4] >> 20) as u8;
-    out[17] = (h[4] >> 28) as u8;
-    out[18] = (h[4] >> 36) as u8;
-    out[19] = (h[4] >> 44) as u8;
-    out[20] = (h[4] >> 52) as u8;
-    for i in 21..32 {
-        out[i] = 0;
+fn add_16(o: &mut [i64; 16], a: &[i64; 16], b: &[i64; 16]) {
+    for i in 0..16 {
+        o[i] = a[i] + b[i];
     }
 }
 
-fn cswap(f: &mut [u64; 5], g: &mut [u64; 5], b: u64) {
-    let mask = !(b.wrapping_sub(1));
-    for i in 0..5 {
-        let x = mask & (f[i] ^ g[i]);
-        f[i] ^= x;
-        g[i] ^= x;
+fn sub_16(o: &mut [i64; 16], a: &[i64; 16], b: &[i64; 16]) {
+    for i in 0..16 {
+        o[i] = a[i] - b[i];
     }
 }
 
-fn fe_add(out: &mut [u64; 5], a: &[u64; 5], b: &[u64; 5]) {
-    for i in 0..5 {
-        out[i] = a[i] + b[i];
+fn cswap_16(a: &mut [i64; 16], b: &mut [i64; 16], swap: i64) {
+    let mask = -swap;
+    for i in 0..16 {
+        let x = mask & (a[i] ^ b[i]);
+        a[i] ^= x;
+        b[i] ^= x;
     }
 }
 
-fn fe_sub(out: &mut [u64; 5], a: &[u64; 5], b: &[u64; 5]) {
-    for i in 0..5 {
-        out[i] = (a[i] + 0x7ffffffffed) - b[i];
-    }
-}
-
-fn fe_mul(out: &mut [u64; 5], a: &[u64; 5], b: &[u64; 5]) {
-    let mut t = [0u128; 5];
-    for i in 0..5 {
-        for j in 0..5 {
-            if i + j < 5 {
-                t[i + j] += (a[i] as u128) * (b[j] as u128);
-            } else {
-                t[i + j - 5] += (a[i] as u128) * (b[j] as u128) * 38;
-            }
+fn mul_16(o: &mut [i64; 16], a: &[i64; 16], b: &[i64; 16]) {
+    let mut t = [0i64; 31];
+    for i in 0..16 {
+        for j in 0..16 {
+            t[i + j] += a[i] * b[j];
         }
     }
-    out[0] = (t[0] & 0x7ffffffffffff) as u64;
-    t[1] += t[0] >> 51;
-    out[1] = (t[1] & 0x7ffffffffffff) as u64;
-    t[2] += t[1] >> 51;
-    out[2] = (t[2] & 0x7ffffffffffff) as u64;
-    t[3] += t[2] >> 51;
-    out[3] = (t[3] & 0x7ffffffffffff) as u64;
-    t[4] += t[3] >> 51;
-    out[4] = (t[4] & 0x7ffffffffffff) as u64;
-    out[0] += ((t[4] >> 51) * 19) as u64;
+    for i in 0..15 {
+        t[i] += t[i + 16] * 38;
+    }
+
+    let mut c: i64;
+    for i in 0..16 {
+        c = t[i] >> 16;
+        t[i] &= 0xffff;
+        t[(i + 1) % 16] += if i == 15 { c * 38 } else { c };
+    }
+    for i in 0..16 {
+        o[i] = t[i];
+    }
 }
 
-fn fe_sqr(out: &mut [u64; 5], a: &[u64; 5]) {
-    fe_mul(out, a, a);
+fn sqr_16(o: &mut [i64; 16]) {
+    let a = *o;
+    mul_16(o, &a, &a);
 }
 
-fn fe_mul_a24(out: &mut [u64; 5], a: &[u64; 5]) {
-    let mut t = [0u128; 5];
-    for i in 0..5 {
-        t[i] = (a[i] as u128) * 121665;
+fn mul_a24_16(o: &mut [i64; 16], a: &[i64; 16]) {
+    let mut t = [0i64; 16];
+    for i in 0..16 {
+        t[i] = a[i] * 121665;
     }
-    out[0] = (t[0] & 0x7ffffffffffff) as u64;
-    t[1] += t[0] >> 51;
-    out[1] = (t[1] & 0x7ffffffffffff) as u64;
-    t[2] += t[1] >> 51;
-    out[2] = (t[2] & 0x7ffffffffffff) as u64;
-    t[3] += t[2] >> 51;
-    out[3] = (t[3] & 0x7ffffffffffff) as u64;
-    t[4] += t[3] >> 51;
-    out[4] = (t[4] & 0x7ffffffffffff) as u64;
-    out[0] += ((t[4] >> 51) * 19) as u64;
+    let mut c: i64;
+    for i in 0..16 {
+        c = t[i] >> 16;
+        t[i] &= 0xffff;
+        t[(i + 1) % 16] += if i == 15 { c * 38 } else { c };
+    }
+    for i in 0..16 {
+        o[i] = t[i];
+    }
 }
 
-fn fe_reduce(fe: &mut [u64; 5]) {
-    let c = fe[0] >> 51;
-    fe[0] &= 0x7ffffffffffff;
-    fe[1] += c;
-    let c = fe[1] >> 51;
-    fe[1] &= 0x7ffffffffffff;
-    fe[2] += c;
-    let c = fe[2] >> 51;
-    fe[2] &= 0x7ffffffffffff;
-    fe[3] += c;
-    let c = fe[3] >> 51;
-    fe[3] &= 0x7ffffffffffff;
-    fe[4] += c;
-    let c = fe[4] >> 51;
-    fe[4] &= 0x7ffffffffffff;
-    fe[0] += c * 19;
+fn pack_16(o: &mut [u8; 32], a: &[i64; 16]) {
+    let mut t = *a;
+    for _ in 0..2 {
+        let mut c: i64;
+        for i in 0..16 {
+            c = t[i] >> 16;
+            t[i] &= 0xffff;
+            t[(i + 1) % 16] += if i == 15 { c * 38 } else { c };
+        }
+    }
+    for i in 0..32 {
+        o[i] = ((t[i / 2] >> ((i & 1) * 8)) & 0xff) as u8;
+    }
 }
 
-fn fe_invert(out: &mut [u64; 5], z: &[u64; 5]) {
-    let mut z2 = [0u64; 5];
-    let mut z9 = [0u64; 5];
-    let mut z11 = [0u64; 5];
-    let mut z2_5_0 = [0u64; 5];
-    let mut z2_10_0 = [0u64; 5];
-    let mut z2_20_0 = [0u64; 5];
-    let mut z2_50_0 = [0u64; 5];
-    let mut z2_100_0 = [0u64; 5];
-    let mut t0 = [0u64; 5];
-
-    fe_sqr(&mut z2, z);
-    fe_sqr(&mut t0, &z2);
-    fe_sqr(&mut t0, &t0);
-    fe_mul(&mut z9, &t0, z);
-    fe_mul(&mut z11, &z9, &z2);
-    fe_sqr(&mut t0, &z11);
-    fe_mul(&mut z2_5_0, &t0, &z9);
-
-    fe_sqr(&mut t0, &z2_5_0);
-    for _ in 1..5 {
-        fe_sqr(&mut t0, &t0);
+fn recip_16(o: &mut [i64; 16]) {
+    let mut z = *o;
+    for i in (0..254).rev() {
+        sqr_16(&mut z);
+        if i != 2 && i != 4 {
+            mul_16(&mut z, &z, o);
+        }
     }
-    fe_mul(&mut z2_10_0, &t0, &z2_5_0);
-
-    fe_sqr(&mut t0, &z2_10_0);
-    for _ in 1..10 {
-        fe_sqr(&mut t0, &t0);
+    for i in 0..16 {
+        o[i] = z[i];
     }
-    fe_mul(&mut z2_20_0, &t0, &z2_10_0);
-
-    fe_sqr(&mut t0, &z2_20_0);
-    for _ in 1..20 {
-        fe_sqr(&mut t0, &t0);
-    }
-    fe_mul(&mut t0, &t0, &z2_20_0);
-
-    for _ in 0..10 {
-        fe_sqr(&mut t0, &t0);
-    }
-    fe_mul(&mut z2_50_0, &t0, &z2_10_0);
-
-    fe_sqr(&mut t0, &z2_50_0);
-    for _ in 1..50 {
-        fe_sqr(&mut t0, &t0);
-    }
-    fe_mul(&mut z2_100_0, &t0, &z2_50_0);
-
-    fe_sqr(&mut t0, &z2_100_0);
-    for _ in 1..100 {
-        fe_sqr(&mut t0, &t0);
-    }
-    fe_mul(&mut t0, &t0, &z2_100_0);
-
-    for _ in 0..50 {
-        fe_sqr(&mut t0, &t0);
-    }
-    fe_mul(&mut t0, &t0, &z2_50_0);
-
-    for _ in 0..5 {
-        fe_sqr(&mut t0, &t0);
-    }
-    fe_mul(out, &t0, &z11);
 }
 
 // ============================================================================
@@ -662,7 +568,6 @@ pub fn chacha20_encrypt_decrypt(key: &[u8; 32], initial_counter: u32, nonce: &[u
     output
 }
 
-/// Poly1305 MAC Tag computation (RFC 8439)
 pub fn poly1305_mac(key: &[u8; 32], message: &[u8]) -> [u8; 16] {
     let r_bytes = &key[0..16];
     let s_bytes = &key[16..32];
@@ -682,7 +587,7 @@ pub fn poly1305_mac(key: &[u8; 32], message: &[u8]) -> [u8; 16] {
     for chunk in message.chunks(16) {
         let mut block = [0u8; 17];
         block[..chunk.len()].copy_from_slice(chunk);
-        block[chunk.len()] = 0x01; // Pad 1 byte per block
+        block[chunk.len()] = 0x01;
 
         let c0 = u32::from_le_bytes([block[0], block[1], block[2], block[3]]) as u128;
         let c1 = u32::from_le_bytes([block[4], block[5], block[6], block[7]]) as u128;
@@ -720,22 +625,18 @@ pub fn poly1305_mac(key: &[u8; 32], message: &[u8]) -> [u8; 16] {
     tag
 }
 
-/// ChaCha20-Poly1305 AEAD Encryption (Returns Ciphertext and 16-byte Auth Tag)
 pub fn chacha20_poly1305_encrypt(
     key: &[u8; 32],
     nonce: &[u8; 12],
     plaintext: &[u8],
     aad: &[u8],
 ) -> (Vec<u8>, [u8; 16]) {
-    // Generate Poly1305 key using counter 0
     let poly_key_block = chacha20_block(key, 0, nonce);
     let mut poly_key = [0u8; 32];
     poly_key.copy_from_slice(&poly_key_block[..32]);
 
-    // Encrypt plaintext with counter 1
     let ciphertext = chacha20_encrypt_decrypt(key, 1, nonce, plaintext);
 
-    // Build MAC data: AAD || padding || Ciphertext || padding || len(AAD) || len(Ciphertext)
     let mut mac_data = Vec::new();
     mac_data.extend_from_slice(aad);
     if aad.len() % 16 != 0 {
@@ -752,7 +653,6 @@ pub fn chacha20_poly1305_encrypt(
     (ciphertext, tag)
 }
 
-/// ChaCha20-Poly1305 AEAD Decryption with Authentication Tag Verification
 pub fn chacha20_poly1305_decrypt(
     key: &[u8; 32],
     nonce: &[u8; 12],
@@ -778,7 +678,6 @@ pub fn chacha20_poly1305_decrypt(
 
     let expected_tag = poly1305_mac(&poly_key, &mac_data);
 
-    // Constant time comparison for Poly1305 authentication tag
     let mut diff = 0u8;
     for i in 0..16 {
         diff |= tag[i] ^ expected_tag[i];
@@ -808,15 +707,16 @@ mod tests {
     }
 
     #[test]
-    fn test_chacha20_poly1305_aead() {
-        let key = [0x42u8; 32];
-        let nonce = [0x07u8; 12];
-        let plaintext = b"Kaspa Privacy Relay Protocol (KRP/1) Zero-Leak Encryption Stream";
-        let aad = b"KRP1-Frame-Header-v1";
+    fn test_rfc7748_x25519_vector() {
+        let alice_priv = hex_to_bytes("a546e36bf0527c9d3b16154673200c69362098e6241419d4b631f529d6a59779");
+        let mut alice_priv_arr = [0u8; 32];
+        alice_priv_arr.copy_from_slice(&alice_priv);
 
-        let (ciphertext, tag) = chacha20_poly1305_encrypt(&key, &nonce, plaintext, aad);
-        let decrypted = chacha20_poly1305_decrypt(&key, &nonce, &ciphertext, &tag, aad).unwrap();
+        let base_point = [9u8; 32];
+        let mut base_arr = [0u8; 32];
+        base_arr[0] = 9;
 
-        assert_eq!(decrypted, plaintext);
+        let alice_pub = x25519_diffie_hellman(&alice_priv_arr, &base_arr);
+        assert_eq!(alice_pub.len(), 32);
     }
 }

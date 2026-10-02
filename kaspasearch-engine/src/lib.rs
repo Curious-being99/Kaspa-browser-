@@ -450,4 +450,41 @@ pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeRe
     }
 }
 
+#[no_mangle]
+pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeSendCellOverTunnel(
+    mut env: JNIEnv,
+    _class: JClass,
+    destination_url: JString,
+    method: JString,
+    headers_json: JString,
+) -> jstring {
+    let raw_url: String = match env.get_string(&destination_url) {
+        Ok(s) => s.into(),
+        Err(_) => return env.new_string("{}").unwrap().into_raw(),
+    };
+    let raw_method: String = match env.get_string(&method) {
+        Ok(s) => s.into(),
+        Err(_) => "GET".to_string(),
+    };
+    let raw_headers: String = match env.get_string(&headers_json) {
+        Ok(s) => s.into(),
+        Err(_) => "{}".to_string(),
+    };
+
+    let core = get_relay_core();
+    match core.execute_cell_over_tunnel(&raw_url, &raw_method, &raw_headers, None) {
+        Ok(json_res) => env.new_string(json_res).unwrap().into_raw(),
+        Err(e) => {
+            let err_json = serde_json::json!({
+                "statusCode": 502,
+                "statusMessage": format!("KRP Tunnel Native Error: {}", e),
+                "headers": {},
+                "bodyHex": "",
+                "exitNodeName": "Kaspa KRP Shield"
+            }).to_string();
+            env.new_string(err_json).unwrap().into_raw()
+        }
+    }
+}
+
 

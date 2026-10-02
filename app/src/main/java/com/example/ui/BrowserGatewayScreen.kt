@@ -2711,16 +2711,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             (pageHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(pageHost))
 
                                         if (!isGoogleAccountRequest) {
-                                            try {
-                                                val headers = request.requestHeaders ?: emptyMap()
-                                                val relayResp = kotlinx.coroutines.runBlocking {
-                                                    KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers)
+                                            if (request.isForMainFrame) {
+                                                try {
+                                                    val headers = request.requestHeaders ?: emptyMap()
+                                                    val relayResp = kotlinx.coroutines.runBlocking {
+                                                        KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, true)
+                                                    }
+                                                    if (relayResp != null) {
+                                                        return relayResp
+                                                    }
+                                                } catch (e: Exception) {
+                                                    android.util.Log.w("KaspaRelay", "KRP Interception notice: ${e.message}")
                                                 }
-                                                if (relayResp != null) {
-                                                    return relayResp
-                                                }
-                                            } catch (e: Exception) {
-                                                android.util.Log.w("KaspaRelay", "KRP Interception notice: ${e.message}")
                                             }
                                         }
                                     }

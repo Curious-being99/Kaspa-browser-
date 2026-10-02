@@ -35,8 +35,11 @@ pub struct KrpRelayServer {
 impl KrpRelayServer {
     pub fn new(config: KrpRelayServerConfig) -> Self {
         let http_client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Linux; Android 14; Mobile; KRP1/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.127 Mobile Safari/537.36")
             .timeout(std::time::Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::limited(10))
+            .gzip(true)
+            .brotli(true)
             .build()
             .unwrap_or_default();
 
@@ -172,13 +175,8 @@ impl KrpRelayServer {
 
         // Connect to Exit Node and relay stream
         let exit_addr = format!("{}:{}", outer.exit_host, outer.exit_port);
-        let mut exit_stream = match TcpStream::connect(&exit_addr).await {
-            Ok(s) => s,
-            Err(_) => {
-                // If remote exit server is mock/demo endpoint, process inline mock exit response
-                return self.respond_relay_mock_response(socket, &frame.circuit_id).await;
-            }
-        };
+        let mut exit_stream = TcpStream::connect(&exit_addr).await
+            .map_err(|e| format!("Exit node TCP connection error {}: {}", exit_addr, e))?;
 
         exit_stream.write_all(&forwarded_cell).await?;
 
@@ -188,7 +186,7 @@ impl KrpRelayServer {
         if resp_len > 0 {
             socket.write_all(&exit_resp_buf[..resp_len]).await?;
         } else {
-            self.respond_relay_mock_response(socket, &frame.circuit_id).await?;
+            return Err("Exit node closed stream with zero-byte response".into());
         }
 
         Ok(())
@@ -240,10 +238,23 @@ impl KrpRelayServer {
             &inner.destination_url
         );
 
+        let mut has_ua = false;
         if let Ok(headers_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&inner.headers) {
             for (k, v) in headers_map {
+                if k.eq_ignore_ascii_case("user-agent") {
+                    has_ua = true;
+                }
                 req = req.header(&k, &v);
             }
+        }
+
+        if !has_ua {
+            req = req.header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile; KRP1/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.127 Mobile Safari/537.36")
+                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+                     .header("Accept-Language", "en-US,en;q=0.9")
+                     .header("Sec-Ch-Ua", "\"Chromium\";v=\"128\", \"Not;A=Brand\";v=\"24\", \"Google Chrome\";v=\"128\"")
+                     .header("Sec-Ch-Ua-Mobile", "?1")
+                     .header("Sec-Ch-Ua-Platform", "\"Android\"");
         }
 
         if let Some(body_hex) = inner.body_hex {
@@ -300,46 +311,6 @@ impl KrpRelayServer {
         let resp_cell = resp_frame.serialize_to_1024_cell();
         socket.write_all(&resp_cell).await?;
 
-        Ok(())
-    }
-
-    async fn respond_relay_mock_response(
-        &self,
-        socket: &mut TcpStream,
-        circuit_id: &[u8; 16],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let dummy_resp = serde_json::json!({
-            "status_code": 200,
-            "status_message": "OK",
-            "body_hex": bytes_to_hex(b"{\"status\":\"connected\",\"relay_mode\":\"Dual-Hop-KRP1\"}"),
-            "exit_node_ip": "185.220.101.42"
-        }).to_string();
-
-        let dummy_key = [0x77u8; 32];
-        let mut dummy_nonce = [0x01u8; 12];
-        fill_csprng_bytes(&mut dummy_nonce);
-
-        let (resp_ciphertext, resp_tag) = chacha20_poly1305_encrypt(
-            &dummy_key,
-            &dummy_nonce,
-            dummy_resp.as_bytes(),
-            b"KRP1-Response-AAD-Exit"
-        );
-
-        let resp_frame = KrpFrame {
-            magic: *KRP_MAGIC,
-            version: 1,
-            frame_type: 2,
-            circuit_id: *circuit_id,
-            ephemeral_pubkey: [0u8; 32],
-            nonce: dummy_nonce,
-            payload_len: resp_ciphertext.len() as u16,
-            ciphertext: resp_ciphertext,
-            tag: resp_tag,
-        };
-
-        let resp_cell = resp_frame.serialize_to_1024_cell();
-        socket.write_all(&resp_cell).await?;
         Ok(())
     }
 }

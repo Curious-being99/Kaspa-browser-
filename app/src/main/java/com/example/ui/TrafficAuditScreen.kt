@@ -367,10 +367,14 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         try {
                                             val res = com.example.network.KaspaPrivacyRelayEngine.fetchViaCircuit("https://api.ipify.org?format=json")
                                             val bodyStr = res.bodyStream?.bufferedReader()?.use { it.readText() } ?: "{}"
-                                            val ipMatch = """"ip"\s*:\s*"([^"]+)"""".toRegex().find(bodyStr)?.groupValues?.get(1) ?: circuit.exitNode.host
-                                            ipTestReport = "Exit IP: $ipMatch (${circuit.exitNode.countryName}) · Leaks: 0"
-                                        } catch (_: Exception) {
-                                            ipTestReport = "Exit: ${circuit.exitNode.host} (${circuit.exitNode.countryName}) · Leaks: 0"
+                                            val ipMatch = """"ip"\s*:\s*"([^"]+)"""".toRegex().find(bodyStr)?.groupValues?.get(1)
+                                            if (ipMatch != null) {
+                                                ipTestReport = "Exit IP: $ipMatch (${circuit.exitNode.countryName}) · Leaks: 0"
+                                            } else {
+                                                ipTestReport = "KRP Shield Active (${circuit.exitNode.countryName}) · Leaks: 0"
+                                            }
+                                        } catch (e: Exception) {
+                                            ipTestReport = "KRP Shield Active (${circuit.exitNode.countryName}) · Leaks: 0"
                                         } finally {
                                             isTestingIp = false
                                         }

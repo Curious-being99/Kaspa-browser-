@@ -508,11 +508,11 @@ fun PwaStandaloneScreen(
                                     )
                                 }
 
-                                if (KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
+                                if (request.isForMainFrame && KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
                                     try {
                                         val headers = request.requestHeaders ?: emptyMap()
                                         val resp: WebResourceResponse? = kotlinx.coroutines.runBlocking {
-                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers)
+                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, true)
                                         }
                                         if (resp != null) return resp
                                     } catch (_: Exception) {}
