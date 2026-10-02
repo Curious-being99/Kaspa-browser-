@@ -228,7 +228,7 @@ object KaspaPrivacyRelayEngine {
                 val orig = chain.request()
                 val b = orig.newBuilder()
                 if (orig.header("User-Agent") == null) {
-                    b.header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile; KRP1/1.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.127 Mobile Safari/537.36")
+                    b.header("User-Agent", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
                 }
                 if (orig.header("Accept") == null) {
                     b.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
@@ -237,7 +237,7 @@ object KaspaPrivacyRelayEngine {
                     b.header("Accept-Language", "en-US,en;q=0.9")
                 }
                 if (orig.header("Sec-Ch-Ua") == null) {
-                    b.header("Sec-Ch-Ua", "\"Chromium\";v=\"128\", \"Not;A=Brand\";v=\"24\", \"Google Chrome\";v=\"128\"")
+                    b.header("Sec-Ch-Ua", "\"Chromium\";v=\"130\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"130\"")
                 }
                 if (orig.header("Sec-Ch-Ua-Mobile") == null) {
                     b.header("Sec-Ch-Ua-Mobile", "?1")
@@ -245,12 +245,6 @@ object KaspaPrivacyRelayEngine {
                 if (orig.header("Sec-Ch-Ua-Platform") == null) {
                     b.header("Sec-Ch-Ua-Platform", "\"Android\"")
                 }
-                // Anti-Profiling Hardware Signature Obfuscation (Masks device model, OS build & RAM)
-                b.header("Sec-Ch-Ua-Model", "\"\"")
-                b.header("Sec-Ch-Ua-Platform-Version", "\"10.0.0\"")
-                b.header("Sec-Ch-Ua-Arch", "\"arm\"")
-                b.header("Sec-Ch-Ua-Bitness", "\"64\"")
-                b.header("Sec-Ch-Device-Memory", "\"8\"")
                 b.header("DNT", "1")
                 b.header("Sec-GPC", "1")
                 b.removeHeader("X-Requested-With")
@@ -649,11 +643,6 @@ object KaspaPrivacyRelayEngine {
 
         reqBuilder.header("DNT", "1")
         reqBuilder.header("Sec-GPC", "1")
-        reqBuilder.header("X-Kaspa-Shield", "Active")
-        reqBuilder.header("X-Kaspa-Relay-Circuit", circuit.circuitId)
-        reqBuilder.header("X-Kaspa-Relay-Hop", "Dual-KRP1-X25519-ChaCha20")
-        reqBuilder.header("X-Kaspa-Timing-Shield", "Poisson-Jitter-Active")
-        reqBuilder.header("X-Kaspa-Traffic-Morph", "Uniform-1024-Quanta")
 
         if (method.equals("POST", ignoreCase = true) || method.equals("PUT", ignoreCase = true)) {
             val mediaType = headers["Content-Type"]?.toMediaTypeOrNull()

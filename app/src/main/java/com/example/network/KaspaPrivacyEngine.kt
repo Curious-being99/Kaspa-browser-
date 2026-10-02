@@ -254,24 +254,20 @@ object KaspaPrivacyEngine {
     fun getPrivacyHeaders(): Map<String, String> {
         return mapOf(
             "DNT" to "1",
-            "Sec-GPC" to "1",
-            "X-Kaspa-Privacy-Shield" to "Active-Level-3"
+            "Sec-GPC" to "1"
         )
     }
 
     /**
      * Client-side JavaScript injected into WebView DOMs before page scripts load.
      * Enforces Brave-grade Farbling, Do-Not-Track, Global Privacy Control,
-     * and defeats Canvas, WebGL, AudioContext, Font Metrics, and WebRTC fingerprinting.
+     * and defeats Canvas, WebGL, AudioContext, Font Metrics, and WebRTC fingerprinting safely.
      */
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
             if (window.__kaspa_shield_injected) return;
             window.__kaspa_shield_injected = true;
             try {
-                // Pseudo-random seed for session-consistent, origin-isolated Farbling
-                const sessionSeed = Math.floor(Math.random() * 255) + 1;
-
                 // 1. Global Privacy Control & Do-Not-Track (W3C Standard)
                 try {
                     Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
@@ -289,50 +285,10 @@ object KaspaPrivacyEngine {
                     }
                 } catch(e) {}
 
-                // 3. Brave-Grade Canvas 2D Farbling (Randomized LSB Noise)
-                try {
-                    const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
-                    CanvasRenderingContext2D.prototype.getImageData = function() {
-                        const imgData = origGetImageData.apply(this, arguments);
-                        try {
-                            const d = imgData.data;
-                            const step = Math.max(4, Math.floor(d.length / 128));
-                            for (let i = 0; i < d.length; i += step) {
-                                d[i] = d[i] ^ (sessionSeed & 1);
-                            }
-                        } catch(_) {}
-                        return imgData;
-                    };
-
-                    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-                    HTMLCanvasElement.prototype.toDataURL = function() {
-                        try {
-                            const ctx = this.getContext('2d');
-                            if (ctx && this.width > 0 && this.height > 0) {
-                                const imgData = ctx.getImageData(0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
-                                ctx.putImageData(imgData, 0, 0);
-                            }
-                        } catch(_) {}
-                        return origToDataURL.apply(this, arguments);
-                    };
-
-                    const origToBlob = HTMLCanvasElement.prototype.toBlob;
-                    HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
-                        try {
-                            const ctx = this.getContext('2d');
-                            if (ctx && this.width > 0 && this.height > 0) {
-                                const imgData = ctx.getImageData(0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
-                                ctx.putImageData(imgData, 0, 0);
-                            }
-                        } catch(_) {}
-                        return origToBlob.apply(this, arguments);
-                    };
-                } catch(e) {}
-
-                // 4. Brave-Grade WebGL Farbling & GPU Masking (Hardware Identifiers, Buffer Bit Depths & Shader Precision)
+                // 3. WebGL GPU Parameter Normalization
                 try {
                     const applyWebGLMasking = function(proto) {
-                        if (!proto) return;
+                        if (!proto || !proto.getParameter) return;
                         const origGetParam = proto.getParameter;
                         proto.getParameter = function(param) {
                             // Hardware Vendor & Renderer Masking
@@ -353,7 +309,7 @@ object KaspaPrivacyEngine {
                             if (param === 0x0D50) return 4;  // SUBPIXEL_BITS
 
                             // Standard High-Performance GPU Limits
-                            if (param === 0x0D33 || param === 0x851C || param === 0x84E8) return 16384; // MAX_TEXTURE_SIZE, MAX_CUBE_MAP_TEXTURE_SIZE, MAX_RENDERBUFFER_SIZE
+                            if (param === 0x0D33 || param === 0x851C || param === 0x84E8) return 16384; // MAX_TEXTURE_SIZE
                             if (param === 0x0D3A) return new Int32Array([16384, 16384]); // MAX_VIEWPORT_DIMS
                             if (param === 0x846E) return new Float32Array([1, 1]); // ALIASED_LINE_WIDTH_RANGE
                             if (param === 0x846D) return new Float32Array([1, 1024]); // ALIASED_POINT_SIZE_RANGE
@@ -374,107 +330,13 @@ object KaspaPrivacyEngine {
                                 return { rangeMin: 127, rangeMax: 127, precision: 23 };
                             };
                         }
-
-                        const origReadPixels = proto.readPixels;
-                        proto.readPixels = function() {
-                            const res = origReadPixels.apply(this, arguments);
-                            try {
-                                const pixels = arguments[6];
-                                if (pixels && pixels.length) {
-                                    pixels[0] = pixels[0] ^ (sessionSeed & 1);
-                                }
-                            } catch(_) {}
-                            return res;
-                        };
                     };
 
                     if (window.WebGLRenderingContext) applyWebGLMasking(WebGLRenderingContext.prototype);
                     if (window.WebGL2RenderingContext) applyWebGLMasking(WebGL2RenderingContext.prototype);
                 } catch(e) {}
 
-                // 5. Web Audio API Acoustic Farbling Noise
-                try {
-                    if (window.AudioBuffer) {
-                        const origGetChannelData = AudioBuffer.prototype.getChannelData;
-                        AudioBuffer.prototype.getChannelData = function() {
-                            const channel = origGetChannelData.apply(this, arguments);
-                            try {
-                                const len = Math.min(channel.length, 120);
-                                for (let i = 0; i < len; i += 8) {
-                                    channel[i] += 0.00000001 * (Math.random() - 0.5);
-                                }
-                            } catch(_) {}
-                            return channel;
-                        };
-                    }
-
-                    if (window.AnalyserNode) {
-                        const origGetFloatFreq = AnalyserNode.prototype.getFloatFrequencyData;
-                        AnalyserNode.prototype.getFloatFrequencyData = function(array) {
-                            origGetFloatFreq.apply(this, arguments);
-                            try {
-                                if (array && array.length) {
-                                    array[0] += 0.0001 * (Math.random() - 0.5);
-                                }
-                            } catch(_) {}
-                        };
-                    }
-                } catch(e) {}
-
-                // 6. Font Metric Probing & DOM Rects Anti-Fingerprinting
-                try {
-                    const origGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-                    Element.prototype.getBoundingClientRect = function() {
-                        const rect = origGetBoundingClientRect.apply(this, arguments);
-                        return rect;
-                    };
-                } catch(e) {}
-
-                // 7. Protect Battery API Fingerprinting (W3C Battery Status API Masking)
-                try {
-                    const fakeBatteryManager = {
-                        charging: true,
-                        chargingTime: 0,
-                        dischargingTime: Infinity,
-                        level: 1.0,
-                        onchargingchange: null,
-                        onchargingtimechange: null,
-                        ondischargingtimechange: null,
-                        onlevelchange: null,
-                        addEventListener: function() {},
-                        removeEventListener: function() {},
-                        dispatchEvent: function() { return false; }
-                    };
-                    if (navigator.getBattery) {
-                        const origGetBattery = navigator.getBattery.bind(navigator);
-                        navigator.getBattery = function() {
-                            return origGetBattery().then(function(b) {
-                                try {
-                                    Object.defineProperty(b, 'level', { get: () => 1.0, configurable: true });
-                                    Object.defineProperty(b, 'charging', { get: () => true, configurable: true });
-                                    Object.defineProperty(b, 'chargingTime', { get: () => 0, configurable: true });
-                                    Object.defineProperty(b, 'dischargingTime', { get: () => Infinity, configurable: true });
-                                } catch(_) {}
-                                return b;
-                            }).catch(function() {
-                                return fakeBatteryManager;
-                            });
-                        };
-                    } else {
-                        const getBatteryFn = function() { return Promise.resolve(fakeBatteryManager); };
-                        try {
-                            Object.defineProperty(navigator, 'getBattery', {
-                                get: () => getBatteryFn,
-                                configurable: true,
-                                enumerable: true
-                            });
-                        } catch (_) {
-                            navigator.getBattery = getBatteryFn;
-                        }
-                    }
-                } catch(e) {}
-
-                // 8. WebRTC IP Leak Prevention (Relay Mode when TURN available)
+                // 4. WebRTC IP Leak Prevention (Relay Mode when TURN available)
                 if (window.RTCPeerConnection) {
                     try {
                         const OrigRTC = window.RTCPeerConnection;
