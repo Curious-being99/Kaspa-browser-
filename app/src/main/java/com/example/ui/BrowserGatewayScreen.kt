@@ -2661,6 +2661,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                  override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                                     if (request == null) return null
 
+                                    // CRITICAL HIGH PERFORMANCE: Main frame requests MUST load natively via Chromium's direct socket engine without blocking.
+                                    if (request.isForMainFrame) {
+                                        return null
+                                    }
+
                                     val reqUrl = request.url?.toString() ?: return null
                                     val reqUrlLower = reqUrl.lowercase()
                                     val path = request.url?.path?.lowercase() ?: ""

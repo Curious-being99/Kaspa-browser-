@@ -34,6 +34,7 @@ object KaspaWebViewConfigurator {
             swSettings.cacheMode = WebSettings.LOAD_DEFAULT
             swController.setServiceWorkerClient(object : ServiceWorkerClient() {
                 override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+                    if (request.isForMainFrame) return null
                     val reqUrl = request.url?.toString()
                     if (!reqUrl.isNullOrBlank()) {
                         if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {

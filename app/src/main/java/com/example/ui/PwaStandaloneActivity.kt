@@ -516,6 +516,7 @@ fun PwaStandaloneScreen(
 
                             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                                 if (request == null) return null
+                                if (request.isForMainFrame) return null
                                 val reqUrl = request.url?.toString() ?: return null
 
                                 val reqMethod = request.method ?: "GET"
