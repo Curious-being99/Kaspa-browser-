@@ -103,9 +103,28 @@ class MainActivity : FragmentActivity() {
       try {
         com.example.network.CronetClientFactory.initialize(applicationContext)
         com.example.network.WebViewAssetLruCache.initialize(applicationContext)
+        com.example.network.KrpRelayDaemon.start()
+        com.example.network.LightweightTorEngine.start()
+        com.example.security.PlayIntegrityManager.initialize(applicationContext)
         com.example.util.KaspaWebViewConfigurator.initServiceWorkerSupport()
-      } catch (e: Exception) {
-        Log.w("MainActivity", "Failed to initialize network services: ${e.message}")
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                com.example.security.PlayIntegrityManager.requestIntegrityToken(applicationContext)
+            } catch (_: Throwable) {}
+        }
+
+        val proxyPrefs = getSharedPreferences("kaspa_proxy_prefs", android.content.Context.MODE_PRIVATE)
+        if (proxyPrefs.getBoolean("custom_proxy_enabled", false)) {
+            val host = proxyPrefs.getString("custom_proxy_host", "")
+            val port = proxyPrefs.getString("custom_proxy_port", "")?.toIntOrNull() ?: 0
+            val isSocks = proxyPrefs.getBoolean("custom_proxy_is_socks", true)
+            if (!host.isNullOrBlank() && port > 0) {
+                com.example.network.KaspaPrivacyRelayEngine.setRemoteProxy(host, port, isSocks)
+            }
+        }
+      } catch (t: Throwable) {
+        Log.w("MainActivity", "Network services initialization notice: ${t.message}")
       }
 
       try {

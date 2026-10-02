@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Bolt
@@ -136,7 +137,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 16.dp, bottom = 8.dp),
+                            .padding(top = 8.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -313,60 +314,73 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                        // Enter Browser Button
-                        Button(
-                            onClick = {
-                                viewModel.setOnboardingCompleted(true)
-                                sharedPrefs.edit().putBoolean("has_seen_tutorial_v1", true).apply()
-                                onboardingStep = 2
-                                requestDefaultBrowser()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ElectricCyan,
-                                contentColor = ObsidianBg
-                            ),
-                            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp),
-                            shape = RoundedCornerShape(20.dp),
+                        // Tutorial Action Buttons with flexbox row alignment (align-items: center, gap: 8dp)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .height(44.dp)
-                                .widthIn(min = 160.dp, max = 220.dp)
+                                .testTag("browser-nav-container")
+                                .fillMaxWidth()
+                                .widthIn(max = 360.dp)
+                                .padding(horizontal = 8.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                            OutlinedButton(
+                                onClick = { onboardingStep = 0 },
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
                             ) {
                                 Text(
-                                    text = "Enter Browser",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    letterSpacing = 0.3.sp
+                                    text = "Back",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.setOnboardingCompleted(true)
+                                    sharedPrefs.edit().putBoolean("has_seen_tutorial_v1", true).apply()
+                                    onboardingStep = 2
+                                    requestDefaultBrowser()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ElectricCyan,
+                                    contentColor = ObsidianBg
+                                ),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Enter",
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.2.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        TextButton(
-                            onClick = { onboardingStep = 0 },
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Text(
-                                text = "Back",
-                                fontSize = 12.sp,
-                                color = TextMuted,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(28.dp))
                     }
                 }
             }

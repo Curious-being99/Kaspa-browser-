@@ -47,6 +47,7 @@ cronetOkhttp = "0.1.0"
 webkit = "1.12.1"
 biometric = "1.1.0"
 zxing = "3.5.3"
+playIntegrity = "1.4.0"
 
 
 [libraries]
@@ -110,6 +111,7 @@ cronet-okhttp = { group = "com.google.net.cronet", name = "cronet-okhttp", versi
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+play-integrity = { group = "com.google.android.play", name = "integrity", version.ref = "playIntegrity" }
 
 
 [plugins]

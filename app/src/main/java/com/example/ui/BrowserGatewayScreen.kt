@@ -28,6 +28,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -985,12 +986,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             "midnight_purple" -> Color(0xFF1E1035)
             "soft_slate" -> Color(0xFF1E293B)
             "pure_white" -> Color(0xFFFFFFFF)
+            "dropbox_pattern" -> Color(0xFF181B24)
+            "kaspa_matrix" -> Color(0xFF0C131D)
             "custom_hex" -> try {
                 val hex = customBgColorHex.trim().removePrefix("#")
                 val parseHex = if (hex.length == 6) "FF$hex" else hex
                 Color(android.graphics.Color.parseColor("#$parseHex"))
             } catch (_: Exception) {
-                Color(0xFF12141C)
+                Color(0xFF181B24)
             }
             else -> Color(0xFF12141C) // "classic_dark"
         }
@@ -1000,7 +1003,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         when (browserTheme) {
             "aurora_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF090A0F))))
             "cyber_gradient" -> Modifier.background(Brush.verticalGradient(listOf(Color(0xFF0B0F17), Color(0xFF042F2E), Color(0xFF090A0F))))
+            "dropbox_pattern", "custom_hex", "kaspa_matrix" -> Modifier.drawBehind {
+                drawRect(color = currentBgColor)
+                // Professional Dropbox-style isometric dot matrix grid pattern
+                val dotRadius = 1.25.dp.toPx()
+                val spacing = 22.dp.toPx()
+                val isLight = (currentBgColor.red * 0.299f + currentBgColor.green * 0.587f + currentBgColor.blue * 0.114f) > 0.5f
+                val dotColor = if (browserTheme == "kaspa_matrix") {
+                    Color(0xFF70C7BA).copy(alpha = 0.14f)
+                } else if (isLight) {
+                    Color(0xFF1E293B).copy(alpha = 0.09f)
+                } else {
+                    Color(0xFF94A3B8).copy(alpha = 0.09f)
+                }
+                val cols = (size.width / spacing).toInt() + 1
+                val rows = (size.height / spacing).toInt() + 1
+                for (c in 0..cols) {
+                    for (r in 0..rows) {
+                        drawCircle(
+                            color = dotColor,
+                            radius = dotRadius,
+                            center = androidx.compose.ui.geometry.Offset(c * spacing, r * spacing)
+                        )
+                    }
+                }
+            }
             else -> Modifier.background(currentBgColor)
+        }
+    }
+
+    val topBarSurfaceColor = remember(browserTheme, currentBgColor) {
+        when (browserTheme) {
+            "oled_obsidian" -> Color(0xFF000000)
+            "pure_white" -> Color(0xFFF8FAFC)
+            "dropbox_pattern", "custom_hex" -> currentBgColor
+            "kaspa_matrix" -> Color(0xFF090E16)
+            else -> SurfaceDark
         }
     }
 
@@ -1017,7 +1055,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("browser_address_bar"),
-                color = SurfaceDark,
+                color = topBarSurfaceColor,
                 tonalElevation = 6.dp,
                 shadowElevation = 4.dp
             ) {
@@ -2710,19 +2748,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             (resourceHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(resourceHost)) ||
                                             (pageHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(pageHost))
 
-                                        if (!isGoogleAccountRequest) {
-                                            if (request.isForMainFrame) {
-                                                try {
-                                                    val headers = request.requestHeaders ?: emptyMap()
-                                                    val relayResp = kotlinx.coroutines.runBlocking {
-                                                        KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, true)
-                                                    }
-                                                    if (relayResp != null) {
-                                                        return relayResp
-                                                    }
-                                                } catch (e: Exception) {
-                                                    android.util.Log.w("KaspaRelay", "KRP Interception notice: ${e.message}")
+                                        if (!isGoogleAccountRequest && request.isForMainFrame) {
+                                            try {
+                                                val headers = request.requestHeaders ?: emptyMap()
+                                                val relayResp = kotlinx.coroutines.runBlocking {
+                                                    KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, true)
                                                 }
+                                                if (relayResp != null) {
+                                                    return relayResp
+                                                }
+                                            } catch (e: Exception) {
+                                                android.util.Log.w("KaspaRelay", "KRP Interception notice: ${e.message}")
                                             }
                                         }
                                     }
@@ -3951,6 +3987,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                     Text("Curated Preset Themes", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
 
+                    ThemeOptionCard(
+                        title = "Dropbox Cardboard Grid",
+                        subtitle = "Professional isometric dot-matrix pattern (#181B24)",
+                        isSelected = browserTheme == "dropbox_pattern",
+                        onClick = { saveBrowserTheme("dropbox_pattern", "#181B24") }
+                    )
+                    ThemeOptionCard(
+                        title = "Kaspa Cyber Matrix",
+                        subtitle = "Electric cyan cyber grid on deep obsidian (#0C131D)",
+                        isSelected = browserTheme == "kaspa_matrix",
+                        onClick = { saveBrowserTheme("kaspa_matrix", "#0C131D") }
+                    )
                     ThemeOptionCard(
                         title = "Classic Dark Slate",
                         subtitle = "Standard clean dark background (#12141C)",
@@ -5924,7 +5972,7 @@ fun BrowserSpeedDial(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(36.dp)
                             .background(Color(0xFF161D2B), CircleShape)
                             .border(
                                 width = 1.5.dp,
@@ -5937,7 +5985,7 @@ fun BrowserSpeedDial(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add new shortcut",
                             tint = Color(0xFF70C7BA),
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }

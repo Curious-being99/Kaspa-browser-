@@ -11,7 +11,6 @@ import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.security.spec.NamedParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
@@ -82,63 +81,30 @@ object Krp1CryptoEngine {
     // =========================================================================
 
     /**
-     * Generates an ephemeral cryptographic key pair for the circuit session.
+     * Generates an ephemeral cryptographic key pair for the circuit session using RFC 7748 X25519.
      */
     fun generateEphemeralKeyPair(): KeyPairHolder {
-        return try {
-            val kpg = KeyPairGenerator.getInstance("XDH")
-            kpg.initialize(NamedParameterSpec.X25519, secureRandom)
-            val kp = kpg.generateKeyPair()
-            val pub = kp.public.encoded
-            val priv = kp.private.encoded
-            KeyPairHolder(
-                privateKeyBytes = priv,
-                publicKeyBytes = pub,
-                publicKeyHex = bytesToHex(pub)
-            )
-        } catch (_: Throwable) {
-            // High-entropy fallback using 256-bit CSPRNG scalar
-            val priv = ByteArray(32).also { secureRandom.nextBytes(it) }
-            val pub = computeSha256(priv + "x25519-public-scalar".toByteArray(StandardCharsets.UTF_8))
-            KeyPairHolder(
-                privateKeyBytes = priv,
-                publicKeyBytes = pub,
-                publicKeyHex = bytesToHex(pub)
-            )
-        }
+        val priv = ByteArray(32).also { secureRandom.nextBytes(it) }
+        val pub = KrpRelayDaemon.x25519PublicFromPrivate(priv)
+        return KeyPairHolder(
+            privateKeyBytes = priv,
+            publicKeyBytes = pub,
+            publicKeyHex = bytesToHex(pub)
+        )
     }
 
     /**
-     * Performs ECDH Key Agreement to derive the shared secret between client private key and relay public key.
+     * Performs ECDH Key Agreement using RFC 7748 X25519 to derive the shared secret.
      */
     fun computeSharedSecret(clientPriv: ByteArray, relayPubHex: String): ByteArray {
         val relayPubBytes = try {
             hexToBytes(relayPubHex)
         } catch (_: Exception) {
-            computeSha256(relayPubHex.toByteArray(StandardCharsets.UTF_8))
+            ByteArray(32)
         }
-
-        return try {
-            val kf = KeyFactory.getInstance("XDH")
-            val keySpec = X509EncodedKeySpec(relayPubBytes)
-            val publicKey = kf.generatePublic(keySpec)
-
-            val privSpec = java.security.spec.PKCS8EncodedKeySpec(clientPriv)
-            val privateKey = kf.generatePrivate(privSpec)
-
-            val ka = KeyAgreement.getInstance("XDH")
-            ka.init(privateKey)
-            ka.doPhase(publicKey, true)
-            ka.generateSecret()
-        } catch (_: Throwable) {
-            // Deterministic cryptographic fallback for simulated environments
-            val combined = ByteArrayOutputStream().apply {
-                write(clientPriv)
-                write(relayPubBytes)
-                write("krp1-shared-secret-derivation-v1".toByteArray(StandardCharsets.UTF_8))
-            }.toByteArray()
-            computeSha256(combined)
-        }
+        val priv32 = if (clientPriv.size == 32) clientPriv else clientPriv.copyOf(32)
+        val pub32 = if (relayPubBytes.size == 32) relayPubBytes else relayPubBytes.copyOf(32)
+        return KrpRelayDaemon.x25519DiffieHellman(priv32, pub32)
     }
 
     // =========================================================================

@@ -73,6 +73,10 @@ object CryptoUtils {
         return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
+    fun bytesToHex(bytes: ByteArray): String {
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
     fun hexToBytes(hex: String): ByteArray {
         if (isNativeLoaded) {
             try {

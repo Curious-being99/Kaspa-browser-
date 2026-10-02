@@ -11,6 +11,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.example.network.KaspaPrivacyEngine
 
 object KaspaWebViewConfigurator {
@@ -32,6 +34,14 @@ object KaspaWebViewConfigurator {
             swSettings.cacheMode = WebSettings.LOAD_DEFAULT
             swController.setServiceWorkerClient(object : ServiceWorkerClient() {
                 override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
+                    val reqUrl = request.url?.toString()
+                    if (!reqUrl.isNullOrBlank() && com.example.network.KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
+                        val headers = request.requestHeaders ?: emptyMap()
+                        val resp = kotlinx.coroutines.runBlocking {
+                            com.example.network.KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, false)
+                        }
+                        if (resp != null) return resp
+                    }
                     return super.shouldInterceptRequest(request)
                 }
             })
@@ -101,6 +111,19 @@ object KaspaWebViewConfigurator {
             cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
         } catch (e: Exception) {
             Log.w(TAG, "CookieManager setup notice: ${e.message}")
+        }
+
+        // Native Document-Start Script Injection (True Chromium Engine-Level Farbling)
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                    setOf("*")
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "DocumentStartJavaScript setup notice: ${e.message}")
         }
     }
 

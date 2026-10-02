@@ -266,12 +266,25 @@ impl KrpRelayServer {
 
         let resp = req.send().await?;
         let status = resp.status().as_u16();
+
+        let mut hdrs = std::collections::HashMap::new();
+        for (k, v) in resp.headers().iter() {
+            let key_lower = k.as_str().to_lowercase();
+            if key_lower == "content-encoding" || key_lower == "transfer-encoding" || key_lower == "content-length" {
+                continue;
+            }
+            if let Ok(val_str) = v.to_str() {
+                hdrs.insert(k.as_str().to_string(), val_str.to_string());
+            }
+        }
+
         let body_bytes = resp.bytes().await?.to_vec();
 
         #[derive(Serialize)]
         struct ExitResponsePayload {
             status_code: u16,
             status_message: String,
+            headers: std::collections::HashMap<String, String>,
             body_hex: String,
             exit_node_ip: String,
         }
@@ -279,6 +292,7 @@ impl KrpRelayServer {
         let exit_resp = ExitResponsePayload {
             status_code: status,
             status_message: "OK".to_string(),
+            headers: hdrs,
             body_hex: bytes_to_hex(&body_bytes),
             exit_node_ip: self.config.listen_address.clone(),
         };

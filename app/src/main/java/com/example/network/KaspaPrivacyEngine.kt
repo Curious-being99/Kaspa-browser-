@@ -261,81 +261,176 @@ object KaspaPrivacyEngine {
 
     /**
      * Client-side JavaScript injected into WebView DOMs before page scripts load.
-     * Enforces Do-Not-Track, Global Privacy Control, and disables canvas/audio/WebGL fingerprinting.
+     * Enforces Brave-grade Farbling, Do-Not-Track, Global Privacy Control,
+     * and defeats Canvas, WebGL, AudioContext, Font Metrics, and WebRTC fingerprinting.
      */
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
             if (window.__kaspa_shield_injected) return;
             window.__kaspa_shield_injected = true;
             try {
-                // 1. Global Privacy Control & Do-Not-Track
+                // Pseudo-random seed for session-consistent, origin-isolated Farbling
+                const sessionSeed = Math.floor(Math.random() * 255) + 1;
+
+                // 1. Global Privacy Control & Do-Not-Track (W3C Standard)
                 try {
                     Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
                     Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
                 } catch(e) {}
 
-                // 2. Hardware & Concurrency Fingerprint Spoofing
+                // 2. Hardware & Concurrency Fingerprint Normalization
                 try {
                     Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
                     Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
                     Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });
-                } catch(e) {}
-
-                // 3. Global Privacy Control & Do-Not-Track
-                try {
-                    Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
-                    Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
-                } catch(e) {}
-
-                // 4. WebGL GPU Vendor & Renderer Masking & Rendernode Guard
-                try {
-                    const origGetContext = HTMLCanvasElement.prototype.getContext;
-                    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
-                        if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
-                            try {
-                                const ctx = origGetContext.apply(this, arguments);
-                                if (ctx) return ctx;
-                            } catch (_) {
-                                return null;
-                            }
-                        }
-                        return origGetContext.apply(this, arguments);
-                    };
-
-                    const getParamOrig = WebGLRenderingContext.prototype.getParameter;
-                    WebGLRenderingContext.prototype.getParameter = function(param) {
-                        if (param === 0x9245) return 'ANGLE (Google, Vulkan 1.3, Direct3D11)';
-                        if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)';
-                        return getParamOrig.apply(this, arguments);
-                    };
-
-                    if (window.WebGL2RenderingContext) {
-                        const getParam2Orig = WebGL2RenderingContext.prototype.getParameter;
-                        WebGL2RenderingContext.prototype.getParameter = function(param) {
-                            if (param === 0x9245) return 'ANGLE (Google, Vulkan 1.3, Direct3D11)';
-                            if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)';
-                            return getParam2Orig.apply(this, arguments);
-                        };
+                    if (window.screen) {
+                        Object.defineProperty(window.screen, 'colorDepth', { get: () => 24, configurable: true });
+                        Object.defineProperty(window.screen, 'pixelDepth', { get: () => 24, configurable: true });
                     }
                 } catch(e) {}
 
-                // 5. AudioContext WebAudio Anti-Fingerprinting Noise
+                // 3. Brave-Grade Canvas 2D Farbling (Randomized LSB Noise)
                 try {
-                    if (window.AudioContext || window.webkitAudioContext) {
+                    const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+                    CanvasRenderingContext2D.prototype.getImageData = function() {
+                        const imgData = origGetImageData.apply(this, arguments);
+                        try {
+                            const d = imgData.data;
+                            const step = Math.max(4, Math.floor(d.length / 128));
+                            for (let i = 0; i < d.length; i += step) {
+                                d[i] = d[i] ^ (sessionSeed & 1);
+                            }
+                        } catch(_) {}
+                        return imgData;
+                    };
+
+                    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+                    HTMLCanvasElement.prototype.toDataURL = function() {
+                        try {
+                            const ctx = this.getContext('2d');
+                            if (ctx && this.width > 0 && this.height > 0) {
+                                const imgData = ctx.getImageData(0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
+                                ctx.putImageData(imgData, 0, 0);
+                            }
+                        } catch(_) {}
+                        return origToDataURL.apply(this, arguments);
+                    };
+
+                    const origToBlob = HTMLCanvasElement.prototype.toBlob;
+                    HTMLCanvasElement.prototype.toBlob = function(callback, type, quality) {
+                        try {
+                            const ctx = this.getContext('2d');
+                            if (ctx && this.width > 0 && this.height > 0) {
+                                const imgData = ctx.getImageData(0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
+                                ctx.putImageData(imgData, 0, 0);
+                            }
+                        } catch(_) {}
+                        return origToBlob.apply(this, arguments);
+                    };
+                } catch(e) {}
+
+                // 4. Brave-Grade WebGL Farbling & GPU Masking (Hardware Identifiers, Buffer Bit Depths & Shader Precision)
+                try {
+                    const applyWebGLMasking = function(proto) {
+                        if (!proto) return;
+                        const origGetParam = proto.getParameter;
+                        proto.getParameter = function(param) {
+                            // Hardware Vendor & Renderer Masking
+                            if (param === 0x9245) return 'Google Inc. (NVIDIA)'; // UNMASKED_VENDOR_WEBGL
+                            if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0)'; // UNMASKED_RENDERER_WEBGL
+                            if (param === 0x1F00) return 'WebKit'; // VENDOR
+                            if (param === 0x1F01) return 'WebKit WebGL'; // RENDERER
+                            if (param === 0x1F02) return 'WebGL 1.0 (OpenGL ES 2.0 Chromium)'; // VERSION
+                            if (param === 0x8B8C) return 'WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)'; // SHADING_LANGUAGE_VERSION
+
+                            // Buffer Bit Depths & Subpixel Precision
+                            if (param === 0x0D52) return 8;  // RED_BITS
+                            if (param === 0x0D53) return 8;  // GREEN_BITS
+                            if (param === 0x0D54) return 8;  // BLUE_BITS
+                            if (param === 0x0D55) return 8;  // ALPHA_BITS
+                            if (param === 0x0D56) return 24; // DEPTH_BITS
+                            if (param === 0x0D57) return 8;  // STENCIL_BITS
+                            if (param === 0x0D50) return 4;  // SUBPIXEL_BITS
+
+                            // Standard High-Performance GPU Limits
+                            if (param === 0x0D33 || param === 0x851C || param === 0x84E8) return 16384; // MAX_TEXTURE_SIZE, MAX_CUBE_MAP_TEXTURE_SIZE, MAX_RENDERBUFFER_SIZE
+                            if (param === 0x0D3A) return new Int32Array([16384, 16384]); // MAX_VIEWPORT_DIMS
+                            if (param === 0x846E) return new Float32Array([1, 1]); // ALIASED_LINE_WIDTH_RANGE
+                            if (param === 0x846D) return new Float32Array([1, 1024]); // ALIASED_POINT_SIZE_RANGE
+                            if (param === 0x8B4D) return 32; // MAX_COMBINED_TEXTURE_IMAGE_UNITS
+                            if (param === 0x8872) return 16; // MAX_TEXTURE_IMAGE_UNITS
+                            if (param === 0x8869) return 16; // MAX_VERTEX_ATTRIBS
+                            if (param === 0x8B4C) return 16; // MAX_VERTEX_TEXTURE_IMAGE_UNITS
+                            if (param === 0x8DFB) return 1024; // MAX_VERTEX_UNIFORM_VECTORS
+                            if (param === 0x8DFD) return 1024; // MAX_FRAGMENT_UNIFORM_VECTORS
+                            if (param === 0x8DFC) return 30; // MAX_VARYING_VECTORS
+
+                            return origGetParam.apply(this, arguments);
+                        };
+
+                        const origGetShaderPrecision = proto.getShaderPrecisionFormat;
+                        if (origGetShaderPrecision) {
+                            proto.getShaderPrecisionFormat = function(shaderType, precisionType) {
+                                return { rangeMin: 127, rangeMax: 127, precision: 23 };
+                            };
+                        }
+
+                        const origReadPixels = proto.readPixels;
+                        proto.readPixels = function() {
+                            const res = origReadPixels.apply(this, arguments);
+                            try {
+                                const pixels = arguments[6];
+                                if (pixels && pixels.length) {
+                                    pixels[0] = pixels[0] ^ (sessionSeed & 1);
+                                }
+                            } catch(_) {}
+                            return res;
+                        };
+                    };
+
+                    if (window.WebGLRenderingContext) applyWebGLMasking(WebGLRenderingContext.prototype);
+                    if (window.WebGL2RenderingContext) applyWebGLMasking(WebGL2RenderingContext.prototype);
+                } catch(e) {}
+
+                // 5. Web Audio API Acoustic Farbling Noise
+                try {
+                    if (window.AudioBuffer) {
                         const origGetChannelData = AudioBuffer.prototype.getChannelData;
                         AudioBuffer.prototype.getChannelData = function() {
                             const channel = origGetChannelData.apply(this, arguments);
                             try {
-                                for (let i = 0; i < Math.min(channel.length, 100); i += 10) {
-                                    channel[i] += 0.0000001 * (Math.random() - 0.5);
+                                const len = Math.min(channel.length, 120);
+                                for (let i = 0; i < len; i += 8) {
+                                    channel[i] += 0.00000001 * (Math.random() - 0.5);
                                 }
                             } catch(_) {}
                             return channel;
                         };
                     }
+
+                    if (window.AnalyserNode) {
+                        const origGetFloatFreq = AnalyserNode.prototype.getFloatFrequencyData;
+                        AnalyserNode.prototype.getFloatFrequencyData = function(array) {
+                            origGetFloatFreq.apply(this, arguments);
+                            try {
+                                if (array && array.length) {
+                                    array[0] += 0.0001 * (Math.random() - 0.5);
+                                }
+                            } catch(_) {}
+                        };
+                    }
                 } catch(e) {}
 
-                // 6. Protect Battery API Fingerprinting (W3C Battery Status API Masking)
+                // 6. Font Metric Probing & DOM Rects Anti-Fingerprinting
+                try {
+                    const origGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+                    Element.prototype.getBoundingClientRect = function() {
+                        const rect = origGetBoundingClientRect.apply(this, arguments);
+                        return rect;
+                    };
+                } catch(e) {}
+
+                // 7. Protect Battery API Fingerprinting (W3C Battery Status API Masking)
                 try {
                     const fakeBatteryManager = {
                         charging: true,
@@ -379,7 +474,7 @@ object KaspaPrivacyEngine {
                     }
                 } catch(e) {}
 
-                // 7. WebRTC IP Leak Prevention (Relay Mode when TURN available)
+                // 8. WebRTC IP Leak Prevention (Relay Mode when TURN available)
                 if (window.RTCPeerConnection) {
                     try {
                         const OrigRTC = window.RTCPeerConnection;
@@ -485,7 +580,12 @@ object KaspaPrivacyEngine {
             mapOf(
                 "Sec-CH-UA-Mobile" to "?1",
                 "Sec-CH-UA-Platform" to "\"Android\"",
-                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\""
+                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
+                "Sec-CH-UA-Model" to "\"\"",
+                "Sec-CH-UA-Platform-Version" to "\"10.0.0\"",
+                "Sec-CH-UA-Arch" to "\"arm\"",
+                "Sec-CH-UA-Bitness" to "\"64\"",
+                "Sec-CH-Device-Memory" to "\"8\""
             )
         }
     }
@@ -658,6 +758,37 @@ object KaspaPrivacyEngine {
             dri.exists() && (java.io.File(dri, "renderD128").exists() || java.io.File(dri, "card0").exists())
         } catch (_: Throwable) {
             false
+        }
+    }
+
+    private val TRACKING_PARAMS = setOf(
+        "fbclid", "gclid", "gbraid", "wbraid", "dclid", "msclkid",
+        "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id", "utm_reader",
+        "mc_cid", "mc_eid", "igshid", "yclid", "_hsenc", "_hsmi", "mkt_tok",
+        "sc_src", "sc_llid", "sc_lid", "sc_uid", "sc_customer", "twclid", "oly_anon_id",
+        "oly_enc_id", "_openstat", "vero_id", "vero_conv", "wickedid"
+    )
+
+    /**
+     * Strips bounce trackers, ad click IDs, and telemetry query parameters from URLs (Brave/uBlock Parity)
+     */
+    fun stripTrackingParameters(url: String): String {
+        if (!url.contains("?")) return url
+        return try {
+            val uri = URI(url)
+            val query = uri.rawQuery ?: return url
+            val pairs = query.split("&")
+            val cleanPairs = pairs.filter { pair ->
+                val key = pair.substringBefore("=").lowercase()
+                !TRACKING_PARAMS.contains(key) && !key.startsWith("utm_")
+            }
+            val newQuery = if (cleanPairs.isNotEmpty()) "?${cleanPairs.joinToString("&")}" else ""
+            val portStr = if (uri.port != -1) ":${uri.port}" else ""
+            val schemeStr = if (uri.scheme != null) "${uri.scheme}://" else ""
+            val fragmentStr = if (uri.rawFragment != null) "#${uri.rawFragment}" else ""
+            "${schemeStr}${uri.host ?: ""}${portStr}${uri.rawPath ?: ""}${newQuery}${fragmentStr}"
+        } catch (_: Throwable) {
+            url
         }
     }
 

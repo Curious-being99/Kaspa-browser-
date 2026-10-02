@@ -708,15 +708,61 @@ mod tests {
 
     #[test]
     fn test_rfc7748_x25519_vector() {
-        let alice_priv = hex_to_bytes("a546e36bf0527c9d3b16154673200c69362098e6241419d4b631f529d6a59779");
-        let mut alice_priv_arr = [0u8; 32];
-        alice_priv_arr.copy_from_slice(&alice_priv);
+        // RFC 7748 Section 6.1 Curve25519 Test Vector
+        let alice_priv_bytes = hex_to_bytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        let mut alice_priv = [0u8; 32];
+        alice_priv.copy_from_slice(&alice_priv_bytes);
 
-        let base_point = [9u8; 32];
-        let mut base_arr = [0u8; 32];
-        base_arr[0] = 9;
+        let mut base_point = [0u8; 32];
+        base_point[0] = 9;
 
-        let alice_pub = x25519_diffie_hellman(&alice_priv_arr, &base_arr);
-        assert_eq!(alice_pub.len(), 32);
+        let alice_pub = x25519_diffie_hellman(&alice_priv, &base_point);
+        assert_eq!(bytes_to_hex(&alice_pub), "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+
+        let bob_priv_bytes = hex_to_bytes("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+        let mut bob_priv = [0u8; 32];
+        bob_priv.copy_from_slice(&bob_priv_bytes);
+
+        let bob_pub = x25519_diffie_hellman(&bob_priv, &base_point);
+        assert_eq!(bytes_to_hex(&bob_pub), "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+
+        let shared_alice = x25519_diffie_hellman(&alice_priv, &bob_pub);
+        let shared_bob = x25519_diffie_hellman(&bob_priv, &alice_pub);
+        assert_eq!(bytes_to_hex(&shared_alice), "4a5d9d5ba4ce50e4f0a482d40006e339c20432aa5174773b1afc4e158aca4d52");
+        assert_eq!(shared_alice, shared_bob);
+    }
+
+    #[test]
+    fn test_rfc5869_hkdf_sha256_vector() {
+        // RFC 5869 Test Case 1
+        let ikm = hex_to_bytes("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b");
+        let salt = hex_to_bytes("000102030405060708090a0b0c");
+        let info = hex_to_bytes("f0f1f2f3f4f5f6f7f8f9");
+        let okm = hkdf_sha256(&salt, &ikm, &info, 42);
+        assert_eq!(
+            bytes_to_hex(&okm),
+            "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
+        );
+    }
+
+    #[test]
+    fn test_rfc8439_chacha20_poly1305_vector() {
+        // RFC 8439 Section 2.8.2 Test Vector
+        let key_bytes = hex_to_bytes("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&key_bytes);
+
+        let nonce_bytes = hex_to_bytes("070000004041424344454647");
+        let mut nonce = [0u8; 12];
+        nonce.copy_from_slice(&nonce_bytes);
+
+        let plaintext = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+        let aad = hex_to_bytes("50515253c0c1c2c3c4c5c6c7");
+
+        let (ciphertext, tag) = chacha20_poly1305_encrypt(&key, &nonce, plaintext, &aad);
+        assert_eq!(bytes_to_hex(&tag), "1ae10b594f09e26a7e902ecbd0600691");
+
+        let decrypted = chacha20_poly1305_decrypt(&key, &nonce, &ciphertext, &tag, &aad).unwrap();
+        assert_eq!(decrypted, plaintext);
     }
 }

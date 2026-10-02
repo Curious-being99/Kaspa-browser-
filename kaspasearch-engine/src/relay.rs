@@ -545,9 +545,8 @@ impl NativePrivacyRelayCore {
         }
     }
 
-    /// Executes full KRP1 cell construction, double-hop onion unwrap processing
-    /// (Entry unwraps outer -> Exit unwraps inner -> Exit DNS & HTTP fetch),
-    /// and Poly1305 Auth Tag response encryption/decryption inside native Rust core.
+    /// Executes real KRP/1 onion cell construction and sends the cell over a real network socket
+    /// to the Entry Relay endpoint. The client NEVER decrypts the layers or fetches the destination itself.
     pub fn execute_cell_over_tunnel(
         &self,
         destination_url: &str,
@@ -555,219 +554,54 @@ impl NativePrivacyRelayCore {
         headers_json: &str,
         body: Option<&[u8]>,
     ) -> Result<String, String> {
-        // 1. Construct 1024-byte double-hop onion cell
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        use std::time::Duration;
+
+        // 1. Client constructs 1024-byte double-hop onion cell
         let (cell_bytes, exit_key, circuit) = self.build_onion_cell(destination_url, method, headers_json, body)?;
 
-        // 2. Deserialize cell frame
-        let frame = KrpFrame::deserialize_from_cell(&cell_bytes)
-            .map_err(|e| format!("KRP Cell deserialization error: {}", e))?;
+        // 2. CONNECT TO ENTRY RELAY OVER NETWORK SOCKET
+        let entry_host = &circuit.entry_node.host;
+        let entry_port = circuit.entry_node.port;
+        let entry_target = format!("{}:{}", entry_host, entry_port);
 
-        // 3. ENTRY HOP PROCESS (Unwrap outer layer with Entry Key derived via X25519/HKDF)
-        let mut entry_priv = [0x55u8; 32];
-        let hex_priv = hex_to_bytes(&circuit.entry_node.public_key_hex);
-        if hex_priv.len() >= 32 { entry_priv.copy_from_slice(&hex_priv[..32]); }
+        let mut stream = TcpStream::connect_timeout(
+            &entry_target.parse().map_err(|e| format!("Invalid Entry node address {}: {}", entry_target, e))?,
+            Duration::from_secs(6),
+        ).map_err(|e| format!("KRP Entry Relay network connection failed ({}): {}", entry_target, e))?;
 
-        let shared_entry_srv = x25519_diffie_hellman(&entry_priv, &frame.ephemeral_pubkey);
-        let entry_key_srv = hkdf_sha256(b"KRP1-Entry-Salt", &shared_entry_srv, b"KRP1-Entry-Session-Key", 32);
-        let mut entry_key = [0u8; 32];
-        entry_key.copy_from_slice(&entry_key_srv[..32]);
+        stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
+        stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
 
-        let outer_plaintext = chacha20_poly1305_decrypt(
-            &entry_key,
-            &frame.nonce,
-            &frame.ciphertext,
-            &frame.tag,
-            b"KRP1-Outer-AAD-Entry"
-        ).map_err(|e| format!("Entry Relay outer layer decryption failed: {}", e))?;
+        // 3. Send 1024-byte onion cell to Entry Relay
+        stream.write_all(&cell_bytes).map_err(|e| format!("Failed to send cell to Entry Relay: {}", e))?;
+        stream.flush().map_err(|e| e.to_string())?;
 
-        let outer_str = String::from_utf8(outer_plaintext).map_err(|e| e.to_string())?;
-
-        #[derive(Deserialize)]
-        struct OuterEnvelope {
-            exit_host: String,
-            exit_port: u16,
-            inner_nonce_hex: String,
-            inner_ciphertext_hex: String,
-            inner_tag_hex: String,
-            client_pubkey_hex: String,
+        // 4. Receive encrypted response cell from Entry Relay
+        let mut resp_buf = vec![0u8; KRP_CELL_SIZE * 4];
+        let n = stream.read(&mut resp_buf).map_err(|e| format!("Failed to read response from Entry Relay: {}", e))?;
+        if n < KRP_CELL_SIZE {
+            return Err("Received truncated response cell from Entry Relay".to_string());
         }
 
-        let outer: OuterEnvelope = serde_json::from_str(&outer_str)
-            .map_err(|e| format!("Entry Relay outer envelope parse error: {}", e))?;
+        // 5. Deserialize response frame
+        let resp_frame = KrpFrame::deserialize_from_cell(&resp_buf[..n])
+            .map_err(|e| format!("KRP response frame deserialization error: {}", e))?;
 
-        // 4. EXIT HOP PROCESS (Unwrap inner layer with Exit Key derived via X25519/HKDF)
-        let inner_nonce_bytes = hex_to_bytes(&outer.inner_nonce_hex);
-        let inner_ciphertext_bytes = hex_to_bytes(&outer.inner_ciphertext_hex);
-        let inner_tag_bytes = hex_to_bytes(&outer.inner_tag_hex);
-
-        let mut inner_nonce = [0u8; 12];
-        if inner_nonce_bytes.len() >= 12 { inner_nonce.copy_from_slice(&inner_nonce_bytes[..12]); }
-
-        let mut inner_tag = [0u8; 16];
-        if inner_tag_bytes.len() >= 16 { inner_tag.copy_from_slice(&inner_tag_bytes[..16]); }
-
-        let mut exit_priv = [0xAAu8; 32];
-        let hex_exit_priv = hex_to_bytes(&circuit.exit_node.public_key_hex);
-        if hex_exit_priv.len() >= 32 { exit_priv.copy_from_slice(&hex_exit_priv[..32]); }
-
-        let client_pub_bytes = hex_to_bytes(&outer.client_pubkey_hex);
-        let mut client_pub = [0u8; 32];
-        if client_pub_bytes.len() >= 32 { client_pub.copy_from_slice(&client_pub_bytes[..32]); }
-
-        let shared_exit_srv = x25519_diffie_hellman(&exit_priv, &client_pub);
-        let exit_key_srv = hkdf_sha256(b"KRP1-Exit-Salt", &shared_exit_srv, b"KRP1-Exit-Session-Key", 32);
-        let mut exit_key_calc = [0u8; 32];
-        exit_key_calc.copy_from_slice(&exit_key_srv[..32]);
-
-        let inner_plaintext = chacha20_poly1305_decrypt(
-            &exit_key_calc,
-            &inner_nonce,
-            &inner_ciphertext_bytes,
-            &inner_tag,
-            b"KRP1-Inner-AAD-Exit"
-        ).map_err(|e| format!("Exit Relay inner layer decryption failed: {}", e))?;
-
-        let inner_str = String::from_utf8(inner_plaintext).map_err(|e| e.to_string())?;
-
-        #[derive(Deserialize)]
-        struct InnerPayload {
-            destination_url: String,
-            method: String,
-            headers: String,
-            body_hex: Option<String>,
-        }
-
-        let inner: InnerPayload = serde_json::from_str(&inner_str)
-            .map_err(|e| format!("Exit Relay inner payload parse error: {}", e))?;
-
-        // 5. EXIT RELAY DESTINATION FETCH (DNS resolution performed exclusively at Exit Node)
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(12))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .user_agent("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let mut req = client.request(
-            reqwest::Method::from_bytes(inner.method.as_bytes()).unwrap_or(reqwest::Method::GET),
-            &inner.destination_url
-        );
-
-        req = req.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
-        req = req.header("Accept-Language", "en-US,en;q=0.9");
-        req = req.header("Sec-Ch-Ua", "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"");
-        req = req.header("Sec-Ch-Ua-Mobile", "?1");
-        req = req.header("Sec-Ch-Ua-Platform", "\"Android\"");
-        req = req.header("Sec-Fetch-Dest", "document");
-        req = req.header("Sec-Fetch-Mode", "navigate");
-        req = req.header("Sec-Fetch-Site", "none");
-        req = req.header("Sec-Fetch-User", "?1");
-        req = req.header("Upgrade-Insecure-Requests", "1");
-
-        if let Ok(headers_map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&inner.headers) {
-            for (k, v) in headers_map {
-                if !k.eq_ignore_ascii_case("Host") && !k.eq_ignore_ascii_case("Content-Length") {
-                    req = req.header(&k, &v);
-                }
-            }
-        }
-
-        req = req.header("DNT", "1");
-        req = req.header("Sec-GPC", "1");
-        req = req.header("X-Kaspa-Relay-Circuit", &circuit.circuit_id);
-        req = req.header("X-Kaspa-Relay-Hop", "Dual-KRP1-X25519-ChaCha20");
-        req = req.header("X-Kaspa-Timing-Shield", "Poisson-Jitter-Active");
-
-        if let Some(body_hex) = inner.body_hex {
-            let body_bytes = hex_to_bytes(&body_hex);
-            if !body_bytes.is_empty() {
-                req = req.body(body_bytes);
-            }
-        }
-
-        let (status, status_msg, resp_headers, body_bytes) = match req.send() {
-            Ok(resp) => {
-                let st = resp.status().as_u16();
-                let st_msg = resp.status().canonical_reason().unwrap_or("OK").to_string();
-
-                let mut hdrs = std::collections::HashMap::new();
-                for (k, v) in resp.headers().iter() {
-                    let key_lower = k.as_str().to_lowercase();
-                    // Strip headers that break WebView WebResourceResponse when stream is decompressed by reqwest
-                    if key_lower == "content-encoding" || key_lower == "transfer-encoding" || key_lower == "content-length" ||
-                       key_lower == "content-security-policy" || key_lower == "x-frame-options" {
-                        continue;
-                    }
-                    if let Ok(val_str) = v.to_str() {
-                        hdrs.insert(k.as_str().to_string(), val_str.to_string());
-                    }
-                }
-
-                let b_bytes = resp.bytes().unwrap_or_default().to_vec();
-                (st, st_msg, hdrs, b_bytes)
-            }
-            Err(e) => {
-                let err_html = format!(
-                    "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">"
-                    "<style>body {{ background:#0A0E17; color:#F0F4F8; font-family:sans-serif; display:flex; align-items:center; justify-content:center; min-height:80vh; margin:0; padding:20px; text-align:center; }}"
-                    ".card {{ background:#131B2E; border:1px solid #00E5FF; border-radius:16px; padding:24px; max-width:400px; box-shadow:0 10px 25px rgba(0,0,0,0.5); }}"
-                    "h2 {{ color:#00E5FF; margin:0 0 10px; font-size:18px; }} p {{ color:#94A3B8; font-size:13px; margin:0 0 16px; }}"
-                    ".btn {{ background:#00E5FF; color:#0A0E17; border:none; padding:10px 20px; border-radius:8px; font-weight:bold; cursor:pointer; }}</style></head>"
-                    "<body><div class=\"card\"><h2>🛡️ Kaspa Privacy Shield Gateway</h2><p>Unable to reach endpoint via KRP Dual-Hop Relay: {}</p>"
-                    "<button class=\"btn\" onclick=\"location.reload()\">Retry Connection</button></div></body></html>",
-                    e
-                );
-                let mut hdrs = std::collections::HashMap::new();
-                hdrs.insert("content-type".to_string(), "text/html; charset=utf-8".to_string());
-                (502, "KRP Gateway Notice".to_string(), hdrs, err_html.into_bytes())
-            }
-        };
-
-        self.record_relayed_bytes(body_bytes.len() as u64);
-
-        // 6. RESPONSE ENCRYPTION AT EXIT RELAY
-        #[derive(Serialize)]
-        struct ExitResponsePayload {
-            status_code: u16,
-            status_message: String,
-            headers: std::collections::HashMap<String, String>,
-            body_hex: String,
-            exit_node_name: String,
-            circuit_id: String,
-        }
-
-        let exit_resp = ExitResponsePayload {
-            status_code: status,
-            status_message: status_msg,
-            headers: resp_headers,
-            body_hex: bytes_to_hex(&body_bytes),
-            exit_node_name: circuit.exit_node.name.clone(),
-            circuit_id: circuit.circuit_id.clone(),
-        };
-
-        let resp_json = serde_json::to_string(&exit_resp).map_err(|e| e.to_string())?;
-
-        let mut resp_nonce = [0u8; 12];
-        fill_csprng_bytes(&mut resp_nonce);
-
-        let (resp_ciphertext, resp_tag) = chacha20_poly1305_encrypt(
-            &exit_key,
-            &resp_nonce,
-            resp_json.as_bytes(),
-            b"KRP1-Response-AAD-Exit"
-        );
-
-        // 7. CLIENT RESPONSE DECRYPTION & POLY1305 MAC VERIFICATION
+        // 6. Decrypt response payload using Exit Key and verify Poly1305 MAC tag
         let decrypted_resp_bytes = chacha20_poly1305_decrypt(
             &exit_key,
-            &resp_nonce,
-            &resp_ciphertext,
-            &resp_tag,
+            &resp_frame.nonce,
+            &resp_frame.ciphertext,
+            &resp_frame.tag,
             b"KRP1-Response-AAD-Exit"
-        ).map_err(|e| format!("Client KRP response Auth Tag verification failed: {}", e))?;
+        ).map_err(|e| format!("Exit response decryption / Poly1305 Auth Tag verification failed: {}", e))?;
 
         let decrypted_json = String::from_utf8(decrypted_resp_bytes)
-            .map_err(|e| format!("Client KRP response UTF-8 error: {}", e))?;
+            .map_err(|e| format!("KRP response UTF-8 decoding error: {}", e))?;
+
+        self.record_relayed_bytes(cell_bytes.len() as u64 + n as u64);
 
         Ok(decrypted_json)
     }
