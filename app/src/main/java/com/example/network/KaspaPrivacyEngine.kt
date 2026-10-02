@@ -335,55 +335,46 @@ object KaspaPrivacyEngine {
                     }
                 } catch(e) {}
 
-                // 3. WebGL GPU Parameter Normalization
+                // 3. WebGL GPU Parameter Normalization (Safe Context Instance Wrapping)
                 try {
-                    const applyWebGLMasking = function(proto) {
-                        if (!proto || !proto.getParameter) return;
-                        const origGetParam = proto.getParameter;
-                        proto.getParameter = function(param) {
-                            // Hardware Vendor & Renderer Masking
-                            if (param === 0x9245) return 'Google Inc. (NVIDIA)'; // UNMASKED_VENDOR_WEBGL
-                            if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0)'; // UNMASKED_RENDERER_WEBGL
-                            if (param === 0x1F00) return 'WebKit'; // VENDOR
-                            if (param === 0x1F01) return 'WebKit WebGL'; // RENDERER
-                            if (param === 0x1F02) return 'WebGL 1.0 (OpenGL ES 2.0 Chromium)'; // VERSION
-                            if (param === 0x8B8C) return 'WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)'; // SHADING_LANGUAGE_VERSION
-
-                            // Buffer Bit Depths & Subpixel Precision
-                            if (param === 0x0D52) return 8;  // RED_BITS
-                            if (param === 0x0D53) return 8;  // GREEN_BITS
-                            if (param === 0x0D54) return 8;  // BLUE_BITS
-                            if (param === 0x0D55) return 8;  // ALPHA_BITS
-                            if (param === 0x0D56) return 24; // DEPTH_BITS
-                            if (param === 0x0D57) return 8;  // STENCIL_BITS
-                            if (param === 0x0D50) return 4;  // SUBPIXEL_BITS
-
-                            // Standard High-Performance GPU Limits
-                            if (param === 0x0D33 || param === 0x851C || param === 0x84E8) return 16384; // MAX_TEXTURE_SIZE
-                            if (param === 0x0D3A) return new Int32Array([16384, 16384]); // MAX_VIEWPORT_DIMS
-                            if (param === 0x846E) return new Float32Array([1, 1]); // ALIASED_LINE_WIDTH_RANGE
-                            if (param === 0x846D) return new Float32Array([1, 1024]); // ALIASED_POINT_SIZE_RANGE
-                            if (param === 0x8B4D) return 32; // MAX_COMBINED_TEXTURE_IMAGE_UNITS
-                            if (param === 0x8872) return 16; // MAX_TEXTURE_IMAGE_UNITS
-                            if (param === 0x8869) return 16; // MAX_VERTEX_ATTRIBS
-                            if (param === 0x8B4C) return 16; // MAX_VERTEX_TEXTURE_IMAGE_UNITS
-                            if (param === 0x8DFB) return 1024; // MAX_VERTEX_UNIFORM_VECTORS
-                            if (param === 0x8DFD) return 1024; // MAX_FRAGMENT_UNIFORM_VECTORS
-                            if (param === 0x8DFC) return 30; // MAX_VARYING_VECTORS
-
-                            return origGetParam.apply(this, arguments);
-                        };
-
-                        const origGetShaderPrecision = proto.getShaderPrecisionFormat;
-                        if (origGetShaderPrecision) {
-                            proto.getShaderPrecisionFormat = function(shaderType, precisionType) {
-                                return { rangeMin: 127, rangeMax: 127, precision: 23 };
+                    if (window.HTMLCanvasElement && window.HTMLCanvasElement.prototype) {
+                        const origGetContext = HTMLCanvasElement.prototype.getContext;
+                        if (origGetContext) {
+                            HTMLCanvasElement.prototype.getContext = function(type) {
+                                const ctx = origGetContext.apply(this, arguments);
+                                if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
+                                    try {
+                                        if (!ctx.__kaspa_masked) {
+                                            ctx.__kaspa_masked = true;
+                                            const origParam = ctx.getParameter;
+                                            if (typeof origParam === 'function') {
+                                                ctx.getParameter = function(param) {
+                                                    if (param === 0x9245) return 'Google Inc. (NVIDIA)';
+                                                    if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0)';
+                                                    if (param === 0x1F00) return 'WebKit';
+                                                    if (param === 0x1F01) return 'WebKit WebGL';
+                                                    if (param === 0x1F02) return 'WebGL 1.0 (OpenGL ES 2.0 Chromium)';
+                                                    if (param === 0x8B8C) return 'WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)';
+                                                    if (param === 0x0D52) return 8;
+                                                    if (param === 0x0D53) return 8;
+                                                    if (param === 0x0D54) return 8;
+                                                    if (param === 0x0D55) return 8;
+                                                    if (param === 0x0D56) return 24;
+                                                    if (param === 0x0D57) return 8;
+                                                    try {
+                                                        return origParam.apply(this, arguments);
+                                                    } catch(e) {
+                                                        return null;
+                                                    }
+                                                };
+                                            }
+                                        }
+                                    } catch(e) {}
+                                }
+                                return ctx;
                             };
                         }
-                    };
-
-                    if (window.WebGLRenderingContext) applyWebGLMasking(WebGLRenderingContext.prototype);
-                    if (window.WebGL2RenderingContext) applyWebGLMasking(WebGL2RenderingContext.prototype);
+                    }
                 } catch(e) {}
 
                 // 4. WebRTC IP Leak Prevention (Relay Mode when TURN available)
@@ -564,24 +555,7 @@ object KaspaPrivacyEngine {
                 if (isDesktopMode) {
                     var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
 
-                    // 1. Immediately patch HTMLMetaElement.prototype.setAttribute so that
-                    // client-side frameworks (e.g. Next.js Head, React Helmet) cannot
-                    // overwrite the viewport back to mobile width=device-width during hydration.
-                    try {
-                        var proto = HTMLMetaElement.prototype;
-                        var origSetAttr = proto.setAttribute;
-                        proto.setAttribute = function(name, value) {
-                            if (name && name.toLowerCase() === 'content') {
-                                var mName = this.getAttribute('name') || this.name;
-                                if (mName && mName.toLowerCase() === 'viewport') {
-                                    return origSetAttr.call(this, name, DESKTOP_VIEWPORT);
-                                }
-                            }
-                            return origSetAttr.apply(this, arguments);
-                        };
-                    } catch (_) {}
-
-                    // 2. Synchronous viewport application
+                    // Synchronous viewport application
                     function enforceDesktopViewport() {
                         try {
                             var metas = document.querySelectorAll('meta[name="viewport"]');

@@ -2716,11 +2716,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     } else {
                                         true
                                     }
+                                    val tabId = activeTabId ?: "default_tab"
+                                    val previousUrl = viewModel.urlInput.value
+                                    viewModel.webViewTabManager.destroyTab(tabId, "renderer crash")
                                     android.util.Log.w("BrowserGatewayScreen", "WebView renderer process gone (didCrash=$didCrash)")
-                                    try {
-                                        (view?.parent as? ViewGroup)?.removeView(view)
-                                        view?.destroy()
-                                    } catch (_: Exception) {}
                                     webViewInstance = null
 
                                     val now = System.currentTimeMillis()
@@ -2736,6 +2735,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         viewModel.resolveUrl("about:blank")
                                     } else {
                                         viewModel.setStatusMessage("Graphics rendering process restored in Safe Mode")
+                                        if (!previousUrl.isNullOrBlank() && previousUrl != "about:blank") {
+                                            viewModel.resolveUrl(previousUrl)
+                                        }
                                     }
                                     webViewRecreateKey++
                                     return true

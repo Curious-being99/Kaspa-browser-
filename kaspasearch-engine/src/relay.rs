@@ -554,9 +554,8 @@ impl NativePrivacyRelayCore {
         headers_json: &str,
         body: Option<&[u8]>,
     ) -> Result<String, String> {
-        use std::io::{Read, Write};
-        use std::net::TcpStream;
         use std::time::Duration;
+        use std::net::{UdpSocket, SocketAddr};
 
         // 1. Client constructs 1024-byte double-hop onion cell
         let (cell_bytes, exit_key, circuit) = self.build_onion_cell(destination_url, method, headers_json, body)?;
@@ -564,45 +563,108 @@ impl NativePrivacyRelayCore {
         // 2. CONNECT TO ENTRY RELAY OVER NETWORK SOCKET
         let entry_host = &circuit.entry_node.host;
         let entry_port = circuit.entry_node.port;
-        let entry_target = format!("{}:{}", entry_host, entry_port);
 
-        let mut stream = TcpStream::connect_timeout(
-            &entry_target.parse().map_err(|e| format!("Invalid Entry node address {}: {}", entry_target, e))?,
-            Duration::from_secs(6),
-        ).map_err(|e| format!("KRP Entry Relay network connection failed ({}): {}", entry_target, e))?;
+        // Try primary high-performance UDP/QUIC Transport first
+        let mut success = false;
+        let mut decrypted_json = String::new();
+        let mut total_relayed = 0;
 
-        stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
-        stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
+        // Formulate QUIC Short Header (1-byte flag, 8-byte Connection ID, 4-byte Packet Number)
+        let mut connection_id = [0u8; 8];
+        fill_csprng_bytes(&mut connection_id);
+        let packet_number: u32 = 1;
 
-        // 3. Send 1024-byte onion cell to Entry Relay
-        stream.write_all(&cell_bytes).map_err(|e| format!("Failed to send cell to Entry Relay: {}", e))?;
-        stream.flush().map_err(|e| e.to_string())?;
+        let mut quic_packet = Vec::with_capacity(1 + 8 + 4 + cell_bytes.len());
+        quic_packet.push(0x43); // Short Header Key Phase 0 flags
+        quic_packet.extend_from_slice(&connection_id);
+        quic_packet.extend_from_slice(&packet_number.to_be_bytes());
+        quic_packet.extend_from_slice(&cell_bytes);
 
-        // 4. Receive encrypted response cell from Entry Relay
-        let mut resp_buf = vec![0u8; KRP_CELL_SIZE * 4];
-        let n = stream.read(&mut resp_buf).map_err(|e| format!("Failed to read response from Entry Relay: {}", e))?;
-        if n < KRP_CELL_SIZE {
-            return Err("Received truncated response cell from Entry Relay".to_string());
+        // Resolve entry relay address
+        let resolved_addrs = match format!("{}:{}", entry_host, entry_port).parse::<SocketAddr>() {
+            Ok(sa) => vec![sa],
+            Err(_) => {
+                use std::net::ToSocketAddrs;
+                format!("{}:{}", entry_host, entry_port)
+                    .to_socket_addrs()
+                    .map(|iter| iter.collect::<Vec<SocketAddr>>())
+                    .unwrap_or_default()
+            }
+        };
+
+        if !resolved_addrs.is_empty() {
+            if let Ok(udp_socket) = UdpSocket::bind("0.0.0.0:0") {
+                udp_socket.set_read_timeout(Some(Duration::from_millis(1500))).ok();
+                udp_socket.set_write_timeout(Some(Duration::from_millis(1000))).ok();
+
+                if udp_socket.send_to(&quic_packet, resolved_addrs[0]).is_ok() {
+                    let mut rx_buf = vec![0u8; KRP_CELL_SIZE * 4];
+                    if let Ok((amt, _src)) = udp_socket.recv_from(&mut rx_buf) {
+                        // Strip QUIC Short Header (13 bytes)
+                        if amt >= 13 + KRP_CELL_SIZE {
+                            let resp_cell = &rx_buf[13..amt];
+                            if let Ok(resp_frame) = KrpFrame::deserialize_from_cell(resp_cell) {
+                                if let Ok(dec_bytes) = chacha20_poly1305_decrypt(
+                                    &exit_key,
+                                    &resp_frame.nonce,
+                                    &resp_frame.ciphertext,
+                                    &resp_frame.tag,
+                                    b"KRP1-Response-AAD-Exit"
+                                ) {
+                                    if let Ok(json_str) = String::from_utf8(dec_bytes) {
+                                        decrypted_json = json_str;
+                                        total_relayed = cell_bytes.len() as u64 + (amt - 13) as u64;
+                                        success = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
-        // 5. Deserialize response frame
-        let resp_frame = KrpFrame::deserialize_from_cell(&resp_buf[..n])
-            .map_err(|e| format!("KRP response frame deserialization error: {}", e))?;
+        // 3. Fallback to highly reliable TCP if UDP/QUIC is blocked or times out
+        if !success {
+            use std::io::{Read, Write};
+            use std::net::TcpStream;
 
-        // 6. Decrypt response payload using Exit Key and verify Poly1305 MAC tag
-        let decrypted_resp_bytes = chacha20_poly1305_decrypt(
-            &exit_key,
-            &resp_frame.nonce,
-            &resp_frame.ciphertext,
-            &resp_frame.tag,
-            b"KRP1-Response-AAD-Exit"
-        ).map_err(|e| format!("Exit response decryption / Poly1305 Auth Tag verification failed: {}", e))?;
+            let entry_target = format!("{}:{}", entry_host, entry_port);
+            let mut stream = TcpStream::connect_timeout(
+                &entry_target.parse().map_err(|e| format!("Invalid Entry node address {}: {}", entry_target, e))?,
+                Duration::from_secs(6),
+            ).map_err(|e| format!("KRP Entry Relay network connection failed ({}): {}", entry_target, e))?;
 
-        let decrypted_json = String::from_utf8(decrypted_resp_bytes)
-            .map_err(|e| format!("KRP response UTF-8 decoding error: {}", e))?;
+            stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
+            stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
 
-        self.record_relayed_bytes(cell_bytes.len() as u64 + n as u64);
+            stream.write_all(&cell_bytes).map_err(|e| format!("Failed to send cell to Entry Relay: {}", e))?;
+            stream.flush().map_err(|e| e.to_string())?;
 
+            let mut resp_buf = vec![0u8; KRP_CELL_SIZE * 4];
+            let n = stream.read(&mut resp_buf).map_err(|e| format!("Failed to read response from Entry Relay: {}", e))?;
+            if n < KRP_CELL_SIZE {
+                return Err("Received truncated response cell from Entry Relay".to_string());
+            }
+
+            let resp_frame = KrpFrame::deserialize_from_cell(&resp_buf[..n])
+                .map_err(|e| format!("KRP response frame deserialization error: {}", e))?;
+
+            let decrypted_resp_bytes = chacha20_poly1305_decrypt(
+                &exit_key,
+                &resp_frame.nonce,
+                &resp_frame.ciphertext,
+                &resp_frame.tag,
+                b"KRP1-Response-AAD-Exit"
+            ).map_err(|e| format!("Exit response decryption / Poly1305 Auth Tag verification failed: {}", e))?;
+
+            decrypted_json = String::from_utf8(decrypted_resp_bytes)
+                .map_err(|e| format!("KRP response UTF-8 decoding error: {}", e))?;
+
+            total_relayed = cell_bytes.len() as u64 + n as u64;
+        }
+
+        self.record_relayed_bytes(total_relayed);
         Ok(decrypted_json)
     }
 }

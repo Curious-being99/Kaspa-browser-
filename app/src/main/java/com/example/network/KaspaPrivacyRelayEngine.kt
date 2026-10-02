@@ -119,7 +119,13 @@ object KaspaPrivacyRelayEngine {
             OkHttpClient.Builder()
                 .dns(object : Dns {
                     override fun lookup(hostname: String): List<InetAddress> {
-                        return BOOTSTRAP_HOSTS[hostname] ?: Dns.SYSTEM.lookup(hostname)
+                        BOOTSTRAP_HOSTS[hostname]?.let { return it }
+                        try {
+                            if (hostname.matches(Regex("^[0-9.]+$")) || hostname.contains(":")) {
+                                return listOf(InetAddress.getByName(hostname))
+                            }
+                        } catch (_: Exception) {}
+                        throw java.io.IOException("Unbootstrapped host resolution blocked to prevent system leaks: $hostname")
                     }
                 })
                 .connectTimeout(5, TimeUnit.SECONDS)
@@ -138,30 +144,44 @@ object KaspaPrivacyRelayEngine {
                 if (now < expiry) return addrs
             }
 
-            // 1. Primary: Cloudflare DNS-over-HTTPS (RFC 8484 / JSON)
+            // 1. Primary: Cloudflare DNS-over-HTTPS resolved via bootstrap hosts (Zero Leak)
             val cfResult = queryDoh("https://cloudflare-dns.com/dns-query?name=$hostname&type=A")
             if (!cfResult.isNullOrEmpty()) {
                 cache[hostname] = Pair(now + CACHE_TTL_MS, cfResult)
                 return cfResult
             }
 
-            // 2. Secondary Failover: Quad9 Privacy-Preserving DoH
+            // 2. Secondary Failover: Quad9 Privacy-Preserving DoH resolved via bootstrap hosts
             val quad9Result = queryDoh("https://dns.quad9.net/dns-query?name=$hostname&type=A")
             if (!quad9Result.isNullOrEmpty()) {
                 cache[hostname] = Pair(now + CACHE_TTL_MS, quad9Result)
                 return quad9Result
             }
 
-            // 3. Resilient Fallback to System DNS if DoH is blocked by network firewall
-            return try {
-                val sys = Dns.SYSTEM.lookup(hostname)
-                if (sys.isNotEmpty()) {
-                    cache[hostname] = Pair(now + 60_000L, sys)
-                }
-                sys
-            } catch (e: Exception) {
-                Dns.SYSTEM.lookup(hostname)
+            // 3. Direct IP DoH Fallback (Cloudflare IP): Bypasses all local DNS resolvers
+            val cfIpResult = queryDoh("https://1.1.1.1/dns-query?name=$hostname&type=A")
+            if (!cfIpResult.isNullOrEmpty()) {
+                cache[hostname] = Pair(now + CACHE_TTL_MS, cfIpResult)
+                return cfIpResult
             }
+
+            // 4. Direct IP DoH Fallback (Quad9 IP)
+            val quad9IpResult = queryDoh("https://9.9.9.9/dns-query?name=$hostname&type=A")
+            if (!quad9IpResult.isNullOrEmpty()) {
+                cache[hostname] = Pair(now + CACHE_TTL_MS, quad9IpResult)
+                return quad9IpResult
+            }
+
+            // 5. Direct IP DoH Fallback (Google IP)
+            val googleResult = queryDoh("https://8.8.8.8/dns-query?name=$hostname&type=A")
+            if (!googleResult.isNullOrEmpty()) {
+                cache[hostname] = Pair(now + CACHE_TTL_MS, googleResult)
+                return googleResult
+            }
+
+            // To guarantee 100% IP & query privacy, we enforce a strict fail-closed DNS posture
+            // rather than leaking unencrypted queries to local ISP system DNS.
+            throw java.io.IOException("Secure DNS resolution failed: All Direct-IP and Bootstrapped DoH endpoints unreachable (Fail-Closed Enforcement Active)")
         }
 
         private fun queryDoh(url: String): List<InetAddress>? {
@@ -722,7 +742,14 @@ object KaspaPrivacyRelayEngine {
             fetchViaCircuit(url, method, reqHeaders)
         } catch (e: Exception) {
             if (!isMainFrame) {
-                return null
+                return WebResourceResponse(
+                    "text/plain",
+                    "UTF-8",
+                    403,
+                    "Blocked by KRP Shield - Circuit Offline",
+                    mapOf("Access-Control-Allow-Origin" to "*"),
+                    ByteArrayInputStream(ByteArray(0))
+                )
             }
             RelayResponse(
                 statusCode = 502,
@@ -735,9 +762,16 @@ object KaspaPrivacyRelayEngine {
             )
         }
 
-        // For non-main-frame subresources (images, scripts, styles), let WebView handle error responses natively
+        // For non-main-frame subresources (images, scripts, styles), block bad relay responses strictly
         if (!isMainFrame && response.statusCode >= 400) {
-            return null
+            return WebResourceResponse(
+                "text/plain",
+                "UTF-8",
+                403,
+                "Blocked by KRP Shield - Relay Error ${response.statusCode}",
+                mapOf("Access-Control-Allow-Origin" to "*"),
+                ByteArrayInputStream(ByteArray(0))
+            )
         }
 
         // Synchronize any Set-Cookie headers back to Android CookieManager so that AJAX, fetch(), and subresources preserve sessions
@@ -771,7 +805,16 @@ object KaspaPrivacyRelayEngine {
 
         val isHtmlNoticePage = mimeType.contains("text/html", ignoreCase = true) && response.statusCode in listOf(500, 502, 503, 504)
         val safeStatus = if (isHtmlNoticePage) {
-            if (!isMainFrame) return null // Guard against returning HTML notices for failed subresources
+            if (!isMainFrame) {
+                return WebResourceResponse(
+                    "text/plain",
+                    "UTF-8",
+                    403,
+                    "Blocked by KRP Shield - Gateway Notice Code ${response.statusCode}",
+                    mapOf("Access-Control-Allow-Origin" to "*"),
+                    ByteArrayInputStream(ByteArray(0))
+                )
+            }
             200 // Map HTML gateway error/notice pages to 200 OK so Chromium WebView always renders the HTML on screen
         } else if (response.statusCode in 100..599) {
             response.statusCode

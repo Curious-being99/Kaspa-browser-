@@ -270,6 +270,7 @@ fun PwaStandaloneScreen(
     var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
     var pendingGeoCallback by remember { mutableStateOf<GeolocationPermissions.Callback?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var pwaRecreateKey by remember { mutableStateOf(0) }
 
     val fileChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -387,7 +388,8 @@ fun PwaStandaloneScreen(
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            AndroidView(
+            androidx.compose.runtime.key(pwaRecreateKey) {
+                AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     val swipeLayout = BrowserSwipeRefreshLayout(ctx).apply {
@@ -595,6 +597,7 @@ fun PwaStandaloneScreen(
                                     (view?.parent as? ViewGroup)?.removeView(view)
                                     view?.destroy()
                                 } catch (_: Exception) {}
+                                pwaRecreateKey++
                                 return true
                             }
                         }
@@ -794,8 +797,9 @@ fun PwaStandaloneScreen(
                         }
 
                         if (!stateRestored) {
-                            Log.d("PWA", "[PWA] loadUrl: $initialUrl")
-                            loadUrl(initialUrl)
+                            val urlToLoad = if (currentUrl.isNotBlank()) currentUrl else initialUrl
+                            Log.d("PWA", "[PWA] loadUrl: $urlToLoad")
+                            loadUrl(urlToLoad)
                         }
                     }
 
@@ -811,6 +815,7 @@ fun PwaStandaloneScreen(
                     swipeLayout
                 }
             )
+            }
 
             // Fullscreen Custom Video Player Overlay
             customVideoView?.let { videoView ->
