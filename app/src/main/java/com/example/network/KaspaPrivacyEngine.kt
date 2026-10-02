@@ -95,15 +95,65 @@ object KaspaPrivacyEngine {
         "trackjs.com",
         "inspectlet.com",
 
-        // Fingerprinting & Behavioral Profiling
+        // Fingerprinting & Behavioral Profiling (Ad trackers only)
         "fingerprintjs.com",
-        "fpjs.sh",
-        "iovation.com",
-        "threatmetrix.com",
-        "perimeterx.net",
-        "arkoselabs.com",
-        "datadome.co"
+        "fpjs.sh"
     )
+
+    private val ESSENTIAL_AUTH_CAPTCHA_DOMAINS = setOf(
+        "github.com",
+        "githubassets.com",
+        "octocaptcha.com",
+        "arkoselabs.com",
+        "client-api.arkoselabs.com",
+        "hcaptcha.com",
+        "recaptcha.net",
+        "challenges.cloudflare.com",
+        "accounts.google.com",
+        "apis.google.com",
+        "gstatic.com",
+        "ssl.gstatic.com",
+        "appleid.apple.com",
+        "login.microsoftonline.com",
+        "login.live.com",
+        "auth0.com",
+        "okta.com",
+        "clerk.com",
+        "clerk.dev"
+    )
+
+    /**
+     * Checks if a host belongs to essential login, signup, authentication, CAPTCHA or identity services.
+     */
+    fun isEssentialAuthOrCaptchaDomain(host: String): Boolean {
+        val h = host.lowercase().trim()
+        if (isGoogleAccountDomain(h)) return true
+        if (ESSENTIAL_AUTH_CAPTCHA_DOMAINS.contains(h)) return true
+        return ESSENTIAL_AUTH_CAPTCHA_DOMAINS.any { h == it || h.endsWith(".$it") }
+    }
+
+    /**
+     * Checks if a URL is part of login, signup, OAuth, CAPTCHA, or user authentication.
+     */
+    fun isEssentialAuthOrCaptchaUrl(url: String): Boolean {
+        if (url.length < 5) return false
+        val lower = url.lowercase()
+        val host = extractHostFast(url)
+        if (host != null && isEssentialAuthOrCaptchaDomain(host)) return true
+        if (isGoogleAccountOrAuthUrl(url)) return true
+
+        val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
+        if (path.contains("/login") || path.contains("/signup") || path.contains("/signin") ||
+            path.contains("/register") || path.contains("/session") || path.contains("/oauth") ||
+            path.contains("/auth") || path.contains("/captcha") || path.contains("/challenge") ||
+            path.contains("/turnstile") || path.contains("/arkose") || path.contains("/octocaptcha") ||
+            path.contains("/webauthn") || path.contains("/passkey") || path.contains("/two-factor") ||
+            path.contains("/password_reset") || path.contains("/account")
+        ) {
+            return true
+        }
+        return false
+    }
 
     /**
      * Checks if a host belongs to Google Account login, profile, authentication or identity services.
@@ -186,13 +236,13 @@ object KaspaPrivacyEngine {
             return false
         }
 
-        // Never block Google Account login, OAuth, account management, or identity endpoints
-        if (isGoogleAccountOrAuthUrl(url)) {
+        // Never block Google Account or essential login, signup, authentication, and CAPTCHA endpoints
+        if (isEssentialAuthOrCaptchaUrl(url) || isGoogleAccountOrAuthUrl(url)) {
             return false
         }
 
         val host = extractHostFast(url)
-        if (host != null && isGoogleAccountDomain(host)) {
+        if (host != null && (isEssentialAuthOrCaptchaDomain(host) || isGoogleAccountDomain(host))) {
             return false
         }
 

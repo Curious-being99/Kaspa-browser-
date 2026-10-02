@@ -2748,6 +2748,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val reqUrlLower = reqUrl.lowercase()
                                     val path = request.url?.path?.lowercase() ?: ""
 
+                                    // Android WebResourceRequest has no body payload for POST/PUT/DELETE.
+                                    // Never intercept non-GET requests or essential authentication & captcha endpoints.
+                                    val reqMethod = request.method ?: "GET"
+                                    val isGetOrHead = reqMethod.equals("GET", ignoreCase = true) || reqMethod.equals("HEAD", ignoreCase = true)
+                                    if (!isGetOrHead) {
+                                        return null
+                                    }
+
+                                    val isAuthOrCaptcha = KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(reqUrl)
+                                    if (isAuthOrCaptcha) {
+                                        return null
+                                    }
+
                                     // KRP/1 Privacy Relay Circuit Interception
                                     if (viewModel.isPrivacyRelayEnabled.value && KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
                                         val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer")
@@ -2762,7 +2775,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             try {
                                                 val headers = request.requestHeaders ?: emptyMap()
                                                 val relayResp = kotlinx.coroutines.runBlocking {
-                                                    KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, true)
+                                                    KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, reqMethod, headers, true)
                                                 }
                                                 if (relayResp != null) {
                                                     return relayResp

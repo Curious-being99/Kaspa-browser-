@@ -493,6 +493,16 @@ fun PwaStandaloneScreen(
                                 if (request == null) return null
                                 val reqUrl = request.url?.toString() ?: return null
 
+                                val reqMethod = request.method ?: "GET"
+                                val isGetOrHead = reqMethod.equals("GET", ignoreCase = true) || reqMethod.equals("HEAD", ignoreCase = true)
+                                if (!isGetOrHead) {
+                                    return null
+                                }
+
+                                if (KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(reqUrl)) {
+                                    return null
+                                }
+
                                 val mainHost = runCatching { Uri.parse(view?.url ?: currentUrl).host?.lowercase() }.getOrNull()
                                 val reqHost = request.url?.host?.lowercase()
                                 val isFirstParty = mainHost != null && reqHost != null && (reqHost == mainHost || reqHost.endsWith(".$mainHost"))
@@ -512,7 +522,7 @@ fun PwaStandaloneScreen(
                                     try {
                                         val headers = request.requestHeaders ?: emptyMap()
                                         val resp: WebResourceResponse? = kotlinx.coroutines.runBlocking {
-                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, request.isForMainFrame)
+                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, reqMethod, headers, request.isForMainFrame)
                                         }
                                         if (resp != null) return resp
                                     } catch (_: Exception) {}
