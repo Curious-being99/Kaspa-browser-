@@ -207,7 +207,7 @@ object KaspaPrivacyEngine {
             }
         }
 
-        // Never block images, media streams, fonts, or stylesheets
+        // Never block file downloads, documents, media streams, fonts, or stylesheets
         val lower = url.lowercase()
         val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
         if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
@@ -218,6 +218,23 @@ object KaspaPrivacyEngine {
             path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
             path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
             path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
+            path.endsWith(".pdf") || path.endsWith(".zip") || path.endsWith(".tar") ||
+            path.endsWith(".gz") || path.endsWith(".apk") || path.endsWith(".exe") ||
+            path.endsWith(".dmg") || path.endsWith(".pkg") || path.endsWith(".iso") ||
+            path.endsWith(".rar") || path.endsWith(".7z") || path.endsWith(".csv") ||
+            path.endsWith(".xlsx") || path.endsWith(".docx") || path.endsWith(".pptx") ||
+            path.endsWith(".txt") || path.endsWith(".bin") || path.endsWith(".deb") ||
+            path.endsWith(".rpm") || path.endsWith(".json") || path.endsWith(".xml") ||
+            path.endsWith(".flac") || path.endsWith(".wav") || path.endsWith(".aac") ||
+            path.endsWith(".avi") || path.endsWith(".mkv") || path.endsWith(".mov") ||
+            path.endsWith(".epub") || path.endsWith(".mobi") || path.endsWith(".msi") ||
+            path.endsWith(".jar") || path.endsWith(".img") ||
+            path.contains("/download") || path.contains("/downloads/") ||
+            path.contains("/file/") || path.contains("/files/") ||
+            path.contains("/attachment") || path.contains("/attachments/") ||
+            path.contains("/releases/") || path.contains("/export") ||
+            lower.contains("download=") || lower.contains("content-disposition") ||
+            lower.contains("response-content-disposition") || lower.contains("filename=") ||
             path.contains("/video/") || path.contains("/audio/") || path.contains("/media/") ||
             lower.contains("videoplayback") || lower.contains("stream") ||
             lower.contains("kaspa") || path.contains("/thumb") || path.contains("/poster")

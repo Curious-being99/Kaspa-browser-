@@ -257,6 +257,29 @@ fun PwaStandaloneScreen(
     var pageTitle by remember { mutableStateOf(initialTitle) }
     var isLoading by remember { mutableStateOf(false) }
     var webProgress by remember { mutableFloatStateOf(0f) }
+    var isProgressBarVisible by remember { mutableStateOf(false) }
+    val animatedWebProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isProgressBarVisible) webProgress.coerceIn(0.05f, 1f) else 0f,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = if (webProgress >= 1f) 220 else 180,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+        label = "pwaWebProgressAnimation"
+    )
+
+    LaunchedEffect(webProgress, isLoading) {
+        if (isLoading || webProgress > 0f) {
+            if (webProgress < 1f) {
+                isProgressBarVisible = true
+            } else {
+                isProgressBarVisible = true
+                kotlinx.coroutines.delay(280L)
+                isProgressBarVisible = false
+            }
+        } else {
+            isProgressBarVisible = false
+        }
+    }
     var isRefreshing by remember { mutableStateOf(false) }
     var isDesktopMode by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
@@ -369,15 +392,15 @@ fun PwaStandaloneScreen(
     ) {
         // Standalone PWA Native Layout - 2dp Chromium progress indicator during page navigation
         AnimatedVisibility(
-            visible = isLoading && webProgress < 1f,
+            visible = isProgressBarVisible,
             enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(durationMillis = 150)),
-            exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = 150))
+            exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = 350, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
         ) {
             LinearProgressIndicator(
-                progress = { webProgress },
+                progress = { animatedWebProgress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.dp),
+                    .height(3.dp),
                 color = ElectricCyan.copy(alpha = 0.85f),
                 trackColor = Color.Transparent
             )

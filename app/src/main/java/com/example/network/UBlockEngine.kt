@@ -566,6 +566,30 @@ object UBlockEngine {
             return false
         }
 
+        // Never block file downloads or documents
+        val lower = url.lowercase()
+        val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
+        if (path.endsWith(".pdf") || path.endsWith(".zip") || path.endsWith(".tar") ||
+            path.endsWith(".gz") || path.endsWith(".apk") || path.endsWith(".exe") ||
+            path.endsWith(".dmg") || path.endsWith(".pkg") || path.endsWith(".iso") ||
+            path.endsWith(".rar") || path.endsWith(".7z") || path.endsWith(".csv") ||
+            path.endsWith(".xlsx") || path.endsWith(".docx") || path.endsWith(".pptx") ||
+            path.endsWith(".txt") || path.endsWith(".bin") || path.endsWith(".deb") ||
+            path.endsWith(".rpm") || path.endsWith(".json") || path.endsWith(".xml") ||
+            path.endsWith(".flac") || path.endsWith(".wav") || path.endsWith(".aac") ||
+            path.endsWith(".avi") || path.endsWith(".mkv") || path.endsWith(".mov") ||
+            path.endsWith(".epub") || path.endsWith(".mobi") || path.endsWith(".msi") ||
+            path.endsWith(".jar") || path.endsWith(".img") ||
+            path.contains("/download") || path.contains("/downloads/") ||
+            path.contains("/file/") || path.contains("/files/") ||
+            path.contains("/attachment") || path.contains("/attachments/") ||
+            path.contains("/releases/") || path.contains("/export") ||
+            lower.contains("download=") || lower.contains("content-disposition") ||
+            lower.contains("response-content-disposition") || lower.contains("filename=")
+        ) {
+            return false
+        }
+
         // Never block Google Account login, OAuth, account management, or identity endpoints
         if (isGoogleAccountOrAuthUrl(url)) {
             return false

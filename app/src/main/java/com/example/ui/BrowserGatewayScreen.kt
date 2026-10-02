@@ -95,6 +95,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryBooks
@@ -156,6 +157,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import com.example.data.AccountEntity
 import com.example.network.CryptoUtils
 
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -548,17 +550,34 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var lastCrashTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var lastProgressChangeTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var lastProgressValue by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    var isRendererUnresponsive by remember { mutableStateOf(false) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     var isWebLoading by remember { mutableStateOf(false) }
     var hasMainPageFinished by remember { mutableStateOf(false) }
+    var isProgressBarVisible by remember { mutableStateOf(false) }
     val animatedWebProgress by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isWebLoading && !hasMainPageFinished) webProgress.coerceIn(0.1f, 1f) else 1f,
-        animationSpec = androidx.compose.animation.core.tween(durationMillis = 200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        targetValue = if (isProgressBarVisible) webProgress.coerceIn(0.05f, 1f) else 0f,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = if (webProgress >= 1f) 220 else 180,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
         label = "webProgressAnimation"
     )
+
+    LaunchedEffect(webProgress, isWebLoading) {
+        if (isWebLoading || webProgress > 0f) {
+            if (webProgress < 1f) {
+                isProgressBarVisible = true
+            } else {
+                isProgressBarVisible = true
+                kotlinx.coroutines.delay(280L)
+                isProgressBarVisible = false
+            }
+        } else {
+            isProgressBarVisible = false
+        }
+    }
     var viewSourceMode by remember { mutableStateOf(false) }
     val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
@@ -683,21 +702,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     isExtractingOrLoadingReaderMode = false
                     viewModel.setStatusMessage("Unable to format page into Reader Mode")
                 }
-            }
-        }
-    }
-
-    LaunchedEffect(isRendererUnresponsive) {
-        if (isRendererUnresponsive) {
-            val webView = webViewInstance
-            if (webView != null) {
-                try {
-                    (webView.parent as? ViewGroup)?.removeView(webView)
-                    webView.destroy()
-                } catch (_: Exception) {}
-                webViewInstance = null
-                isRendererUnresponsive = false
-                webViewRecreateKey++
             }
         }
     }
@@ -1421,14 +1425,32 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             Box(
                                 modifier = Modifier
                                     .size(20.dp)
-                                    .border(1.4.dp, TextPrimary, RoundedCornerShape(5.dp)),
+                                    .border(1.5.dp, TextPrimary, RoundedCornerShape(5.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
+                                val countText = if (tabs.size > 99) "99+" else tabs.size.toString()
+                                val textSize = when {
+                                    countText.length >= 3 -> 7.5.sp
+                                    countText.length == 2 -> 9.sp
+                                    else -> 10.5.sp
+                                }
                                 Text(
-                                    text = tabs.size.toString(),
-                                    fontSize = 10.sp,
+                                    text = countText,
+                                    fontSize = textSize,
                                     fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
+                                    color = TextPrimary,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    style = androidx.compose.ui.text.TextStyle(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false
+                                        ),
+                                        lineHeight = textSize,
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
+                                        )
+                                    ),
+                                    modifier = Modifier.wrapContentSize(Alignment.Center)
                                 )
                             }
                         }
@@ -1771,10 +1793,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     onNavigate = { url -> viewModel.resolveUrl(url) }
                 )
             } else if (isHtml && !viewSourceMode) {
-                // IN-APP WEB VIEW: Renders full web pages inside the browser itself!
+                // IN-APP WEB VIEW: Renders full web pages inside its own dedicated isolated container!
                 androidx.compose.runtime.key(activeTabId, webViewRecreateKey) {
-                    AndroidView(
-                        factory = { ctx ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clipToBounds()
+                    ) {
+                        AndroidView(
+                            factory = { ctx ->
                         val browserBgColor = currentBgColor.toArgb()
 
                         BrowserSwipeRefreshLayout(ctx).apply {
@@ -1806,7 +1833,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 setInitialScale(0)
                                 overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-                                isNestedScrollingEnabled = true
+                                isNestedScrollingEnabled = false
                                 setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
                                     val swipe = parent as? BrowserSwipeRefreshLayout
                                     val atTop = !canScrollVertically(-1)
@@ -1823,13 +1850,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                                 webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
                                     override fun onRenderProcessUnresponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
-                                        android.util.Log.w("BrowserGatewayScreen", "onRenderProcessUnresponsive triggered!")
-                                        isRendererUnresponsive = true
+                                        android.util.Log.d("BrowserGatewayScreen", "Chromium render process busy - continuing native render")
                                     }
 
                                     override fun onRenderProcessResponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
-                                        android.util.Log.i("BrowserGatewayScreen", "onRenderProcessResponsive triggered!")
-                                        isRendererUnresponsive = false
+                                        android.util.Log.d("BrowserGatewayScreen", "Chromium render process responsive")
                                     }
                                 }
                             }
@@ -2369,7 +2394,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     return@setDownloadListener
                                 }
                                 val now = System.currentTimeMillis()
-                                if (url == lastDownloadedUrl && (now - lastDownloadTimestamp < 15000L)) {
+                                if (url == lastDownloadedUrl && (now - lastDownloadTimestamp < 1000L)) {
                                     return@setDownloadListener
                                 }
                                 lastDownloadedUrl = url
@@ -2626,14 +2651,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     lastCrashTimestamp = now
 
-                                    if (rendererCrashCount >= 3) {
-                                        viewModel.setStatusMessage("Heavy graphics halted to prevent crash loop")
-                                        viewModel.resolveUrl("about:blank")
-                                    } else {
-                                        viewModel.setStatusMessage("Graphics rendering process restored in Safe Mode")
-                                        if (!previousUrl.isNullOrBlank() && previousUrl != "about:blank") {
-                                            viewModel.resolveUrl(previousUrl)
-                                        }
+                                    if (!previousUrl.isNullOrBlank() && previousUrl != "about:blank") {
+                                        viewModel.resolveUrl(previousUrl)
                                     }
                                     webViewRecreateKey++
                                     return true
@@ -3215,6 +3234,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        }
             } else {
                 // NATIVE DOCUMENT READER: Markdown / Text / Source Code
                 Column(
@@ -3356,12 +3376,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
             // Chrome-Style Linear Processing Indicator (Anchored inside the Web Content Viewport's own container)
             androidx.compose.animation.AnimatedVisibility(
-                visible = isWebLoading && !hasMainPageFinished && animatedWebProgress < 1f,
+                visible = isProgressBarVisible,
                 enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(120)),
-                exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(200)),
+                exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(350, easing = androidx.compose.animation.core.LinearOutSlowInEasing)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.5.dp)
+                    .height(3.dp)
                     .align(Alignment.TopCenter)
             ) {
                 LinearProgressIndicator(
