@@ -35,12 +35,24 @@ object KaspaWebViewConfigurator {
             swController.setServiceWorkerClient(object : ServiceWorkerClient() {
                 override fun shouldInterceptRequest(request: WebResourceRequest): WebResourceResponse? {
                     val reqUrl = request.url?.toString()
-                    if (!reqUrl.isNullOrBlank() && com.example.network.KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
-                        val headers = request.requestHeaders ?: emptyMap()
-                        val resp = kotlinx.coroutines.runBlocking {
-                            com.example.network.KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, false)
+                    if (!reqUrl.isNullOrBlank()) {
+                        if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
+                            return WebResourceResponse(
+                                "text/plain",
+                                "UTF-8",
+                                403,
+                                "Blocked by Shield",
+                                mapOf("Access-Control-Allow-Origin" to "*"),
+                                java.io.ByteArrayInputStream(ByteArray(0))
+                            )
                         }
-                        if (resp != null) return resp
+                        if (com.example.network.KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
+                            val headers = request.requestHeaders ?: emptyMap()
+                            val resp = kotlinx.coroutines.runBlocking {
+                                com.example.network.KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, false)
+                            }
+                            if (resp != null) return resp
+                        }
                     }
                     return super.shouldInterceptRequest(request)
                 }

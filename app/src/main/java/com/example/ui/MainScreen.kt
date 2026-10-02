@@ -283,8 +283,8 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                             )
                             MissionRow(
                                 icon = Icons.Default.Speed,
-                                title = "HTTPS/3 QUIC Transport",
-                                description = "Zero round-trip handshake multiplexing for next-gen latency and encrypted streams."
+                                title = "HTTPS/3 QUIC & Multi-Hop Relay",
+                                description = "Zero round-trip multiplexed streams combined with full IP-anonymizing multi-hop circuit protection."
                             )
                             MissionRow(
                                 icon = Icons.Default.Security,

@@ -1463,44 +1463,54 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.createNewTab()
                             },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("new_tab_plus_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = "New Tab",
                                 tint = TextPrimary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         Box(
                             modifier = Modifier
-                                .size(22.dp)
-                                .border(1.2.dp, TextPrimary, RoundedCornerShape(5.dp))
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(6.dp))
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     showTabSwitcher = true
-                                },
+                                }
+                                .testTag("tab_switcher_square_button"),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = tabs.size.toString(),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .border(1.4.dp, TextPrimary, RoundedCornerShape(5.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = tabs.size.toString(),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                            }
                         }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
 
                         Surface(
                             shape = CircleShape,
