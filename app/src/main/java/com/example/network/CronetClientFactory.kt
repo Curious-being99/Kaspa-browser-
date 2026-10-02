@@ -32,7 +32,43 @@ object CronetClientFactory {
                 CronetEngine.Builder(context)
             }
 
-            // Configure HTTP/3 (QUIC), HTTP/2, Brotli, and QUIC Hints
+            // Configure HTTP/3 (QUIC), HTTP/2, Brotli, AsyncDNS, StaleDNS, and Multi-Provider DoH
+            val experimentalOptionsJson = """
+                {
+                  "AsyncDNS": {
+                    "enable": true
+                  },
+                  "StaleDNS": {
+                    "enable": true,
+                    "delay_ms": 1500,
+                    "max_expired_time_ms": 86400000,
+                    "max_stale_uses": 10,
+                    "allow_other_network": true,
+                    "persist_to_disk": true
+                  },
+                  "QUIC": {
+                    "enable": true,
+                    "race_cert_verification": true
+                  },
+                  "DnsOverHttps": {
+                    "enable": true,
+                    "templates": [
+                      "https://cloudflare-dns.com/dns-query",
+                      "https://dns.quad9.net/dns-query",
+                      "https://dns.google/dns-query"
+                    ]
+                  }
+                }
+            """.trimIndent()
+
+            try {
+                val method = builder.javaClass.getMethod("setExperimentalOptions", String::class.java)
+                method.invoke(builder, experimentalOptionsJson)
+                Log.d(TAG, "Applied Cronet experimental options (AsyncDNS, StaleDNS, DoH)")
+            } catch (e: Exception) {
+                Log.w(TAG, "Cronet experimental options notice: ${e.message}")
+            }
+
             cronetEngine = builder
                 .enableQuic(true)
                 .enableHttp2(true)

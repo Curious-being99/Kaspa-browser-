@@ -711,6 +711,10 @@ fun WebsitePreviewCard(
 
                                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                                     isLoading = false
+                                    try {
+                                        (view?.parent as? android.view.ViewGroup)?.removeView(view)
+                                        view?.destroy()
+                                    } catch (_: Exception) {}
                                     return true
                                 }
                             }

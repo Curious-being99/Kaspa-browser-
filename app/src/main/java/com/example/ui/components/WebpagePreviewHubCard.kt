@@ -338,6 +338,10 @@ fun WebpagePreviewHubCard(
                                 override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
                                     hasError = true
                                     isLoading = false
+                                    try {
+                                        (view?.parent as? android.view.ViewGroup)?.removeView(view)
+                                        view?.destroy()
+                                    } catch (_: Exception) {}
                                     return true // Handled gracefully, do not crash host app
                                 }
                             }

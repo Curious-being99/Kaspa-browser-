@@ -85,16 +85,16 @@ object LightweightTorEngine {
      * Optimized Multiplexed HTTP Client for Exit Gateway Dispatching
      */
     private val exitHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .retryOnConnectionFailure(true)
-            .connectionPool(okhttp3.ConnectionPool(20, 5, TimeUnit.MINUTES))
-            .dns(okhttp3.Dns.SYSTEM)
-            .addInterceptor { chain ->
+        CronetClientFactory.buildClient(
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .retryOnConnectionFailure(true)
+                .connectionPool(okhttp3.ConnectionPool(20, 5, TimeUnit.MINUTES))
+                .addInterceptor { chain ->
                 val original = chain.request()
                 val sanitized = original.newBuilder()
                     .removeHeader("Sec-Ch-Ua-Model")
@@ -108,7 +108,7 @@ object LightweightTorEngine {
                     .build()
                 chain.proceed(sanitized)
             }
-            .build()
+        )
     }
 
     /**

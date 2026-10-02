@@ -400,103 +400,26 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
     var isGestureAllowed: Boolean = true
         set(value) {
             field = value
-            val wv = targetWebView
-            val atTop = wv == null || (wv.scrollY <= 0 && !wv.canScrollVertically(-1))
-            isEnabled = value && atTop
+            isEnabled = value
         }
 
     private val density = context.resources.displayMetrics.density
-    private var gestureSession = com.example.network.NativeOverscrollEngine.GestureSession(density, isGestureAllowed)
-
-    var startedAtTop: Boolean = false
-        private set
 
     init {
-        // Explicitly disable nested scrolling on SwipeRefreshLayout so internal WebView scrolls don't trigger it
-        isNestedScrollingEnabled = false
-        val startOffset = -(64 * density).toInt()
-        val endOffset = (56 * density).toInt()
+        val startOffset = -(36 * density).toInt()
+        val endOffset = (48 * density).toInt()
         setProgressViewOffset(true, startOffset, endOffset)
-        setDistanceToTriggerSync((110 * density).toInt())
+        setDistanceToTriggerSync((90 * density).toInt())
+        setColorSchemeColors(
+            android.graphics.Color.parseColor("#00E5FF"),
+            android.graphics.Color.parseColor("#10B981")
+        )
+        setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
     }
 
     override fun canChildScrollUp(): Boolean {
         val wv = targetWebView ?: (if (childCount > 0) getChildAt(0) as? android.webkit.WebView else null)
-        if (wv != null) {
-            val scrollY = wv.scrollY
-            val canScrollUp = wv.canScrollVertically(-1)
-            // If WebView is scrolled down at all, or can scroll up, or gesture didn't start at top:
-            // return true so SwipeRefreshLayout CANNOT intercept or draw the spinner
-            if (scrollY > 0 || canScrollUp || !startedAtTop || gestureSession.isLockedToChild()) {
-                return true
-            }
-        }
-        return !startedAtTop || super.canChildScrollUp()
-    }
-
-    override fun onStartNestedScroll(child: android.view.View, target: android.view.View, nestedScrollAxes: Int): Boolean = false
-    override fun onNestedPreScroll(target: android.view.View, dx: Int, dy: Int, consumed: IntArray) {}
-    override fun onNestedScroll(
-        target: android.view.View,
-        dxConsumed: Int,
-        dyConsumed: Int,
-        dxUnconsumed: Int,
-        dyUnconsumed: Int
-    ) {}
-
-    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (!isGestureAllowed || !isEnabled) {
-            return false
-        }
-        val wv = targetWebView
-        when (ev.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN -> {
-                gestureSession = com.example.network.NativeOverscrollEngine.GestureSession(density, isGestureAllowed)
-                gestureSession.onTouchDown(ev, wv)
-                val scrollY = wv?.scrollY ?: 0
-                val canScrollUp = wv?.canScrollVertically(-1) ?: false
-                startedAtTop = (scrollY <= 0 && !canScrollUp)
-                if (!startedAtTop) {
-                    return false
-                }
-            }
-            android.view.MotionEvent.ACTION_MOVE -> {
-                if (!startedAtTop || gestureSession.isLockedToChild()) {
-                    return false
-                }
-                val state = gestureSession.onTouchMove(ev, wv)
-                if (state == com.example.network.NativeOverscrollEngine.GestureState.CHILD_SCROLLING) {
-                    startedAtTop = false
-                    return false
-                }
-                if (gestureSession.shouldIntercept()) {
-                    return super.onInterceptTouchEvent(ev)
-                }
-                return false
-            }
-            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                gestureSession.onTouchUp()
-                startedAtTop = false
-            }
-        }
-        return false
-    }
-
-    override fun onTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (!isGestureAllowed || !isEnabled || !startedAtTop || gestureSession.isLockedToChild()) {
-            return false
-        }
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP || ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
-            val shouldRefresh = gestureSession.onTouchUp()
-            startedAtTop = false
-            if (!shouldRefresh) {
-                isRefreshing = false
-            }
-        }
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) {
-            performClick()
-        }
-        return super.onTouchEvent(ev)
+        return wv?.canScrollVertically(-1) ?: super.canChildScrollUp()
     }
 
     override fun performClick(): Boolean {
@@ -1737,26 +1660,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     )
                 }
 
-                // Web Page Loading Progress Bar (Fixed 2dp container - zero sticky header jitter or height shift)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = isWebLoading && !hasMainPageFinished && animatedWebProgress < 1f,
-                        enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(150)),
-                        exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(250))
-                    ) {
-                        LinearProgressIndicator(
-                            progress = { animatedWebProgress },
-                            modifier = Modifier.fillMaxSize(),
-                            color = ElectricCyan,
-                            trackColor = Color.Transparent
-                        )
-                    }
-                }
-
                 // Reader Mode Active Header Controls
                 AnimatedVisibility(
                     visible = isReaderMode,
@@ -1901,29 +1804,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
                                 setLayerType(android.view.View.LAYER_TYPE_NONE, null)
-                            setInitialScale(0)
-                            overScrollMode = android.view.View.OVER_SCROLL_NEVER
-                            isNestedScrollingEnabled = false
-                            setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
-                                val atTop = (scrollY <= 0 && !canScrollVertically(-1))
-                                val swipe = parent as? BrowserSwipeRefreshLayout
-                                if (!atTop) {
-                                    swipe?.isEnabled = false
-                                    if (swipe?.isRefreshing == true) {
-                                        swipe.isRefreshing = false
-                                    }
-                                } else if (swipe?.isGestureAllowed == true) {
-                                    swipe.isEnabled = true
+                                setInitialScale(0)
+                                overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                                isNestedScrollingEnabled = true
+                                setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
+                                    val swipe = parent as? BrowserSwipeRefreshLayout
+                                    val atTop = !canScrollVertically(-1)
+                                    swipe?.isEnabled = swipe?.isGestureAllowed == true && atTop
+                                    viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
                                 }
-                                viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
-                            }
-                            isHapticFeedbackEnabled = true
-                            isVerticalScrollBarEnabled = false
-                            isHorizontalScrollBarEnabled = false
-                            scrollBarStyle = android.view.View.SCROLLBARS_INSIDE_OVERLAY
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                setRendererPriorityPolicy(android.webkit.WebView.RENDERER_PRIORITY_BOUND, false)
-                            }
+                                isHapticFeedbackEnabled = true
+                                isVerticalScrollBarEnabled = true
+                                isHorizontalScrollBarEnabled = false
+                                scrollBarStyle = android.view.View.SCROLLBARS_INSIDE_OVERLAY
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                    setRendererPriorityPolicy(android.webkit.WebView.RENDERER_PRIORITY_IMPORTANT, false)
+                                }
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                                 webViewRenderProcessClient = object : android.webkit.WebViewRenderProcessClient() {
                                     override fun onRenderProcessUnresponsive(view: WebView, renderer: android.webkit.WebViewRenderProcess?) {
@@ -1983,7 +1879,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = true
+                                offscreenPreRaster = false
                                 val defaultDeviceUa = try {
                                     WebSettings.getDefaultUserAgent(ctx)
                                 } catch (_: Throwable) {
@@ -3128,10 +3024,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
 
-                        setOnChildScrollUpCallback { _, _ ->
-                            webView.canScrollVertically(-1) || webView.scrollY > 0 || !startedAtTop
-                        }
-
                         setOnRefreshListener {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             com.example.util.BrowserStateLog.reload("User pulled to refresh")
@@ -3461,6 +3353,25 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
+
+            // Chrome-Style Linear Processing Indicator (Anchored inside the Web Content Viewport's own container)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isWebLoading && !hasMainPageFinished && animatedWebProgress < 1f,
+                enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(120)),
+                exit = fadeOut(animationSpec = androidx.compose.animation.core.tween(200)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.5.dp)
+                    .align(Alignment.TopCenter)
+            ) {
+                LinearProgressIndicator(
+                    progress = { animatedWebProgress },
+                    modifier = Modifier.fillMaxSize(),
+                    color = ElectricCyan,
+                    trackColor = Color.Transparent
+                )
+            }
+        }
 
             // FULL-SCREEN PROFESSIONAL SEARCH OVERLAY PANEL
             if (isInputFocused) {
@@ -4881,7 +4792,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             }
         }
     }
-}
 }
 
 

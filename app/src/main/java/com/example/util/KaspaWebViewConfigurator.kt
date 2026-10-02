@@ -75,6 +75,8 @@ object KaspaWebViewConfigurator {
             null
         }
 
+        webView.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -100,7 +102,7 @@ object KaspaWebViewConfigurator {
             loadsImagesAutomatically = true
             blockNetworkImage = false
             blockNetworkLoads = false
-            offscreenPreRaster = true
+            offscreenPreRaster = false
 
             // Security Hardening: Never allow unencrypted mixed content on HTTPS connections
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
