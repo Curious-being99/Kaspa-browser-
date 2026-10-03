@@ -47,7 +47,7 @@ class BrowserTabWebViewManager {
 
         BrowserStateLog.webViewCreated("Creating new preserved WebView for tab $tabId")
         val wrapper = MutableContextWrapper(context)
-        val newWebView = WebView(wrapper)
+        val newWebView = com.example.ui.NestedWebView(wrapper)
         configurator(newWebView)
 
         if (savedStateBundle != null) {

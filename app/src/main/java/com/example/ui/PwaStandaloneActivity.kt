@@ -427,7 +427,7 @@ fun PwaStandaloneScreen(
                         setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
                     }
 
-                    val wv = WebView(ctx).apply {
+                    val wv = com.example.ui.NestedWebView(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -437,18 +437,10 @@ fun PwaStandaloneScreen(
                         isHapticFeedbackEnabled = true
                         isVerticalScrollBarEnabled = false
                         isHorizontalScrollBarEnabled = false
-                        isNestedScrollingEnabled = false
+                        isNestedScrollingEnabled = true
                         overScrollMode = View.OVER_SCROLL_NEVER
-                        setOnScrollChangeListener { _, _, scrollY, _, _ ->
-                            val atTop = (scrollY <= 0 && !canScrollVertically(-1))
-                            if (!atTop) {
-                                swipeLayout.isEnabled = false
-                                if (swipeLayout.isRefreshing) {
-                                    swipeLayout.isRefreshing = false
-                                }
-                            } else if (swipeLayout.isGestureAllowed) {
-                                swipeLayout.isEnabled = true
-                            }
+                        setOnScrollChangeListener { _, _, _, _, _ ->
+                            // Native Nested Scrolling Handles This Natively
                         }
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

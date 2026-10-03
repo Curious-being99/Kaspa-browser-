@@ -434,7 +434,7 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
                 startY = ev.y
                 startX = ev.x
                 isDraggableAtStart = if (wv != null) {
-                    wv.scrollY == 0 && !wv.canScrollVertically(-1)
+                    !wv.canScrollVertically(-1)
                 } else {
                     true
                 }
@@ -457,6 +457,61 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
             }
         }
         return super.onInterceptTouchEvent(ev)
+    }
+
+    // -- NATIVE NESTED SCROLL BLOCKERS --
+    // These methods are called directly by NestedWebView, bypassing standard touch interception.
+    // Overriding them ensures that a user scrolling up rapidly from mid-page never accidentally triggers pull-to-refresh when hitting the top.
+
+    override fun onStartNestedScroll(child: android.view.View, target: android.view.View, nestedScrollAxes: Int, type: Int): Boolean {
+        if (!isGestureAllowed) {
+            return false
+        }
+        val wv = targetWebView ?: target as? android.webkit.WebView
+        // !canScrollVertically(-1) is the 100% accurate way to check if the webpage is scrolled to the absolute top.
+        isDraggableAtStart = if (wv != null) {
+            !wv.canScrollVertically(-1)
+        } else {
+            true
+        }
+        return super.onStartNestedScroll(child, target, nestedScrollAxes, type)
+    }
+
+    override fun onStartNestedScroll(child: android.view.View, target: android.view.View, nestedScrollAxes: Int): Boolean {
+        if (!isGestureAllowed) {
+            return false
+        }
+        val wv = targetWebView ?: target as? android.webkit.WebView
+        isDraggableAtStart = if (wv != null) {
+            !wv.canScrollVertically(-1)
+        } else {
+            true
+        }
+        return super.onStartNestedScroll(child, target, nestedScrollAxes)
+    }
+
+    override fun onNestedScroll(target: android.view.View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int, type: Int) {
+        if (isDraggableAtStart) {
+            super.onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, type)
+        }
+    }
+
+    override fun onNestedScroll(target: android.view.View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int) {
+        if (isDraggableAtStart) {
+            super.onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed)
+        }
+    }
+
+    override fun onNestedPreScroll(target: android.view.View, dx: Int, dy: Int, consumed: IntArray, type: Int) {
+        if (isDraggableAtStart) {
+            super.onNestedPreScroll(target, dx, dy, consumed, type)
+        }
+    }
+
+    override fun onNestedPreScroll(target: android.view.View, dx: Int, dy: Int, consumed: IntArray) {
+        if (isDraggableAtStart) {
+            super.onNestedPreScroll(target, dx, dy, consumed)
+        }
     }
 
     override fun canChildScrollUp(): Boolean {
@@ -1873,11 +1928,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 setInitialScale(0)
                                 overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-                                isNestedScrollingEnabled = false
+                                isNestedScrollingEnabled = true
                                 setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
-                                    val swipe = parent as? BrowserSwipeRefreshLayout
-                                    val atTop = !canScrollVertically(-1)
-                                    swipe?.isEnabled = swipe?.isGestureAllowed == true && atTop
                                     viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
                                 }
                                 isHapticFeedbackEnabled = true
@@ -3121,8 +3173,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         if (swipeRefresh != null) {
                             swipeRefresh.targetWebView = webView
                             swipeRefresh.isGestureAllowed = enablePullToRefresh && !showFindInPage && !isReaderMode
-                            val atTop = webView.scrollY <= 0 && !webView.canScrollVertically(-1)
-                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed && atTop
+                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed
                             if (!isWebLoading && swipeRefresh.isRefreshing) {
                                 swipeRefresh.isRefreshing = false
                             }
