@@ -406,6 +406,11 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
         }
 
     private val density = context.resources.displayMetrics.density
+    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+
+    private var isDraggableAtStart = false
+    private var startY = 0f
+    private var startX = 0f
 
     init {
         val startOffset = -(36 * density).toInt()
@@ -417,6 +422,41 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
             android.graphics.Color.parseColor("#10B981")
         )
         setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
+    }
+
+    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!isGestureAllowed) {
+            return false
+        }
+        val wv = targetWebView
+        when (ev.action) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                startY = ev.y
+                startX = ev.x
+                isDraggableAtStart = if (wv != null) {
+                    wv.scrollY == 0 && !wv.canScrollVertically(-1)
+                } else {
+                    true
+                }
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (!isDraggableAtStart) {
+                    return false
+                }
+                val diffY = ev.y - startY
+                val diffX = ev.x - startX
+                
+                // If horizontal movement is greater than vertical, or if user is swiping UP (diffY < 0), do not intercept
+                if (diffY < 0 || Math.abs(diffX) > Math.abs(diffY)) {
+                    return false
+                }
+                // Only intercept if vertical downward drag exceeds touch slop
+                if (diffY < touchSlop) {
+                    return false
+                }
+            }
+        }
+        return super.onInterceptTouchEvent(ev)
     }
 
     override fun canChildScrollUp(): Boolean {
