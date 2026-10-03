@@ -2,11 +2,9 @@ package com.example.ui
 
 import android.content.Context
 import android.util.AttributeSet
-import android.view.MotionEvent
 import android.webkit.WebView
 import androidx.core.view.NestedScrollingChild3
 import androidx.core.view.NestedScrollingChildHelper
-import androidx.core.view.ViewCompat
 
 class NestedWebView @JvmOverloads constructor(
     context: Context,
@@ -15,64 +13,9 @@ class NestedWebView @JvmOverloads constructor(
 ) : WebView(context, attrs, defStyleAttr), NestedScrollingChild3 {
 
     private val childHelper = NestedScrollingChildHelper(this)
-    private var lastY = 0
-    private val scrollConsumed = IntArray(2)
-    private val scrollOffset = IntArray(2)
-    private var nestedOffsetY = 0
 
     init {
-        isNestedScrollingEnabled = true
-    }
-
-    override fun onTouchEvent(ev: MotionEvent): Boolean {
-        val action = ev.actionMasked
-        val obtainEvent = MotionEvent.obtain(ev)
-
-        if (action == MotionEvent.ACTION_DOWN) {
-            nestedOffsetY = 0
-        }
-
-        obtainEvent.offsetLocation(0f, nestedOffsetY.toFloat())
-
-        when (action) {
-            MotionEvent.ACTION_DOWN -> {
-                lastY = ev.y.toInt()
-                startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL, ViewCompat.TYPE_TOUCH)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val y = ev.y.toInt()
-                var deltaY = lastY - y
-
-                if (dispatchNestedPreScroll(0, deltaY, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
-                    deltaY -= scrollConsumed[1]
-                    nestedOffsetY += scrollOffset[1]
-                }
-
-                // Scroll the WebView natively first
-                val oldScrollY = scrollY
-                val rv = super.onTouchEvent(obtainEvent)
-
-                val scrollDeltaY = scrollY - oldScrollY
-                val unconsumedY = deltaY - scrollDeltaY
-
-                if (dispatchNestedScroll(0, scrollDeltaY, 0, unconsumedY, scrollOffset, ViewCompat.TYPE_TOUCH)) {
-                    nestedOffsetY += scrollOffset[1]
-                }
-                
-                // Correctly update lastY for the next event, adjusted by any parent window offset
-                lastY = y - scrollOffset[1]
-                
-                obtainEvent.recycle()
-                return rv
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                stopNestedScroll(ViewCompat.TYPE_TOUCH)
-            }
-        }
-
-        val rv = super.onTouchEvent(ev)
-        obtainEvent.recycle()
-        return rv
+        isNestedScrollingEnabled = false // Disabled because we use ScrollChangeListener-based toggling on the SwipeRefreshLayout for perfect accuracy and stability
     }
 
     // NestedScrollingChild3 Implementation

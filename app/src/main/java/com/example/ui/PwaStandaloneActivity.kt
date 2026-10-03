@@ -440,7 +440,8 @@ fun PwaStandaloneScreen(
                         isNestedScrollingEnabled = true
                         overScrollMode = View.OVER_SCROLL_NEVER
                         setOnScrollChangeListener { _, _, _, _, _ ->
-                            // Native Nested Scrolling Handles This Natively
+                            val atTop = !canScrollVertically(-1)
+                            swipeLayout.isEnabled = swipeLayout.isGestureAllowed && atTop
                         }
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -406,11 +406,6 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
         }
 
     private val density = context.resources.displayMetrics.density
-    private val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
-
-    private var isDraggableAtStart = false
-    private var startY = 0f
-    private var startX = 0f
 
     init {
         val startOffset = -(36 * density).toInt()
@@ -422,96 +417,6 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
             android.graphics.Color.parseColor("#10B981")
         )
         setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
-    }
-
-    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (!isGestureAllowed) {
-            return false
-        }
-        val wv = targetWebView
-        when (ev.action) {
-            android.view.MotionEvent.ACTION_DOWN -> {
-                startY = ev.y
-                startX = ev.x
-                isDraggableAtStart = if (wv != null) {
-                    !wv.canScrollVertically(-1)
-                } else {
-                    true
-                }
-            }
-            android.view.MotionEvent.ACTION_MOVE -> {
-                if (!isDraggableAtStart) {
-                    return false
-                }
-                val diffY = ev.y - startY
-                val diffX = ev.x - startX
-                
-                // If horizontal movement is greater than vertical, or if user is swiping UP (diffY < 0), do not intercept
-                if (diffY < 0 || Math.abs(diffX) > Math.abs(diffY)) {
-                    return false
-                }
-                // Only intercept if vertical downward drag exceeds touch slop
-                if (diffY < touchSlop) {
-                    return false
-                }
-            }
-        }
-        return super.onInterceptTouchEvent(ev)
-    }
-
-    // -- NATIVE NESTED SCROLL BLOCKERS --
-    // These methods are called directly by NestedWebView, bypassing standard touch interception.
-    // Overriding them ensures that a user scrolling up rapidly from mid-page never accidentally triggers pull-to-refresh when hitting the top.
-
-    override fun onStartNestedScroll(child: android.view.View, target: android.view.View, nestedScrollAxes: Int, type: Int): Boolean {
-        if (!isGestureAllowed) {
-            return false
-        }
-        val wv = targetWebView ?: target as? android.webkit.WebView
-        // !canScrollVertically(-1) is the 100% accurate way to check if the webpage is scrolled to the absolute top.
-        isDraggableAtStart = if (wv != null) {
-            !wv.canScrollVertically(-1)
-        } else {
-            true
-        }
-        return super.onStartNestedScroll(child, target, nestedScrollAxes, type)
-    }
-
-    override fun onStartNestedScroll(child: android.view.View, target: android.view.View, nestedScrollAxes: Int): Boolean {
-        if (!isGestureAllowed) {
-            return false
-        }
-        val wv = targetWebView ?: target as? android.webkit.WebView
-        isDraggableAtStart = if (wv != null) {
-            !wv.canScrollVertically(-1)
-        } else {
-            true
-        }
-        return super.onStartNestedScroll(child, target, nestedScrollAxes)
-    }
-
-    override fun onNestedScroll(target: android.view.View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int, type: Int) {
-        if (isDraggableAtStart) {
-            super.onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, type)
-        }
-    }
-
-    override fun onNestedScroll(target: android.view.View, dxConsumed: Int, dyConsumed: Int, dxUnconsumed: Int, dyUnconsumed: Int) {
-        if (isDraggableAtStart) {
-            super.onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed)
-        }
-    }
-
-    override fun onNestedPreScroll(target: android.view.View, dx: Int, dy: Int, consumed: IntArray, type: Int) {
-        if (isDraggableAtStart) {
-            super.onNestedPreScroll(target, dx, dy, consumed, type)
-        }
-    }
-
-    override fun onNestedPreScroll(target: android.view.View, dx: Int, dy: Int, consumed: IntArray) {
-        if (isDraggableAtStart) {
-            super.onNestedPreScroll(target, dx, dy, consumed)
-        }
     }
 
     override fun canChildScrollUp(): Boolean {
@@ -1930,6 +1835,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
                                 isNestedScrollingEnabled = true
                                 setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
+                                    val swipe = parent as? BrowserSwipeRefreshLayout
+                                    val atTop = !canScrollVertically(-1)
+                                    swipe?.isEnabled = swipe?.isGestureAllowed == true && atTop
                                     viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
                                 }
                                 isHapticFeedbackEnabled = true
@@ -3173,7 +3081,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         if (swipeRefresh != null) {
                             swipeRefresh.targetWebView = webView
                             swipeRefresh.isGestureAllowed = enablePullToRefresh && !showFindInPage && !isReaderMode
-                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed
+                            val atTop = !webView.canScrollVertically(-1)
+                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed && atTop
                             if (!isWebLoading && swipeRefresh.isRefreshing) {
                                 swipeRefresh.isRefreshing = false
                             }
