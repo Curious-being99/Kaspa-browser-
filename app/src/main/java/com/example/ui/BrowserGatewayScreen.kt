@@ -406,6 +406,7 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
         }
 
     private val density = context.resources.displayMetrics.density
+    private var startedAtTop = false
 
     init {
         val startOffset = -(36 * density).toInt()
@@ -420,8 +421,63 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
     }
 
     override fun canChildScrollUp(): Boolean {
-        val wv = targetWebView ?: (if (childCount > 0) getChildAt(0) as? android.webkit.WebView else null)
-        return wv?.canScrollVertically(-1) ?: super.canChildScrollUp()
+        val wv = targetWebView ?: (0 until childCount)
+            .mapNotNull { getChildAt(it) as? android.webkit.WebView }
+            .firstOrNull()
+        return if (wv != null) {
+            wv.canScrollVertically(-1) || wv.scrollY > 0
+        } else {
+            super.canChildScrollUp()
+        }
+    }
+
+    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!isGestureAllowed || !isEnabled) {
+            return false
+        }
+
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                // Only allow pull-to-refresh if the touch gesture STARTS at the very top of the webpage
+                startedAtTop = !canChildScrollUp()
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                // If this gesture did NOT begin at the top, NEVER intercept it mid-scroll!
+                if (!startedAtTop) {
+                    return false
+                }
+            }
+            android.view.MotionEvent.ACTION_UP,
+            android.view.MotionEvent.ACTION_CANCEL -> {
+                startedAtTop = false
+            }
+        }
+
+        if (!startedAtTop) {
+            return false
+        }
+
+        return try {
+            super.onInterceptTouchEvent(ev)
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
+            return false
+        }
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP ||
+            ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
+            startedAtTop = false
+        }
+        return try {
+            super.onTouchEvent(ev)
+        } catch (_: IllegalArgumentException) {
+            false
+        }
     }
 
     override fun performClick(): Boolean {
@@ -2681,35 +2737,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return null
                                     }
 
-                                    // KRP/1 Privacy Relay Circuit Interception
-                                    if (viewModel.isPrivacyRelayEnabled.value && KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
-                                        val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer")
-                                        val pageHost = referer?.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
-                                            ?: viewModel.urlInput.value.let { runCatching { android.net.Uri.parse(it).host }.getOrNull() }?.lowercase()
-                                        val resourceHost = request.url?.host?.lowercase()
-                                        val isGoogleAccountRequest = KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(reqUrl) ||
-                                            (resourceHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(resourceHost)) ||
-                                            (pageHost != null && KaspaPrivacyEngine.isGoogleAccountDomain(pageHost))
-
-                                        if (!isGoogleAccountRequest && request.isForMainFrame) {
-                                            try {
-                                                val headers = request.requestHeaders ?: emptyMap()
-                                                val relayResp = kotlinx.coroutines.runBlocking {
-                                                    KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, reqMethod, headers, true)
-                                                }
-                                                if (relayResp != null) {
-                                                    return relayResp
-                                                }
-                                            } catch (e: Exception) {
-                                                android.util.Log.w("KaspaRelay", "KRP Interception notice: ${e.message}")
-                                            }
-                                        }
-                                    }
-
-                                    // CRITICAL: NEVER block the main frame navigation (the website itself).
-                                    if (request.isForMainFrame) {
-                                        return null
-                                    }
+                                    // Native KRP/1 and Tor privacy relay shielding is handled at the transport layer
+                                    // via WebViewProxyManager (ProxyController), keeping isForMainFrame 100% native and unhindered.
 
                                     // CRITICAL: Never block styles, fonts, images, image videos (thumbnails/posters), or video/audio media streams
                                     val isStyleOrFont = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||

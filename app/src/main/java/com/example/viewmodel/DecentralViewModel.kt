@@ -774,9 +774,14 @@ class DecentralViewModel(
         _isPrivacyRelayEnabled.value = enabled
         browserSettingsPrefs.edit().putBoolean("kaspa_privacy_relay_enabled", enabled).apply()
         if (enabled) {
+            com.example.network.LightweightTorEngine.start()
+            com.example.network.KrpRelayDaemon.start()
+            com.example.network.WebViewProxyManager.applyProxy(com.example.network.LightweightTorEngine.activePort.value)
             _activeRelayCircuit.value = KaspaPrivacyRelayEngine.getActiveCircuit()
             _statusMessage.value = "Kaspa Privacy Relay Active: Dual-Hop KRP/1 Circuit Enabled"
         } else {
+            com.example.network.WebViewProxyManager.clearProxy()
+            com.example.network.LightweightTorEngine.stop()
             _statusMessage.value = "Kaspa Privacy Relay Disabled"
         }
     }

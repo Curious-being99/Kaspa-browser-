@@ -15,7 +15,7 @@ class NestedWebView @JvmOverloads constructor(
     private val childHelper = NestedScrollingChildHelper(this)
 
     init {
-        isNestedScrollingEnabled = false // Disabled because we use ScrollChangeListener-based toggling on the SwipeRefreshLayout for perfect accuracy and stability
+        isNestedScrollingEnabled = false // Disabled to allow parent BrowserSwipeRefreshLayout to control touch interception via startedAtTop lifecycle
     }
 
     // NestedScrollingChild3 Implementation

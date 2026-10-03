@@ -437,7 +437,6 @@ fun PwaStandaloneScreen(
                         isHapticFeedbackEnabled = true
                         isVerticalScrollBarEnabled = false
                         isHorizontalScrollBarEnabled = false
-                        isNestedScrollingEnabled = true
                         overScrollMode = View.OVER_SCROLL_NEVER
                         isNestedScrollingEnabled = false
                         setOnScrollChangeListener { _, _, _, _, _ ->
@@ -541,7 +540,7 @@ fun PwaStandaloneScreen(
                                     try {
                                         val headers = request.requestHeaders ?: emptyMap()
                                         val resp: WebResourceResponse? = kotlinx.coroutines.runBlocking {
-                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, reqMethod, headers, request.isForMainFrame)
+                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, reqMethod, headers, false)
                                         }
                                         if (resp != null) return resp
                                     } catch (_: Exception) {}

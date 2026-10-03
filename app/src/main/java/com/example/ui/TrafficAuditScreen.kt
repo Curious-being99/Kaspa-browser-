@@ -309,12 +309,6 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             checked = isPrivacyRelayEnabled,
                             onCheckedChange = { active ->
                                 viewModel.togglePrivacyRelay(active)
-                                if (active) {
-                                    com.example.network.LightweightTorEngine.start()
-                                    com.example.network.KrpRelayDaemon.start()
-                                } else {
-                                    com.example.network.LightweightTorEngine.stop()
-                                }
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.Black,

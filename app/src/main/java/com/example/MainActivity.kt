@@ -123,6 +123,11 @@ class MainActivity : FragmentActivity() {
                 com.example.network.KaspaPrivacyRelayEngine.setRemoteProxy(host, port, isSocks)
             }
         }
+
+        val browserSettingsPrefs = getSharedPreferences("browser_settings_prefs", android.content.Context.MODE_PRIVATE)
+        if (browserSettingsPrefs.getBoolean("kaspa_privacy_relay_enabled", true)) {
+            com.example.network.WebViewProxyManager.applyProxy(com.example.network.LightweightTorEngine.activePort.value)
+        }
       } catch (t: Throwable) {
         Log.w("MainActivity", "Network services initialization notice: ${t.message}")
       }
