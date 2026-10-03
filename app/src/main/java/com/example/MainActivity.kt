@@ -121,12 +121,13 @@ class MainActivity : FragmentActivity() {
             val isSocks = proxyPrefs.getBoolean("custom_proxy_is_socks", true)
             if (!host.isNullOrBlank() && port > 0) {
                 com.example.network.KaspaPrivacyRelayEngine.setRemoteProxy(host, port, isSocks)
+                com.example.network.WebViewProxyManager.applyCustomProxy(host, port, isSocks)
+            } else {
+                com.example.network.WebViewProxyManager.clearProxy()
             }
-        }
-
-        val browserSettingsPrefs = getSharedPreferences("browser_settings_prefs", android.content.Context.MODE_PRIVATE)
-        if (browserSettingsPrefs.getBoolean("kaspa_privacy_relay_enabled", true)) {
-            com.example.network.WebViewProxyManager.applyProxy(com.example.network.LightweightTorEngine.activePort.value)
+        } else {
+            // Keep native WebView connection clean and direct without cutting off network access
+            com.example.network.WebViewProxyManager.clearProxy()
         }
       } catch (t: Throwable) {
         Log.w("MainActivity", "Network services initialization notice: ${t.message}")

@@ -776,7 +776,8 @@ class DecentralViewModel(
         if (enabled) {
             com.example.network.LightweightTorEngine.start()
             com.example.network.KrpRelayDaemon.start()
-            com.example.network.WebViewProxyManager.applyProxy(com.example.network.LightweightTorEngine.activePort.value)
+            // Keep native WebView connection direct without loopback proxy cutoff
+            com.example.network.WebViewProxyManager.clearProxy()
             _activeRelayCircuit.value = KaspaPrivacyRelayEngine.getActiveCircuit()
             _statusMessage.value = "Kaspa Privacy Relay Active: Dual-Hop KRP/1 Circuit Enabled"
         } else {

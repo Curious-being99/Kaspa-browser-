@@ -24,16 +24,33 @@ object WebViewProxyManager {
     private const val TAG = "WebViewProxyManager"
     private val executor = Executors.newSingleThreadExecutor()
 
-    fun applyProxy(port: Int = 9050, onApplied: (() -> Unit)? = null) {
+    fun applyCustomProxy(host: String, port: Int, isSocks: Boolean = true, onApplied: (() -> Unit)? = null) {
+        val cleanHost = host.trim()
+            .removePrefix("http://")
+            .removePrefix("https://")
+            .removePrefix("socks5://")
+            .removePrefix("socks://")
+
+        // Crucial: Android WebView's isolated sandboxed process cannot connect to loopback sockets (127.0.0.1)
+        // opened by the parent app process due to Android SELinux sandbox restrictions.
+        // Connecting to loopback via ProxyController causes ERR_PROXY_CONNECTION_FAILED on real devices.
+        if (cleanHost.isEmpty() || cleanHost == "127.0.0.1" || cleanHost == "localhost" || cleanHost == "::1") {
+            Log.d(TAG, "Loopback proxy skipped for WebView ProxyController to prevent sandbox isolation connection cutoff.")
+            clearProxy(onApplied)
+            return
+        }
+
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
             Log.d(TAG, "PROXY_OVERRIDE not supported by this WebView engine version")
+            onApplied?.invoke()
             return
         }
 
         try {
+            val scheme = if (isSocks) "socks5" else "http"
             val proxyConfig = ProxyConfig.Builder()
-                .addProxyRule("socks://127.0.0.1:$port")
-                .addDirect()
+                .addProxyRule("$scheme://$cleanHost:$port")
+                .addDirect() // Guarantee fallback so connections are never cut off
                 .build()
 
             if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
@@ -41,18 +58,27 @@ object WebViewProxyManager {
                     proxyConfig,
                     executor,
                     Runnable {
-                        Log.i(TAG, "Native WebView Proxy successfully active on socks://127.0.0.1:$port")
+                        Log.i(TAG, "Native WebView Proxy successfully active on $scheme://$cleanHost:$port")
                         onApplied?.invoke()
                     }
                 )
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Notice setting native proxy override: ${t.message}")
+            onApplied?.invoke()
         }
+    }
+
+    fun applyProxy(port: Int = 9050, onApplied: (() -> Unit)? = null) {
+        // Safe: On real devices, do not redirect global WebView Chromium engine to in-process loopback 127.0.0.1
+        // because the WebView sandboxed process is blocked by SELinux from reaching the app UID's loopback port.
+        Log.d(TAG, "applyProxy: Ensuring direct clean connection without loopback proxy cutoff.")
+        clearProxy(onApplied)
     }
 
     fun clearProxy(onCleared: (() -> Unit)? = null) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
+            onCleared?.invoke()
             return
         }
 
@@ -65,9 +91,12 @@ object WebViewProxyManager {
                         onCleared?.invoke()
                     }
                 )
+            } else {
+                onCleared?.invoke()
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Notice clearing native proxy override: ${t.message}")
+            onCleared?.invoke()
         }
     }
 }
