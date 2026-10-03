@@ -439,9 +439,9 @@ fun PwaStandaloneScreen(
                         isHorizontalScrollBarEnabled = false
                         isNestedScrollingEnabled = true
                         overScrollMode = View.OVER_SCROLL_NEVER
+                        isNestedScrollingEnabled = false
                         setOnScrollChangeListener { _, _, _, _, _ ->
-                            val atTop = !canScrollVertically(-1)
-                            swipeLayout.isEnabled = swipeLayout.isGestureAllowed && atTop
+                            // Native touch interception handles this perfectly
                         }
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

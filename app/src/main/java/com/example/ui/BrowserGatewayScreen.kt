@@ -1834,12 +1834,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setInitialScale(0)
                                 overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
                                 isNestedScrollingEnabled = true
-                                setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
-                                    val swipe = parent as? BrowserSwipeRefreshLayout
-                                    val atTop = !canScrollVertically(-1)
-                                    swipe?.isEnabled = swipe?.isGestureAllowed == true && atTop
-                                    viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
-                                }
+                                isNestedScrollingEnabled = false
+                                 setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
+                                     viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
+                                 }
                                 isHapticFeedbackEnabled = true
                                 isVerticalScrollBarEnabled = true
                                 isHorizontalScrollBarEnabled = false
@@ -3081,8 +3079,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         if (swipeRefresh != null) {
                             swipeRefresh.targetWebView = webView
                             swipeRefresh.isGestureAllowed = enablePullToRefresh && !showFindInPage && !isReaderMode
-                            val atTop = !webView.canScrollVertically(-1)
-                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed && atTop
+                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed
                             if (!isWebLoading && swipeRefresh.isRefreshing) {
                                 swipeRefresh.isRefreshing = false
                             }
