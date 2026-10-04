@@ -246,26 +246,40 @@ data class BrowserTab(
 internal val DIRECT_DOWNLOAD_EXTENSIONS = setOf(
     // Video
     "mp4", "m4v", "mkv", "webm", "avi", "mov", "wmv", "3gp", "3gpp", "flv", "ts", "ogv",
-    "vob", "m2ts", "asf", "rm", "rmvb", "f4v", "divx", "mpg", "mpeg",
     // Audio
-    "mp3", "wav", "ogg", "oga", "flac", "m4a", "aac", "opus", "wma", "mid", "midi",
-    "m4b", "alac", "aiff", "aif", "amr", "awb", "mp2", "ra",
+    "mp3", "wav", "ogg", "oga", "flac", "m4a", "aac", "opus", "wma",
     // Documents & eBooks
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "txt",
-    "csv", "tsv", "epub", "mobi", "azw", "azw3", "djvu", "fb2", "pages", "numbers", "key",
+    "pdf", "epub", "mobi", "azw", "azw3", "djvu", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
     // Archives & Compressed
-    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "iso", "torrent",
-    "cab", "cpio", "lz", "lzma", "z", "dmg", "pkg", "deb", "rpm",
+    "zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz", "iso", "torrent", "cab", "dmg", "pkg", "deb", "rpm",
     // Android Executables / Packages / Installers
-    "apk", "xapk", "apks", "aab", "exe", "msi", "bin", "jar",
-    // Code / Config / Databases
-    "xml", "json", "yaml", "yml", "toml", "sql", "sqlite", "db", "sqlite3", "bak", "diff", "patch",
-    // Creative & 3D
-    "psd", "ai", "eps", "blend", "stl", "obj", "fbx", "3ds", "dwg", "dxf"
+    "apk", "xapk", "apks", "aab", "exe", "msi", "bin", "jar"
 )
 
 internal fun isDownloadableExtension(ext: String): Boolean =
     DIRECT_DOWNLOAD_EXTENSIONS.contains(ext.lowercase())
+
+internal fun isDirectDownloadableUrl(rawUrl: String): Boolean {
+    val clean = rawUrl.trim()
+    val uri = runCatching { android.net.Uri.parse(clean) }.getOrNull() ?: return false
+    val scheme = uri.scheme?.lowercase() ?: return false
+    if (scheme != "http" && scheme != "https") return false
+
+    val path = uri.path?.lowercase() ?: ""
+    val pathExt = path.substringAfterLast('.', "")
+    if (pathExt.isNotEmpty() && isDownloadableExtension(pathExt)) {
+        return true
+    }
+
+    val query = uri.query?.lowercase() ?: ""
+    if (query.contains("response-content-disposition=attachment") ||
+        (query.contains("export=download") && (query.contains("id=") || query.contains("file=")))
+    ) {
+        return true
+    }
+
+    return false
+}
 
 internal fun executeImageDownload(
     context: android.content.Context,
@@ -559,6 +573,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var lastDownloadedUrl by remember { mutableStateOf<String?>(null) }
     var lastDownloadTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var lastSuccessfulWebUrl by remember { mutableStateOf("") }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -621,17 +636,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         label = "webProgressAnimation"
     )
 
-    LaunchedEffect(webProgress, isWebLoading) {
-        if (isWebLoading || webProgress > 0f) {
-            if (webProgress < 1f) {
-                isProgressBarVisible = true
-            } else {
-                isProgressBarVisible = true
-                kotlinx.coroutines.delay(280L)
-                isProgressBarVisible = false
-            }
+    LaunchedEffect(isWebLoading, webProgress) {
+        if (isWebLoading) {
+            isProgressBarVisible = true
         } else {
+            if (webProgress in 0.01f..0.99f) {
+                webProgress = 1.0f
+            }
+            kotlinx.coroutines.delay(220L)
             isProgressBarVisible = false
+            webProgress = 0f
         }
     }
     var viewSourceMode by remember { mutableStateOf(false) }
@@ -650,6 +664,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val selectedProtocol by viewModel.selectedProtocol.collectAsState()
     val currentResource by viewModel.currentResource.collectAsState()
     val navigationSessionId by viewModel.navigationSessionId.collectAsState()
+
+    // Lingering load watchdog: automatically dismiss stuck or hanging loading states after 12 seconds
+    LaunchedEffect(isWebLoading, navigationSessionId) {
+        if (isWebLoading) {
+            kotlinx.coroutines.delay(12000L)
+            if (isWebLoading) {
+                isWebLoading = false
+                hasMainPageFinished = true
+                webProgress = 1.0f
+                viewModel.setIsLoading(false)
+                (webViewInstance?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
+            }
+        }
+    }
 
     var textFieldValue by remember {
         mutableStateOf(
@@ -692,9 +720,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    LaunchedEffect(urlInput, currentResource?.title) {
-        val title = currentResource?.title ?: if (urlInput.isEmpty()) "Home" else urlInput
-        viewModel.updateActiveTabMetadata(urlInput, title)
+    LaunchedEffect(activeTabId, urlInput, currentResource?.title) {
+        val curId = activeTabId ?: return@LaunchedEffect
+        val currentTab = tabs.find { it.id == curId }
+        if (currentTab != null && urlInput.isNotBlank() && (currentResource != null || urlInput == currentTab.url)) {
+            val title = currentResource?.title ?: urlInput
+            viewModel.updateActiveTabMetadata(curId, urlInput, title)
+        }
     }
 
     fun toggleReaderMode() {
@@ -1931,7 +1963,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 useWideViewPort = desktopModeEnabled
                                 loadWithOverviewMode = desktopModeEnabled
                                 textZoom = 100
-                                javaScriptCanOpenWindowsAutomatically = true
+                                javaScriptCanOpenWindowsAutomatically = false
                                 setSupportMultipleWindows(true)
                                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
@@ -2085,26 +2117,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 val targetPath = targetUri?.path?.lowercase() ?: ""
                                 val targetScheme = targetUri?.scheme?.lowercase() ?: ""
                                 
-                                val pathExt = targetPath.substringAfterLast('.', "")
-                                val queryExt = targetUri?.query?.let { q ->
-                                    val cleanQ = q.lowercase()
-                                    DIRECT_DOWNLOAD_EXTENSIONS.firstOrNull { ext ->
-                                        cleanQ.contains(".$ext") || cleanQ.contains("format=$ext") || cleanQ.contains("type=$ext") || cleanQ.contains("ext=$ext")
-                                    }
-                                }
-                                val hasExplicitDownloadFlag = targetUri?.query?.let { q ->
-                                    val cleanQ = q.lowercase()
-                                    cleanQ.contains("export=download") ||
-                                    cleanQ.contains("download=1") ||
-                                    cleanQ.contains("download=true") ||
-                                    cleanQ.contains("dl=1") ||
-                                    cleanQ.contains("dl=true") ||
-                                    cleanQ.contains("action=download")
-                                } == true || targetPath.endsWith("/download") || targetPath.endsWith("/download/")
-
-                                val targetExt = if (pathExt.isNotEmpty() && isDownloadableExtension(pathExt)) pathExt else queryExt ?: ""
-                                val isDownloadableMediaOrFile = (targetScheme == "http" || targetScheme == "https") &&
-                                    (targetExt.isNotEmpty() && isDownloadableExtension(targetExt) || hasExplicitDownloadFlag)
+                                val isDownloadableMediaOrFile = isDirectDownloadableUrl(cleanUrl)
 
                                 if (isDownloadableMediaOrFile) {
                                     if (!enableDownloads) {
@@ -2248,6 +2261,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             webProgress = progressFraction
                                         }
                                         isWebLoading = true
+                                        if (newProgress >= 90) {
+                                            view?.postDelayed({
+                                                if (isWebLoading && lastProgressValue == newProgress) {
+                                                    isWebLoading = false
+                                                    hasMainPageFinished = true
+                                                    webProgress = 1.0f
+                                                    viewModel.setIsLoading(false)
+                                                    (view.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
+                                                }
+                                            }, 3000L)
+                                        }
                                     }
                                 }
 
@@ -2313,10 +2337,31 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     resultMsg: android.os.Message?
                                 ): Boolean {
                                     if (resultMsg == null || view == null) return false
+                                    // SECURITY: Block all unrequested popups, adware, redirects and fake websites!
+                                    // Require explicit user interaction gesture before creating any new window/tab!
+                                    if (!isUserGesture) {
+                                        return false
+                                    }
 
                                     fun handleTargetUrl(wv: WebView?, target: String, gesture: Boolean): Boolean {
                                         if (target.isBlank() || target == "about:blank") return false
                                         wv?.stopLoading()
+                                        if (isDirectDownloadableUrl(target)) {
+                                            if (!enableDownloads) {
+                                                viewModel.setStatusMessage("Downloads are disabled in Settings")
+                                                return true
+                                            }
+                                            val filename = android.webkit.URLUtil.guessFileName(target, null, null)
+                                            val downloadId = System.currentTimeMillis()
+                                            val cookies = try { android.webkit.CookieManager.getInstance().getCookie(target) } catch (_: Exception) { null }
+                                            val userAgent = try { view.settings?.userAgentString } catch (_: Exception) { null }
+                                            val referer = try { view.url } catch (_: Exception) { null }
+                                            viewModel.addDownload(downloadId, filename, target)
+                                            viewModel.startDownload(view.context, downloadId, target, filename, cookies, userAgent, referer)
+                                            viewModel.setStatusMessage("Download started: $filename")
+                                            android.widget.Toast.makeText(view.context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                            return true
+                                        }
                                         viewModel.createNewTab(target, title = "New Tab", isExternal = true)
                                         return true
                                     }
@@ -2330,6 +2375,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         settings.cacheMode = WebSettings.LOAD_DEFAULT
                                         settings.domStorageEnabled = true
                                         settings.databaseEnabled = false
+                                        setDownloadListener { dUrl, dUserAgent, dContentDisposition, dMimetype, _ ->
+                                            stopLoading()
+                                            if (!enableDownloads) {
+                                                viewModel.setStatusMessage("Downloads are disabled in Settings")
+                                                return@setDownloadListener
+                                            }
+                                            val filename = android.webkit.URLUtil.guessFileName(dUrl, dContentDisposition, dMimetype)
+                                            val downloadId = System.currentTimeMillis()
+                                            val cookies = try { android.webkit.CookieManager.getInstance().getCookie(dUrl) } catch (_: Exception) { null }
+                                            val referer = try { view.url } catch (_: Exception) { null }
+                                            viewModel.addDownload(downloadId, filename, dUrl)
+                                            viewModel.startDownload(view.context, downloadId, dUrl, filename, cookies, dUserAgent, referer)
+                                            viewModel.setStatusMessage("Download started: $filename")
+                                            android.widget.Toast.makeText(view.context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
                                         webViewClient = object : WebViewClient() {
                                             override fun onPageStarted(wv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                                 super.onPageStarted(wv, url, favicon)
@@ -2454,10 +2514,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 lastDownloadedUrl = url
                                 lastDownloadTimestamp = now
 
-                                val currentWvUrl = wv.url
-                                if (!currentWvUrl.isNullOrBlank() && currentWvUrl != url) {
-                                    viewModel.updateCurrentUrl(currentWvUrl)
+                                // Crucial: Stop loading and prevent the webview from displaying the download link!
+                                wv.stopLoading()
+                                if (wv.canGoBack()) {
+                                    wv.goBack()
                                 }
+                                if (lastSuccessfulWebUrl.isNotBlank()) {
+                                    viewModel.updateCurrentUrl(lastSuccessfulWebUrl)
+                                } else {
+                                    val currentWvUrl = wv.url
+                                    if (!currentWvUrl.isNullOrBlank() && currentWvUrl != url) {
+                                        viewModel.updateCurrentUrl(currentWvUrl)
+                                    }
+                                }
+                                isWebLoading = false
+                                viewModel.setIsLoading(false)
+
                                 try {
                                     val filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype)
                                     val downloadId = System.currentTimeMillis()
@@ -2466,7 +2538,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     } catch (_: Exception) {
                                         null
                                     }
-                                    val referer = try { webViewInstance?.url } catch (_: Exception) { null }
+                                    val referer = try { if (lastSuccessfulWebUrl.isNotBlank()) lastSuccessfulWebUrl else webViewInstance?.url } catch (_: Exception) { null }
                                     viewModel.addDownload(downloadId, filename, url)
                                     viewModel.startDownload(context, downloadId, url, filename, cookies, userAgent, referer)
                                     viewModel.setStatusMessage("Download started: $filename")
@@ -2505,6 +2577,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
+                                        if (isDirectDownloadableUrl(it)) {
+                                            view?.stopLoading()
+                                            return
+                                        }
                                         val isNavigableUrl = it.startsWith("http://", ignoreCase = true) ||
                                             it.startsWith("https://", ignoreCase = true) ||
                                             it.startsWith("kas://", ignoreCase = true) ||
@@ -2580,6 +2656,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                         if (isNavigableUrl) {
                                             view?.tag = Pair(it, navigationSessionId)
+                                            if (!it.startsWith("about:") && !it.startsWith("data:") && !isDirectDownloadableUrl(it)) {
+                                                lastSuccessfulWebUrl = it
+                                            }
                                             viewModel.updateCurrentUrl(it)
                                             viewModel.addToHistory(it, view?.title ?: it)
                                             com.example.util.BrowserStateLog.navigation("Navigation complete for $it")
@@ -2857,7 +2936,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     if (targetUrl.startsWith("kaspa-action://home", ignoreCase = true)) {
-                                        viewModel.onUserSubmitUrl("https://kaspa.org")
+                                        viewModel.resetToHome()
                                         return true
                                     }
 
@@ -2902,7 +2981,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     if (targetUrl.startsWith("kaspa-action://home", ignoreCase = true)) {
-                                        viewModel.onUserSubmitUrl("https://kaspa.org")
+                                        viewModel.resetToHome()
                                         return true
                                     }
 
@@ -2943,6 +3022,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     if (request == null || request.isForMainFrame) {
                                         isWebLoading = false
+                                        webProgress = 1.0f
+                                        hasMainPageFinished = true
                                         viewModel.setIsLoading(false)
                                         (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                         if (failingUrl.startsWith("http://", ignoreCase = true) || failingUrl.startsWith("https://", ignoreCase = true)) {
@@ -3019,6 +3100,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                                     handler?.cancel()
                                     isWebLoading = false
+                                    webProgress = 1.0f
+                                    hasMainPageFinished = true
+                                    viewModel.setIsLoading(false)
                                     (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                     val failingUrl = error?.url ?: ""
                                     val sslReason = when (error?.primaryError) {
@@ -3225,8 +3309,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                                 val baseUrl = if (!isSearch && resource.cid.isNotBlank()) {
                                     "https://${resource.cid}.ipfs.dweb.link/"
+                                } else if (resource.url.isNotBlank()) {
+                                    resource.url
                                 } else {
-                                    "https://kaspa.org/search/"
+                                    "about:blank"
                                 }
                                 webView.loadDataWithBaseURL(
                                     baseUrl,

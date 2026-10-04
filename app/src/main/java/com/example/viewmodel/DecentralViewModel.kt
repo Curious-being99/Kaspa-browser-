@@ -381,6 +381,7 @@ class DecentralViewModel(
     private val _activeTabId = MutableStateFlow<String?>(savedStateHandle.get<String>("active_tab_id"))
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
+    private val closedTabIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var debounceSaveJob: Job? = null
 
     fun scheduleSaveDebounced(reason: String, delayMs: Long = 300L) {
@@ -405,6 +406,7 @@ class DecentralViewModel(
             database.browserSessionDao().saveSession(session)
 
             val tabs = database.browserTabDao().getAllTabsList()
+                .filter { !closedTabIds.contains(it.id) }
             val updatedTabs = tabs.map { tab ->
                 val scroll = webViewTabManager.getTabScroll(tab.id)
                 val bundle = webViewTabManager.saveTabBundle(tab.id)
@@ -433,8 +435,10 @@ class DecentralViewModel(
 
     fun saveActiveTabState(reason: String) {
         val activeId = _activeTabId.value ?: return
+        if (closedTabIds.contains(activeId)) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                if (closedTabIds.contains(activeId)) return@launch
                 val tab = database.browserTabDao().getTabById(activeId) ?: return@launch
                 val scroll = webViewTabManager.getTabScroll(activeId)
                 val bundle = webViewTabManager.saveTabBundle(activeId)
@@ -561,61 +565,102 @@ class DecentralViewModel(
     }
 
     fun closeTab(id: String) {
+        closedTabIds.add(id)
+        debounceSaveJob?.cancel()
         viewModelScope.launch {
             webViewTabManager.destroyTab(id, "tab closed by user")
             val tabs = database.browserTabDao().getAllTabsList()
-            val target = tabs.find { it.id == id } ?: return@launch
-            database.browserTabDao().delete(target)
-            val remaining = tabs.filter { it.id != id }
+            val target = tabs.find { it.id == id }
+            if (target != null) {
+                database.browserTabDao().delete(target)
+            }
+            val remaining = tabs.filter { it.id != id && !closedTabIds.contains(it.id) }
             BrowserStateLog.save("Tab $id closed, ${remaining.size} remaining")
+
             if (_activeTabId.value == id) {
                 if (remaining.isNotEmpty()) {
                     val nextTab = remaining.maxByOrNull { it.lastAccessed } ?: remaining.first()
-                    setActiveTab(nextTab.id)
+                    _activeTabId.value = nextTab.id
+                    savedStateHandle["active_tab_id"] = nextTab.id
+                    if (nextTab.url.isBlank()) {
+                        resetToHome()
+                    } else {
+                        _urlInput.value = nextTab.url
+                        val isHttp = nextTab.url.startsWith("http://", ignoreCase = true) || nextTab.url.startsWith("https://", ignoreCase = true)
+                        if (isHttp) {
+                            val host = try { java.net.URI(nextTab.url).host ?: nextTab.url } catch (_: Exception) { nextTab.url }
+                            _currentResource.value = ResolvedResource(
+                                url = nextTab.url,
+                                resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                                cid = com.example.network.CryptoUtils.generateCid(nextTab.url),
+                                title = if (nextTab.title.isNotBlank()) nextTab.title else host,
+                                content = "",
+                                contentType = "text/html",
+                                sizeBytes = 0L,
+                                latencyMs = 15L,
+                                centralizedUrl = nextTab.url,
+                                centralizedLatencyMs = 15L,
+                                centralizedIp = "Direct High-Speed Stack",
+                                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                                cryptographicHash = com.example.network.CryptoUtils.sha256(nextTab.url),
+                                routedVia = "Direct High-Speed Web Stack: $host"
+                            )
+                            _isLoading.value = false
+                        } else {
+                            resolveUrl(nextTab.url)
+                        }
+                    }
                 } else {
-                    createNewTab("", "Home")
+                    val newId = java.util.UUID.randomUUID().toString()
+                    val newTab = BrowserTabEntity(
+                        id = newId,
+                        url = "",
+                        title = "Home",
+                        tabOrder = 1,
+                        lastAccessed = System.currentTimeMillis()
+                    )
+                    database.browserTabDao().insert(newTab)
+                    _activeTabId.value = newId
+                    savedStateHandle["active_tab_id"] = newId
+                    resetToHome()
                 }
             }
-            scheduleSaveDebounced("tab closed: $id")
+
+            // Immediately persist updated session so cold restart never restores the closed tab
+            val currentActiveId = _activeTabId.value
+            val isCompleted = _onboardingCompleted.value
+            val session = BrowserSessionEntity(
+                id = "singleton",
+                activeTabId = currentActiveId,
+                onboardingCompleted = isCompleted,
+                lastSavedTimestamp = System.currentTimeMillis()
+            )
+            database.browserSessionDao().saveSession(session)
         }
     }
 
     fun updateTab(id: String, url: String, title: String) {
+        if (closedTabIds.contains(id)) return
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val existing = database.browserTabDao().getTabById(id)
-            if (existing != null) {
-                if (existing.url == url && existing.title == title) {
-                    return@launch
-                }
+            if (closedTabIds.contains(id)) return@launch
+            val existing = database.browserTabDao().getTabById(id) ?: return@launch
+            if (existing.url == url && existing.title == title) {
+                return@launch
             }
-            val isSuspended = existing?.isSuspended ?: false
-            val isExternal = existing?.isExternal ?: false
-            val tabOrder = existing?.tabOrder ?: 0
-            val scrollX = existing?.scrollX ?: 0
-            val scrollY = existing?.scrollY ?: 0
-            val historyJson = existing?.historyJson ?: "[]"
-            val webViewState = existing?.webViewState
             database.browserTabDao().insert(
-                BrowserTabEntity(
-                    id = id,
+                existing.copy(
                     url = url,
                     title = title,
-                    tabOrder = tabOrder,
-                    scrollX = scrollX,
-                    scrollY = scrollY,
-                    historyJson = historyJson,
-                    webViewState = webViewState,
-                    lastAccessed = System.currentTimeMillis(),
-                    isSuspended = isSuspended,
-                    isExternal = isExternal
+                    lastAccessed = System.currentTimeMillis()
                 )
             )
             scheduleSaveDebounced("tab updated: $url")
         }
     }
 
-    fun updateActiveTabMetadata(url: String, title: String) {
-        val id = _activeTabId.value ?: return
+    fun updateActiveTabMetadata(tabId: String? = null, url: String, title: String) {
+        val id = tabId ?: _activeTabId.value ?: return
+        if (id != _activeTabId.value || closedTabIds.contains(id)) return
         updateTab(id, url, title)
     }
 
@@ -633,10 +678,25 @@ class DecentralViewModel(
     }
 
     fun clearAllTabs() {
+        debounceSaveJob?.cancel()
         viewModelScope.launch {
+            val tabs = database.browserTabDao().getAllTabsList()
+            tabs.forEach { closedTabIds.add(it.id) }
             webViewTabManager.destroyAll("clear all tabs")
             database.browserTabDao().clearAll()
-            createNewTab("", "Home")
+            val newId = java.util.UUID.randomUUID().toString()
+            val homeTab = BrowserTabEntity(id = newId, url = "", title = "Home", lastAccessed = System.currentTimeMillis())
+            database.browserTabDao().insert(homeTab)
+            _activeTabId.value = newId
+            savedStateHandle["active_tab_id"] = newId
+            resetToHome()
+            val session = BrowserSessionEntity(
+                id = "singleton",
+                activeTabId = newId,
+                onboardingCompleted = _onboardingCompleted.value,
+                lastSavedTimestamp = System.currentTimeMillis()
+            )
+            database.browserSessionDao().saveSession(session)
         }
     }
 

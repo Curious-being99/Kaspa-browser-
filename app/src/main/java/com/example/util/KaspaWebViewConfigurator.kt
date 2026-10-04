@@ -89,7 +89,7 @@ object KaspaWebViewConfigurator {
             allowFileAccessFromFileURLs = false
             @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = false
-            javaScriptCanOpenWindowsAutomatically = true
+            javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(true)
             mediaPlaybackRequiresUserGesture = false
             setSupportZoom(true)
