@@ -54,8 +54,7 @@ object CryptoUtils {
     fun sha256Raw(input: ByteArray): ByteArray {
         if (isNativeLoaded) {
             try {
-                val res = nativeSha256Raw(input)
-                if (res != null) return res
+                return nativeSha256Raw(input)
             } catch (_: Throwable) {}
         }
         val digest = MessageDigest.getInstance("SHA-256")
@@ -80,8 +79,7 @@ object CryptoUtils {
     fun hexToBytes(hex: String): ByteArray {
         if (isNativeLoaded) {
             try {
-                val res = nativeHexToBytes(hex)
-                if (res != null) return res
+                return nativeHexToBytes(hex)
             } catch (_: Throwable) {}
         }
         var cleanHex = hex.replace(" ", "").replace("0x", "").lowercase()

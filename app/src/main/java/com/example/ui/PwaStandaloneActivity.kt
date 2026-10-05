@@ -681,8 +681,8 @@ fun PwaStandaloneScreen(
                                 origin: String?,
                                 callback: GeolocationPermissions.Callback?
                             ) {
-                                pendingGeoOrigin = origin
-                                pendingGeoCallback = callback
+                                // Hardware GPS Isolation: Zero device coordinates or sensor leakage to PWA apps
+                                callback?.invoke(origin, false, false)
                             }
 
                             override fun onPermissionRequest(request: PermissionRequest?) {

@@ -77,7 +77,9 @@ class MainActivity : FragmentActivity() {
       finish()
       return
     }
-    handleIncomingIntent(intent)
+    if (savedInstanceState == null) {
+      handleIncomingIntent(intent)
+    }
 
     setContent {
       MyApplicationTheme {
@@ -214,10 +216,29 @@ class MainActivity : FragmentActivity() {
   private var lastHandledIntentTimestamp: Long = 0L
 
   private fun handleIncomingIntent(intent: Intent?) {
+    if (intent == null) return
+
+    // 1. If launched from recent apps history after being away for a long time,
+    // Android re-delivers the original launch intent with FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY.
+    // We MUST ignore this replayed intent to prevent reopening the previous external link!
+    if ((intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+      Log.d("MainActivity", "Launched from history - ignoring replayed intent")
+      setIntent(Intent(this, MainActivity::class.java).apply { action = Intent.ACTION_MAIN })
+      return
+    }
+
+    // 2. If launched normally from the Android launcher icon (ACTION_MAIN + CATEGORY_LAUNCHER),
+    // it is a direct user launch to open the browser home, not an external link navigation.
+    if (Intent.ACTION_MAIN == intent.action && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {
+      Log.d("MainActivity", "Launched from app launcher - regular start")
+      setIntent(Intent(this, MainActivity::class.java).apply { action = Intent.ACTION_MAIN })
+      return
+    }
+
     if (checkAndRoutePwaIntent(intent)) {
       return
     }
-    val targetUrl = intent?.getStringExtra("PWA_URL") ?: intent?.dataString
+    val targetUrl = intent.getStringExtra("PWA_URL") ?: intent.dataString
     if (!targetUrl.isNullOrBlank()) {
       Log.d("PWA", "[PWA] MainActivity handling external VIEW intent: $targetUrl")
       viewModel.setPendingExplicitUrl(targetUrl)
@@ -227,13 +248,8 @@ class MainActivity : FragmentActivity() {
         lastHandledIntentTimestamp = now
         viewModel.openUrlInBrowser(targetUrl, isExternal = true, isStandalonePwa = false)
       }
-      // Consume the intent data so leaving and returning to the task does not replay the intent
-      try {
-        intent?.data = null
-        intent?.removeExtra("PWA_URL")
-        intent?.removeExtra("IS_PWA_MODE")
-        intent?.removeExtra("PWA_STANDALONE")
-      } catch (_: Exception) {}
+      // Replace the Activity's current intent so that future onResume / history events do not replay it
+      setIntent(Intent(this, MainActivity::class.java).apply { action = Intent.ACTION_MAIN })
     }
   }
 }

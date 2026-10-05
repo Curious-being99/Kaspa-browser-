@@ -1516,7 +1516,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     .border(1.5.dp, TextPrimary, RoundedCornerShape(5.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val countText = if (tabs.size > 99) "99+" else tabs.size.toString()
+                                val effectiveTabCount = if (tabs.isEmpty()) 1 else tabs.size
+                                val countText = if (effectiveTabCount > 99) "99+" else effectiveTabCount.toString()
                                 val textSize = when {
                                     countText.length >= 3 -> 7.5.sp
                                     countText.length == 2 -> 9.sp
@@ -2234,8 +2235,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     origin: String?,
                                     callback: android.webkit.GeolocationPermissions.Callback?
                                 ) {
-                                    pendingGeoOrigin = origin
-                                    pendingGeoCallback = callback
+                                    if (viewModel.isPrivacyRelayEnabled.value) {
+                                        // Hardware GPS Isolation: Zero device coordinates or sensor leakage to websites
+                                        callback?.invoke(origin, false, false)
+                                    } else {
+                                        pendingGeoOrigin = origin
+                                        pendingGeoCallback = callback
+                                    }
                                 }
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     val now = System.currentTimeMillis()
@@ -2289,7 +2295,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         val reqOrigin = request.origin
                                         val isSecure = reqOrigin?.scheme?.equals("https", ignoreCase = true) == true
                                         val reqHost = reqOrigin?.host?.lowercase()
-                                        val currentUrl = this@apply.url ?: webViewInstance?.url ?: ""
+                                        val currentUrl = webViewInstance?.url ?: ""
                                         val currentOrigin = runCatching { Uri.parse(currentUrl) }.getOrNull()
                                         val currentHost = currentOrigin?.host?.lowercase()
                                         val matchesCurrentHost = reqHost != null && currentHost != null &&
@@ -4800,7 +4806,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         )
                     }
                     Text(
-                        text = "${tabs.size} open tabs",
+                        text = "${maxOf(1, tabs.size)} open tabs",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary

@@ -415,6 +415,36 @@ object KaspaPrivacyEngine {
                         window.RTCPeerConnection.prototype = OrigRTC.prototype;
                     } catch(e) {}
                 }
+
+                // 5. HTML5 Geolocation Sensor Shield (Zero Hardware GPS Leakage)
+                try {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                            if (error) {
+                                error({
+                                    code: 1,
+                                    message: "Geolocation permission denied by Privacy Shield",
+                                    PERMISSION_DENIED: 1,
+                                    POSITION_UNAVAILABLE: 2,
+                                    TIMEOUT: 3
+                                });
+                            }
+                        };
+                        navigator.geolocation.watchPosition = function(success, error, options) {
+                            if (error) {
+                                error({
+                                    code: 1,
+                                    message: "Geolocation permission denied by Privacy Shield",
+                                    PERMISSION_DENIED: 1,
+                                    POSITION_UNAVAILABLE: 2,
+                                    TIMEOUT: 3
+                                });
+                            }
+                            return 0;
+                        };
+                        navigator.geolocation.clearWatch = function(id) {};
+                    }
+                } catch(e) {}
             } catch (e) {}
         })();
     """

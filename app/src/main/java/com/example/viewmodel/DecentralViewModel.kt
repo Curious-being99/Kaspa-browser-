@@ -1121,38 +1121,76 @@ class DecentralViewModel(
                     if (explicitIntentUrlHandled) {
                         BrowserStateLog.restore("Cold-start: preserved explicit intent URL priority over ${tabs.size} persisted tabs")
                     } else {
+                        val sessionAge = if (session != null && session.lastSavedTimestamp > 0L) {
+                            System.currentTimeMillis() - session.lastSavedTimestamp
+                        } else {
+                            0L
+                        }
+                        // If user hasn't entered the browser for a long time (> 15 minutes), start cleanly on Home screen
+                        val isStaleSession = sessionAge > (15 * 60 * 1000L)
+
                         val targetTab = if (!session?.activeTabId.isNullOrBlank()) {
                             tabs.find { it.id == session.activeTabId } ?: tabs.maxByOrNull { it.lastAccessed } ?: tabs.first()
                         } else {
                             tabs.maxByOrNull { it.lastAccessed } ?: tabs.first()
                         }
-                        _activeTabId.value = targetTab.id
-                        savedStateHandle["active_tab_id"] = targetTab.id
-                        BrowserStateLog.restore("Cold-start: restored ${tabs.size} tabs, active tab: ${targetTab.id} (url: ${targetTab.url})")
-                        if (targetTab.url.isNotBlank()) {
-                            _urlInput.value = targetTab.url
-                            val isHttp = targetTab.url.startsWith("http://", ignoreCase = true) || targetTab.url.startsWith("https://", ignoreCase = true)
-                            if (isHttp) {
-                                val host = try { java.net.URI(targetTab.url).host ?: targetTab.url } catch (_: Exception) { targetTab.url }
-                                _currentResource.value = ResolvedResource(
-                                    url = targetTab.url,
-                                    resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-                                    cid = com.example.network.CryptoUtils.generateCid(targetTab.url),
-                                    title = if (targetTab.title.isNotBlank()) targetTab.title else host,
-                                    content = "",
-                                    contentType = "text/html",
-                                    sizeBytes = 0L,
-                                    latencyMs = 15L,
-                                    centralizedUrl = targetTab.url,
-                                    centralizedLatencyMs = 15L,
-                                    centralizedIp = "Direct High-Speed Stack",
-                                    verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
-                                    cryptographicHash = com.example.network.CryptoUtils.sha256(targetTab.url),
-                                    routedVia = "Direct High-Speed Web Stack: $host"
-                                )
-                                _isLoading.value = false
+
+                        // Normalize external tabs so they don't linger with one-off behavior across sessions
+                        tabs.filter { it.isExternal }.forEach {
+                            database.browserTabDao().insert(it.copy(isExternal = false))
+                        }
+
+                        val shouldStartOnHome = isStaleSession || targetTab.isExternal || targetTab.url.isBlank()
+
+                        if (shouldStartOnHome) {
+                            val homeTab = tabs.find { it.url.isBlank() }
+                            if (homeTab != null) {
+                                _activeTabId.value = homeTab.id
+                                savedStateHandle["active_tab_id"] = homeTab.id
                             } else {
-                                resolveUrl(targetTab.url)
+                                val newId = java.util.UUID.randomUUID().toString()
+                                val freshHomeTab = BrowserTabEntity(
+                                    id = newId,
+                                    url = "",
+                                    title = "Home",
+                                    tabOrder = (tabs.maxOfOrNull { it.tabOrder } ?: 0) + 1,
+                                    lastAccessed = System.currentTimeMillis()
+                                )
+                                database.browserTabDao().insert(freshHomeTab)
+                                _activeTabId.value = newId
+                                savedStateHandle["active_tab_id"] = newId
+                            }
+                            resetToHome()
+                            BrowserStateLog.restore("Cold-start: long inactivity or external link - started on Home screen, preserved ${tabs.size} tabs")
+                        } else {
+                            _activeTabId.value = targetTab.id
+                            savedStateHandle["active_tab_id"] = targetTab.id
+                            BrowserStateLog.restore("Cold-start: restored ${tabs.size} tabs, active tab: ${targetTab.id} (url: ${targetTab.url})")
+                            if (targetTab.url.isNotBlank()) {
+                                _urlInput.value = targetTab.url
+                                val isHttp = targetTab.url.startsWith("http://", ignoreCase = true) || targetTab.url.startsWith("https://", ignoreCase = true)
+                                if (isHttp) {
+                                    val host = try { java.net.URI(targetTab.url).host ?: targetTab.url } catch (_: Exception) { targetTab.url }
+                                    _currentResource.value = ResolvedResource(
+                                        url = targetTab.url,
+                                        resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                                        cid = com.example.network.CryptoUtils.generateCid(targetTab.url),
+                                        title = if (targetTab.title.isNotBlank()) targetTab.title else host,
+                                        content = "",
+                                        contentType = "text/html",
+                                        sizeBytes = 0L,
+                                        latencyMs = 15L,
+                                        centralizedUrl = targetTab.url,
+                                        centralizedLatencyMs = 15L,
+                                        centralizedIp = "Direct High-Speed Stack",
+                                        verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                                        cryptographicHash = com.example.network.CryptoUtils.sha256(targetTab.url),
+                                        routedVia = "Direct High-Speed Web Stack: $host"
+                                    )
+                                    _isLoading.value = false
+                                } else {
+                                    resolveUrl(targetTab.url)
+                                }
                             }
                         }
                     }
@@ -2027,8 +2065,8 @@ class DecentralViewModel(
             return
         }
 
-        // Use Application-level process scope to ensure download survives screen backgrounding/leaving
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        // Use ViewModel-level IO scope to ensure download survives screen transitions cleanly
+        viewModelScope.launch(Dispatchers.IO) {
             var streamSuccess = false
             val appDownloadsDir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
