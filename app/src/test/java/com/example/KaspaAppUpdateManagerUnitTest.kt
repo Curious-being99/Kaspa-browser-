@@ -8,8 +8,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.File
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class KaspaAppUpdateManagerUnitTest {
 
     private val updateManager = AppUpdateManager.getInstance()
@@ -83,5 +88,61 @@ class KaspaAppUpdateManagerUnitTest {
         assertTrue(available is UpdateStatus.Available)
         assertEquals(50, (downloading as UpdateStatus.Downloading).progressPercent)
         assertEquals(dummyFile, (ready as UpdateStatus.ReadyToInstall).apkFile)
+    }
+
+    @Test
+    fun testParseReleaseJson_WithSameVersion() {
+        val singleReleaseJson = """
+            {
+                "tag_name": "v1.0.0",
+                "name": "Release v1.0.0",
+                "body": "No version change",
+                "published_at": "2026-10-06T12:00:00Z",
+                "assets": [
+                    {
+                        "name": "kaspa-browser-v1.0.0.apk",
+                        "browser_download_url": "https://github.com/kaspa-browser/kaspa-browser/releases/download/v1.0.0/kaspa-browser-v1.0.0.apk",
+                        "size": 29884416
+                    }
+                ]
+            }
+        """.trimIndent()
+
+        val info = updateManager.parseReleaseJson(singleReleaseJson, "1.0.0", 1)
+        
+        // Assert that even if target version matches current version, isUpdateAvailable is true (same-version updates allowed!)
+        assertTrue(info.isUpdateAvailable)
+        assertEquals("1.0.0", info.latestVersionName)
+        assertEquals("https://github.com/kaspa-browser/kaspa-browser/releases/download/v1.0.0/kaspa-browser-v1.0.0.apk", info.downloadUrl)
+        assertEquals(29884416L, info.apkSizeBytes)
+    }
+
+    @Test
+    fun testParseReleaseJson_WithJSONArray() {
+        val jsonArrayResponse = """
+            [
+                {
+                    "tag_name": "1.0.1",
+                    "name": "Hotfix 1.0.1",
+                    "body": "Fixed critical bug",
+                    "published_at": "2026-10-06T15:30:00Z",
+                    "assets": [
+                        {
+                            "name": "app-release.apk",
+                            "browser_download_url": "https://github.com/kaspa-browser/kaspa-browser/releases/download/1.0.1/app-release.apk",
+                            "size": 1500000
+                        }
+                    ]
+                }
+            ]
+        """.trimIndent()
+
+        val info = updateManager.parseReleaseJson(jsonArrayResponse, "1.0.0", 1)
+        
+        // Assert that JSON arrays are supported and properly parsed from the first index
+        assertTrue(info.isUpdateAvailable)
+        assertEquals("1.0.1", info.latestVersionName)
+        assertEquals("https://github.com/kaspa-browser/kaspa-browser/releases/download/1.0.1/app-release.apk", info.downloadUrl)
+        assertEquals(1500000L, info.apkSizeBytes)
     }
 }

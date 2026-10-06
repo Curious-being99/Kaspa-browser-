@@ -1122,6 +1122,31 @@ class DecentralViewModel(
         _showUpdateAvailableDialog.value = false
     }
 
+    fun forceShowUpdateDialog() {
+        val current = _updateStatus.value
+        val info = when (current) {
+            is UpdateStatus.Available -> current.updateInfo
+            is UpdateStatus.ReadyToInstall -> current.updateInfo
+            is UpdateStatus.Downloading -> current.updateInfo
+            else -> com.example.model.AppUpdateInfo(
+                latestVersionName = "1.0.1",
+                latestVersionCode = 2,
+                currentVersionName = com.example.BuildConfig.VERSION_NAME,
+                currentVersionCode = 1,
+                isUpdateAvailable = true,
+                releaseTitle = "KaspaBrowser Official Release v1.0.1",
+                releaseNotes = "• Official GitHub Release build\n• In-app sideload engine updates\n• BlockDAG Testnet 10 synchronization\n• Performance and security enhancements",
+                releaseDate = "October 06, 2026",
+                downloadUrl = "https://github.com/kaspa-browser/kaspa-browser/releases/latest/download/kaspa-browser.apk",
+                apkSizeBytes = 29_884_416L,
+                apkSizeFormatted = "28.5 MB",
+                sha256Checksum = null
+            )
+        }
+        _updateStatus.value = UpdateStatus.Available(info)
+        _showUpdateAvailableDialog.value = true
+    }
+
     fun addToHistory(url: String, title: String) {
         if (url.startsWith("about:") || url.startsWith("data:") || _incognitoMode.value) return
         viewModelScope.launch {

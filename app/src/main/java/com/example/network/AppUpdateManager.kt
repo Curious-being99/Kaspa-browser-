@@ -105,14 +105,14 @@ class AppUpdateManager(
                 packageInfo.versionCode
             }
 
-            val targetUrl = resolveReleaseEndpoint(customEndpoint)
+            val primaryUrl = resolveReleaseEndpoint(customEndpoint)
 
             var fetchedInfo: AppUpdateInfo? = null
+            var lastErrorMsg: String? = null
 
-            // 1. Query remote GitHub release endpoint
             try {
                 val request = Request.Builder()
-                    .url(targetUrl)
+                    .url(primaryUrl)
                     .header("User-Agent", "KaspaBrowser-Android/${currentVersionName}")
                     .header("Accept", "application/vnd.github.v3+json, application/json")
                     .build()
@@ -124,35 +124,27 @@ class AppUpdateManager(
                             fetchedInfo = parseReleaseJson(body, currentVersionName, currentVersionCode)
                         }
                     } else {
-                        android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP ${response.code}")
+                        val code = response.code
+                        lastErrorMsg = "HTTP $code from $primaryUrl"
+                        android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP $code")
                     }
                 }
             } catch (e: Exception) {
+                lastErrorMsg = e.message ?: "Network error"
                 android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
             }
 
-            // 2. If remote manifest is retrieved, return real release info.
-            // If remote endpoint returned 404/no releases published on GitHub yet, return Up to Date.
-            val updateInfo = fetchedInfo ?: AppUpdateInfo(
-                latestVersionName = currentVersionName,
-                latestVersionCode = currentVersionCode,
-                currentVersionName = currentVersionName,
-                currentVersionCode = currentVersionCode,
-                isUpdateAvailable = false,
-                releaseTitle = "KaspaBrowser v$currentVersionName",
-                releaseNotes = "You are running the latest release of KaspaBrowser. No newer releases published on GitHub.",
-                releaseDate = formatIsoDate(""),
-                downloadUrl = "",
-                apkSizeBytes = 0L,
-                apkSizeFormatted = "0 MB",
-                sha256Checksum = null
-            )
+            if (fetchedInfo != null) {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().putLong(KEY_LAST_CHECKED_TS, System.currentTimeMillis()).apply()
+                return@withContext Result.success(fetchedInfo!!)
+            }
 
-            // Save last checked timestamp in preferences
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().putLong(KEY_LAST_CHECKED_TS, System.currentTimeMillis()).apply()
+            val repoDisplay = if (!customEndpoint.isNullOrBlank()) customEndpoint else "kaspa-browser/kaspa-browser"
+            val detailMsg = lastErrorMsg ?: "HTTP 404 Not Found"
+            val finalError = "GitHub repository '$repoDisplay' returned no releases ($detailMsg). Please set your GitHub repo (e.g. username/repo) under 'GitHub Source' below."
 
-            Result.success(updateInfo)
+            Result.failure(IllegalStateException(finalError))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -305,15 +297,27 @@ class AppUpdateManager(
     /**
      * Parses GitHub Releases or standard release manifest JSON.
      */
-    private fun parseReleaseJson(
+    internal fun parseReleaseJson(
         jsonString: String,
         currentVersionName: String,
         currentVersionCode: Int
     ): AppUpdateInfo {
-        val json = JSONObject(jsonString)
-        val tagName = json.optString("tag_name", "").removePrefix("v")
-        val releaseName = json.optString("name", "Kaspa Browser Update $tagName")
-        val releaseBody = json.optString("body", "• Performance improvements\n• Enhanced Kaspa Testnet 10 support\n• Security and stability updates")
+        val trimmed = jsonString.trim()
+        val json: JSONObject = try {
+            if (trimmed.startsWith("[")) {
+                val array = org.json.JSONArray(trimmed)
+                if (array.length() > 0) array.getJSONObject(0) else throw IllegalArgumentException("Empty release array")
+            } else {
+                JSONObject(trimmed)
+            }
+        } catch (e: Exception) {
+            throw IllegalArgumentException("Invalid release JSON: ${e.message}")
+        }
+
+        val rawTag = json.optString("tag_name", "").ifBlank { json.optString("name", "") }
+        val tagName = rawTag.trim().removePrefix("v").removePrefix("V")
+        val releaseName = json.optString("name", "").ifBlank { "Kaspa Browser Release v$tagName" }
+        val releaseBody = json.optString("body", "").ifBlank { "• Performance improvements\n• Enhanced Kaspa Testnet 10 support\n• Security and stability updates" }
         val publishedAt = json.optString("published_at", "")
         val formattedDate = formatIsoDate(publishedAt)
 
@@ -326,12 +330,19 @@ class AppUpdateManager(
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 val name = asset.optString("name", "")
-                if (name.endsWith(".apk", ignoreCase = true)) {
-                    downloadUrl = asset.optString("browser_download_url", "")
+                val url = asset.optString("browser_download_url", "")
+                if (url.isNotBlank() && (name.endsWith(".apk", ignoreCase = true) || name.contains("kaspa", ignoreCase = true) || name.contains("app", ignoreCase = true))) {
+                    downloadUrl = url
                     apkSize = asset.optLong("size", 0L)
-                    break
+                    if (name.endsWith(".apk", ignoreCase = true)) break
                 }
             }
+        }
+
+        val htmlUrl = json.optString("html_url", "")
+        if (downloadUrl.isBlank() && htmlUrl.isNotBlank()) {
+            val cleanTag = if (rawTag.isNotBlank()) rawTag else "v1.1.0"
+            downloadUrl = "$htmlUrl/download/$cleanTag/kaspa-browser.apk"
         }
 
         if (downloadUrl.isBlank()) {
@@ -339,7 +350,7 @@ class AppUpdateManager(
         }
 
         val targetVersionName = if (tagName.isNotBlank()) tagName else "1.1.0"
-        val isNewer = compareVersions(targetVersionName, currentVersionName) > 0
+        val isNewer = compareVersions(targetVersionName, currentVersionName) >= 0
 
         val formattedSize = if (apkSize > 0) {
             "%.1f MB".format(apkSize / (1024.0 * 1024.0))

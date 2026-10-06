@@ -1984,9 +1984,10 @@ fun KaspaUpdateZoneCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Notice: ${status.message}",
+                            text = status.message,
                             fontSize = 11.sp,
                             color = RedTamper,
+                            lineHeight = 15.sp,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -1996,34 +1997,69 @@ fun KaspaUpdateZoneCard(
                 else -> {}
             }
 
-            // Primary "Check for Updates" Button
+            // Action Buttons: Check for Updates & Open Update Pop-Up Modal
             if (updateStatus !is UpdateStatus.Available && updateStatus !is UpdateStatus.Downloading && updateStatus !is UpdateStatus.ReadyToInstall) {
-                OutlinedButton(
-                    onClick = { viewModel.checkForUpdates(isUserInitiated = true) },
-                    enabled = updateStatus !is UpdateStatus.Checking,
-                    shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp)
-                        .testTag("check_updates_button")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    OutlinedButton(
+                        onClick = { viewModel.checkForUpdates(isUserInitiated = true) },
+                        enabled = updateStatus !is UpdateStatus.Checking,
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .testTag("check_updates_button")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (updateStatus is UpdateStatus.Checking) "Checking..." else "Check for Updates",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (updateStatus is UpdateStatus.Checking) "Checking..." else "Check Update",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = { viewModel.forceShowUpdateDialog() },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = KaspaTea,
+                            contentColor = ObsidianBg
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .testTag("open_update_modal_button")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Update Modal",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
