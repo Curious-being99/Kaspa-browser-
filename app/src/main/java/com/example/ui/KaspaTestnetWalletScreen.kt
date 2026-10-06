@@ -92,6 +92,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -99,6 +102,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -194,7 +199,7 @@ fun KaspaTestnetWalletScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -218,20 +223,32 @@ fun KaspaTestnetWalletScreen(
                     Spacer(modifier = Modifier.width(6.dp))
 
                     Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Kaspa Wallet",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = KaspaTea.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "TN10",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = KaspaTea,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                         Text(
-                            text = "KaspaBrowser Wallet",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Kaspa Testnet 10 (TN10)",
-                            fontSize = 10.5.sp,
-                            color = KaspaTea,
-                            fontFamily = FontFamily.Monospace,
-                            maxLines = 1
+                            text = activeAccount?.handle ?: "Kaspa Testnet 10",
+                            fontSize = 11.sp,
+                            color = TextMuted
                         )
                     }
                 }
@@ -240,39 +257,23 @@ fun KaspaTestnetWalletScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    // Create New Wallet Button
-                    Surface(
+                    IconButton(
                         onClick = { showCreateWalletDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        color = SurfaceDark,
-                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
-                        modifier = Modifier.testTag("wallet_create_button")
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("wallet_create_button")
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Create Wallet",
-                                tint = KaspaTea,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "Create",
-                                color = TextPrimary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Create Wallet",
+                            tint = KaspaTea
+                        )
                     }
 
                     IconButton(
                         onClick = { viewModel.refreshTestnetWallet() },
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .testTag("refresh_wallet_button")
                     ) {
                         Icon(
@@ -286,7 +287,7 @@ fun KaspaTestnetWalletScreen(
                     IconButton(
                         onClick = { showSeedPhraseDialog = true },
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .testTag("wallet_keys_button")
                     ) {
                         Icon(
@@ -302,38 +303,40 @@ fun KaspaTestnetWalletScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 color = SurfaceDark,
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(8.dp),
                 border = BorderStroke(1.dp, SurfaceCardBorder)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Science,
                         contentDescription = null,
                         tint = KaspaTea,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Isolated Testnet 10 environment. Test coins have no real-world monetary value.",
+                        text = "Isolated Testnet 10 environment · Free testnet KAS",
                         color = TextSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp
+                        fontSize = 10.5.sp,
+                        maxLines = 1
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Main Hero Balance Card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 2.dp)
+                    .padding(horizontal = 16.dp)
                     .testTag("wallet_balance_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = SurfaceCard),
                 border = BorderStroke(
                     1.dp,
@@ -345,7 +348,8 @@ fun KaspaTestnetWalletScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp)
+                        .padding(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -355,97 +359,55 @@ fun KaspaTestnetWalletScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(7.dp)
+                                    .size(6.dp)
                                     .clip(CircleShape)
                                     .background(KaspaTea)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Testnet 10 • api-tn10.kaspa.org",
+                                text = "api-tn10.kaspa.org",
                                 fontSize = 10.5.sp,
                                 color = TextMuted,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                onClick = { showCreateWalletDialog = true },
-                                color = SurfaceDark,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
-                                modifier = Modifier
-                                    .padding(end = 4.dp)
-                                    .testTag("card_create_wallet_chip")
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Add,
-                                        contentDescription = null,
-                                        tint = KaspaTea,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(2.dp))
-                                    Text(
-                                        text = "New",
-                                        fontSize = 10.5.sp,
-                                        color = TextPrimary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                color = SurfaceDark,
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, SurfaceCardBorder)
-                            ) {
-                                Text(
-                                    text = "${walletState.utxosCount} UTXOs",
-                                    fontSize = 10.5.sp,
-                                    color = KaspaTea,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            }
+                        Surface(
+                            color = SurfaceDark,
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, SurfaceCardBorder)
+                        ) {
+                            Text(
+                                text = "${walletState.utxosCount} UTXOs",
+                                fontSize = 10.sp,
+                                color = KaspaTea,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "%.8f".format(walletState.balanceKas),
-                        fontSize = 22.sp,
+                        text = "%.4f KAS".format(walletState.balanceKas),
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
                         letterSpacing = (-0.5).sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        maxLines = 1
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        Text(
-                            text = "KAS (Testnet)",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = KaspaTea
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "•  %,d Sompi".format(walletState.balanceSompis),
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "≈ %,d Sompis".format(walletState.balanceSompis),
+                        fontSize = 11.sp,
+                        color = TextMuted,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Address Pill with One-Tap Copy
                     Surface(
@@ -457,7 +419,7 @@ fun KaspaTestnetWalletScreen(
                             .clickable {
                                 if (testnetAddress.isNotBlank()) {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa Testnet 10 Address", testnetAddress))
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa Address", testnetAddress))
                                     scope.launch {
                                         snackbarHostState.showSnackbar("Address copied to clipboard!")
                                     }
@@ -466,12 +428,12 @@ fun KaspaTestnetWalletScreen(
                             .testTag("copy_address_chip")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = if (testnetAddress.isNotBlank()) testnetAddress else "Deriving testnet address...",
+                                text = if (testnetAddress.isNotBlank()) testnetAddress else "Deriving address...",
                                 fontSize = 10.5.sp,
                                 color = TextSecondary,
                                 fontFamily = FontFamily.Monospace,
@@ -488,60 +450,62 @@ fun KaspaTestnetWalletScreen(
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 4 Quick Action Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        QuickActionButton(
-                            icon = Icons.Default.Send,
-                            label = "Send",
-                            color = KaspaTea,
-                            modifier = Modifier.weight(1f),
-                            onClick = { selectedTabIndex = 1 }
-                        )
-                        QuickActionButton(
-                            icon = Icons.AutoMirrored.Filled.CallReceived,
-                            label = "Receive",
-                            color = ElectricCyan,
-                            modifier = Modifier.weight(1f),
-                            onClick = { selectedTabIndex = 2 }
-                        )
-                        QuickActionButton(
-                            icon = Icons.Default.WaterDrop,
-                            label = "Faucet",
-                            color = KaspaTea,
-                            modifier = Modifier.weight(1f),
-                            onClick = { viewModel.openTestnetFaucet(context) }
-                        )
-                        QuickActionButton(
-                            icon = Icons.Default.OpenInBrowser,
-                            label = "Explorer",
-                            color = TextSecondary,
-                            modifier = Modifier.weight(1f),
-                            onClick = { viewModel.openTestnetExplorer() }
-                        )
-                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Tab Navigation
+            // Standalone Action Button Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                QuickActionButton(
+                    icon = Icons.Default.Send,
+                    label = "Send",
+                    color = KaspaTea,
+                    onClick = { selectedTabIndex = 1 }
+                )
+                QuickActionButton(
+                    icon = Icons.AutoMirrored.Filled.CallReceived,
+                    label = "Receive",
+                    color = ElectricCyan,
+                    onClick = { selectedTabIndex = 2 }
+                )
+                QuickActionButton(
+                    icon = Icons.Default.WaterDrop,
+                    label = "Faucet",
+                    color = KaspaTea,
+                    onClick = { viewModel.openTestnetFaucet(context) }
+                )
+                QuickActionButton(
+                    icon = Icons.Default.OpenInBrowser,
+                    label = "Explorer",
+                    color = TextSecondary,
+                    onClick = { viewModel.openTestnetExplorer() }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Single-Line Non-Wrapping Tab Navigation
             val tabs = listOf("History", "Send", "Receive", "Manage")
-            TabRow(
+            ScrollableTabRow(
                 selectedTabIndex = selectedTabIndex,
                 containerColor = ObsidianBg,
                 contentColor = KaspaTea,
+                edgePadding = 16.dp,
                 indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                        color = KaspaTea,
-                        height = 2.5.dp
-                    )
+                    if (selectedTabIndex < tabPositions.size) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                            color = KaspaTea,
+                            height = 2.5.dp
+                        )
+                    }
                 },
                 divider = { HorizontalDivider(color = SurfaceCardBorder) }
             ) {
@@ -554,7 +518,8 @@ fun KaspaTestnetWalletScreen(
                                 text = title,
                                 fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
                                 color = if (selectedTabIndex == index) KaspaTea else TextMuted,
-                                fontSize = 12.5.sp
+                                fontSize = 13.sp,
+                                maxLines = 1
                             )
                         }
                     )
@@ -942,34 +907,33 @@ private fun QuickActionButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = SurfaceDark,
-        border = BorderStroke(1.dp, SurfaceCardBorder),
-        modifier = modifier
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.clickable(onClick = onClick)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp)
+        Surface(
+            shape = CircleShape,
+            color = color.copy(alpha = 0.15f),
+            border = BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+            modifier = Modifier.size(42.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = color,
-                modifier = Modifier.size(17.dp)
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = label,
-                fontSize = 11.sp,
-                color = TextPrimary,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = color,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = TextPrimary,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1
+        )
     }
 }
 
@@ -1609,6 +1573,7 @@ fun WalletSetupFlow(
 ) {
     var step by remember { mutableStateOf(WalletSetupStep.WELCOME) }
     var walletName by remember { mutableStateOf("Kaspa TN10 Wallet") }
+    var walletPassword by remember { mutableStateOf("") }
     var passphrase by remember { mutableStateOf("") }
     var generatedMnemonic by remember { mutableStateOf("") }
     var importMnemonicInput by remember { mutableStateOf("") }
@@ -1651,6 +1616,8 @@ fun WalletSetupFlow(
                 CreateDetailsSetupView(
                     walletName = walletName,
                     onWalletNameChange = { walletName = it },
+                    walletPassword = walletPassword,
+                    onWalletPasswordChange = { walletPassword = it },
                     passphrase = passphrase,
                     onPassphraseChange = { passphrase = it },
                     onBack = { step = WalletSetupStep.WELCOME },
@@ -1664,6 +1631,9 @@ fun WalletSetupFlow(
                     onConfirmedChange = { hasConfirmedBackup = it },
                     onBack = { step = WalletSetupStep.CREATE_DETAILS },
                     onComplete = {
+                        if (walletPassword.length >= 8) {
+                            viewModel.setWalletPassword(walletPassword)
+                        }
                         viewModel.importTestnetWallet(generatedMnemonic, walletName, passphrase)
                     },
                     onCopy = {
@@ -1679,10 +1649,15 @@ fun WalletSetupFlow(
                     onMnemonicChange = { importMnemonicInput = it },
                     walletName = walletName,
                     onWalletNameChange = { walletName = it },
+                    walletPassword = walletPassword,
+                    onWalletPasswordChange = { walletPassword = it },
                     passphrase = passphrase,
                     onPassphraseChange = { passphrase = it },
                     onBack = { step = WalletSetupStep.WELCOME },
                     onImport = {
+                        if (walletPassword.length >= 8) {
+                            viewModel.setWalletPassword(walletPassword)
+                        }
                         viewModel.importTestnetWallet(importMnemonicInput, walletName, passphrase)
                     }
                 )
@@ -1844,15 +1819,21 @@ private fun WelcomeSetupView(
 private fun CreateDetailsSetupView(
     walletName: String,
     onWalletNameChange: (String) -> Unit,
+    walletPassword: String,
+    onWalletPasswordChange: (String) -> Unit,
     passphrase: String,
     onPassphraseChange: (String) -> Unit,
     onBack: () -> Unit,
     onContinue: () -> Unit
 ) {
+    var isPasswordVisible by remember { mutableStateOf(false) }
+    val isPasswordValid = walletPassword.length >= 8
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
@@ -1866,11 +1847,11 @@ private fun CreateDetailsSetupView(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text("Configure Wallet", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    Text("Step 1 of 2: Name & Passphrase", fontSize = 12.sp, color = TextSecondary)
+                    Text("Step 1 of 2: Security & Passphrase", fontSize = 12.sp, color = TextSecondary)
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             OutlinedTextField(
                 value = walletName,
@@ -1886,7 +1867,45 @@ private fun CreateDetailsSetupView(
                 singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            OutlinedTextField(
+                value = walletPassword,
+                onValueChange = onWalletPasswordChange,
+                label = { Text("Wallet Password (8 chars minimum)") },
+                placeholder = { Text("Enter 8+ character password") },
+                trailingIcon = {
+                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                        Icon(
+                            imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
+                            tint = KaspaTea
+                        )
+                    }
+                },
+                visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                supportingText = {
+                    if (isPasswordValid) {
+                        Text("✓ Password length valid (8+ characters)", color = KaspaTea, fontSize = 11.sp)
+                    } else {
+                        Text(
+                            text = if (walletPassword.isEmpty()) "Mandatory: Minimum 8 characters required before activating wallet." else "Must be at least 8 characters (${walletPassword.length}/8)",
+                            color = if (walletPassword.isEmpty()) TextMuted else MaterialTheme.colorScheme.error,
+                            fontSize = 11.sp
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().testTag("setup_wallet_password_input"),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = if (isPasswordValid) KaspaTea else SurfaceCardBorder,
+                    unfocusedBorderColor = SurfaceCardBorder,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
+                ),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             OutlinedTextField(
                 value = passphrase,
@@ -1907,16 +1926,19 @@ private fun CreateDetailsSetupView(
             )
         }
 
+        Spacer(modifier = Modifier.height(20.dp))
+
         Button(
             onClick = onContinue,
-            colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+            enabled = walletName.isNotBlank() && isPasswordValid,
+            colors = ButtonDefaults.buttonColors(containerColor = KaspaTea, disabledContainerColor = SurfaceCardBorder),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp)
                 .testTag("setup_continue_backup_button")
         ) {
-            Text("Generate Recovery Phrase", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text("Generate Recovery Phrase", color = if (walletName.isNotBlank() && isPasswordValid) SurfaceDark else TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
     }
 }
@@ -2074,20 +2096,25 @@ private fun ImportPhraseSetupView(
     onMnemonicChange: (String) -> Unit,
     walletName: String,
     onWalletNameChange: (String) -> Unit,
+    walletPassword: String,
+    onWalletPasswordChange: (String) -> Unit,
     passphrase: String,
     onPassphraseChange: (String) -> Unit,
     onBack: () -> Unit,
     onImport: () -> Unit
 ) {
+    var isPasswordVisible by remember { mutableStateOf(false) }
     val wordCount = remember(mnemonicInput) {
         mnemonicInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
     }
     val isValidCount = wordCount == 12 || wordCount == 24
+    val isPasswordValid = walletPassword.length >= 8
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
@@ -2105,7 +2132,7 @@ private fun ImportPhraseSetupView(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
                 value = mnemonicInput,
@@ -2117,7 +2144,7 @@ private fun ImportPhraseSetupView(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(130.dp)
+                    .height(120.dp)
                     .testTag("setup_import_mnemonic_input"),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = KaspaTea,
@@ -2147,6 +2174,44 @@ private fun ImportPhraseSetupView(
             Spacer(modifier = Modifier.height(10.dp))
 
             OutlinedTextField(
+                value = walletPassword,
+                onValueChange = onWalletPasswordChange,
+                label = { Text("Wallet Password (8 chars minimum)") },
+                placeholder = { Text("Enter 8+ character password") },
+                trailingIcon = {
+                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                        Icon(
+                            imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
+                            tint = KaspaTea
+                        )
+                    }
+                },
+                visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                supportingText = {
+                    if (isPasswordValid) {
+                        Text("✓ Password length valid (8+ characters)", color = KaspaTea, fontSize = 11.sp)
+                    } else {
+                        Text(
+                            text = if (walletPassword.isEmpty()) "Mandatory: Minimum 8 characters required before activating wallet." else "Must be at least 8 characters (${walletPassword.length}/8)",
+                            color = if (walletPassword.isEmpty()) TextMuted else MaterialTheme.colorScheme.error,
+                            fontSize = 11.sp
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().testTag("setup_import_password_input"),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = if (isPasswordValid) KaspaTea else SurfaceCardBorder,
+                    unfocusedBorderColor = SurfaceCardBorder,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary
+                ),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedTextField(
                 value = passphrase,
                 onValueChange = onPassphraseChange,
                 label = { Text("BIP-39 Passphrase (Optional)") },
@@ -2165,9 +2230,11 @@ private fun ImportPhraseSetupView(
             )
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
         Button(
             onClick = onImport,
-            enabled = isValidCount,
+            enabled = isValidCount && isPasswordValid,
             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea, disabledContainerColor = SurfaceCardBorder),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
@@ -2175,7 +2242,7 @@ private fun ImportPhraseSetupView(
                 .height(50.dp)
                 .testTag("setup_import_submit_button")
         ) {
-            Text("Import & Scan BlockDAG", color = if (isValidCount) SurfaceDark else TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text("Import & Scan BlockDAG", color = if (isValidCount && isPasswordValid) SurfaceDark else TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
     }
 }
