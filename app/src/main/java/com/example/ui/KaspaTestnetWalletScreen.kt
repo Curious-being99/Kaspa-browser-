@@ -69,6 +69,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -193,11 +194,14 @@ fun KaspaTestnetWalletScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     IconButton(
                         onClick = { viewModel.setTab(AppTab.BROWSER_GATEWAY) },
                         modifier = Modifier
@@ -211,51 +215,56 @@ fun KaspaTestnetWalletScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     Column {
                         Text(
                             text = "KaspaBrowser Wallet",
-                            fontSize = 17.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "Kaspa Testnet 10 (TN10)",
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             color = KaspaTea,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
                         )
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
                     // Create New Wallet Button
                     Surface(
                         onClick = { showCreateWalletDialog = true },
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = SurfaceDark,
                         border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .padding(end = 4.dp)
-                            .testTag("wallet_create_button")
+                        modifier = Modifier.testTag("wallet_create_button")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = "Create Wallet",
                                 tint = KaspaTea,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = "Create Wallet",
+                                text = "Create",
                                 color = TextPrimary,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
                             )
                         }
                     }
@@ -263,7 +272,7 @@ fun KaspaTestnetWalletScreen(
                     IconButton(
                         onClick = { viewModel.refreshTestnetWallet() },
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .testTag("refresh_wallet_button")
                     ) {
                         Icon(
@@ -277,7 +286,7 @@ fun KaspaTestnetWalletScreen(
                     IconButton(
                         onClick = { showSeedPhraseDialog = true },
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(34.dp)
                             .testTag("wallet_keys_button")
                     ) {
                         Icon(
@@ -322,9 +331,9 @@ fun KaspaTestnetWalletScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
                     .testTag("wallet_balance_card"),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = SurfaceCard),
                 border = BorderStroke(
                     1.dp,
@@ -336,7 +345,7 @@ fun KaspaTestnetWalletScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(20.dp)
+                        .padding(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -346,14 +355,14 @@ fun KaspaTestnetWalletScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
+                                    .size(7.dp)
                                     .clip(CircleShape)
                                     .background(KaspaTea)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "Testnet 10 • api-tn10.kaspa.org",
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 color = TextMuted,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -363,26 +372,26 @@ fun KaspaTestnetWalletScreen(
                             Surface(
                                 onClick = { showCreateWalletDialog = true },
                                 color = SurfaceDark,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
                                 modifier = Modifier
-                                    .padding(end = 6.dp)
+                                    .padding(end = 4.dp)
                                     .testTag("card_create_wallet_chip")
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = null,
                                         tint = KaspaTea,
-                                        modifier = Modifier.size(13.dp)
+                                        modifier = Modifier.size(12.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Spacer(modifier = Modifier.width(2.dp))
                                     Text(
                                         text = "New",
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         color = TextPrimary,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -391,28 +400,30 @@ fun KaspaTestnetWalletScreen(
 
                             Surface(
                                 color = SurfaceDark,
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, SurfaceCardBorder)
                             ) {
                                 Text(
                                     text = "${walletState.utxosCount} UTXOs",
-                                    fontSize = 11.sp,
+                                    fontSize = 10.5.sp,
                                     color = KaspaTea,
                                     fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                                 )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
                         text = "%.8f".format(walletState.balanceKas),
-                        fontSize = 32.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
-                        letterSpacing = (-0.5).sp
+                        letterSpacing = (-0.5).sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
 
                     Row(
@@ -421,20 +432,20 @@ fun KaspaTestnetWalletScreen(
                     ) {
                         Text(
                             text = "KAS (Testnet)",
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = KaspaTea
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "•  %,d Sompi".format(walletState.balanceSompis),
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             color = TextMuted,
                             fontFamily = FontFamily.Monospace
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Address Pill with One-Tap Copy
                     Surface(
@@ -455,13 +466,13 @@ fun KaspaTestnetWalletScreen(
                             .testTag("copy_address_chip")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = if (testnetAddress.isNotBlank()) testnetAddress else "Deriving testnet address...",
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 color = TextSecondary,
                                 fontFamily = FontFamily.Monospace,
                                 maxLines = 1,
@@ -473,12 +484,12 @@ fun KaspaTestnetWalletScreen(
                                 imageVector = Icons.Default.ContentCopy,
                                 contentDescription = "Copy",
                                 tint = KaspaTea,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // 4 Quick Action Buttons
                     Row(
@@ -517,18 +528,19 @@ fun KaspaTestnetWalletScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
             // Tab Navigation
             val tabs = listOf("History", "Send", "Receive", "Manage")
-            ScrollableTabRow(
+            TabRow(
                 selectedTabIndex = selectedTabIndex,
                 containerColor = ObsidianBg,
                 contentColor = KaspaTea,
-                edgePadding = 16.dp,
                 indicator = { tabPositions ->
                     TabRowDefaults.SecondaryIndicator(
                         modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
                         color = KaspaTea,
-                        height = 3.dp
+                        height = 2.5.dp
                     )
                 },
                 divider = { HorizontalDivider(color = SurfaceCardBorder) }
@@ -542,7 +554,7 @@ fun KaspaTestnetWalletScreen(
                                 text = title,
                                 fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
                                 color = if (selectedTabIndex == index) KaspaTea else TextMuted,
-                                fontSize = 13.sp
+                                fontSize = 12.5.sp
                             )
                         }
                     )
@@ -939,20 +951,23 @@ private fun QuickActionButton(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(vertical = 10.dp)
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = color,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(17.dp)
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = label,
                 fontSize = 11.sp,
                 color = TextPrimary,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

@@ -1250,13 +1250,13 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             fontSize = 14.sp
                         )
                         Surface(
-                            shape = CircleShape,
+                            shape = RoundedCornerShape(8.dp),
                             color = ElectricCyan.copy(alpha = 0.12f),
                             border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.3f))
                         ) {
                             Text(
-                                text = "v${com.example.BuildConfig.VERSION_NAME} BlockDAG Core",
-                                fontSize = 10.sp,
+                                text = "v${com.example.BuildConfig.VERSION_NAME}",
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = ElectricCyan,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -2188,11 +2188,11 @@ fun KaspaUpdateZoneCard(
                 OutlinedTextField(
                     value = repoInputText,
                     onValueChange = { repoInputText = it },
-                    placeholder = { Text("owner/repo (e.g. user/kaspa-browser)", fontSize = 11.sp, color = TextMuted) },
+                    placeholder = { Text("owner/repo (e.g. user/kaspa-browser)", fontSize = 12.sp, color = TextMuted) },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .defaultMinSize(minHeight = 56.dp)
                         .testTag("github_repo_input"),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ElectricCyan,
@@ -2202,8 +2202,8 @@ fun KaspaUpdateZoneCard(
                         focusedContainerColor = SurfaceDark,
                         unfocusedContainerColor = SurfaceDark
                     ),
-                    shape = RoundedCornerShape(8.dp),
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    shape = RoundedCornerShape(10.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
