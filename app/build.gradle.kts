@@ -1,9 +1,55 @@
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
+import org.gradle.process.ExecOperations
+import javax.inject.Inject
+import java.io.ByteArrayOutputStream
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
+}
+
+abstract class GitCommitCountValueSource : ValueSource<Int, ValueSourceParameters.None> {
+  @get:Inject
+  abstract val execOperations: ExecOperations
+
+  override fun obtain(): Int {
+    return try {
+      val output = ByteArrayOutputStream()
+      execOperations.exec {
+        commandLine("git", "rev-list", "--count", "HEAD")
+        standardOutput = output
+        isIgnoreExitValue = true
+      }
+      output.toString().trim().toIntOrNull() ?: 1
+    } catch (_: Exception) {
+      1
+    }
+  }
+}
+
+// Automatically resolve version code and name from GitHub Run Number or Git commit count
+val resolvedVersionCode: Int = run {
+  val ghRun = System.getenv("GITHUB_RUN_NUMBER")
+  if (!ghRun.isNullOrBlank()) {
+    val num = ghRun.toIntOrNull()
+    if (num != null) return@run 100 + num
+  }
+  val gitCount = providers.of(GitCommitCountValueSource::class.java) {}.getOrElse(1)
+  100 + gitCount
+}
+
+val resolvedVersionName: String = run {
+  val ghRun = System.getenv("GITHUB_RUN_NUMBER")
+  if (!ghRun.isNullOrBlank()) {
+    val num = ghRun.toIntOrNull()
+    if (num != null) return@run "1.0.$num"
+  }
+  val gitCount = providers.of(GitCommitCountValueSource::class.java) {}.getOrElse(1)
+  "1.0.$gitCount"
 }
 
 android {
@@ -14,8 +60,9 @@ android {
     applicationId = "org.kaspa.browser"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0.0"
+
+    versionCode = resolvedVersionCode
+    versionName = resolvedVersionName
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -1680,9 +1680,10 @@ private fun WelcomeSetupView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(18.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.Top
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1700,84 +1701,83 @@ private fun WelcomeSetupView(
             }
         }
 
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Surface(
+            shape = CircleShape,
+            color = KaspaTea.copy(alpha = 0.12f),
+            border = BorderStroke(1.5.dp, KaspaTea.copy(alpha = 0.4f)),
+            modifier = Modifier.size(70.dp)
         ) {
-            Surface(
-                shape = CircleShape,
-                color = KaspaTea.copy(alpha = 0.12f),
-                border = BorderStroke(1.5.dp, KaspaTea.copy(alpha = 0.4f)),
-                modifier = Modifier.size(80.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.AccountBalanceWallet,
-                        contentDescription = null,
-                        tint = KaspaTea,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Text(
-                text = "Kaspa Wallet",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = TextPrimary
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "Testnet 10 • Non-Custodial BlockDAG",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = KaspaTea,
-                fontFamily = FontFamily.Monospace
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = "Fast, secure, and decentralized. Set up your wallet to start transacting on the live Testnet 10 DAG.",
-                fontSize = 13.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Feature Highlights
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = SurfaceCard,
-                border = BorderStroke(1.dp, SurfaceCardBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SetupFeatureItem(
-                        icon = Icons.Default.Shield,
-                        title = "Client-Side Cryptography",
-                        subtitle = "BIP-39 & BIP-44 key derivation stored exclusively on this device."
-                    )
-                    SetupFeatureItem(
-                        icon = Icons.Default.Key,
-                        title = "BIP-39 Passphrase Support",
-                        subtitle = "Optional 13th-word salt for layered recovery security."
-                    )
-                    SetupFeatureItem(
-                        icon = Icons.Default.Science,
-                        title = "Automatic On-Chain Scan",
-                        subtitle = "Instant UTXO and history sync against Testnet 10 RPC nodes."
-                    )
-                }
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalanceWallet,
+                    contentDescription = null,
+                    tint = KaspaTea,
+                    modifier = Modifier.size(36.dp)
+                )
             }
         }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Text(
+            text = "Kaspa Wallet",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = TextPrimary
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = "Testnet 10 • Non-Custodial BlockDAG",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = KaspaTea,
+            fontFamily = FontFamily.Monospace
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "Fast, secure, and decentralized. Set up your wallet to start transacting on the live Testnet 10 DAG.",
+            fontSize = 12.5.sp,
+            color = TextSecondary,
+            textAlign = TextAlign.Center,
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Feature Highlights
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = SurfaceCard,
+            border = BorderStroke(1.dp, SurfaceCardBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SetupFeatureItem(
+                    icon = Icons.Default.Shield,
+                    title = "Client-Side Cryptography",
+                    subtitle = "BIP-39 & BIP-44 key derivation stored exclusively on this device."
+                )
+                SetupFeatureItem(
+                    icon = Icons.Default.Key,
+                    title = "BIP-39 Passphrase Support",
+                    subtitle = "Optional 13th-word salt for layered recovery security."
+                )
+                SetupFeatureItem(
+                    icon = Icons.Default.Science,
+                    title = "Automatic On-Chain Scan",
+                    subtitle = "Instant UTXO and history sync against Testnet 10 RPC nodes."
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Action Buttons
         Column(
@@ -1790,12 +1790,12 @@ private fun WelcomeSetupView(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(48.dp)
                     .testTag("setup_create_wallet_button")
             ) {
                 Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = SurfaceDark)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Create New Wallet", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text("Create New Wallet", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
             }
 
             OutlinedButton(
@@ -1804,12 +1804,12 @@ private fun WelcomeSetupView(
                 border = BorderStroke(1.dp, SurfaceCardBorder),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .height(48.dp)
                     .testTag("setup_import_wallet_button")
             ) {
                 Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = TextPrimary)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Import Existing Wallet", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Text("Import Existing Wallet", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
             }
         }
     }

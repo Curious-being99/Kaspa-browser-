@@ -1102,6 +1102,9 @@ class DecentralViewModel(
             val installResult = updateManager.installApk(context, current.apkFile)
             installResult.onSuccess {
                 _statusMessage.value = "Package installer launched"
+                // Store the successfully installed release tag name so we don't nag the user again after update
+                val prefs = context.getSharedPreferences("kaspa_update_prefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit().putString("last_installed_release_tag", current.updateInfo.latestVersionName).apply()
             }.onFailure { err ->
                 _statusMessage.value = "Install notice: ${err.message}"
             }

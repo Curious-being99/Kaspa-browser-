@@ -59,9 +59,21 @@ class AppUpdateManager(
      * Resolves GitHub repository shorthand (owner/repo or web URL) to the GitHub Releases API endpoint.
      */
     fun resolveReleaseEndpoint(rawInput: String?): String {
-        val clean = rawInput?.trim() ?: ""
+        var clean = rawInput?.trim() ?: ""
         if (clean.isBlank()) return DEFAULT_RELEASE_ENDPOINT
-        if (clean.startsWith("https://api.github.com/repos/")) return clean
+        
+        // Ensure GitHub API calls strictly point to /releases/latest and NEVER fall back to /releases
+        if (clean.startsWith("https://api.github.com/repos/", ignoreCase = true)) {
+            val apiPrefix = "https://api.github.com/repos/"
+            val relativePath = clean.substring(apiPrefix.length)
+            val segments = relativePath.split("/").filter { it.isNotBlank() }
+            if (segments.size >= 2) {
+                val owner = segments[0]
+                val repo = segments[1]
+                return "https://api.github.com/repos/$owner/$repo/releases/latest"
+            }
+            return clean
+        }
         
         // Handle https://github.com/owner/repo or https://github.com/owner/repo/releases
         if (clean.startsWith("http://", ignoreCase = true) || clean.startsWith("https://", ignoreCase = true)) {
@@ -142,6 +154,17 @@ class AppUpdateManager(
 
             if (fetchedInfo != null) {
                 val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val lastInstalledTag = prefs.getString("last_installed_release_tag", "") ?: ""
+
+                // If the latest release name matches the last successfully installed release tag,
+                // then mark isUpdateAvailable as false to avoid duplicate prompts
+                if (fetchedInfo!!.latestVersionName.equals(lastInstalledTag, ignoreCase = true)) {
+                    fetchedInfo = fetchedInfo!!.copy(
+                        isUpdateAvailable = false,
+                        releaseNotes = "You have already updated to the latest release v${fetchedInfo!!.latestVersionName}."
+                    )
+                }
+
                 prefs.edit().putLong(KEY_LAST_CHECKED_TS, System.currentTimeMillis()).apply()
                 return@withContext Result.success(fetchedInfo!!)
             }
@@ -331,8 +354,8 @@ class AppUpdateManager(
         val trimmed = jsonString.trim()
         val json: JSONObject = try {
             if (trimmed.startsWith("[")) {
-                val array = org.json.JSONArray(trimmed)
-                if (array.length() > 0) array.getJSONObject(0) else throw IllegalArgumentException("Empty release array")
+                // Reject fallback to /releases array if not latest release
+                throw IllegalArgumentException("JSON Arrays from /releases are not allowed. Only /releases/latest is supported.")
             } else {
                 JSONObject(trimmed)
             }
