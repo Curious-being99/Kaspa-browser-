@@ -415,13 +415,13 @@ class AppUpdateManager(
         val clean1 = v1.trim().removePrefix("v").removePrefix("V").split("-")[0]
         val clean2 = v2.trim().removePrefix("v").removePrefix("V").split("-")[0]
 
-        val parts1 = clean1.split(".").mapNotNull { it.toIntOrNull() }
-        val parts2 = clean2.split(".").mapNotNull { it.toIntOrNull() }
+        val parts1 = clean1.split(".").map { it.toLongOrNull() ?: 0L }
+        val parts2 = clean2.split(".").map { it.toLongOrNull() ?: 0L }
 
         val maxLen = maxOf(parts1.size, parts2.size)
         for (i in 0 until maxLen) {
-            val p1 = parts1.getOrElse(i) { 0 }
-            val p2 = parts2.getOrElse(i) { 0 }
+            val p1 = parts1.getOrElse(i) { 0L }
+            val p2 = parts2.getOrElse(i) { 0L }
             if (p1 != p2) {
                 return p1.compareTo(p2)
             }
