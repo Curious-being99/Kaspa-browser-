@@ -110,8 +110,8 @@ class KaspaAppUpdateManagerUnitTest {
 
         val info = updateManager.parseReleaseJson(singleReleaseJson, "1.0.0", 1)
         
-        // Assert that even if target version matches current version, isUpdateAvailable is true (same-version updates allowed!)
-        assertTrue(info.isUpdateAvailable)
+        // Assert that once updated to the same latest release tag, isUpdateAvailable is false (won't nag again!)
+        assertFalse(info.isUpdateAvailable)
         assertEquals("1.0.0", info.latestVersionName)
         assertEquals("https://github.com/kaspa-browser/kaspa-browser/releases/download/v1.0.0/kaspa-browser-v1.0.0.apk", info.downloadUrl)
         assertEquals(29884416L, info.apkSizeBytes)

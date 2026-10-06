@@ -2197,7 +2197,7 @@ fun KaspaUpdateZoneCard(
                             color = TextPrimary
                         )
                         Text(
-                            text = if (customManifestUrl.isNotBlank()) customManifestUrl else "kaspa-browser/kaspa-browser",
+                            text = if (customManifestUrl.isNotBlank()) customManifestUrl else "Curious-being99/Kaspa-browser-",
                             fontSize = 10.sp,
                             color = ElectricCyan,
                             fontFamily = FontFamily.Monospace,

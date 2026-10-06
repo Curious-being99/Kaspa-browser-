@@ -38,7 +38,7 @@ class AppUpdateManager(
 ) {
 
     companion object {
-        const val DEFAULT_RELEASE_ENDPOINT = "https://api.github.com/repos/kaspa-browser/kaspa-browser/releases/latest"
+        const val DEFAULT_RELEASE_ENDPOINT = "https://api.github.com/repos/Curious-being99/Kaspa-browser-/releases/latest"
         private const val PREFS_NAME = "kaspa_update_prefs"
         private const val KEY_AUTO_CHECK = "auto_check_updates_enabled"
         private const val KEY_CUSTOM_MANIFEST_URL = "custom_manifest_url"
@@ -109,6 +109,7 @@ class AppUpdateManager(
 
             var fetchedInfo: AppUpdateInfo? = null
             var lastErrorMsg: String? = null
+            var isGracefulNoRelease = false
 
             try {
                 val request = Request.Builder()
@@ -125,7 +126,12 @@ class AppUpdateManager(
                         }
                     } else {
                         val code = response.code
-                        lastErrorMsg = "HTTP $code from $primaryUrl"
+                        if (code == 404) {
+                            // Repository exists but has no releases published yet -> treat gracefully
+                            isGracefulNoRelease = true
+                        } else {
+                            lastErrorMsg = "HTTP $code from $primaryUrl"
+                        }
                         android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP $code")
                     }
                 }
@@ -140,9 +146,29 @@ class AppUpdateManager(
                 return@withContext Result.success(fetchedInfo!!)
             }
 
-            val repoDisplay = if (!customEndpoint.isNullOrBlank()) customEndpoint else "kaspa-browser/kaspa-browser"
+            if (isGracefulNoRelease || lastErrorMsg == null) {
+                val defaultInfo = AppUpdateInfo(
+                    latestVersionName = currentVersionName,
+                    latestVersionCode = currentVersionCode,
+                    currentVersionName = currentVersionName,
+                    currentVersionCode = currentVersionCode,
+                    isUpdateAvailable = false,
+                    releaseTitle = "KaspaBrowser v$currentVersionName",
+                    releaseNotes = "No newer releases published on GitHub. Check back later or configure your own public repository under 'GitHub Source'.",
+                    releaseDate = formatIsoDate(""),
+                    downloadUrl = "",
+                    apkSizeBytes = 0L,
+                    apkSizeFormatted = "0 MB",
+                    sha256Checksum = null
+                )
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().putLong(KEY_LAST_CHECKED_TS, System.currentTimeMillis()).apply()
+                return@withContext Result.success(defaultInfo)
+            }
+
+            val repoDisplay = if (!customEndpoint.isNullOrBlank()) customEndpoint else "Curious-being99/Kaspa-browser-"
             val detailMsg = lastErrorMsg ?: "HTTP 404 Not Found"
-            val finalError = "GitHub repository '$repoDisplay' returned no releases ($detailMsg). Please set your GitHub repo (e.g. username/repo) under 'GitHub Source' below."
+            val finalError = "GitHub repository '$repoDisplay' returned an error ($detailMsg). Please ensure the repository is public and has a published release tag with an attached APK asset."
 
             Result.failure(IllegalStateException(finalError))
         } catch (e: Exception) {
@@ -346,11 +372,11 @@ class AppUpdateManager(
         }
 
         if (downloadUrl.isBlank()) {
-            downloadUrl = json.optString("download_url", "https://github.com/kaspa-browser/kaspa-browser/releases/latest/download/kaspa-browser.apk")
+            downloadUrl = json.optString("download_url", "https://github.com/Curious-being99/Kaspa-browser-/releases/latest/download/KaspaBrowser-release-signed.apk")
         }
 
         val targetVersionName = if (tagName.isNotBlank()) tagName else "1.1.0"
-        val isNewer = compareVersions(targetVersionName, currentVersionName) >= 0
+        val isNewer = compareVersions(targetVersionName, currentVersionName) > 0
 
         val formattedSize = if (apkSize > 0) {
             "%.1f MB".format(apkSize / (1024.0 * 1024.0))

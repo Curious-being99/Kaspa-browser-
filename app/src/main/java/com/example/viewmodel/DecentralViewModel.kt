@@ -1137,7 +1137,7 @@ class DecentralViewModel(
                 releaseTitle = "KaspaBrowser Official Release v1.0.1",
                 releaseNotes = "• Official GitHub Release build\n• In-app sideload engine updates\n• BlockDAG Testnet 10 synchronization\n• Performance and security enhancements",
                 releaseDate = "October 06, 2026",
-                downloadUrl = "https://github.com/kaspa-browser/kaspa-browser/releases/latest/download/kaspa-browser.apk",
+                downloadUrl = "https://github.com/Curious-being99/Kaspa-browser-/releases/latest/download/KaspaBrowser-release-signed.apk",
                 apkSizeBytes = 29_884_416L,
                 apkSizeFormatted = "28.5 MB",
                 sha256Checksum = null
