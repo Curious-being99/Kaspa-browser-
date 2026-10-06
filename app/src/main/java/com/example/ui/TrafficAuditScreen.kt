@@ -1729,11 +1729,11 @@ fun KaspaUpdateZoneCard(
                     val info = status.updateInfo
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = KaspaTea.copy(alpha = 0.08f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea.copy(alpha = 0.35f))
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.Transparent,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.4f))
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1744,37 +1744,38 @@ fun KaspaUpdateZoneCard(
                                         imageVector = Icons.Default.NewReleases,
                                         contentDescription = null,
                                         tint = KaspaTea,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Version v${info.latestVersionName} Available",
+                                        text = "Version v${info.latestVersionName}",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         color = TextPrimary
                                     )
                                 }
-                                Text(
-                                    text = info.apkSizeFormatted,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = KaspaTea
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = KaspaTea.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = info.apkSizeFormatted,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = KaspaTea,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
-
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Published: ${info.releaseDate}",
-                                fontSize = 10.sp,
-                                color = TextMuted
-                            )
 
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = info.releaseNotes,
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 color = TextSecondary,
-                                lineHeight = 15.5.sp
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                                lineHeight = 14.sp
                             )
 
                             Spacer(modifier = Modifier.height(12.dp))
@@ -1785,10 +1786,10 @@ fun KaspaUpdateZoneCard(
                                     containerColor = KaspaTea,
                                     contentColor = ObsidianBg
                                 ),
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(42.dp)
+                                    .height(36.dp)
                                     .testTag("download_install_update_button")
                             ) {
                                 Row(
@@ -1798,13 +1799,13 @@ fun KaspaUpdateZoneCard(
                                     Icon(
                                         imageVector = Icons.Default.CloudDownload,
                                         contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Direct Sideload & Install APK",
+                                        text = "Direct Install APK",
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 12.5.sp
+                                        fontSize = 12.sp
                                     )
                                 }
                             }

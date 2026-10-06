@@ -43,7 +43,9 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
+import com.example.utils.BiometricAuthHelper
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
@@ -146,10 +148,20 @@ fun KaspaTestnetWalletScreen(
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
 
+    val isLocked by viewModel.isWalletLocked.collectAsState()
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
     var showSeedPhraseDialog by remember { mutableStateOf(false) }
+    var seedPhrasePasswordInput by remember { mutableStateOf("") }
+    var isSeedPhraseRevealed by remember { mutableStateOf(false) }
+    var seedPhraseError by remember { mutableStateOf<String?>(null) }
+
     var showCreateWalletDialog by remember { mutableStateOf(false) }
     var showImportWalletDialog by remember { mutableStateOf(false) }
+
     var showSignOutConfirmDialog by remember { mutableStateOf(false) }
+    var signOutPasswordInput by remember { mutableStateOf("") }
+    var signOutError by remember { mutableStateOf<String?>(null) }
 
     // Screen Overlays State (Full Page Button UIs)
     var showSendScreen by remember { mutableStateOf(false) }
@@ -202,8 +214,6 @@ fun KaspaTestnetWalletScreen(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .statusBarsPadding()
-            .navigationBarsPadding()
             .testTag("kaspa_testnet_wallet_screen")
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -212,6 +222,7 @@ fun KaspaTestnetWalletScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .statusBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -592,6 +603,16 @@ fun KaspaTestnetWalletScreen(
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 16.dp)
         )
+
+        // --- AUTHENTIC LOCK SCREEN OVERLAY ---
+        if (isLocked) {
+            WalletLockOverlay(
+                viewModel = viewModel,
+                onUnlock = { 
+                    // Clear any local lock screen state if needed
+                }
+            )
+        }
     }
 
     // Confirmation Dialog for Sending
@@ -663,54 +684,94 @@ fun KaspaTestnetWalletScreen(
         )
     }
 
-    // Seed Phrase Backup Dialog
+    // Seed Phrase Backup Dialog (Secure Click-to-Reveal)
     if (showSeedPhraseDialog) {
         val seedPhrase = viewModel.getActiveSeedPhrase() ?: ""
         var isSeedRevealed by remember { mutableStateOf(false) }
+        var passwordInput by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf<String?>(null) }
 
         AlertDialog(
-            onDismissRequest = { showSeedPhraseDialog = false },
+            onDismissRequest = { 
+                showSeedPhraseDialog = false 
+                isSeedRevealed = false
+                passwordInput = ""
+                errorText = null
+            },
             containerColor = SurfaceCard,
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = AmberCentral)
+                    Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = AmberCentral)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Wallet Recovery Phrase", fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Secure Recovery Phrase", fontWeight = FontWeight.Bold, color = TextPrimary)
                 }
             },
             text = {
                 Column {
                     Text(
-                        text = "12-word recovery seed for this Kaspa Testnet 10 wallet. Keep it secret.",
+                        text = "Your 12-word recovery seed is the master key to your Kaspa TN10 funds. Never share it with anyone.",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     if (isSeedRevealed) {
                         Surface(
                             color = SurfaceDark,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             border = BorderStroke(1.dp, SurfaceCardBorder),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 text = seedPhrase,
-                                fontSize = 13.sp,
+                                fontSize = 14.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = KaspaTea,
-                                modifier = Modifier.padding(14.dp)
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(16.dp)
                             )
                         }
                     } else {
-                        Button(
-                            onClick = { isSeedRevealed = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(imageVector = Icons.Default.Visibility, contentDescription = null, tint = KaspaTea)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Tap to Reveal Recovery Phrase", color = TextPrimary)
+                        Column {
+                            OutlinedTextField(
+                                value = passwordInput,
+                                onValueChange = { 
+                                    passwordInput = it
+                                    errorText = null 
+                                },
+                                label = { Text("Enter Wallet Password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth(),
+                                isError = errorText != null,
+                                supportingText = {
+                                    if (errorText != null) Text(errorText!!, color = RedTamper)
+                                    else Text("Verify password to reveal your phrase", color = TextMuted)
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = KaspaTea,
+                                    unfocusedBorderColor = SurfaceCardBorder,
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary
+                                ),
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { 
+                                    if (viewModel.unlockWalletWithPassword(passwordInput)) {
+                                        isSeedRevealed = true
+                                        errorText = null
+                                    } else {
+                                        errorText = "Incorrect password"
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(imageVector = Icons.Default.Visibility, contentDescription = null, tint = KaspaTea)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Reveal Recovery Phrase", color = TextPrimary)
+                            }
                         }
                     }
                 }
@@ -730,7 +791,12 @@ fun KaspaTestnetWalletScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showSeedPhraseDialog = false }) {
+                TextButton(onClick = { 
+                    showSeedPhraseDialog = false 
+                    isSeedRevealed = false
+                    passwordInput = ""
+                    errorText = null
+                }) {
                     Text("Close", color = TextMuted)
                 }
             }
@@ -877,39 +943,74 @@ fun KaspaTestnetWalletScreen(
         )
     }
 
-    // Sign Out Confirmation Dialog
+    // Sign Out Confirmation Dialog (Professional with Password Protection)
     if (showSignOutConfirmDialog) {
         AlertDialog(
-            onDismissRequest = { showSignOutConfirmDialog = false },
+            onDismissRequest = { 
+                showSignOutConfirmDialog = false 
+                signOutPasswordInput = ""
+                signOutError = null
+            },
             containerColor = SurfaceCard,
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = RedTamper)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Sign Out of Wallet", fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Sign Out & Disconnect", fontWeight = FontWeight.Bold, color = TextPrimary)
                 }
             },
             text = {
-                Text(
-                    text = "Sign out of your active Kaspa Testnet 10 identity? Your encrypted recovery keys remain safely stored on this device. You will return to the browser.",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
+                Column {
+                    Text(
+                        text = "To sign out and disconnect your wallet from this session, please enter your security password to confirm.",
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = signOutPasswordInput,
+                        onValueChange = { signOutPasswordInput = it },
+                        label = { Text("Wallet Password") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = signOutError != null,
+                        supportingText = {
+                            if (signOutError != null) Text(signOutError!!, color = RedTamper)
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = KaspaTea,
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        ),
+                        singleLine = true
+                    )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        showSignOutConfirmDialog = false
-                        viewModel.signOutActiveAccount()
-                        viewModel.setTab(AppTab.BROWSER_GATEWAY)
+                        if (viewModel.unlockWalletWithPassword(signOutPasswordInput)) {
+                            showSignOutConfirmDialog = false
+                            signOutPasswordInput = ""
+                            signOutError = null
+                            viewModel.signOutActiveAccount()
+                            viewModel.setTab(AppTab.BROWSER_GATEWAY)
+                        } else {
+                            signOutError = "Incorrect wallet password."
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = RedTamper)
                 ) {
-                    Text("Sign Out", color = TextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Confirm Sign Out", color = TextPrimary, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showSignOutConfirmDialog = false }) {
+                TextButton(onClick = { 
+                    showSignOutConfirmDialog = false 
+                    signOutPasswordInput = ""
+                    signOutError = null
+                }) {
                     Text("Cancel", color = TextMuted)
                 }
             }
@@ -1021,13 +1122,33 @@ private fun HistoryTabContent(
             }
         }
     } else {
+        val groupedTransactions = remember(transactions) {
+            transactions.groupBy { tx ->
+                val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                sdf.format(Date(if (tx.blockTime > 1000000000000L) tx.blockTime else tx.blockTime * 1000L))
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp) // Tight vertical spacing for grouped look
         ) {
-            items(transactions, key = { it.txId }) { tx ->
-                TransactionCard(tx = tx, onClick = { onOpenTx(tx.txId) })
+            groupedTransactions.forEach { (date, txs) ->
+                item {
+                    Text(
+                        text = date,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+                }
+                items(txs, key = { it.txId }) { tx ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        TransactionCard(tx = tx, onClick = { onOpenTx(tx.txId) })
+                    }
+                }
             }
         }
     }
@@ -1046,32 +1167,32 @@ private fun TransactionCard(
 
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = SurfaceCard,
-        border = BorderStroke(1.dp, SurfaceCardBorder),
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceDark,
+        border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.3f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = CircleShape,
-                    color = if (isReceive) KaspaTea.copy(alpha = 0.15f) else ElectricCyan.copy(alpha = 0.15f),
-                    modifier = Modifier.size(36.dp)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (isReceive) KaspaTea.copy(alpha = 0.1f) else RedTamper.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
-                            contentDescription = tx.type,
-                            tint = if (isReceive) KaspaTea else ElectricCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
+                        contentDescription = tx.type,
+                        tint = if (isReceive) KaspaTea else RedTamper,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -1080,30 +1201,36 @@ private fun TransactionCard(
                     Text(
                         text = if (isReceive) "Received KAS" else "Sent KAS",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
                     Text(
-                        text = "$dateStr • Tx: ${tx.txId.take(8)}...",
+                        text = dateStr,
                         fontSize = 11.sp,
-                        color = TextMuted,
-                        fontFamily = FontFamily.Monospace
+                        color = TextMuted
                     )
                 }
             }
 
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = "${if (isReceive) "+" else "-"}%.4f KAS".format(tx.amountKas),
+                    text = "${if (isReceive) "+" else "-"}%.4f".format(tx.amountKas),
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
                     color = if (isReceive) KaspaTea else TextPrimary
                 )
-                Text(
-                    text = if (tx.isAccepted) "Accepted on DAG" else "Pending",
-                    fontSize = 10.sp,
-                    color = if (tx.isAccepted) KaspaTea else AmberCentral
-                )
+                Surface(
+                    color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.1f) else AmberCentral.copy(alpha = 0.1f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = if (tx.isAccepted) "Accepted" else "Pending",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (tx.isAccepted) KaspaTea else AmberCentral,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
             }
         }
     }
@@ -2122,6 +2249,7 @@ private fun ImportPhraseSetupView(
     onImport: () -> Unit
 ) {
     var isPasswordVisible by remember { mutableStateOf(false) }
+    var isMnemonicVisible by remember { mutableStateOf(true) }
     val wordCount = remember(mnemonicInput) {
         mnemonicInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
     }
@@ -2157,6 +2285,16 @@ private fun ImportPhraseSetupView(
                 onValueChange = onMnemonicChange,
                 label = { Text("12 or 24-Word Recovery Phrase") },
                 placeholder = { Text("Enter words separated by spaces") },
+                visualTransformation = if (isMnemonicVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { isMnemonicVisible = !isMnemonicVisible }) {
+                        Icon(
+                            imageVector = if (isMnemonicVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = "Toggle Mnemonic Visibility",
+                            tint = KaspaTea
+                        )
+                    }
+                },
                 supportingText = {
                     Text("Words entered: $wordCount (expected 12 or 24)", color = if (isValidCount) KaspaTea else TextMuted, fontSize = 11.sp)
                 },
@@ -2169,8 +2307,7 @@ private fun ImportPhraseSetupView(
                     unfocusedBorderColor = SurfaceCardBorder,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary
-                ),
-                maxLines = 5
+                )
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -2285,6 +2422,136 @@ private fun SetupFeatureItem(
         Column {
             Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Text(text = subtitle, fontSize = 11.sp, color = TextSecondary, lineHeight = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun WalletLockOverlay(
+    viewModel: DecentralViewModel,
+    onUnlock: () -> Unit
+) {
+    var passwordInput by remember { mutableStateOf("") }
+    var errorText by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .clickable(enabled = false) {}, // prevent click through
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = KaspaTea.copy(alpha = 0.1f),
+                modifier = Modifier.size(80.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = KaspaTea,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Wallet Locked",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Enter your security password to access your Testnet 10 wallet.",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            OutlinedTextField(
+                value = passwordInput,
+                onValueChange = { 
+                    passwordInput = it
+                    errorText = null
+                },
+                label = { Text("Wallet Password") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                isError = errorText != null,
+                supportingText = {
+                    if (errorText != null) Text(errorText!!, color = RedTamper)
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = KaspaTea,
+                    unfocusedBorderColor = SurfaceCardBorder
+                )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    if (viewModel.unlockWalletWithPassword(passwordInput)) {
+                        onUnlock()
+                    } else {
+                        errorText = "Incorrect password"
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Unlock Wallet", color = SurfaceDark, fontWeight = FontWeight.Bold)
+            }
+
+            if (biometricsEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedButton(
+                    onClick = {
+                        BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                            context = context,
+                            title = "Unlock Wallet",
+                            subtitle = "Use biometrics to unlock your Kaspa wallet",
+                            onSuccess = {
+                                viewModel.unlockWalletWithBiometric()
+                                onUnlock()
+                            },
+                            onError = { err ->
+                                errorText = err
+                            }
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f))
+                ) {
+                    Icon(imageVector = Icons.Default.Fingerprint, contentDescription = null, tint = KaspaTea)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Unlock with Biometrics", color = KaspaTea)
+                }
+            }
         }
     }
 }

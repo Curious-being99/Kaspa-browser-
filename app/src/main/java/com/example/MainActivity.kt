@@ -164,6 +164,8 @@ class MainActivity : FragmentActivity() {
     super.onStop()
     com.example.util.BrowserStateLog.save("MainActivity onStop - saving tabs state")
     viewModel.saveAllTabsState("onStop")
+    // Auto-lock the wallet when app goes to background
+    viewModel.lockWallet()
   }
 
   override fun onSaveInstanceState(outState: Bundle) {

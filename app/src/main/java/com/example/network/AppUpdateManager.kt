@@ -123,54 +123,68 @@ class AppUpdateManager(
             var lastErrorMsg: String? = null
             var isGracefulNoRelease = false
             var isNetworkError = false
+            var attempts = 0
+            val maxAttempts = 2
 
-            try {
-                val request = Request.Builder()
-                    .url(primaryUrl)
-                    .header("User-Agent", "KaspaBrowser-Android/${currentVersionName}")
-                    .header("Accept", "application/vnd.github.v3+json, application/json")
-                    .build()
+            while (attempts < maxAttempts) {
+                attempts++
+                try {
+                    val request = Request.Builder()
+                        .url(primaryUrl)
+                        .header("User-Agent", "KaspaBrowser-Android/${currentVersionName}")
+                        .header("Accept", "application/vnd.github.v3+json, application/json")
+                        .build()
 
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string()
-                        if (!body.isNullOrBlank()) {
-                            fetchedInfo = parseReleaseJson(body, currentVersionName, currentVersionCode)
-                        }
-                    } else {
-                        val code = response.code
-                        if (code == 404) {
-                            // Repository exists but has no releases published yet -> treat gracefully
-                            isGracefulNoRelease = true
-                        } else if (code == 403) {
-                            lastErrorMsg = "GitHub API rate limit exceeded. Please try again later."
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string()
+                            if (!body.isNullOrBlank()) {
+                                fetchedInfo = parseReleaseJson(body, currentVersionName, currentVersionCode)
+                            }
+                            // Success, break the retry loop
+                            isNetworkError = false
+                            lastErrorMsg = null
+                            break
                         } else {
-                            lastErrorMsg = "GitHub returned HTTP $code. Please try again."
+                            val code = response.code
+                            if (code == 404) {
+                                isGracefulNoRelease = true
+                                break // No releases is terminal for this repo
+                            } else if (code == 403) {
+                                lastErrorMsg = "GitHub API rate limit exceeded. Please try again later."
+                                break // Rate limit usually lasts a while
+                            } else {
+                                lastErrorMsg = "GitHub returned HTTP $code. Please try again."
+                            }
+                            android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP $code (Attempt $attempts)")
                         }
-                        android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP $code")
+                    }
+                } catch (e: java.net.UnknownHostException) {
+                    isNetworkError = true
+                    lastErrorMsg = "Network connection error. Please verify your internet connection and try again."
+                } catch (e: java.net.SocketTimeoutException) {
+                    isNetworkError = true
+                    lastErrorMsg = "Connection to GitHub timed out. Please check your internet connection or try again later."
+                } catch (e: java.net.ConnectException) {
+                    isNetworkError = true
+                    lastErrorMsg = "Could not connect to GitHub. Please check your internet connection and try again."
+                } catch (e: Exception) {
+                    val msg = e.message ?: ""
+                    if (msg.contains("timeout", ignoreCase = true) || msg.contains("connect", ignoreCase = true)) {
+                        isNetworkError = true
+                        lastErrorMsg = "Connection timed out. Please check your network and try again."
+                    } else {
+                        lastErrorMsg = msg.ifBlank { "Network or parsing error" }
                     }
                 }
-            } catch (e: java.net.UnknownHostException) {
-                isNetworkError = true
-                lastErrorMsg = "Network connection error. Please verify your internet connection and try again."
-                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
-            } catch (e: java.net.SocketTimeoutException) {
-                isNetworkError = true
-                lastErrorMsg = "Connection to GitHub timed out. Please check your internet connection or try again later."
-                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
-            } catch (e: java.net.ConnectException) {
-                isNetworkError = true
-                lastErrorMsg = "Could not connect to GitHub. Please check your internet connection and try again."
-                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
-            } catch (e: Exception) {
-                val msg = e.message ?: ""
-                if (msg.contains("timeout", ignoreCase = true) || msg.contains("connect", ignoreCase = true)) {
-                    isNetworkError = true
-                    lastErrorMsg = "Connection timed out. Please check your network and try again."
+
+                if (isNetworkError && attempts < maxAttempts) {
+                    // Small delay before retry
+                    kotlinx.coroutines.delay(1000L * attempts)
+                    continue
                 } else {
-                    lastErrorMsg = msg.ifBlank { "Network or parsing error" }
+                    break
                 }
-                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
             }
 
             if (fetchedInfo != null) {

@@ -587,8 +587,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 } catch (_: Exception) {}
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
                 try {
-                    com.example.util.BrowserStateLog.save("Lifecycle ON_STOP: saving active tab state")
+                    com.example.util.BrowserStateLog.save("Lifecycle ON_STOP: saving active tab state and auto-locking wallet")
                     viewModel.saveActiveTabState("Lifecycle ON_STOP")
+                    // Auto-lock the wallet when app moves to background
+                    viewModel.lockWallet()
                 } catch (_: Exception) {}
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 try {

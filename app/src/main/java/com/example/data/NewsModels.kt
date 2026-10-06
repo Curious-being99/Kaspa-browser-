@@ -394,6 +394,24 @@ fun getDefaultCuratedNews(): List<KaspaNewsItem> = listOf(
         epochMillis = 1788566400000L
     ),
     KaspaNewsItem(
+        title = "kaspanet/rusty-kaspa: Optimize DAG traversal performance",
+        desc = "New optimizations for GHOSTDAG reachability and chain-block ordering in the Rust implementation.",
+        url = "https://github.com/kaspanet/rusty-kaspa",
+        category = "GitHub",
+        timestamp = "Sep 04, 2026",
+        author = "elichai",
+        epochMillis = 1788480000000L
+    ),
+    KaspaNewsItem(
+        title = "kaspa-core/wallet-adapter: Added support for KRC-20 tokens",
+        desc = "The official wallet adapter now supports token transfers and minting for the KRC-20 standard on BlockDAG.",
+        url = "https://github.com/kaspanet/wallet-adapter",
+        category = "GitHub",
+        timestamp = "Sep 03, 2026",
+        author = "tiramisu",
+        epochMillis = 1788393600000L
+    ),
+    KaspaNewsItem(
         title = "@YonatanSompo: DagKnight achieves near-optimal 49% BFT security",
         desc = "Unlike protocols with fixed latency bounds, DagKnight dynamically tightens confirmation times as network conditions improve.",
         url = "https://x.com/YonatanSompo",
