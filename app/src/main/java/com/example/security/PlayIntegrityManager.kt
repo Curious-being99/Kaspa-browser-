@@ -5,8 +5,10 @@ import android.util.Base64
 import android.util.Log
 import com.google.android.play.core.integrity.IntegrityManager
 import com.google.android.play.core.integrity.IntegrityManagerFactory
+import com.google.android.play.core.integrity.IntegrityServiceException
 import com.google.android.play.core.integrity.IntegrityTokenRequest
 import com.google.android.play.core.integrity.IntegrityTokenResponse
+import com.google.android.play.core.integrity.model.IntegrityErrorCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,8 +96,21 @@ object PlayIntegrityManager {
                         continuation.resume(response.token())
                     }
                     .addOnFailureListener { exception ->
-                        Log.w(TAG, "Play Integrity request failed: ${exception.message}")
-                        continuation.resume(null)
+                        val errorCode = if (exception is IntegrityServiceException) {
+                            exception.errorCode
+                        } else {
+                            -1
+                        }
+                        
+                        if (errorCode == IntegrityErrorCode.PLAY_STORE_VERSION_OUTDATED) {
+                            Log.e(TAG, "Play Integrity failed: Play Store version outdated (Error -14)")
+                            val errorState = DeviceIntegrityState.Error("Google Play Store needs to be updated to verify device integrity.")
+                            _integrityState.value = errorState
+                            continuation.resume(null)
+                        } else {
+                            Log.w(TAG, "Play Integrity request failed: ${exception.message} (Code: $errorCode)")
+                            continuation.resume(null)
+                        }
                     }
             }
 

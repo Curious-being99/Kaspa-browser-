@@ -406,17 +406,61 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                     color = TextPrimary
                                 )
                             }
-                            val badgeText = when (integrityState) {
-                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Verified -> "Hardware Verified"
-                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.DevelopmentOrSandbox -> "Protected Runtime"
-                                else -> "Active Shield"
+                            val (badgeText, badgeColor) = when (integrityState) {
+                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Verified -> "Hardware Verified" to EmeraldMesh
+                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.DevelopmentOrSandbox -> "Protected Runtime" to EmeraldMesh
+                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Error -> "Action Required" to RedTamper
+                                else -> "Active Shield" to EmeraldMesh
                             }
                             Text(
                                 text = badgeText,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = EmeraldMesh
+                                color = badgeColor
                             )
+                        }
+
+                        // Detailed Integrity Error Message if applicable
+                        if (integrityState is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Error) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                color = RedTamper.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = (integrityState as com.example.security.PlayIntegrityManager.DeviceIntegrityState.Error).error,
+                                        color = RedTamper,
+                                        fontSize = 9.sp,
+                                        modifier = Modifier.weight(1f),
+                                        lineHeight = 11.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "FIX",
+                                        color = RedTamper,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.clickable {
+                                            try {
+                                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=com.google.android.gms"))
+                                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                try {
+                                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.gms"))
+                                                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

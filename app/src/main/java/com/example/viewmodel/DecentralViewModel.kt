@@ -1392,6 +1392,13 @@ class DecentralViewModel(
         }
     }
 
+    fun clearWalletStatusNotice() {
+        _kaspaWalletState.value = _kaspaWalletState.value.copy(
+            statusNotice = null,
+            lastBroadcastTxId = null
+        )
+    }
+
     fun refreshTestnetWallet() {
         refreshKaspaWallet(testnetAddress.value)
     }
@@ -1399,7 +1406,7 @@ class DecentralViewModel(
     fun sendKaspaTransaction(recipientAddress: String, amountKas: Double) {
         val senderAcc = activeAccount.value ?: return
         viewModelScope.launch {
-            _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true)
+            _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
             try {
                 val cleanRecipient = recipientAddress.trim()
                 if (!cleanRecipient.startsWith("kaspatest:")) {

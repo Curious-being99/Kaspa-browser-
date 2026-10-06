@@ -13,6 +13,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
@@ -167,15 +169,37 @@ fun KaspaTestnetWalletScreen(
     var showSendScreen by remember { mutableStateOf(false) }
     var showReceiveScreen by remember { mutableStateOf(false) }
     var showManageScreen by remember { mutableStateOf(false) }
+    var showResultOverlay by remember { mutableStateOf(false) }
+    var lastResultIsSuccess by remember { mutableStateOf(true) }
+    var lastResultTxId by remember { mutableStateOf("") }
+    var lastResultError by remember { mutableStateOf("") }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var showConfirmSendDialog by remember { mutableStateOf(false) }
 
+    // Observe transaction state to show result overlay
+    LaunchedEffect(walletState.isSending, walletState.lastBroadcastTxId, walletState.statusNotice) {
+        if (!walletState.isSending) {
+            if (walletState.lastBroadcastTxId != null) {
+                lastResultIsSuccess = true
+                lastResultTxId = walletState.lastBroadcastTxId ?: ""
+                showResultOverlay = true
+            } else if (walletState.statusNotice?.startsWith("Error:") == true) {
+                lastResultIsSuccess = false
+                lastResultError = walletState.statusNotice?.removePrefix("Error:")?.trim() ?: "Unknown error"
+                showResultOverlay = true
+            }
+        }
+    }
+
     // Handle Hardware/System Back -> Close overlays or Return to Browser Gateway
     BackHandler(enabled = true) {
-        if (showSendScreen) {
+        if (showResultOverlay) {
+            showResultOverlay = false
+            viewModel.clearWalletStatusNotice()
+        } else if (showSendScreen) {
             showSendScreen = false
         } else if (showReceiveScreen) {
             showReceiveScreen = false
@@ -323,37 +347,6 @@ fun KaspaTestnetWalletScreen(
                 }
             }
 
-            // Testnet Warning Banner
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp),
-                color = SurfaceDark,
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, SurfaceCardBorder)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Science,
-                        contentDescription = null,
-                        tint = KaspaTea,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Isolated Testnet 10 environment · Free testnet KAS",
-                        color = TextSecondary,
-                        fontSize = 10.5.sp,
-                        maxLines = 1
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
             // Main Hero Balance Card
             Card(
                 modifier = Modifier
@@ -375,47 +368,9 @@ fun KaspaTestnetWalletScreen(
                         .padding(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(KaspaTea)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "api-tn10.kaspa.org",
-                                fontSize = 10.5.sp,
-                                color = TextMuted,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
-                        Surface(
-                            color = SurfaceDark,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, SurfaceCardBorder)
-                        ) {
-                            Text(
-                                text = "${walletState.utxosCount} UTXOs",
-                                fontSize = 10.sp,
-                                color = KaspaTea,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
                     Text(
                         text = "%.4f KAS".format(walletState.balanceKas),
-                        fontSize = 26.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
                         letterSpacing = (-0.5).sp,
@@ -426,7 +381,7 @@ fun KaspaTestnetWalletScreen(
 
                     Text(
                         text = "≈ %,d Sompis".format(walletState.balanceSompis),
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         color = TextMuted,
                         fontFamily = FontFamily.Monospace
                     )
@@ -477,13 +432,13 @@ fun KaspaTestnetWalletScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Standalone Action Button Bar (No clunky bottom tabs, action buttons open their own pages!)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -513,7 +468,7 @@ fun KaspaTestnetWalletScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Section Header: Transaction History
             Row(
@@ -593,6 +548,24 @@ fun KaspaTestnetWalletScreen(
                 onImportWallet = { showImportWalletDialog = true },
                 onSignOut = { showSignOutConfirmDialog = true },
                 onClose = { showManageScreen = false }
+            )
+        }
+
+        // Transaction Result Overlay
+        if (showResultOverlay) {
+            TransactionResultOverlay(
+                isSuccess = lastResultIsSuccess,
+                txId = lastResultTxId,
+                errorMessage = lastResultError,
+                onViewOnExplorer = {
+                    showResultOverlay = false
+                    viewModel.openTestnetTxExplorer(lastResultTxId)
+                    viewModel.clearWalletStatusNotice()
+                },
+                onClose = {
+                    showResultOverlay = false
+                    viewModel.clearWalletStatusNotice()
+                }
             )
         }
 
@@ -2646,6 +2619,109 @@ private fun ReceiveScreenOverlay(
     }
 }
 
+@Composable
+private fun TransactionResultOverlay(
+    isSuccess: Boolean,
+    txId: String,
+    errorMessage: String,
+    onViewOnExplorer: () -> Unit,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg.copy(alpha = 0.95f))
+            .clickable(enabled = false) {}
+            .testTag("transaction_result_overlay"),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .background(SurfaceCard, RoundedCornerShape(24.dp))
+                .border(1.dp, if (isSuccess) KaspaTea.copy(alpha = 0.5f) else RedTamper.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(if (isSuccess) KaspaTea.copy(alpha = 0.15f) else RedTamper.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isSuccess) Icons.Default.Check else Icons.Default.ErrorOutline,
+                    contentDescription = null,
+                    tint = if (isSuccess) KaspaTea else RedTamper,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = if (isSuccess) "Broadcast Successful" else "Broadcast Failed",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = TextPrimary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = if (isSuccess) "Your transaction has been submitted to the Kaspa BlockDAG mempool." else errorMessage,
+                fontSize = 13.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
+
+            if (isSuccess && txId.isNotBlank()) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Surface(
+                    color = SurfaceDark,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Transaction ID", fontSize = 10.sp, color = TextMuted)
+                        Text(
+                            text = txId,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = ElectricCyan,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Button(
+                    onClick = onViewOnExplorer,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("View on Explorer", fontWeight = FontWeight.Bold, color = SurfaceDark)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Text("Dismiss", color = TextMuted, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
 @Composable
 private fun ManageScreenOverlay(
     activeAccountHandle: String,

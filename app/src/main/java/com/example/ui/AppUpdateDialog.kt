@@ -20,12 +20,14 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -70,19 +72,22 @@ fun AppUpdateDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.9f)
+                .fillMaxWidth(0.88f)
                 .wrapContentHeight()
                 .padding(vertical = 12.dp)
                 .testTag("app_update_dialog"),
-            shape = RoundedCornerShape(14.dp),
-            color = SurfaceDark,
-            border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.4f)),
-            tonalElevation = 6.dp
+            shape = RoundedCornerShape(18.dp),
+            color = SurfaceCard,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Brush.verticalGradient(listOf(ElectricCyan.copy(alpha = 0.6f), Color.Transparent))
+            ),
+            tonalElevation = 8.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(14.dp)
             ) {
                 // Header with Update Badge & Close
                 Row(
@@ -96,44 +101,45 @@ fun AppUpdateDialog(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .clip(CircleShape)
-                                .background(ElectricCyan.copy(alpha = 0.12f)),
+                                .background(ElectricCyan.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.SystemUpdate,
+                                imageVector = Icons.Default.AutoAwesome,
                                 contentDescription = null,
                                 tint = ElectricCyan,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    text = "Update Available",
-                                    fontWeight = FontWeight.Bold,
+                                    text = "Update App",
+                                    fontWeight = FontWeight.ExtraBold,
                                     fontSize = 15.sp,
-                                    color = TextPrimary
+                                    color = TextPrimary,
+                                    letterSpacing = (-0.3).sp
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = KaspaTea.copy(alpha = 0.15f)
+                                    color = KaspaTea.copy(alpha = 0.2f)
                                 ) {
                                     Text(
-                                        text = "NEW",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        text = "v${currentUpdateInfo?.latestVersionName ?: ""}",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Black,
                                         color = KaspaTea,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                             Text(
-                                text = "GitHub Direct Release",
-                                fontSize = 10.5.sp,
+                                text = "Enhance your secure experience",
+                                fontSize = 10.sp,
                                 color = TextMuted
                             )
                         }
@@ -141,82 +147,62 @@ fun AppUpdateDialog(
 
                     IconButton(
                         onClick = onDismissRequest,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Dismiss",
                             tint = TextMuted,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Release Meta Banner
+                // Release Meta Banner (Compact)
                 currentUpdateInfo?.let { info ->
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.Transparent,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.3f))
+                        shape = RoundedCornerShape(12.dp),
+                        color = SurfaceDark.copy(alpha = 0.6f),
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, SurfaceCardBorder.copy(alpha = 0.3f))
                     ) {
                         Row(
-                            modifier = Modifier.padding(10.dp),
+                            modifier = Modifier.padding(8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Security, null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Version v${info.latestVersionName}",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 14.sp,
-                                    color = ElectricCyan
-                                )
-                                Text(
-                                    text = "Current: v${info.currentVersionName}",
-                                    fontSize = 10.sp,
-                                    color = TextMuted
+                                    text = "Verified Release",
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 11.sp,
+                                    color = TextSecondary
                                 )
                             }
 
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = SurfaceCard.copy(alpha = 0.4f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.2f))
-                            ) {
-                                Text(
-                                    text = info.apkSizeFormatted,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                                )
-                            }
+                            Text(
+                                text = info.apkSizeFormatted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = TextPrimary
+                            )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Release Notes / What's New Box
-                    Text(
-                        text = "Release Notes",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = TextPrimary,
-                        modifier = Modifier.padding(start = 2.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
+                    // Release Notes (Reduced Height)
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 90.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        color = SurfaceDark.copy(alpha = 0.5f),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, SurfaceCardBorder.copy(alpha = 0.2f))
+                            .heightIn(max = 70.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = SurfaceDark.copy(alpha = 0.4f),
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, SurfaceCardBorder.copy(alpha = 0.1f))
                     ) {
                         Column(
                             modifier = Modifier
@@ -224,10 +210,10 @@ fun AppUpdateDialog(
                                 .verticalScroll(rememberScrollState())
                         ) {
                             Text(
-                                text = info.releaseNotes,
-                                fontSize = 10.5.sp,
+                                text = info.releaseNotes.ifBlank { "Regular performance updates and security patches." },
+                                fontSize = 10.sp,
                                 color = TextSecondary,
-                                lineHeight = 14.sp
+                                lineHeight = 13.sp
                             )
                         }
                     }
@@ -245,103 +231,97 @@ fun AppUpdateDialog(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Downloading APK release package...",
-                                    fontSize = 11.5.sp,
+                                    text = "Downloading update...",
+                                    fontSize = 11.sp,
                                     color = ElectricCyan
                                 )
                                 Text(
                                     text = "${status.progressPercent}%",
-                                    fontSize = 11.5.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = TextPrimary
                                 )
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(5.dp))
                             LinearProgressIndicator(
                                 progress = { status.progressPercent / 100f },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(6.dp)
+                                    .height(5.dp)
                                     .clip(RoundedCornerShape(3.dp)),
                                 color = ElectricCyan,
-                                trackColor = SurfaceCard
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val downloadedMb = "%.1f".format(status.downloadedBytes / (1024.0 * 1024.0))
-                            val totalMb = "%.1f".format(status.totalBytes / (1024.0 * 1024.0))
-                            Text(
-                                text = "$downloadedMb MB / $totalMb MB",
-                                fontSize = 10.sp,
-                                color = TextMuted
+                                trackColor = SurfaceDark
                             )
                         }
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
                     is UpdateStatus.ReadyToInstall -> {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            color = EmeraldMesh.copy(alpha = 0.12f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.4f))
+                            color = EmeraldMesh.copy(alpha = 0.1f),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, EmeraldMesh.copy(alpha = 0.3f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,
                                     contentDescription = null,
                                     tint = EmeraldMesh,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Package verified and ready to install!",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    text = "Update ready to install",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
                                     color = EmeraldMesh
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
                     is UpdateStatus.Error -> {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
-                            color = RedTamper.copy(alpha = 0.12f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, RedTamper.copy(alpha = 0.4f))
+                            color = RedTamper.copy(alpha = 0.1f),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, RedTamper.copy(alpha = 0.3f))
                         ) {
                             Row(
-                                modifier = Modifier.padding(10.dp),
+                                modifier = Modifier.padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ErrorOutline,
                                     contentDescription = null,
                                     tint = RedTamper,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = status.message,
-                                    fontSize = 11.sp,
-                                    color = RedTamper
+                                    fontSize = 10.5.sp,
+                                    color = RedTamper,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
 
                     else -> {}
                 }
 
-                // Action Buttons
+                // Action Buttons (Compact)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedButton(
@@ -349,14 +329,14 @@ fun AppUpdateDialog(
                             viewModel.dismissUpdateDialog()
                             viewModel.setTab(AppTab.TRAFFIC_AUDIT)
                         },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
+                            .height(38.dp)
                     ) {
-                        Text("Update Zone", fontSize = 12.sp)
+                        Text("Later", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Button(
@@ -375,10 +355,10 @@ fun AppUpdateDialog(
                             containerColor = if (updateStatus is UpdateStatus.ReadyToInstall) EmeraldMesh else ElectricCyan,
                             contentColor = ObsidianBg
                         ),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
-                            .weight(1.3f)
-                            .height(40.dp)
+                            .weight(1.4f)
+                            .height(38.dp)
                             .testTag("dialog_update_action_button")
                     ) {
                         Row(
@@ -388,17 +368,17 @@ fun AppUpdateDialog(
                             Icon(
                                 imageVector = if (updateStatus is UpdateStatus.ReadyToInstall) Icons.Default.InstallMobile else Icons.Default.CloudDownload,
                                 contentDescription = null,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = when (updateStatus) {
-                                     is UpdateStatus.ReadyToInstall -> "Install Now"
-                                     is UpdateStatus.Downloading -> "Downloading..."
-                                     else -> "Direct Update"
+                                     is UpdateStatus.ReadyToInstall -> "Install"
+                                     is UpdateStatus.Downloading -> "Wait..."
+                                     else -> "Update Now"
                                  },
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.5.sp
                             )
                         }
                     }
