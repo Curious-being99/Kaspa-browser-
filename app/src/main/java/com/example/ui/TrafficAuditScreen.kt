@@ -14,8 +14,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,20 +34,24 @@ import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -60,6 +67,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -67,6 +75,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -84,9 +93,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.TrafficAuditEntity
+import com.example.model.AppUpdateInfo
+import com.example.model.UpdateStatus
 import com.example.ui.theme.AmberCentral
+import com.example.ui.theme.CyanGlow
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldMesh
+import com.example.ui.theme.KaspaTea
 import com.example.ui.theme.ObsidianBg
 import com.example.R
 import androidx.compose.ui.res.painterResource
@@ -577,7 +590,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     .fillMaxWidth()
                     .testTag("privacy_settings_card"),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(0.dp),
+                shape = RoundedCornerShape(16.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                 )
@@ -841,7 +854,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         .fillMaxWidth()
                         .testTag("blocked_trackers_log_card"),
                     colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                    shape = RoundedCornerShape(0.dp),
+                    shape = RoundedCornerShape(16.dp),
                     border = CardDefaults.outlinedCardBorder().copy(
                         brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                     )
@@ -896,7 +909,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     .fillMaxWidth()
                     .testTag("audit_summary_card"),
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(0.dp),
+                shape = RoundedCornerShape(16.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                 )
@@ -912,42 +925,86 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            shape = RoundedCornerShape(10.dp),
                             color = SurfaceCard,
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                         ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Web2 CDN", fontSize = 10.sp, color = TextMuted)
-                                Text("${metrics.centralRequestsResolved}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = AmberCentral)
+                            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
+                                Text(
+                                    text = "Web2 CDN",
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${metrics.centralRequestsResolved}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AmberCentral
+                                )
                             }
                         }
 
                         Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            shape = RoundedCornerShape(10.dp),
                             color = SurfaceCard,
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                         ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Mesh Swarm", fontSize = 10.sp, color = TextMuted)
-                                Text("${metrics.decentralizedRequestsResolved}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
+                            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
+                                Text(
+                                    text = "Mesh Swarm",
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${metrics.decentralizedRequestsResolved}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ElectricCyan
+                                )
                             }
                         }
 
                         Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            shape = RoundedCornerShape(10.dp),
                             color = SurfaceCard,
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                         ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Cross-Verified", fontSize = 10.sp, color = TextMuted)
-                                Text("${metrics.hybridCrossVerifications}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = EmeraldMesh)
+                            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
+                                Text(
+                                    text = "Cross-Verified",
+                                    fontSize = 9.5.sp,
+                                    color = TextMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${metrics.hybridCrossVerifications}",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldMesh
+                                )
                             }
                         }
                     }
@@ -959,7 +1016,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
             // REAL-TIME DOWNLOADS MONITOR CARD
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(0.dp),
+                shape = RoundedCornerShape(16.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                 ),
@@ -1164,28 +1221,54 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // ==========================================
+            // KASPABROWSER UPDATE ZONE (IN-APP SIDELOAD INSTALLER)
+            // ==========================================
+            KaspaUpdateZoneCard(viewModel = viewModel)
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             // About Section
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                shape = RoundedCornerShape(0.dp),
+                shape = RoundedCornerShape(16.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.6f))
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "About KaspaBrowser",
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            fontSize = 14.sp
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = ElectricCyan.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.3f))
+                        ) {
+                            Text(
+                                text = "v${com.example.BuildConfig.VERSION_NAME} BlockDAG Core",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ElectricCyan,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "About Kaspa Browser",
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Version 1.0.0\nA decentralized, peer-to-peer web browsing experience powered by the speed and security of blockDAG technology.",
+                        text = "A sovereign, decentralized peer-to-peer web browser powered by the high-speed Kaspa BlockDAG, on-chain zk-DID verification, and multi-hop privacy relay architecture.",
                         color = TextSecondary,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.5.sp
                     )
                 }
             }
@@ -1246,7 +1329,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
         if (filteredAudits.isEmpty()) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(0.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = SurfaceDark,
                     border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                     modifier = Modifier.fillMaxWidth()
@@ -1302,7 +1385,7 @@ fun RealTrafficAuditItemCard(audit: TrafficAuditEntity) {
             .fillMaxWidth()
             .testTag("audit_item_${audit.id}"),
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        shape = RoundedCornerShape(0.dp),
+        shape = RoundedCornerShape(14.dp),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(
                 if (audit.isTamperProof) SurfaceCardBorder else RedTamper.copy(alpha = 0.5f)
@@ -1454,4 +1537,713 @@ fun PrivacyToggleRow(
         )
     }
 }
+
+/**
+ * KaspaBrowser In-App Sideload Update Zone & Native Package Installer Card.
+ * Allows checking, downloading, and installing browser releases in-app.
+ */
+@Composable
+fun KaspaUpdateZoneCard(
+    viewModel: DecentralViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val updateStatus by viewModel.updateStatus.collectAsState()
+    val isAutoCheckEnabled by viewModel.isAutoCheckUpdatesEnabled.collectAsState()
+    val customManifestUrl by viewModel.customUpdateManifestUrl.collectAsState()
+
+    val updateManager = remember { com.example.network.AppUpdateManager.getInstance() }
+    val canInstallPackages = remember(updateStatus) { updateManager.canInstallUnknownApps(context) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("update_zone_card"),
+        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        shape = RoundedCornerShape(16.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(
+                when (updateStatus) {
+                    is UpdateStatus.Available -> KaspaTea.copy(alpha = 0.6f)
+                    is UpdateStatus.ReadyToInstall -> EmeraldMesh.copy(alpha = 0.6f)
+                    is UpdateStatus.Downloading -> ElectricCyan.copy(alpha = 0.6f)
+                    else -> SurfaceCardBorder.copy(alpha = 0.6f)
+                }
+            )
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header: Title + Dynamic Status Pill
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(ElectricCyan.copy(alpha = 0.12f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SystemUpdate,
+                            contentDescription = null,
+                            tint = ElectricCyan,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "KaspaBrowser Update Zone",
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "In-App Sideload Engine · GitHub Releases",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                // Dynamic Status Pill
+                Surface(
+                    shape = CircleShape,
+                    color = when (updateStatus) {
+                        is UpdateStatus.Available -> KaspaTea.copy(alpha = 0.18f)
+                        is UpdateStatus.ReadyToInstall -> EmeraldMesh.copy(alpha = 0.18f)
+                        is UpdateStatus.Downloading -> ElectricCyan.copy(alpha = 0.18f)
+                        is UpdateStatus.Checking -> AmberCentral.copy(alpha = 0.18f)
+                        is UpdateStatus.UpToDate -> EmeraldMesh.copy(alpha = 0.12f)
+                        is UpdateStatus.Error -> RedTamper.copy(alpha = 0.18f)
+                        else -> SurfaceElevated
+                    },
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        when (updateStatus) {
+                            is UpdateStatus.Available -> KaspaTea.copy(alpha = 0.4f)
+                            is UpdateStatus.ReadyToInstall -> EmeraldMesh.copy(alpha = 0.4f)
+                            is UpdateStatus.Downloading -> ElectricCyan.copy(alpha = 0.4f)
+                            is UpdateStatus.Checking -> AmberCentral.copy(alpha = 0.4f)
+                            is UpdateStatus.UpToDate -> EmeraldMesh.copy(alpha = 0.3f)
+                            is UpdateStatus.Error -> RedTamper.copy(alpha = 0.4f)
+                            else -> SurfaceCardBorder
+                        }
+                    )
+                ) {
+                    Text(
+                        text = when (updateStatus) {
+                            is UpdateStatus.Available -> "UPDATE AVAILABLE"
+                            is UpdateStatus.ReadyToInstall -> "READY TO INSTALL"
+                            is UpdateStatus.Downloading -> "DOWNLOADING"
+                            is UpdateStatus.Checking -> "CHECKING..."
+                            is UpdateStatus.UpToDate -> "UP TO DATE"
+                            is UpdateStatus.Error -> "CHECK FAILED"
+                            else -> "READY"
+                        },
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = when (updateStatus) {
+                            is UpdateStatus.Available -> KaspaTea
+                            is UpdateStatus.ReadyToInstall -> EmeraldMesh
+                            is UpdateStatus.Downloading -> ElectricCyan
+                            is UpdateStatus.Checking -> AmberCentral
+                            is UpdateStatus.UpToDate -> EmeraldMesh
+                            is UpdateStatus.Error -> RedTamper
+                            else -> TextSecondary
+                        },
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Build & Channel Meta (Clean inline typography, no nested cardboard boxes)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Installed:",
+                        fontSize = 11.sp,
+                        color = TextMuted
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "v${com.example.BuildConfig.VERSION_NAME}",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Channel:",
+                        fontSize = 11.sp,
+                        color = TextMuted
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "BlockDAG Core",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ElectricCyan
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Dynamic Status View
+            when (val status = updateStatus) {
+                is UpdateStatus.Checking -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = ElectricCyan,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Querying latest release from GitHub...",
+                            fontSize = 11.5.sp,
+                            color = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                is UpdateStatus.Available -> {
+                    val info = status.updateInfo
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = KaspaTea.copy(alpha = 0.08f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, KaspaTea.copy(alpha = 0.35f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.NewReleases,
+                                        contentDescription = null,
+                                        tint = KaspaTea,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Version v${info.latestVersionName} Available",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = TextPrimary
+                                    )
+                                }
+                                Text(
+                                    text = info.apkSizeFormatted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = KaspaTea
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Published: ${info.releaseDate}",
+                                fontSize = 10.sp,
+                                color = TextMuted
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = info.releaseNotes,
+                                fontSize = 11.sp,
+                                color = TextSecondary,
+                                lineHeight = 15.5.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = { viewModel.downloadAndInstallUpdate(context) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = KaspaTea,
+                                    contentColor = ObsidianBg
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp)
+                                    .testTag("download_install_update_button")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudDownload,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Direct Sideload & Install APK",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                is UpdateStatus.Downloading -> {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = SurfaceCard
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Downloading v${status.updateInfo.latestVersionName}...",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ElectricCyan
+                                )
+                                Text(
+                                    text = "${status.progressPercent}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            LinearProgressIndicator(
+                                progress = { status.progressPercent / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = ElectricCyan,
+                                trackColor = SurfaceDark
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            val downloadedMb = "%.1f".format(status.downloadedBytes / (1024.0 * 1024.0))
+                            val totalMb = "%.1f".format(status.totalBytes / (1024.0 * 1024.0))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "$downloadedMb MB / $totalMb MB",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
+                                Text(
+                                    text = "Direct from GitHub CDN",
+                                    fontSize = 10.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                is UpdateStatus.ReadyToInstall -> {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = EmeraldMesh.copy(alpha = 0.09f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.35f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = EmeraldMesh,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "APK Downloaded & SHA-256 Verified",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp,
+                                        color = EmeraldMesh
+                                    )
+                                    Text(
+                                        text = "Package: ${status.apkFile.name} (${"%.1f".format(status.apkFile.length() / (1024.0 * 1024.0))} MB)",
+                                        fontSize = 10.sp,
+                                        color = TextMuted,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = { viewModel.installReadyApk(context) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EmeraldMesh,
+                                    contentColor = ObsidianBg
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(42.dp)
+                                    .testTag("install_ready_apk_button")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.SystemUpdate,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Launch Android Package Installer",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                is UpdateStatus.UpToDate -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = EmeraldMesh,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "KaspaBrowser is up to date (v${status.currentVersion})",
+                            fontSize = 11.5.sp,
+                            color = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                is UpdateStatus.Error -> {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = RedTamper,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Notice: ${status.message}",
+                            fontSize = 11.sp,
+                            color = RedTamper,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                else -> {}
+            }
+
+            // Primary "Check for Updates" Button
+            if (updateStatus !is UpdateStatus.Available && updateStatus !is UpdateStatus.Downloading && updateStatus !is UpdateStatus.ReadyToInstall) {
+                OutlinedButton(
+                    onClick = { viewModel.checkForUpdates(isUserInitiated = true) },
+                    enabled = updateStatus !is UpdateStatus.Checking,
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElectricCyan),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .testTag("check_updates_button")
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (updateStatus is UpdateStatus.Checking) "Checking..." else "Check for Updates",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider(
+                color = SurfaceCardBorder.copy(alpha = 0.4f),
+                modifier = Modifier.padding(vertical = 12.dp)
+            )
+
+            // Settings Rows: Clean seamless rows without cardboard boxes
+
+            // 1. Android Sideload Permission Row
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(
+                            imageVector = if (canInstallPackages) Icons.Default.Security else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = if (canInstallPackages) EmeraldMesh else AmberCentral,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Unknown App Installation",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (canInstallPackages) "Permission granted for sideload" else "Permission required to install APK",
+                                fontSize = 10.sp,
+                                color = if (canInstallPackages) EmeraldMesh else TextMuted
+                            )
+                        }
+                    }
+
+                    if (!canInstallPackages) {
+                        TextButton(
+                            onClick = {
+                                val manageIntent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                try {
+                                    context.startActivity(manageIntent)
+                                } catch (_: Exception) {}
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text(
+                                text = "Grant",
+                                fontSize = 11.sp,
+                                color = ElectricCyan,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // 2. Auto-Check Toggle Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Auto-Check on Startup",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Check GitHub releases when app launches",
+                            fontSize = 10.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Switch(
+                    checked = isAutoCheckEnabled,
+                    onCheckedChange = { viewModel.toggleAutoCheckUpdates(it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.Black,
+                        checkedTrackColor = ElectricCyan,
+                        uncheckedThumbColor = TextMuted,
+                        uncheckedTrackColor = SurfaceCard
+                    ),
+                    modifier = Modifier.testTag("auto_check_updates_switch")
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 3. GitHub Release Source Row
+            var showRepoInput by remember { mutableStateOf(false) }
+            var repoInputText by remember(customManifestUrl) { mutableStateOf(customManifestUrl) }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = Icons.Default.Hub,
+                        contentDescription = null,
+                        tint = TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "GitHub Source",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (customManifestUrl.isNotBlank()) customManifestUrl else "kaspa-browser/kaspa-browser",
+                            fontSize = 10.sp,
+                            color = ElectricCyan,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                TextButton(
+                    onClick = { showRepoInput = !showRepoInput },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text(
+                        text = if (showRepoInput) "Close" else "Change",
+                        fontSize = 11.sp,
+                        color = ElectricCyan
+                    )
+                }
+            }
+
+            if (showRepoInput) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = repoInputText,
+                    onValueChange = { repoInputText = it },
+                    placeholder = { Text("owner/repo (e.g. user/kaspa-browser)", fontSize = 11.sp, color = TextMuted) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("github_repo_input"),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElectricCyan,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (customManifestUrl.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                repoInputText = ""
+                                viewModel.setCustomUpdateManifestUrl("")
+                                viewModel.checkForUpdates(isUserInitiated = true)
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Reset Default", fontSize = 10.5.sp, color = RedTamper)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Button(
+                        onClick = {
+                            viewModel.setCustomUpdateManifestUrl(repoInputText.trim())
+                            viewModel.checkForUpdates(isUserInitiated = true)
+                            showRepoInput = false
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElectricCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Save & Check", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 

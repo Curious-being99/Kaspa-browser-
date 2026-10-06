@@ -73,6 +73,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
@@ -546,6 +547,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     val bookmarks by viewModel.bookmarks.collectAsState()
     val searchEngine by viewModel.searchEngine.collectAsState()
+    val updateStatus by viewModel.updateStatus.collectAsState()
 
     val hasWalletPassword by viewModel.hasWalletPassword.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
@@ -1554,6 +1556,30 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 .size(32.dp)
                                 .clip(CircleShape)
                                 .clickable {
+                                    viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                }
+                                .testTag("quick_wallet_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.AccountBalanceWallet,
+                                    contentDescription = "Kaspa Testnet 10 Wallet",
+                                    tint = KaspaTea,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Surface(
+                            shape = CircleShape,
+                            color = SurfaceCard,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable {
                                     accountDialogInitialTab = 0
                                     showAccountDialog = true
                                 }
@@ -1725,6 +1751,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )
                                  HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
                                 DropdownMenuItem(
+                                    text = { Text("Kaspa Wallet (Testnet 10)", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = KaspaTea) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Network (Mesh Radar)", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Hub, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
@@ -1735,6 +1769,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 DropdownMenuItem(
                                     text = { Text("Settings & Traffic Audit", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text("Update Zone", color = TextPrimary)
+                                            if (updateStatus is com.example.model.UpdateStatus.Available) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = KaspaTea.copy(alpha = 0.2f)
+                                                ) {
+                                                    Text(
+                                                        text = "NEW",
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = KaspaTea,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.SystemUpdate,
+                                            contentDescription = null,
+                                            tint = if (updateStatus is com.example.model.UpdateStatus.Available) KaspaTea else ElectricCyan
+                                        )
+                                    },
                                     onClick = {
                                         showBrowserMenu = false
                                         viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT)
@@ -3782,7 +3852,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             Triple("kaspa.com", "Kaspa Ecosystem & Markets", "kaspa.com"),
                             Triple("kasrace.com", "Kasrace 4D Realtime Explorer", "kasrace.com"),
                             Triple("kaskad.live", "Kaskad Decentralized Network", "kaskad.live"),
-                            Triple("mykai.dev", "Kai Sovereign Cloud & Apps", "mykai.dev"),
+                            Triple("dot.k", ".k Decentralized Kaspa Domains", "dot.k"),
                             Triple("github.com", "GitHub Developer Platform", "github.com"),
                             Triple("reddit.com/r/kaspa", "Kaspa Reddit Community", "reddit.com/r/kaspa"),
                             Triple("discord.gg/kaspa", "Kaspa Discord Server", "discord.gg/kaspa")
@@ -5839,8 +5909,10 @@ fun DiscoverFeedCard(
     Card(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = null,
-        shape = RoundedCornerShape(0.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.6f))
+        ),
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -5919,17 +5991,20 @@ fun BrowserSpeedDial(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-        // 1. HORIZONTAL SPEED DIAL SHORTCUTS CONTAINER (Edge to edge, zero top gap, no write up)
+        // 1. HORIZONTAL SPEED DIAL SHORTCUTS CONTAINER (Floating modern rounded dock)
         Surface(
-            shape = androidx.compose.ui.graphics.RectangleShape,
-            color = SurfaceDark,
-            modifier = Modifier.fillMaxWidth()
+            shape = RoundedCornerShape(18.dp),
+            color = SurfaceDark.copy(alpha = 0.90f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.6f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Item 1: Kaspa.org
@@ -5939,15 +6014,6 @@ fun BrowserSpeedDial(
                     onClick = { onNavigate("https://kaspa.org") }
                 ) {
                     KaspaLogoIcon(iconSize = 36.dp)
-                }
-
-                // Item 2: mykai.dev
-                SpeedDialCircleItem(
-                    label = "mykai.dev",
-                    iconColor = Color(0xFF70C7BA),
-                    onClick = { onNavigate("https://mykai.dev") }
-                ) {
-                    MyKaiLogoIcon(iconSize = 36.dp)
                 }
 
                 // Item 3: Kaspa.com
@@ -5993,15 +6059,6 @@ fun BrowserSpeedDial(
                     onClick = { onNavigate("https://kachat.app/home/") }
                 ) {
                     KaChatLogoIcon(iconSize = 36.dp)
-                }
-
-                // Item 7: mykai
-                SpeedDialCircleItem(
-                    label = "mykai",
-                    iconColor = Color(0xFF70C7BA),
-                    onClick = { onNavigate("https://mykai.app") }
-                ) {
-                    MyKaiAppLogoIcon(iconSize = 36.dp)
                 }
 
                 // Item 8: Kasplay
@@ -6863,8 +6920,10 @@ fun KaspaNewsSection(
         if (filteredItems.isEmpty()) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-                border = null,
-                shape = RoundedCornerShape(0.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.5f))
+                ),
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
@@ -6936,8 +6995,10 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
 
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = null,
-        shape = RoundedCornerShape(0.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.6f))
+        ),
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigate(item.url) }
@@ -7048,8 +7109,10 @@ fun YouTubeVideoCard(
 
     Card(
         colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-        border = null,
-        shape = RoundedCornerShape(0.dp),
+        border = CardDefaults.outlinedCardBorder().copy(
+            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.6f))
+        ),
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
     ) {

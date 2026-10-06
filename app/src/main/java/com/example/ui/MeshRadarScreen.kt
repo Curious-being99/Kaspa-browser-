@@ -318,7 +318,7 @@ fun MeshRadarScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier
         if (filteredPeers.isEmpty()) {
             item {
                 Surface(
-                    shape = RoundedCornerShape(0.dp),
+                    shape = RoundedCornerShape(16.dp),
                     color = SurfaceDark,
                     border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                     modifier = Modifier.fillMaxWidth()
@@ -391,7 +391,7 @@ fun RealDaemonStatusCard(metrics: NetworkMetrics, daemonPort: Int = 8080, onCopy
             .fillMaxWidth()
             .testTag("node_telemetry_card"),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        shape = RoundedCornerShape(0.dp),
+        shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -580,7 +580,7 @@ fun RealMetricTile(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(0.dp),
+        shape = RoundedCornerShape(12.dp),
         color = SurfaceCard,
         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
     ) {
@@ -639,7 +639,7 @@ fun BridgeTopologyOverviewCard(daemonPort: Int = 8080) {
             .fillMaxWidth()
             .testTag("topology_radar_card"),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        shape = RoundedCornerShape(0.dp),
+        shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -748,7 +748,7 @@ fun RealPeerItemCard(
             .fillMaxWidth()
             .testTag("peer_card_${peer.peerId}"),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        shape = RoundedCornerShape(0.dp),
+        shape = RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
     ) {
         Row(
@@ -904,7 +904,7 @@ fun NsdDiscoveryCard(
             .fillMaxWidth()
             .testTag("nsd_discovery_card"),
         colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-        shape = RoundedCornerShape(0.dp),
+        shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
     ) {
         Column(
@@ -1150,7 +1150,7 @@ fun ManualP2PConnectionDialog(
             }
         },
         containerColor = SurfaceDark,
-        shape = RoundedCornerShape(0.dp)
+        shape = RoundedCornerShape(24.dp)
     )
 }
 

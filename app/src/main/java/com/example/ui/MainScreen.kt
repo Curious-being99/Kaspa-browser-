@@ -61,6 +61,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val activeTab by viewModel.activeTab.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
     val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
+    val showUpdateAvailableDialog by viewModel.showUpdateAvailableDialog.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val onboardingCompleted by viewModel.onboardingCompleted.collectAsState()
@@ -114,8 +115,17 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     AppTab.MESH_RADAR -> MeshRadarScreen(viewModel = viewModel)
                     AppTab.TRAFFIC_AUDIT -> TrafficAuditScreen(viewModel = viewModel)
                     AppTab.LIBRARY -> LibraryScreen(viewModel = viewModel)
+                    AppTab.KASPA_WALLET -> KaspaTestnetWalletScreen(viewModel = viewModel)
                 }
             }
+        }
+
+        // IN-APP UPDATE MODAL PROMPT
+        if (showUpdateAvailableDialog) {
+            AppUpdateDialog(
+                viewModel = viewModel,
+                onDismissRequest = { viewModel.dismissUpdateDialog() }
+            )
         }
 
         // PERSISTENT FIRST-LAUNCH ONLY SPLASH OVERLAY (Minimalist with all card boxes and writeups removed)

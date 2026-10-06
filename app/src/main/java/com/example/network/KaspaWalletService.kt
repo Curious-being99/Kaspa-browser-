@@ -47,7 +47,7 @@ class KaspaWalletService(
     }
 
     private fun getNetworkName(address: String): String {
-        return if (address.startsWith("kaspatest:")) "Kaspa Testnet 10 (10 BPS)" else "Kaspa Mainnet"
+        return if (address.startsWith("kaspatest:")) "Kaspa Testnet 10" else "Kaspa Mainnet"
     }
 
     /**
@@ -308,63 +308,70 @@ class KaspaWalletService(
         var confirmedTxId = computedTxId
         var lastBroadcastError = "Unable to connect to Kaspa BlockDAG network nodes."
 
-        val apiBase = getApiBase(address)
-        val broadcastEndpoint = "$apiBase/transactions"
+        val isTestnet = address.startsWith("kaspatest:")
+        val candidateEndpoints = if (isTestnet) {
+            listOf("https://api-tn10.kaspa.org", "https://api-tn10.kaspanet.io")
+        } else {
+            listOf(API_MAINNET)
+        }
 
         val broadcastClient = client.newBuilder()
-            .connectTimeout(2000, TimeUnit.MILLISECONDS)
-            .readTimeout(2000, TimeUnit.MILLISECONDS)
-            .writeTimeout(2000, TimeUnit.MILLISECONDS)
+            .connectTimeout(4000, TimeUnit.MILLISECONDS)
+            .readTimeout(4000, TimeUnit.MILLISECONDS)
+            .writeTimeout(4000, TimeUnit.MILLISECONDS)
             .build()
 
-        val maxAttempts = 3
-        for (attempt in 0 until maxAttempts) {
-            try {
-                val req = Request.Builder()
-                    .url(broadcastEndpoint)
-                    .post(jsonBody)
-                    .build()
+        endpointLoop@ for (apiBase in candidateEndpoints) {
+            val broadcastEndpoint = "$apiBase/transactions"
+            val maxAttempts = 2
+            for (attempt in 0 until maxAttempts) {
+                try {
+                    val req = Request.Builder()
+                        .url(broadcastEndpoint)
+                        .post(jsonBody)
+                        .build()
 
-                broadcastClient.newCall(req).execute().use { resp ->
-                    val respBody = resp.body?.string() ?: ""
-                    if (resp.isSuccessful) {
-                        broadcastConfirmed = true
-                        if (respBody.isNotBlank() && respBody.startsWith("{")) {
-                            val respJson = JSONObject(respBody)
-                            val serverTxId = respJson.optString(
-                                "transactionId",
-                                respJson.optString(
-                                    "transaction_id",
-                                    respJson.optString("txid", "")
+                    broadcastClient.newCall(req).execute().use { resp ->
+                        val respBody = resp.body?.string() ?: ""
+                        if (resp.isSuccessful) {
+                            broadcastConfirmed = true
+                            if (respBody.isNotBlank() && respBody.startsWith("{")) {
+                                val respJson = JSONObject(respBody)
+                                val serverTxId = respJson.optString(
+                                    "transactionId",
+                                    respJson.optString(
+                                        "transaction_id",
+                                        respJson.optString("txid", "")
+                                    )
                                 )
-                            )
-                            if (serverTxId.isNotBlank()) {
-                                confirmedTxId = serverTxId
+                                if (serverTxId.isNotBlank()) {
+                                    confirmedTxId = serverTxId
+                                }
                             }
-                        }
-                    } else {
-                        val parsedError = try {
-                            if (respBody.startsWith("{")) {
-                                val j = JSONObject(respBody)
-                                j.optString("error", j.optString("message", j.optString("detail", respBody)))
-                            } else {
+                        } else {
+                            val parsedError = try {
+                                if (respBody.startsWith("{")) {
+                                    val j = JSONObject(respBody)
+                                    j.optString("error", j.optString("message", j.optString("detail", respBody)))
+                                } else {
+                                    respBody
+                                }
+                            } catch (_: Exception) {
                                 respBody
                             }
-                        } catch (_: Exception) {
-                            respBody
-                        }
-                        lastBroadcastError = "Kaspa node returned (${resp.code}): ${parsedError.take(200)}"
-                        // If it's a 4xx consensus rejection (e.g. invalid fee, already spent, orphan), do not retry
-                        if (resp.code in 400..499) {
-                            return BroadcastResult(false, confirmedTxId, lastBroadcastError)
+                            lastBroadcastError = "Kaspa node returned (${resp.code}): ${parsedError.take(200)}"
+                            // If it's a 4xx consensus rejection (e.g. invalid fee, already spent, orphan), do not retry
+                            if (resp.code in 400..499) {
+                                return BroadcastResult(false, confirmedTxId, lastBroadcastError)
+                            }
                         }
                     }
-                }
-                if (broadcastConfirmed) break
-            } catch (e: Exception) {
-                lastBroadcastError = "Connection error (${broadcastEndpoint}): ${e.localizedMessage ?: e.message}"
-                if (attempt < maxAttempts - 1) {
-                    delay(500L * (attempt + 1))
+                    if (broadcastConfirmed) break@endpointLoop
+                } catch (e: Exception) {
+                    lastBroadcastError = "Connection error (${broadcastEndpoint}): ${e.localizedMessage ?: e.message}"
+                    if (attempt < maxAttempts - 1) {
+                        delay(350L * (attempt + 1))
+                    }
                 }
             }
         }
@@ -384,8 +391,10 @@ class KaspaWalletService(
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         transactionMutex.withLock {
             try {
-                if (!CryptoUtils.isValidKaspaAddress(recipientAddress)) {
-                    return@withLock Result.failure(IllegalArgumentException("Invalid Kaspa destination address. Must be a valid kaspa:q... CashAddr."))
+                val isTestnet = senderAddress.startsWith("kaspatest:")
+                val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
+                if (!CryptoUtils.isValidKaspaAddress(recipientAddress, expectedPrefix)) {
+                    return@withLock Result.failure(IllegalArgumentException("Invalid Kaspa destination address. Must be a valid $expectedPrefix:q... CashAddr."))
                 }
                 if (amountKas <= 0.0) {
                     return@withLock Result.failure(IllegalArgumentException("Amount must be greater than 0 KAS."))
@@ -398,7 +407,7 @@ class KaspaWalletService(
                 val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
 
                 // 2. Derive key pair
-                val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed)
+                val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
 
                 // 3. Fetch live UTXOs & calculate authentic transaction mass & real dynamic fee
                 val liveUtxos = fetchLiveUtxos(senderAddress)
@@ -454,6 +463,9 @@ class KaspaWalletService(
 
                 // 6. Sign each input with rusty-kaspa BIP-340 Schnorr algorithm
                 KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
+
+                // Secure in-memory wipe: zeroize private key and key material immediately after signing
+                keyPair.wipe()
 
                 // 7. Calculate non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionHash")
                 val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)

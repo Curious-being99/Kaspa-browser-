@@ -202,6 +202,16 @@ object CryptoUtils {
         return kaspaPolymod(expectedPrefix, data5Bit) == 0L
     }
 
+    fun isValidTestnetAddress(address: String): Boolean = isValidKaspaAddress(address, "kaspatest")
+
+    fun isAnyValidKaspaAddress(address: String): Boolean {
+        val colonIdx = address.indexOf(':')
+        if (colonIdx == -1) return false
+        val prefix = address.substring(0, colonIdx)
+        if (prefix != "kaspa" && prefix != "kaspatest" && prefix != "kaspadev" && prefix != "kaspasim") return false
+        return isValidKaspaAddress(address, prefix)
+    }
+
     /**
      * Extracts the 32-byte Schnorr public key payload from a standard Kaspa address (prefix:qp...).
      */
@@ -450,16 +460,27 @@ object CryptoUtils {
     }
 
     data class KaspaKeyPair(
-        val privateKey: java.math.BigInteger,
+        var privateKey: java.math.BigInteger,
         val publicKeyBytes: ByteArray, // 32-byte Schnorr public key
         val publicKeyHex: String,
         val kaspaAddress: String
-    )
+    ) {
+        /**
+         * Secure in-memory scrubbing/zeroization of sensitive cryptographic buffers.
+         */
+        fun wipe() {
+            java.util.Arrays.fill(publicKeyBytes, 0.toByte())
+            privateKey = java.math.BigInteger.ZERO
+        }
+    }
 
-    fun deriveKaspaKeyPair(seedPhrase: String, prefix: String = "kaspa"): KaspaKeyPair {
+    fun deriveKaspaKeyPair(seedPhrase: String, prefix: String = "kaspa", passphrase: String = ""): KaspaKeyPair {
         val decryptedSeed = getDecryptedSeed(seedPhrase)
-        val seed = mnemonicToSeed(decryptedSeed)
+        val seed = mnemonicToSeed(decryptedSeed, passphrase)
         var privKey = deriveKaspaPrivateKey(seed)
+        // Zeroize intermediate seed bytes from memory
+        java.util.Arrays.fill(seed, 0.toByte())
+
         var pubPoint = pointMultiply(privKey, ECPoint.G)
 
         // Kaspa BIP-340 Schnorr convention: Ensure pubkey Y coordinate is even
@@ -717,7 +738,16 @@ object CryptoUtils {
         val sBytes = to32ByteArray(s)
 
         val sig64 = rBytes + sBytes
-        return sig64.joinToString("") { "%02x".format(it) }
+        val resultHex = sig64.joinToString("") { "%02x".format(it) }
+
+        // Secure in-memory scrubbing/zeroization of sensitive private key bytes and nonces
+        java.util.Arrays.fill(dBytes, 0.toByte())
+        java.util.Arrays.fill(t, 0.toByte())
+        java.util.Arrays.fill(nonceSeed, 0.toByte())
+        java.util.Arrays.fill(sBytes, 0.toByte())
+        java.util.Arrays.fill(rBytes, 0.toByte())
+
+        return resultHex
     }
 
     // BIP-340 Schnorr Signature verification strictly following Kaspa origin code (rusty-kaspa / kaspad)
@@ -946,10 +976,12 @@ object CryptoUtils {
 
     fun deriveDecentralizedAccount(
         customHandle: String? = null,
-        seedMnemonic: String? = null
+        seedMnemonic: String? = null,
+        networkPrefix: String = "kaspatest",
+        passphrase: String = ""
     ): com.example.data.AccountEntity {
         val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it) } ?: generateMnemonic()
-        val kaspaKey = deriveKaspaKeyPair(plainMnemonic)
+        val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase)
         
         // Form W3C Compliant DID (did:key with multibase format)
         val did = "did:key:z6Mku" + kaspaKey.publicKeyHex.take(38)

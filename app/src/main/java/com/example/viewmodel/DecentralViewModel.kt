@@ -35,6 +35,9 @@ import com.example.model.NetworkMetrics
 import com.example.model.NetworkProtocol
 import com.example.model.ResolvedResource
 import com.example.model.VerificationStatus
+import com.example.model.AppUpdateInfo
+import com.example.model.UpdateStatus
+import com.example.network.AppUpdateManager
 import com.example.network.CryptoUtils
 import com.example.network.DomainConstants
 import com.example.network.DualStackResolver
@@ -56,7 +59,8 @@ enum class AppTab {
     BROWSER_GATEWAY,
     MESH_RADAR,
     TRAFFIC_AUDIT,
-    LIBRARY
+    LIBRARY,
+    KASPA_WALLET
 }
 
 enum class SearchEngine(val baseUrl: String, val displayName: String) {
@@ -717,6 +721,21 @@ class DecentralViewModel(
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
+    fun getTestnetAddressForAccount(account: AccountEntity?): String {
+        if (account == null) return ""
+        if (account.kaspaAddress.startsWith("kaspatest:")) return account.kaspaAddress
+        return try {
+            val seed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
+            CryptoUtils.deriveKaspaKeyPair(seed, prefix = "kaspatest").kaspaAddress
+        } catch (_: Exception) {
+            account.kaspaAddress
+        }
+    }
+
+    val testnetAddress: StateFlow<String> = activeAccount.map { acc ->
+        getTestnetAddressForAccount(acc)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
     private val _activeTab = MutableStateFlow(AppTab.BROWSER_GATEWAY)
     val activeTab: StateFlow<AppTab> = _activeTab.asStateFlow()
 
@@ -1002,6 +1021,111 @@ class DecentralViewModel(
         browserSettingsPrefs.edit().putString("default_search_engine", engine.name).apply()
     }
 
+    // In-App Sideload Update Zone & Installer State
+    private val updateManager by lazy { AppUpdateManager.getInstance() }
+    private val updatePrefs by lazy {
+        getApplication<Application>().getSharedPreferences("kaspa_update_prefs", android.content.Context.MODE_PRIVATE)
+    }
+
+    private val _updateStatus = MutableStateFlow<UpdateStatus>(UpdateStatus.Idle)
+    val updateStatus: StateFlow<UpdateStatus> = _updateStatus.asStateFlow()
+
+    private val _isAutoCheckUpdatesEnabled = MutableStateFlow(
+        updatePrefs.getBoolean("auto_check_updates_enabled", true)
+    )
+    val isAutoCheckUpdatesEnabled: StateFlow<Boolean> = _isAutoCheckUpdatesEnabled.asStateFlow()
+
+    private val _customUpdateManifestUrl = MutableStateFlow(
+        updatePrefs.getString("custom_manifest_url", "") ?: ""
+    )
+    val customUpdateManifestUrl: StateFlow<String> = _customUpdateManifestUrl.asStateFlow()
+
+    private val _showUpdateAvailableDialog = MutableStateFlow(false)
+    val showUpdateAvailableDialog: StateFlow<Boolean> = _showUpdateAvailableDialog.asStateFlow()
+
+    fun checkForUpdates(isUserInitiated: Boolean = true) {
+        viewModelScope.launch {
+            _updateStatus.value = UpdateStatus.Checking
+            val result = updateManager.checkForUpdates(
+                context = getApplication(),
+                customEndpoint = _customUpdateManifestUrl.value.takeIf { it.isNotBlank() }
+            )
+            result.onSuccess { info ->
+                if (info.isUpdateAvailable) {
+                    _updateStatus.value = UpdateStatus.Available(info)
+                    _showUpdateAvailableDialog.value = true
+                    _statusMessage.value = "New update available: v${info.latestVersionName}"
+                } else {
+                    _updateStatus.value = UpdateStatus.UpToDate(info.currentVersionName)
+                    if (isUserInitiated) {
+                        _statusMessage.value = "You are on the latest version (v${info.currentVersionName})"
+                    }
+                }
+            }.onFailure { e ->
+                _updateStatus.value = UpdateStatus.Error(e.message ?: "Failed to check for updates")
+                if (isUserInitiated) {
+                    _statusMessage.value = "Update check failed: ${e.message}"
+                }
+            }
+        }
+    }
+
+    fun downloadAndInstallUpdate(context: android.content.Context) {
+        val current = _updateStatus.value
+        val updateInfo = when (current) {
+            is UpdateStatus.Available -> current.updateInfo
+            is UpdateStatus.ReadyToInstall -> current.updateInfo
+            is UpdateStatus.Downloading -> current.updateInfo
+            else -> return
+        }
+
+        viewModelScope.launch {
+            _updateStatus.value = UpdateStatus.Downloading(0, 0, updateInfo.apkSizeBytes, updateInfo)
+            val result = updateManager.downloadApk(
+                context = context,
+                updateInfo = updateInfo,
+                onProgress = { percent, downloaded, total ->
+                    _updateStatus.value = UpdateStatus.Downloading(percent, downloaded, total, updateInfo)
+                }
+            )
+
+            result.onSuccess { apkFile ->
+                _updateStatus.value = UpdateStatus.ReadyToInstall(apkFile, updateInfo)
+                _statusMessage.value = "Update downloaded! Launching Android package installer..."
+                installReadyApk(context)
+            }.onFailure { err ->
+                _updateStatus.value = UpdateStatus.Error(err.message ?: "Download failed")
+                _statusMessage.value = "Download failed: ${err.message}"
+            }
+        }
+    }
+
+    fun installReadyApk(context: android.content.Context) {
+        val current = _updateStatus.value
+        if (current is UpdateStatus.ReadyToInstall) {
+            val installResult = updateManager.installApk(context, current.apkFile)
+            installResult.onSuccess {
+                _statusMessage.value = "Package installer launched"
+            }.onFailure { err ->
+                _statusMessage.value = "Install notice: ${err.message}"
+            }
+        }
+    }
+
+    fun toggleAutoCheckUpdates(enabled: Boolean) {
+        _isAutoCheckUpdatesEnabled.value = enabled
+        updatePrefs.edit().putBoolean("auto_check_updates_enabled", enabled).apply()
+    }
+
+    fun setCustomUpdateManifestUrl(url: String) {
+        _customUpdateManifestUrl.value = url
+        updatePrefs.edit().putString("custom_manifest_url", url).apply()
+    }
+
+    fun dismissUpdateDialog() {
+        _showUpdateAvailableDialog.value = false
+    }
+
     fun addToHistory(url: String, title: String) {
         if (url.startsWith("about:") || url.startsWith("data:") || _incognitoMode.value) return
         viewModelScope.launch {
@@ -1069,7 +1193,7 @@ class DecentralViewModel(
                             acc.handle
                         }
 
-                        if (!CryptoUtils.isValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
+                        if (!CryptoUtils.isAnyValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
                             val refreshedAcc = if (acc.accountType == "GOOGLE_ZK_BRIDGE" && acc.googleEmail != null) {
                                 CryptoUtils.deriveGoogleBridgeAccount(
                                     email = acc.googleEmail,
@@ -1078,7 +1202,8 @@ class DecentralViewModel(
                             } else {
                                 CryptoUtils.deriveDecentralizedAccount(
                                     customHandle = cleanHandle,
-                                    seedMnemonic = acc.seedPhrase
+                                    seedMnemonic = acc.seedPhrase,
+                                    networkPrefix = "kaspatest"
                                 ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
                             }
                             database.accountDao().insertAccount(refreshedAcc)
@@ -1088,12 +1213,21 @@ class DecentralViewModel(
             } catch (_: Exception) {}
         }
 
-        // Keep Kaspa Wallet synced with active account
+        // Keep Kaspa Wallet synced with active account on Testnet 10
         viewModelScope.launch {
             activeAccount.collect { account ->
-                account?.kaspaAddress?.let { address ->
-                    refreshKaspaWallet(address)
+                val testnetAddr = getTestnetAddressForAccount(account)
+                if (testnetAddr.isNotBlank()) {
+                    refreshKaspaWallet(testnetAddr)
                 }
+            }
+        }
+
+        // Initial automatic check for updates on startup
+        viewModelScope.launch {
+            if (_isAutoCheckUpdatesEnabled.value) {
+                delay(2000)
+                checkForUpdates(isUserInitiated = false)
             }
         }
 
@@ -1222,13 +1356,20 @@ class DecentralViewModel(
     }
 
     fun refreshKaspaWallet(address: String? = null) {
-        val targetAddress = address ?: activeAccount.value?.kaspaAddress ?: return
+        val targetAddress = address ?: testnetAddress.value.ifBlank { activeAccount.value?.let { getTestnetAddressForAccount(it) } } ?: return
         if (targetAddress.isBlank()) return
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isLoading = true)
             val updated = kaspaWalletService.fetchWalletState(targetAddress)
-            _kaspaWalletState.value = updated
+            _kaspaWalletState.value = updated.copy(
+                kaspaAddress = targetAddress,
+                networkStatus = "Kaspa BlockDAG Testnet 10"
+            )
         }
+    }
+
+    fun refreshTestnetWallet() {
+        refreshKaspaWallet(testnetAddress.value)
     }
 
     fun sendKaspaTransaction(recipientAddress: String, amountKas: Double) {
@@ -1236,6 +1377,17 @@ class DecentralViewModel(
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true)
             try {
+                val cleanRecipient = recipientAddress.trim()
+                if (!cleanRecipient.startsWith("kaspatest:")) {
+                    val errMsg = "Testnet 10 requires destination address starting with 'kaspatest:'"
+                    _statusMessage.value = errMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        statusNotice = "Error: $errMsg"
+                    )
+                    return@launch
+                }
+
                 val decryptedSeed = try {
                     CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
                 } catch (e: Exception) {
@@ -1249,14 +1401,16 @@ class DecentralViewModel(
                     return@launch
                 }
 
+                val senderTestnetAddress = getTestnetAddressForAccount(senderAcc)
+
                 val result = kaspaWalletService.sendKaspa(
-                    senderAddress = senderAcc.kaspaAddress,
+                    senderAddress = senderTestnetAddress,
                     senderSeed = decryptedSeed,
-                    recipientAddress = recipientAddress,
+                    recipientAddress = cleanRecipient,
                     amountKas = amountKas
                 )
                 result.onSuccess { txItem ->
-                    _statusMessage.value = "KAS Transaction Broadcasted! Tx: ${txItem.txId.take(16)}..."
+                    _statusMessage.value = "Testnet 10 KAS Broadcasted! Tx: ${txItem.txId.take(16)}..."
                     val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions
                     val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - txItem.feeKas).coerceAtLeast(0.0)
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
@@ -1265,11 +1419,11 @@ class DecentralViewModel(
                         balanceUsd = updatedBalance * _kaspaWalletState.value.priceUsd,
                         lastBroadcastTxId = txItem.txId,
                         recentTransactions = updatedTxs,
-                        statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId})".format(amountKas)
+                        statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId.take(16)}...)".format(amountKas)
                     )
                 }.onFailure { err ->
                     val errorMsg = err.message ?: "Transaction broadcast failed"
-                    _statusMessage.value = "Transaction failed: $errorMsg"
+                    _statusMessage.value = "Testnet 10 failed: $errorMsg"
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
                         lastBroadcastTxId = null,
@@ -1290,6 +1444,105 @@ class DecentralViewModel(
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = false)
                 }
             }
+        }
+    }
+
+    fun createNewTestnetWallet(customName: String? = null, passphrase: String = "") {
+        viewModelScope.launch {
+            try {
+                val newAcc = CryptoUtils.deriveDecentralizedAccount(
+                    customHandle = customName ?: "Testnet 10 Wallet",
+                    networkPrefix = "kaspatest",
+                    passphrase = passphrase.trim()
+                )
+                database.accountDao().deactivateAll()
+                database.accountDao().insertAccount(newAcc)
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isLoading = true,
+                    kaspaAddress = newAcc.kaspaAddress,
+                    statusNotice = "Scanning on-chain Testnet 10 BlockDAG for ${newAcc.kaspaAddress.take(18)}..."
+                )
+                _statusMessage.value = "Created Kaspa TN10 Wallet. Performing on-chain scan..."
+                
+                // Immediate full on-chain scan
+                val scanned = kaspaWalletService.fetchWalletState(newAcc.kaspaAddress)
+                _kaspaWalletState.value = scanned.copy(
+                    kaspaAddress = newAcc.kaspaAddress,
+                    networkStatus = "Kaspa BlockDAG Testnet 10",
+                    statusNotice = "On-chain scan complete: %.4f KAS (${scanned.utxosCount} UTXOs)".format(scanned.balanceKas)
+                )
+                _statusMessage.value = "Wallet active: ${newAcc.kaspaAddress.take(16)}... (%.4f KAS on-chain)".format(scanned.balanceKas)
+            } catch (e: Exception) {
+                _statusMessage.value = "Failed to create Testnet 10 wallet: ${e.message}"
+            }
+        }
+    }
+
+    fun importTestnetWallet(mnemonic: String, customName: String? = null, passphrase: String = "") {
+        viewModelScope.launch {
+            try {
+                val cleanMnemonic = mnemonic.trim()
+                val words = cleanMnemonic.split("\\s+".toRegex())
+                if (words.size != 12 && words.size != 24) {
+                    _statusMessage.value = "Invalid seed phrase: Expected 12 or 24 words, got ${words.size}"
+                    return@launch
+                }
+                val importedAcc = CryptoUtils.deriveDecentralizedAccount(
+                    customHandle = customName ?: "Imported TN10 Wallet",
+                    seedMnemonic = cleanMnemonic,
+                    networkPrefix = "kaspatest",
+                    passphrase = passphrase.trim()
+                )
+                database.accountDao().deactivateAll()
+                database.accountDao().insertAccount(importedAcc)
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isLoading = true,
+                    kaspaAddress = importedAcc.kaspaAddress,
+                    statusNotice = "Scanning on-chain Testnet 10 BlockDAG for ${importedAcc.kaspaAddress.take(18)}..."
+                )
+                _statusMessage.value = "Imported wallet. Performing on-chain BlockDAG scan..."
+                
+                // Immediate full on-chain scan
+                val scanned = kaspaWalletService.fetchWalletState(importedAcc.kaspaAddress)
+                _kaspaWalletState.value = scanned.copy(
+                    kaspaAddress = importedAcc.kaspaAddress,
+                    networkStatus = "Kaspa BlockDAG Testnet 10",
+                    statusNotice = "On-chain scan complete: %.4f KAS (${scanned.utxosCount} UTXOs)".format(scanned.balanceKas)
+                )
+                _statusMessage.value = "Wallet imported: ${importedAcc.kaspaAddress.take(16)}... (%.4f KAS on-chain)".format(scanned.balanceKas)
+            } catch (e: Exception) {
+                _statusMessage.value = "Failed to import wallet: ${e.message}"
+            }
+        }
+    }
+
+    fun openTestnetFaucet(context: android.content.Context? = null) {
+        val address = testnetAddress.value
+        if (address.isNotBlank() && context != null) {
+            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Kaspa Testnet 10 Address", address))
+        }
+        _statusMessage.value = "Address copied! Opening Kaspa Testnet 10 Faucet..."
+        openUrlInBrowser("https://faucet-tn10.kaspanet.io", isExternal = false)
+    }
+
+    fun openTestnetExplorer(address: String? = null) {
+        val target = address ?: testnetAddress.value
+        val url = if (target.isNotBlank()) "https://explorer-tn10.kaspa.org/addresses/$target" else "https://explorer-tn10.kaspa.org"
+        openUrlInBrowser(url, isExternal = false)
+    }
+
+    fun openTestnetTxExplorer(txId: String) {
+        val url = "https://explorer-tn10.kaspa.org/txs/$txId"
+        openUrlInBrowser(url, isExternal = false)
+    }
+
+    fun getActiveSeedPhrase(): String? {
+        val acc = activeAccount.value ?: return null
+        return try {
+            CryptoUtils.getDecryptedSeed(acc.seedPhrase)
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -1409,6 +1662,26 @@ class DecentralViewModel(
     fun onUserSubmitUrl(rawUrl: String? = null) {
         viewModelScope.launch {
             val input = (rawUrl ?: _urlInput.value).trim()
+            if (input.equals("wallet", ignoreCase = true) ||
+                input.equals("kaspa wallet", ignoreCase = true) ||
+                input.equals("testnet wallet", ignoreCase = true) ||
+                input.equals("tn10", ignoreCase = true) ||
+                input.equals("kaspa testnet wallet", ignoreCase = true)
+            ) {
+                setTab(AppTab.KASPA_WALLET)
+                return@launch
+            }
+            if (input.equals("update", ignoreCase = true) ||
+                input.equals("updates", ignoreCase = true) ||
+                input.equals("update zone", ignoreCase = true) ||
+                input.equals("check update", ignoreCase = true) ||
+                input.equals("check updates", ignoreCase = true) ||
+                input.equals("sideload", ignoreCase = true)
+            ) {
+                setTab(AppTab.TRAFFIC_AUDIT)
+                checkForUpdates(isUserInitiated = true)
+                return@launch
+            }
             val target = normalizeUrlOrQuery(input)
             if (target.isBlank()) return@launch
 

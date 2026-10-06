@@ -127,7 +127,7 @@ object WebViewAssetLruCache {
 
         // Never cache WASM or Kaspa API/dynamic nodes to ensure real-time data flows
         if (path.endsWith(".wasm") || lowerUrl.contains("/api/") || lowerUrl.contains("kaspa") ||
-            lowerUrl.contains("linktr.ee") || lowerUrl.contains("mykai") || lowerUrl.contains("igralabs")) return false
+            lowerUrl.contains("linktr.ee") || lowerUrl.contains("igralabs")) return false
 
         val isDecentralizedStaticAsset = lowerUrl.contains("/ipfs/") || lowerUrl.contains("/ipns/") ||
                 lowerUrl.contains("/kns/") || lowerUrl.contains(".kas/") ||
