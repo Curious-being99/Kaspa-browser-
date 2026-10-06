@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Visibility
@@ -145,20 +146,32 @@ fun KaspaTestnetWalletScreen(
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showSeedPhraseDialog by remember { mutableStateOf(false) }
     var showCreateWalletDialog by remember { mutableStateOf(false) }
     var showImportWalletDialog by remember { mutableStateOf(false) }
     var showSignOutConfirmDialog by remember { mutableStateOf(false) }
+
+    // Screen Overlays State (Full Page Button UIs)
+    var showSendScreen by remember { mutableStateOf(false) }
+    var showReceiveScreen by remember { mutableStateOf(false) }
+    var showManageScreen by remember { mutableStateOf(false) }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var showConfirmSendDialog by remember { mutableStateOf(false) }
 
-    // Handle Hardware/System Back -> Return to Browser Gateway
-    BackHandler {
-        viewModel.setTab(AppTab.BROWSER_GATEWAY)
+    // Handle Hardware/System Back -> Close overlays or Return to Browser Gateway
+    BackHandler(enabled = true) {
+        if (showSendScreen) {
+            showSendScreen = false
+        } else if (showReceiveScreen) {
+            showReceiveScreen = false
+        } else if (showManageScreen) {
+            showManageScreen = false
+        } else {
+            viewModel.setTab(AppTab.BROWSER_GATEWAY)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -455,7 +468,7 @@ fun KaspaTestnetWalletScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Standalone Action Button Bar
+            // Standalone Action Button Bar (No clunky bottom tabs, action buttons open their own pages!)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -467,13 +480,13 @@ fun KaspaTestnetWalletScreen(
                     icon = Icons.Default.Send,
                     label = "Send",
                     color = KaspaTea,
-                    onClick = { selectedTabIndex = 1 }
+                    onClick = { showSendScreen = true }
                 )
                 QuickActionButton(
                     icon = Icons.AutoMirrored.Filled.CallReceived,
                     label = "Receive",
                     color = ElectricCyan,
-                    onClick = { selectedTabIndex = 2 }
+                    onClick = { showReceiveScreen = true }
                 )
                 QuickActionButton(
                     icon = Icons.Default.WaterDrop,
@@ -482,89 +495,94 @@ fun KaspaTestnetWalletScreen(
                     onClick = { viewModel.openTestnetFaucet(context) }
                 )
                 QuickActionButton(
-                    icon = Icons.Default.OpenInBrowser,
-                    label = "Explorer",
+                    icon = Icons.Default.Settings,
+                    label = "Manage",
                     color = TextSecondary,
-                    onClick = { viewModel.openTestnetExplorer() }
+                    onClick = { showManageScreen = true }
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Single-Line Non-Wrapping Tab Navigation
-            val tabs = listOf("History", "Send", "Receive", "Manage")
-            ScrollableTabRow(
-                selectedTabIndex = selectedTabIndex,
-                containerColor = ObsidianBg,
-                contentColor = KaspaTea,
-                edgePadding = 16.dp,
-                indicator = { tabPositions ->
-                    if (selectedTabIndex < tabPositions.size) {
-                        TabRowDefaults.SecondaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                            color = KaspaTea,
-                            height = 2.5.dp
-                        )
-                    }
-                },
-                divider = { HorizontalDivider(color = SurfaceCardBorder) }
+            // Section Header: Transaction History
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = selectedTabIndex == index,
-                        onClick = { selectedTabIndex = index },
-                        text = {
-                            Text(
-                                text = title,
-                                fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
-                                color = if (selectedTabIndex == index) KaspaTea else TextMuted,
-                                fontSize = 13.sp,
-                                maxLines = 1
-                            )
-                        }
+                Text(
+                    text = "Transaction History",
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                if (walletState.recentTransactions.isNotEmpty()) {
+                    Text(
+                        text = "View Explorer",
+                        fontSize = 11.sp,
+                        color = KaspaTea,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable { viewModel.openTestnetExplorer() }
                     )
                 }
             }
 
-            // Tab Content
+            // Transaction History List directly on Main Screen (pins dashboard up, no scroll cutoffs!)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                when (selectedTabIndex) {
-                    0 -> HistoryTabContent(
-                        transactions = walletState.recentTransactions,
-                        isLoading = walletState.isLoading,
-                        onOpenTx = { txId -> viewModel.openTestnetTxExplorer(txId) },
-                        onGetFaucetCoins = { viewModel.openTestnetFaucet(context) }
-                    )
-                    1 -> SendTabContent(
-                        senderAddress = testnetAddress,
-                        balanceKas = walletState.balanceKas,
-                        isSending = walletState.isSending,
-                        statusNotice = walletState.statusNotice,
-                        recipientInput = recipientInput,
-                        onRecipientChange = { recipientInput = it },
-                        amountInput = amountInput,
-                        onAmountChange = { amountInput = it },
-                        onSendClick = { showConfirmSendDialog = true }
-                    )
-                    2 -> ReceiveTabContent(
-                        address = testnetAddress,
-                        onOpenFaucet = { viewModel.openTestnetFaucet(context) }
-                    )
-                    3 -> ManageTabContent(
-                        activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
-                        testnetAddress = testnetAddress,
-                        allAccountsCount = allAccounts.size,
-                        onViewSeed = { showSeedPhraseDialog = true },
-                        onCreateNewWallet = { showCreateWalletDialog = true },
-                        onImportWallet = { showImportWalletDialog = true },
-                        onSignOut = { showSignOutConfirmDialog = true }
-                    )
-                }
+                HistoryTabContent(
+                    transactions = walletState.recentTransactions,
+                    isLoading = walletState.isLoading,
+                    onOpenTx = { txId -> viewModel.openTestnetTxExplorer(txId) },
+                    onGetFaucetCoins = { viewModel.openTestnetFaucet(context) }
+                )
             }
+        }
+
+        // --- NATIVE MOBILE APP FULL-PAGE OVERLAYS ---
+
+        // Send Screen Overlay
+        if (showSendScreen) {
+            SendScreenOverlay(
+                senderAddress = testnetAddress,
+                balanceKas = walletState.balanceKas,
+                isSending = walletState.isSending,
+                statusNotice = walletState.statusNotice,
+                recipientInput = recipientInput,
+                onRecipientChange = { recipientInput = it },
+                amountInput = amountInput,
+                onAmountChange = { amountInput = it },
+                onSendClick = { showConfirmSendDialog = true },
+                onClose = { showSendScreen = false }
+            )
+        }
+
+        // Receive Screen Overlay
+        if (showReceiveScreen) {
+            ReceiveScreenOverlay(
+                address = testnetAddress,
+                onOpenFaucet = { viewModel.openTestnetFaucet(context) },
+                onClose = { showReceiveScreen = false }
+            )
+        }
+
+        // Manage Settings Screen Overlay
+        if (showManageScreen) {
+            ManageScreenOverlay(
+                activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
+                testnetAddress = testnetAddress,
+                allAccountsCount = allAccounts.size,
+                onViewSeed = { showSeedPhraseDialog = true },
+                onCreateNewWallet = { showCreateWalletDialog = true },
+                onImportWallet = { showImportWalletDialog = true },
+                onSignOut = { showSignOutConfirmDialog = true },
+                onClose = { showManageScreen = false }
+            )
         }
 
         // Floating Snackbar Host
@@ -2267,6 +2285,144 @@ private fun SetupFeatureItem(
         Column {
             Text(text = title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Text(text = subtitle, fontSize = 11.sp, color = TextSecondary, lineHeight = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun SendScreenOverlay(
+    senderAddress: String,
+    balanceKas: Double,
+    isSending: Boolean,
+    statusNotice: String?,
+    recipientInput: String,
+    onRecipientChange: (String) -> Unit,
+    amountInput: String,
+    onAmountChange: (String) -> Unit,
+    onSendClick: () -> Unit,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .clickable(enabled = false) {} // prevent click through
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Close",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Send KAS (TN10)", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            }
+            
+            SendTabContent(
+                senderAddress = senderAddress,
+                balanceKas = balanceKas,
+                isSending = isSending,
+                statusNotice = statusNotice,
+                recipientInput = recipientInput,
+                onRecipientChange = onRecipientChange,
+                amountInput = amountInput,
+                onAmountChange = onAmountChange,
+                onSendClick = onSendClick
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReceiveScreenOverlay(
+    address: String,
+    onOpenFaucet: () -> Unit,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .clickable(enabled = false) {} // prevent click through
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Close",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Receive Address (TN10)", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            }
+            
+            ReceiveTabContent(
+                address = address,
+                onOpenFaucet = onOpenFaucet
+            )
+        }
+    }
+}
+
+@Composable
+private fun ManageScreenOverlay(
+    activeAccountHandle: String,
+    testnetAddress: String,
+    allAccountsCount: Int,
+    onViewSeed: () -> Unit,
+    onCreateNewWallet: () -> Unit,
+    onImportWallet: () -> Unit,
+    onSignOut: () -> Unit,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .clickable(enabled = false) {} // prevent click through
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Close",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Wallet Settings & Management", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            }
+            
+            ManageTabContent(
+                activeAccountHandle = activeAccountHandle,
+                testnetAddress = testnetAddress,
+                allAccountsCount = allAccountsCount,
+                onViewSeed = onViewSeed,
+                onCreateNewWallet = onCreateNewWallet,
+                onImportWallet = onImportWallet,
+                onSignOut = onSignOut
+            )
         }
     }
 }

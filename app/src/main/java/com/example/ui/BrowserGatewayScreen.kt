@@ -6809,7 +6809,7 @@ fun KaspaNewsSection(
                     .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val categories = listOf("All", "X", "YouTube", "News", "Reddit")
+                val categories = listOf("All", "X", "YouTube", "News", "Reddit", "GitHub")
                 categories.forEach { cat ->
                     val isSelected = selectedFilter == cat
                     Surface(

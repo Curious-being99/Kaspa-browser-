@@ -122,6 +122,7 @@ class AppUpdateManager(
             var fetchedInfo: AppUpdateInfo? = null
             var lastErrorMsg: String? = null
             var isGracefulNoRelease = false
+            var isNetworkError = false
 
             try {
                 val request = Request.Builder()
@@ -141,14 +142,34 @@ class AppUpdateManager(
                         if (code == 404) {
                             // Repository exists but has no releases published yet -> treat gracefully
                             isGracefulNoRelease = true
+                        } else if (code == 403) {
+                            lastErrorMsg = "GitHub API rate limit exceeded. Please try again later."
                         } else {
-                            lastErrorMsg = "HTTP $code from $primaryUrl"
+                            lastErrorMsg = "GitHub returned HTTP $code. Please try again."
                         }
                         android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP $code")
                     }
                 }
+            } catch (e: java.net.UnknownHostException) {
+                isNetworkError = true
+                lastErrorMsg = "Network connection error. Please verify your internet connection and try again."
+                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
+            } catch (e: java.net.SocketTimeoutException) {
+                isNetworkError = true
+                lastErrorMsg = "Connection to GitHub timed out. Please check your internet connection or try again later."
+                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
+            } catch (e: java.net.ConnectException) {
+                isNetworkError = true
+                lastErrorMsg = "Could not connect to GitHub. Please check your internet connection and try again."
+                android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
             } catch (e: Exception) {
-                lastErrorMsg = e.message ?: "Network error"
+                val msg = e.message ?: ""
+                if (msg.contains("timeout", ignoreCase = true) || msg.contains("connect", ignoreCase = true)) {
+                    isNetworkError = true
+                    lastErrorMsg = "Connection timed out. Please check your network and try again."
+                } else {
+                    lastErrorMsg = msg.ifBlank { "Network or parsing error" }
+                }
                 android.util.Log.d("AppUpdateManager", "Remote update query notice: ${e.message}")
             }
 
@@ -169,7 +190,7 @@ class AppUpdateManager(
                 return@withContext Result.success(fetchedInfo!!)
             }
 
-            if (isGracefulNoRelease || lastErrorMsg == null) {
+            if (isGracefulNoRelease || (lastErrorMsg == null && !isNetworkError)) {
                 val defaultInfo = AppUpdateInfo(
                     latestVersionName = currentVersionName,
                     latestVersionCode = currentVersionCode,
@@ -187,6 +208,10 @@ class AppUpdateManager(
                 val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 prefs.edit().putLong(KEY_LAST_CHECKED_TS, System.currentTimeMillis()).apply()
                 return@withContext Result.success(defaultInfo)
+            }
+
+            if (isNetworkError) {
+                return@withContext Result.failure(IllegalStateException(lastErrorMsg))
             }
 
             val repoDisplay = if (!customEndpoint.isNullOrBlank()) customEndpoint else "Curious-being99/Kaspa-browser-"
