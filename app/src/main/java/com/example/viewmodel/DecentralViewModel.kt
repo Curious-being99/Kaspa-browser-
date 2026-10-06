@@ -807,9 +807,6 @@ class DecentralViewModel(
     private val _incognitoMode = MutableStateFlow(false)
     val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()
 
-    private val _aiMode = MutableStateFlow(false)
-    val aiMode: StateFlow<Boolean> = _aiMode.asStateFlow()
-
     private val browserSettingsPrefs = application.getSharedPreferences("kaspa_browser_settings", android.content.Context.MODE_PRIVATE)
 
     private val _desktopModeEnabled = MutableStateFlow(browserSettingsPrefs.getBoolean("desktop_mode_enabled", false))
@@ -1004,7 +1001,6 @@ class DecentralViewModel(
     fun toggleStrictDecentralizedMode(enabled: Boolean) { _strictDecentralizedMode.value = enabled }
     fun toggleSendDntHeaders(enabled: Boolean) { _sendDntHeaders.value = enabled }
     fun toggleIncognitoMode(enabled: Boolean) { _incognitoMode.value = enabled }
-    fun toggleAiMode(enabled: Boolean) { _aiMode.value = enabled }
     fun toggleDesktopMode(enabled: Boolean) {
         _desktopModeEnabled.value = enabled
         browserSettingsPrefs.edit().putBoolean("desktop_mode_enabled", enabled).apply()

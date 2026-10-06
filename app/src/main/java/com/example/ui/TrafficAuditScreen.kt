@@ -993,7 +993,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
                                 Text(
                                     text = "Cross-Verified",
-                                    fontSize = 9.5.sp,
+                                    fontSize = 10.sp,
                                     color = TextMuted,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -2184,6 +2184,22 @@ fun KaspaUpdateZoneCard(
             }
 
             if (showRepoInput) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Release Repository Endpoint",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Specify a custom GitHub repository (e.g. owner/repo) or custom JSON release manifest URL to fetch official APK releases.",
+                        fontSize = 10.5.sp,
+                        color = TextSecondary,
+                        lineHeight = 14.sp
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = repoInputText,
@@ -2192,7 +2208,7 @@ fun KaspaUpdateZoneCard(
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .defaultMinSize(minHeight = 56.dp)
+                        .defaultMinSize(minHeight = 52.dp)
                         .testTag("github_repo_input"),
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = ElectricCyan,

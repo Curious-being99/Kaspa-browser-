@@ -331,7 +331,7 @@ fun KaspaTestnetWalletScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                    .padding(horizontal = 14.dp, vertical = 2.dp)
                     .testTag("wallet_balance_card"),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = SurfaceCard),
@@ -345,7 +345,7 @@ fun KaspaTestnetWalletScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp)
+                        .padding(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -414,11 +414,11 @@ fun KaspaTestnetWalletScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
                         text = "%.8f".format(walletState.balanceKas),
-                        fontSize = 24.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
                         letterSpacing = (-0.5).sp,
@@ -445,7 +445,7 @@ fun KaspaTestnetWalletScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Address Pill with One-Tap Copy
                     Surface(
@@ -466,7 +466,7 @@ fun KaspaTestnetWalletScreen(
                             .testTag("copy_address_chip")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -489,7 +489,7 @@ fun KaspaTestnetWalletScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // 4 Quick Action Buttons
                     Row(
@@ -952,7 +952,7 @@ private fun QuickActionButton(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 2.dp)
+            modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp)
         ) {
             Icon(
                 imageVector = icon,

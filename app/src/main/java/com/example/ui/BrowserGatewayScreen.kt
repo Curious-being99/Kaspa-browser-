@@ -3853,7 +3853,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             Triple("kasrace.com", "Kasrace 4D Realtime Explorer", "kasrace.com"),
                             Triple("kaskad.live", "Kaskad Decentralized Network", "kaskad.live"),
                             Triple("dot.k", ".k Decentralized Kaspa Domains", "dot.k"),
-                            Triple("github.com", "GitHub Developer Platform", "github.com"),
                             Triple("reddit.com/r/kaspa", "Kaspa Reddit Community", "reddit.com/r/kaspa"),
                             Triple("discord.gg/kaspa", "Kaspa Discord Server", "discord.gg/kaspa")
                         )
@@ -6810,7 +6809,7 @@ fun KaspaNewsSection(
                     .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val categories = listOf("All", "X", "YouTube", "News", "Reddit", "GitHub")
+                val categories = listOf("All", "X", "YouTube", "News", "Reddit")
                 categories.forEach { cat ->
                     val isSelected = selectedFilter == cat
                     Surface(
