@@ -550,6 +550,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val searchEngine by viewModel.searchEngine.collectAsState()
     val updateStatus by viewModel.updateStatus.collectAsState()
 
+    val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
+    val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
+    var showPhotoThemeDialog by remember { mutableStateOf(false) }
+
     val hasWalletPassword by viewModel.hasWalletPassword.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
 
@@ -1015,7 +1019,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             } catch (_: Exception) {
                 Color(0xFF181B24)
             }
-            else -> Color(0xFF12141C) // "classic_dark"
+            else -> Color(0xFF12141C).copy(alpha = 0.35f) // "classic_dark"
         }
     }
 
@@ -3601,7 +3605,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             isInputFocused = false
                             focusManager.clearFocus()
                         },
-                    color = ObsidianBg
+                    color = Color.Transparent
                 ) {
                     Column(
                         modifier = Modifier
@@ -4039,6 +4043,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
                 showAccountDialog = false
             }
+        )
+    }
+
+    if (showPhotoThemeDialog) {
+        com.example.ui.theme.PhotoThemeSelectorDialog(
+            currentTheme = currentPhotoTheme,
+            isAutoRotate = isAutoRotatePhotoTheme,
+            onSelectTheme = { viewModel.selectPhotoTheme(it) },
+            onToggleAutoRotate = { viewModel.toggleAutoRotatePhotoTheme(it) },
+            onDismissRequest = { showPhotoThemeDialog = false }
         )
     }
 
@@ -5970,22 +5984,40 @@ fun BrowserSpeedDial(
     var shortcutToDelete by remember { mutableStateOf<CustomShortcut?>(null) }
     var addShortcutName by remember { mutableStateOf("") }
     var addShortcutUrl by remember { mutableStateOf("https://") }
+    val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
 
+    val themeResId = currentPhotoTheme.drawableRes
     Box(
         modifier = Modifier
             .fillMaxSize()
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.curated_browser_wallpaper_1789516978789),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        if (themeResId != null) {
+            Image(
+                painter = painterResource(id = themeResId),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF0C0D10),
+                                Color(0xFF141824),
+                                Color(0xFF0A0C12)
+                              )
+                        )
+                    )
+            )
+        }
         // Dark translucent overlay for card readability (Chrome/Brave style)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f))
+                .background(Color.Black.copy(alpha = 0.62f))
         )
 
         Column(
@@ -5993,11 +6025,13 @@ fun BrowserSpeedDial(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
+        val activePhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
+
         // 1. HORIZONTAL SPEED DIAL SHORTCUTS CONTAINER (Floating modern rounded dock)
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = SurfaceDark.copy(alpha = 0.90f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.6f)),
+            color = activePhotoTheme.cardBgColor,
+            border = androidx.compose.foundation.BorderStroke(1.dp, activePhotoTheme.cardBorderColor),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -6081,6 +6115,20 @@ fun BrowserSpeedDial(
                     DotkLogoIcon(iconSize = 36.dp)
                 }
 
+                // Item 10: Kaspa Silver
+                SpeedDialCircleItem(
+                    label = "Kaspa Silver",
+                    iconColor = Color(0xFFEF4444),
+                    onClick = { onNavigate("https://www.youtube.com/@KaspaSilver") }
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_youtube_logo),
+                        contentDescription = "Kaspa Silver YouTube",
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+
                 // Custom User Shortcuts
                 customShortcuts.forEach { shortcut ->
                     SpeedDialCircleItem(
@@ -6113,7 +6161,7 @@ fun BrowserSpeedDial(
                             .background(Color(0xFF161D2B), CircleShape)
                             .border(
                                 width = 1.5.dp,
-                                color = Color(0xFF70C7BA).copy(alpha = 0.6f),
+                                color = activePhotoTheme.cardBorderColor,
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
@@ -6789,7 +6837,6 @@ fun KaspaNewsSection(
     onNavigate: (String) -> Unit
 ) {
     var selectedFilter by remember { mutableStateOf("All") }
-    var shuffleTrigger by remember { mutableIntStateOf(0) }
 
     val defaultItems = remember { getDefaultCuratedNews() }
     val newsItemsState by (viewModel?.newsFeedItems ?: remember {
@@ -6797,6 +6844,8 @@ fun KaspaNewsSection(
     }).collectAsState()
 
     val newsItems = if (newsItemsState.isNotEmpty()) newsItemsState else defaultItems
+
+    val currentPhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -6817,12 +6866,9 @@ fun KaspaNewsSection(
                     val isSelected = selectedFilter == cat
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) ElectricCyan else SurfaceDark,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                        color = if (isSelected) currentPhotoTheme.primaryAccent else currentPhotoTheme.cardBgColor,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, currentPhotoTheme.cardBorderColor),
                         modifier = Modifier.clickable {
-                            if (cat == "All") {
-                                shuffleTrigger++
-                            }
                             selectedFilter = cat
                         }
                     ) {
@@ -6882,7 +6928,7 @@ fun KaspaNewsSection(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        val filteredItems = remember(newsItems, selectedFilter, shuffleTrigger) {
+        val filteredItems = remember(newsItems, selectedFilter) {
             val deduplicated = newsItems.distinctBy { getKaspaNewsDeduplicationKey(it) }
             when (selectedFilter) {
                 "All" -> deduplicated.sortedByDescending { it.epochMillis }
@@ -6921,9 +6967,9 @@ fun KaspaNewsSection(
 
         if (filteredItems.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                colors = CardDefaults.cardColors(containerColor = currentPhotoTheme.cardBgColor),
                 border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.5f))
+                    brush = androidx.compose.ui.graphics.SolidColor(currentPhotoTheme.cardBorderColor)
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -6944,7 +6990,12 @@ fun KaspaNewsSection(
             }
         } else {
             filteredItems.forEachIndexed { index, item ->
-                if (item.category == "YouTube" || item.videoId != null) {
+                val isActuallyVideo = item.category == "YouTube" || 
+                                     !item.videoId.isNullOrBlank() || 
+                                     item.url.contains("youtube.com/watch") || 
+                                     item.url.contains("youtu.be/")
+
+                if (isActuallyVideo) {
                     YouTubeVideoCard(item = item, onNavigate = onNavigate)
                 } else {
                     NewsFeedCard(item = item, onNavigate = onNavigate)
@@ -6979,6 +7030,7 @@ fun formatEpochToTime(epochMillis: Long, originalFallback: String): String {
 
 @Composable
 fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
+    val activePhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
     val brandColor = when (item.category) {
         "GitHub" -> Color(0xFFA855F7)
         "Reddit" -> Color(0xFFF97316)
@@ -6996,9 +7048,9 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        colors = CardDefaults.cardColors(containerColor = activePhotoTheme.cardBgColor),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.6f))
+            brush = androidx.compose.ui.graphics.SolidColor(activePhotoTheme.cardBorderColor)
         ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
@@ -7009,33 +7061,6 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = SurfaceCard,
-                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                modifier = Modifier.size(36.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    if (brandDrawableId != null) {
-                        Icon(
-                            painter = painterResource(brandDrawableId),
-                            contentDescription = item.category,
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Hub,
-                            contentDescription = item.category,
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 val displayTime = remember(item.epochMillis) { formatEpochToTime(item.epochMillis, item.timestamp) }
                 val isRecent = remember(item.epochMillis) { (System.currentTimeMillis() - item.epochMillis) < 60_000 }
@@ -7077,7 +7102,7 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
                     fontSize = 11.sp,
                     color = TextSecondary,
                     lineHeight = 15.sp,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
 
@@ -7091,6 +7116,24 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
                     )
                 }
             }
+
+            if (!item.imageUrl.isNullOrBlank()) {
+                Spacer(modifier = Modifier.width(10.dp))
+                AsyncImage(
+                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                        .data(item.imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    placeholder = painterResource(id = R.drawable.ic_kaspa_symbol_only),
+                    error = painterResource(id = R.drawable.ic_kaspa_symbol_only),
+                    modifier = Modifier
+                        .size(74.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(SurfaceCard)
+                )
+            }
         }
     }
 }
@@ -7101,6 +7144,7 @@ fun YouTubeVideoCard(
     item: KaspaNewsItem,
     onNavigate: (String) -> Unit
 ) {
+    val activePhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
     val rawId = item.videoId?.trim()?.takeIf {
         it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
     } ?: extractYouTubeVideoId(item.url)
@@ -7109,10 +7153,13 @@ fun YouTubeVideoCard(
     } ?: "By_Zw58PN6o"
     var isPlaying by remember { mutableStateOf(false) }
 
+    val brandColor = Color(0xFFEF4444)
+    val brandDrawableId = R.drawable.ic_youtube_logo
+
     Card(
-        colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+        colors = CardDefaults.cardColors(containerColor = activePhotoTheme.cardBgColor),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder.copy(alpha = 0.6f))
+            brush = androidx.compose.ui.graphics.SolidColor(activePhotoTheme.cardBorderColor)
         ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
@@ -7291,7 +7338,7 @@ fun YouTubeVideoCard(
                             .clickable { isPlaying = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        // High-res YouTube thumbnail via Coil
+                        // High-res YouTube thumbnail via Coil (Restored to reliable default)
                         AsyncImage(
                             model = "https://img.youtube.com/vi/$effectiveVideoId/hqdefault.jpg",
                             contentDescription = item.title,
@@ -7320,34 +7367,9 @@ fun YouTubeVideoCard(
                                 .fillMaxWidth()
                                 .align(Alignment.TopStart)
                                 .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFFEF4444)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_youtube_logo),
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text(
-                                        text = "YOUTUBE",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-
                             if (!item.duration.isNullOrEmpty()) {
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -7421,13 +7443,15 @@ fun YouTubeVideoCard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = null,
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
+                    if (brandDrawableId != null) {
+                        Icon(
+                            painter = painterResource(brandDrawableId),
+                            contentDescription = null,
+                            tint = brandColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                    }
                     Text(
                         text = item.author.ifEmpty { "Kaspa Official" },
                         fontSize = 10.sp,
@@ -7452,38 +7476,6 @@ fun YouTubeVideoCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = SurfaceCardBorder.copy(alpha = 0.5f),
-                        modifier = Modifier.clickable { onNavigate(item.url) }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.OpenInBrowser,
-                                contentDescription = "Open Video",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Open in Browser",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = TextSecondary
-                            )
-                        }
-                    }
-                }
             }
         }
     }

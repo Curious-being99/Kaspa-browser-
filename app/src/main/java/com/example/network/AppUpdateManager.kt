@@ -122,68 +122,43 @@ class AppUpdateManager(
             var fetchedInfo: AppUpdateInfo? = null
             var lastErrorMsg: String? = null
             var isGracefulNoRelease = false
-            var isNetworkError = false
-            var attempts = 0
-            val maxAttempts = 2
 
-            while (attempts < maxAttempts) {
-                attempts++
-                try {
-                    val request = Request.Builder()
-                        .url(primaryUrl)
-                        .header("User-Agent", "KaspaBrowser-Android/${currentVersionName}")
-                        .header("Accept", "application/vnd.github.v3+json, application/json")
-                        .build()
+            try {
+                val request = Request.Builder()
+                    .url(primaryUrl)
+                    .header("User-Agent", "KaspaBrowser-Android/${currentVersionName}")
+                    .header("Accept", "application/vnd.github.v3+json, application/json")
+                    .build()
 
-                    client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val body = response.body?.string()
-                            if (!body.isNullOrBlank()) {
-                                fetchedInfo = parseReleaseJson(body, currentVersionName, currentVersionCode)
-                            }
-                            // Success, break the retry loop
-                            isNetworkError = false
-                            lastErrorMsg = null
-                            break
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        if (!body.isNullOrBlank()) {
+                            fetchedInfo = parseReleaseJson(body, currentVersionName, currentVersionCode)
+                        }
+                    } else {
+                        val code = response.code
+                        if (code == 404) {
+                            isGracefulNoRelease = true
+                        } else if (code == 403) {
+                            lastErrorMsg = "Update service rate limit exceeded. Please try again later."
                         } else {
-                            val code = response.code
-                            if (code == 404) {
-                                isGracefulNoRelease = true
-                                break // No releases is terminal for this repo
-                            } else if (code == 403) {
-                                lastErrorMsg = "GitHub API rate limit exceeded. Please try again later."
-                                break // Rate limit usually lasts a while
-                            } else {
-                                lastErrorMsg = "GitHub returned HTTP $code. Please try again."
-                            }
-                            android.util.Log.w("AppUpdateManager", "GitHub release check returned HTTP $code (Attempt $attempts)")
+                            lastErrorMsg = "Update service returned HTTP $code. Please try again."
                         }
                     }
-                } catch (e: java.net.UnknownHostException) {
-                    isNetworkError = true
-                    lastErrorMsg = "Network connection error. Please verify your internet connection and try again."
-                } catch (e: java.net.SocketTimeoutException) {
-                    isNetworkError = true
-                    lastErrorMsg = "Connection to GitHub timed out. Please check your internet connection or try again later."
-                } catch (e: java.net.ConnectException) {
-                    isNetworkError = true
-                    lastErrorMsg = "Could not connect to GitHub. Please check your internet connection and try again."
-                } catch (e: Exception) {
-                    val msg = e.message ?: ""
-                    if (msg.contains("timeout", ignoreCase = true) || msg.contains("connect", ignoreCase = true)) {
-                        isNetworkError = true
-                        lastErrorMsg = "Connection timed out. Please check your network and try again."
-                    } else {
-                        lastErrorMsg = msg.ifBlank { "Network or parsing error" }
-                    }
                 }
-
-                if (isNetworkError && attempts < maxAttempts) {
-                    // Small delay before retry
-                    kotlinx.coroutines.delay(1000L * attempts)
-                    continue
+            } catch (e: java.net.UnknownHostException) {
+                lastErrorMsg = if (isDeviceConnected(context)) "Update service host could not be resolved. This may be a DNS issue." else "Network connection error. Please check your internet."
+            } catch (e: java.net.SocketTimeoutException) {
+                lastErrorMsg = "Update check timed out. The update service may be under high load."
+            } catch (e: java.net.ConnectException) {
+                lastErrorMsg = if (isDeviceConnected(context)) "Could not connect to update service. It might be blocked or down." else "Could not connect to update service. Please check your internet."
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("timeout", ignoreCase = true) || msg.contains("connect", ignoreCase = true)) {
+                    lastErrorMsg = if (isDeviceConnected(context)) "Update connection timed out. Service might be unavailable." else "Update connection timed out. Please check your network."
                 } else {
-                    break
+                    lastErrorMsg = "Update check currently unavailable."
                 }
             }
 
@@ -204,7 +179,7 @@ class AppUpdateManager(
                 return@withContext Result.success(fetchedInfo!!)
             }
 
-            if (isGracefulNoRelease || (lastErrorMsg == null && !isNetworkError)) {
+            if (isGracefulNoRelease || lastErrorMsg == null) {
                 val defaultInfo = AppUpdateInfo(
                     latestVersionName = currentVersionName,
                     latestVersionCode = currentVersionCode,
@@ -224,17 +199,30 @@ class AppUpdateManager(
                 return@withContext Result.success(defaultInfo)
             }
 
-            if (isNetworkError) {
-                return@withContext Result.failure(IllegalStateException(lastErrorMsg))
-            }
-
             val repoDisplay = if (!customEndpoint.isNullOrBlank()) customEndpoint else "Curious-being99/Kaspa-browser-"
             val detailMsg = lastErrorMsg ?: "HTTP 404 Not Found"
-            val finalError = "GitHub repository '$repoDisplay' returned an error ($detailMsg). Please ensure the repository is public and has a published release tag with an attached APK asset."
+            val finalError = if (detailMsg.contains("resolved") || detailMsg.contains("timed out") || detailMsg.contains("connect")) {
+                detailMsg
+            } else {
+                "Update check for '$repoDisplay' failed ($detailMsg). Please ensure the repository is public."
+            }
 
             Result.failure(IllegalStateException(finalError))
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private fun isDeviceConnected(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val activeNetwork = cm?.activeNetwork
+            val caps = cm?.getNetworkCapabilities(activeNetwork)
+            caps != null && (caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) || 
+                           caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) || 
+                           caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR))
+        } catch (_: Exception) {
+            true 
         }
     }
 

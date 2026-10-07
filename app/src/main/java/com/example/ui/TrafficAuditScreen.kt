@@ -221,7 +221,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(ObsidianBg.copy(alpha = 0.35f))
             
     ) {
         item {
@@ -1624,20 +1624,6 @@ fun KaspaUpdateZoneCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(ElectricCyan.copy(alpha = 0.12f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.SystemUpdate,
-                            contentDescription = null,
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
                             text = "KaspaBrowser Update Zone",

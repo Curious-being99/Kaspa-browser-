@@ -535,7 +535,7 @@ class KaspaWalletService(
                         IllegalStateException(
                             "Insufficient funds on Kaspa BlockDAG.\n" +
                             "Required: $neededKasFormatted KAS (including $feeKasFormatted KAS network fee @ ${txPlan.calculatedMass} mass)\n" +
-                            "Available UTXOs: $currentKasFormatted KAS (${txPlan.accumulatedSompis} Sompi in ${liveUtxos.size} UTXOs)\n" +
+                            "Available UTXOs: $currentKasFormatted KAS in ${liveUtxos.size} UTXOs\n" +
                             "Please fund address ($senderAddress) with KAS on Mainnet or Testnet."
                         )
                     )
@@ -1328,7 +1328,7 @@ class KaspaWalletService(
             val fee = 10_000L
             val totalReclaimed = sweepableCards.sumOf { it.amount }
             if (totalReclaimed <= fee) {
-                return@withContext Result.failure(IllegalStateException("Reclaimable amount ($totalReclaimed sompi) does not exceed network fee ($fee sompi)."))
+                return@withContext Result.failure(IllegalStateException("Reclaimable amount (${KaspaTransactionEngine.formatKas(totalReclaimed / 100_000_000.0)} KAS) does not exceed network fee (${KaspaTransactionEngine.formatKas(fee / 100_000_000.0)} KAS)."))
             }
 
             // 1. Build initial unsigned sweep transaction

@@ -14,6 +14,7 @@ data class KaspaNewsItem(
     val author: String = "",
     val videoId: String? = null,
     val duration: String? = null,
+    val imageUrl: String? = null,
     val epochMillis: Long = System.currentTimeMillis()
 )
 
@@ -26,6 +27,7 @@ fun NewsArticleEntity.toKaspaNewsItem(): KaspaNewsItem = KaspaNewsItem(
     author = author,
     videoId = videoId,
     duration = duration,
+    imageUrl = imageUrl,
     epochMillis = epochMillis
 )
 
@@ -39,6 +41,7 @@ fun KaspaNewsItem.toEntity(): NewsArticleEntity = NewsArticleEntity(
     author = author,
     videoId = videoId,
     duration = duration,
+    imageUrl = imageUrl,
     epochMillis = epochMillis
 )
 
@@ -67,6 +70,47 @@ fun extractLinkUrl(xml: String): String {
         }
     }
     return url
+}
+
+fun extractImageUrl(xml: String): String? {
+    // Robust image extraction that handles CDATA and multiple tag variants
+    var cleanXml = xml.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) { it.groupValues[1] }
+    
+    // Sometimes CDATA is nested or escaped
+    cleanXml = cleanXml.replace("&lt;![CDATA[", "").replace("]]&gt;", "")
+
+    // 1. Comprehensive list of image sources in priority order
+    val sources = listOf(
+        Regex("<media:content[^>]+url=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+        Regex("<enclosure[^>]+url=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+        Regex("<media:thumbnail[^>]+url=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+        Regex("<thumbnail>([^<]+)</thumbnail>", RegexOption.IGNORE_CASE),
+        Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+        Regex("<image>([^<]+)</image>", RegexOption.IGNORE_CASE),
+        Regex("<og:image[^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+        Regex("<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+        Regex("<photo>([^<]+)</photo>", RegexOption.IGNORE_CASE)
+    )
+    
+    for (regex in sources) {
+        val match = regex.find(cleanXml)
+        if (match != null) {
+            val url = unescapeHtmlEntities(match.groupValues[1]).trim()
+            if (url.startsWith("http")) return url
+        }
+    }
+    
+    // Look inside content:encoded if description failed
+    val contentEncoded = Regex("<content:encoded(?:\\s+[^>]*)?>(.*?)</content:encoded>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(cleanXml)
+    if (contentEncoded != null) {
+        val imgMatch = Regex("<img[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(contentEncoded.groupValues[1])
+        if (imgMatch != null) {
+            val url = unescapeHtmlEntities(imgMatch.groupValues[1]).trim()
+            if (url.startsWith("http")) return url
+        }
+    }
+
+    return null
 }
 
 fun formatEpochToDisplay(epochMillis: Long): String {
@@ -174,16 +218,14 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
                 videoId = extractYouTubeVideoId(link)
             }
 
-            val finalCategory = if (!videoId.isNullOrBlank() || defaultCategory == "YouTube" || link.contains("youtube.com") || link.contains("youtu.be")) {
-                "YouTube"
-            } else if (link.contains("x.com") || link.contains("twitter.com") || link.contains("nitter") || defaultCategory == "X") {
-                "X"
-            } else if (defaultCategory == "Reddit" || link.contains("reddit.com")) {
-                "Reddit"
-            } else if (defaultCategory == "GitHub" || link.contains("github.com")) {
-                "GitHub"
-            } else {
-                if (defaultCategory.isBlank()) "Kaspa News" else defaultCategory
+            val imageUrl = extractImageUrl(itemXml)
+
+            val finalCategory = when {
+                !videoId.isNullOrBlank() || defaultCategory == "YouTube" -> "YouTube"
+                link.contains("x.com") || link.contains("twitter.com") || link.contains("nitter") || defaultCategory == "X" -> "X"
+                defaultCategory == "Reddit" || link.contains("reddit.com") -> "Reddit"
+                defaultCategory == "GitHub" || link.contains("github.com") -> "GitHub"
+                else -> if (defaultCategory.isBlank()) "Kaspa News" else defaultCategory
             }
 
             if (title.isNotBlank()) {
@@ -196,6 +238,7 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
                         timestamp = displayDate,
                         author = author,
                         videoId = videoId,
+                        imageUrl = imageUrl,
                         epochMillis = epochMillis
                     )
                 )
@@ -228,10 +271,9 @@ fun cleanXmlText(text: String): String {
     if (text.isBlank()) return ""
     var cleaned = text
 
-    while (cleaned.contains("<![CDATA[")) {
-        cleaned = cleaned.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) { match ->
-            match.groupValues[1]
-        }
+    // Safely unwrap CDATA tags in a single pass to avoid infinite loop risks
+    cleaned = cleaned.replace(Regex("<!\\[CDATA\\[(.*?)\\]\\]>", RegexOption.DOT_MATCHES_ALL)) { match ->
+        match.groupValues[1]
     }
 
     cleaned = unescapeHtmlEntities(cleaned)
@@ -476,14 +518,22 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
         Pair("https://github.com/kaspanet/rusty-kaspa/releases.atom", "GitHub"),
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCsnbLKm_lpCUj63_HPW17og", "YouTube"),
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube"),
+        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCfT-h2_y4j69R4-vQ5iG84g", "YouTube"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+cryptocurrency&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+BlockDAG&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+network&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://cryptoslate.com/news/kaspa/feed/", "News"),
+        Pair("https://www.crypto-news-flash.com/tag/kaspa/feed/", "News"),
+        Pair("https://captainaltcoin.com/tag/kaspa/feed/", "News"),
         Pair("https://cointelegraph.com/rss/tag/kaspa", "News"),
         Pair("https://coingape.com/tag/kaspa/feed/", "News"),
+        Pair("https://u.today/rss/kaspa", "News"),
         Pair("https://xcancel.com/KaspaCurrency/rss", "X"),
         Pair("https://xcancel.com/Kaspa_Ecosystem/rss", "X")
     )
 
     val list: MutableList<KaspaNewsItem> = coroutineScope {
-        feeds.map { (url, cat) ->
+        val rssResults = feeds.map { (url, cat) ->
             async(Dispatchers.IO) {
                 val feedItems = mutableListOf<KaspaNewsItem>()
                 try {
@@ -503,6 +553,9 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
                 feedItems
             }
         }.awaitAll().flatten().toMutableList()
+
+        // Removed Discord Widget fetch per user request to replace Discord with Telegram
+        rssResults
     }
     list
 }

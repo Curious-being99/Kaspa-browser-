@@ -43,7 +43,7 @@ fun LibraryScreen(viewModel: DecentralViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(com.example.ui.theme.ObsidianBg.copy(alpha = 0.35f))
     ) {
         // Screen Header
         Row(

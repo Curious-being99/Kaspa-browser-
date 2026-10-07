@@ -337,6 +337,28 @@ class DecentralViewModel(
 
     private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
 
+    private val themePrefs = com.example.ui.theme.PhotoThemePreferences(application)
+    private val _currentPhotoTheme = MutableStateFlow(themePrefs.getSavedTheme())
+    val currentPhotoTheme: StateFlow<com.example.ui.theme.PhotoTheme> = _currentPhotoTheme.asStateFlow()
+
+    private val _isAutoRotatePhotoTheme = MutableStateFlow(themePrefs.isAutoRotateEnabled())
+    val isAutoRotatePhotoTheme: StateFlow<Boolean> = _isAutoRotatePhotoTheme.asStateFlow()
+
+    fun selectPhotoTheme(theme: com.example.ui.theme.PhotoTheme) {
+        _currentPhotoTheme.value = theme
+        themePrefs.saveTheme(theme)
+    }
+
+    fun toggleAutoRotatePhotoTheme(enabled: Boolean) {
+        _isAutoRotatePhotoTheme.value = enabled
+        themePrefs.setAutoRotateEnabled(enabled)
+    }
+
+    fun cyclePhotoTheme() {
+        val next = com.example.ui.theme.PhotoTheme.nextTheme(_currentPhotoTheme.value)
+        selectPhotoTheme(next)
+    }
+
     private val _hasWalletPassword = MutableStateFlow(securityPrefs.contains("wallet_pwd_hash"))
     val hasWalletPassword = _hasWalletPassword.asStateFlow()
 
@@ -1082,9 +1104,12 @@ class DecentralViewModel(
                     }
                 }
             }.onFailure { e ->
-                _updateStatus.value = UpdateStatus.Error(e.message ?: "Failed to check for updates")
                 if (isUserInitiated) {
+                    _updateStatus.value = UpdateStatus.Error(e.message ?: "Failed to check for updates")
                     _statusMessage.value = "Update check failed: ${e.message}"
+                } else {
+                    // Suppress error state for automatic checks on startup to avoid intrusive "Network Error" when connection is warming up
+                    _updateStatus.value = UpdateStatus.Idle
                 }
             }
         }
@@ -1277,6 +1302,22 @@ class DecentralViewModel(
                 delay(2000)
                 checkForUpdates(isUserInitiated = false)
             }
+        }
+
+        // Automatic Background Theme Cycler (rotates photo themes every 30 seconds)
+        viewModelScope.launch {
+            while (isActive) {
+                delay(30000L) // 30 seconds
+                if (_isAutoRotatePhotoTheme.value) {
+                    cyclePhotoTheme()
+                }
+            }
+        }
+
+        // Initial news feed refresh on startup to populate new categories like Discord
+        viewModelScope.launch {
+            delay(5000)
+            refreshNewsFeeds()
         }
 
         // Cold-start restoration of browser session and tabs BEFORE initial navigation
@@ -1838,6 +1879,9 @@ class DecentralViewModel(
 
     fun setTab(tab: AppTab) {
         _activeTab.value = tab
+        if (_isAutoRotatePhotoTheme.value) {
+            cyclePhotoTheme()
+        }
     }
 
     fun setUrlInput(url: String) {

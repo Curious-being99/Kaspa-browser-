@@ -317,20 +317,12 @@ object CryptoUtils {
     }
 
     fun encodeBase64(bytes: ByteArray): String {
-        return try {
-            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-        } catch (_: Throwable) {
-            java.util.Base64.getEncoder().withoutPadding().encodeToString(bytes)
-        }
+        return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 
     fun decodeBase64(str: String): ByteArray {
         val cleanStr = str.trim().filter { !it.isWhitespace() }
-        return try {
-            android.util.Base64.decode(cleanStr, android.util.Base64.NO_WRAP)
-        } catch (_: Throwable) {
-            java.util.Base64.getDecoder().decode(cleanStr)
-        }
+        return android.util.Base64.decode(cleanStr, android.util.Base64.NO_WRAP)
     }
 
     // Kaspa secp256k1 Curve Constants

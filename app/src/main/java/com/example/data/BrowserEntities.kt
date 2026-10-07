@@ -158,6 +158,7 @@ data class NewsArticleEntity(
     val author: String = "",
     val videoId: String? = null,
     val duration: String? = null,
+    val imageUrl: String? = null,
     val epochMillis: Long = System.currentTimeMillis()
 )
 

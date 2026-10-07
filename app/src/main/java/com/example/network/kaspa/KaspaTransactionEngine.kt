@@ -483,7 +483,7 @@ object KaspaTransactionEngine {
         totalBos.write(padSubnetwork)
         writeUInt64LE(totalBos, tx.gas)
         totalBos.write(payloadHash)
-        writeByte(totalBos, sigHashType.toByte())
+        writeUInt32LE(totalBos, sigHashType.toLong())
 
         // Final digest with TransactionSigningHash key
         return CryptoUtils.blake2b256(totalBos.toByteArray(), KEY_TRANSACTION_SIGNING_HASH)

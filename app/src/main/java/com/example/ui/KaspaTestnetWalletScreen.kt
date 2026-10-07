@@ -48,6 +48,8 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Palette
+import com.example.ui.theme.PhotoThemeSelectorDialog
 import com.example.utils.BiometricAuthHelper
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
@@ -155,6 +157,10 @@ fun KaspaTestnetWalletScreen(
     val isFetchingFeeCondition by viewModel.isFetchingFeeCondition.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
 
+    val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
+    val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
+    var showThemeSelectorDialog by remember { mutableStateOf(false) }
+
     val isLocked by viewModel.isWalletLocked.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
 
@@ -253,7 +259,7 @@ fun KaspaTestnetWalletScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(ObsidianBg.copy(alpha = 0.35f))
             .testTag("kaspa_testnet_wallet_screen")
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -782,6 +788,16 @@ fun KaspaTestnetWalletScreen(
                     Text("Close", color = TextMuted)
                 }
             }
+        )
+    }
+
+    if (showThemeSelectorDialog) {
+        PhotoThemeSelectorDialog(
+            currentTheme = currentPhotoTheme,
+            isAutoRotate = isAutoRotatePhotoTheme,
+            onSelectTheme = { viewModel.selectPhotoTheme(it) },
+            onToggleAutoRotate = { viewModel.toggleAutoRotatePhotoTheme(it) },
+            onDismissRequest = { showThemeSelectorDialog = false }
         )
     }
 
@@ -1446,13 +1462,13 @@ private fun SendTabContent(
                 label = { Text("Recipient Address") },
                 placeholder = { Text("kaspatest:q...") },
                 supportingText = {
-                    when {
-                        isAddressSuccess -> Text("✓ Valid Kaspa address", color = KaspaTea, fontWeight = FontWeight.SemiBold)
-                        isAddressError -> Text("Invalid Kaspa address", color = RedTamper, fontWeight = FontWeight.SemiBold)
-                        else -> Text("Only valid Kaspa address", color = TextMuted)
+                    if (isAddressSuccess) {
+                        Text("✓ Valid Kaspa address", color = KaspaTea, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("Only valid Kaspa address", color = TextMuted)
                     }
                 },
-                isError = isAddressError,
+                isError = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("send_recipient_input"),

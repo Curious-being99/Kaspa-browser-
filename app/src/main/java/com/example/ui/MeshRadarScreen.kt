@@ -133,7 +133,7 @@ fun MeshRadarScreen(viewModel: DecentralViewModel, modifier: Modifier = Modifier
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(ObsidianBg.copy(alpha = 0.35f))
             
     ) {
         item {

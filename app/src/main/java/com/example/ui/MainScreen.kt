@@ -56,12 +56,16 @@ import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 
+import com.example.ui.theme.PhotoBackgroundWrapper
+import com.example.ui.theme.PhotoThemeSelectorDialog
+
 @Composable
 fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val activeTab by viewModel.activeTab.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
     val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
     val showUpdateAvailableDialog by viewModel.showUpdateAvailableDialog.collectAsState()
+    val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val onboardingCompleted by viewModel.onboardingCompleted.collectAsState()
@@ -97,28 +101,28 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(ObsidianBg),
-            contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-            snackbarHost = { SnackbarHost(snackbarHostState) }
-        ) { paddingValues ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-            ) {
-                when (activeTab) {
-                    AppTab.BROWSER_GATEWAY -> BrowserGatewayScreen(viewModel = viewModel)
-                    AppTab.MESH_RADAR -> MeshRadarScreen(viewModel = viewModel)
-                    AppTab.TRAFFIC_AUDIT -> TrafficAuditScreen(viewModel = viewModel)
-                    AppTab.LIBRARY -> LibraryScreen(viewModel = viewModel)
-                    AppTab.KASPA_WALLET -> KaspaTestnetWalletScreen(viewModel = viewModel)
+    PhotoBackgroundWrapper(currentTheme = currentPhotoTheme) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Color.Transparent,
+                contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                snackbarHost = { SnackbarHost(snackbarHostState) }
+            ) { paddingValues ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
+                    when (activeTab) {
+                        AppTab.BROWSER_GATEWAY -> BrowserGatewayScreen(viewModel = viewModel)
+                        AppTab.MESH_RADAR -> MeshRadarScreen(viewModel = viewModel)
+                        AppTab.TRAFFIC_AUDIT -> TrafficAuditScreen(viewModel = viewModel)
+                        AppTab.LIBRARY -> LibraryScreen(viewModel = viewModel)
+                        AppTab.KASPA_WALLET -> KaspaTestnetWalletScreen(viewModel = viewModel)
+                    }
                 }
             }
-        }
 
         // IN-APP UPDATE MODAL PROMPT
         if (showUpdateAvailableDialog) {
@@ -396,6 +400,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
             }
         }
     }
+}
 }
 
 /**
