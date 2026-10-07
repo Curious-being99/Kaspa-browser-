@@ -2168,46 +2168,27 @@ class DecentralViewModel(
         _isLoading.value = true
 
         val isHttp = target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)
-        if (isHttp) {
-            val host = try { java.net.URI(target).host ?: target } catch (_: Exception) { target }
-            _currentResource.value = ResolvedResource(
-                url = target,
-                resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-                cid = com.example.network.CryptoUtils.generateCid(target),
-                title = host,
-                content = "",
-                contentType = "text/html",
-                sizeBytes = 0L,
-                latencyMs = 15L,
-                centralizedUrl = target,
-                centralizedLatencyMs = 15L,
-                centralizedIp = "Direct High-Speed Stack",
-                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
-                cryptographicHash = com.example.network.CryptoUtils.sha256(target),
-                routedVia = "Direct High-Speed Web Stack: $host"
-            )
-            _isLoading.value = false
-        } else {
-            _isLoading.value = true
-        }
-
         val currentSessionId = _navigationSessionId.value
+
+        // Instantly set provisional resource so the WebView renders the website directly instead of showing speed dial / home screen theme first
+        _currentResource.value = ResolvedResource(
+            url = target,
+            resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+            cid = "",
+            title = displayInput,
+            content = "",
+            contentType = "text/html",
+            sizeBytes = 0L,
+            latencyMs = 0L,
+            cryptographicHash = com.example.network.CryptoUtils.sha256(target),
+            routedVia = "Direct"
+        )
+
         viewModelScope.launch {
             try {
                 val result = resolver.resolve(target, _selectedProtocol.value, _desktopModeEnabled.value, _searchEngine.value.baseUrl)
                 if (_navigationSessionId.value == currentSessionId) {
-                    if (!isHttp) {
-                        _currentResource.value = result
-                    } else {
-                        val current = _currentResource.value
-                        if (current != null) {
-                            _currentResource.value = current.copy(
-                                cid = result.cid,
-                                verificationStatus = result.verificationStatus,
-                                cryptographicHash = result.cryptographicHash
-                            )
-                        }
-                    }
+                    _currentResource.value = result
                     verifyResourceIntegrity(notifyUser = false)
                     
                     val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
@@ -2222,7 +2203,7 @@ class DecentralViewModel(
                     }
                 }
             } catch (e: Exception) {
-                if (!isHttp && _navigationSessionId.value == currentSessionId) {
+                if (_navigationSessionId.value == currentSessionId) {
                     _statusMessage.value = "Failed to resolve: ${e.localizedMessage}"
                 }
             } finally {

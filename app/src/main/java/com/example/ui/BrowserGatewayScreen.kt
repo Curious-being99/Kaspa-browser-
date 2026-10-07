@@ -6115,19 +6115,7 @@ fun BrowserSpeedDial(
                     DotkLogoIcon(iconSize = 36.dp)
                 }
 
-                // Item 10: Kaspa Silver
-                SpeedDialCircleItem(
-                    label = "Kaspa Silver",
-                    iconColor = Color(0xFFEF4444),
-                    onClick = { onNavigate("https://www.youtube.com/@KaspaSilver") }
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_youtube_logo),
-                        contentDescription = "Kaspa Silver YouTube",
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
+
 
                 // Custom User Shortcuts
                 customShortcuts.forEach { shortcut ->
