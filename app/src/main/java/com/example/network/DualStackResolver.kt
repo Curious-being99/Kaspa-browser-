@@ -217,9 +217,9 @@ class DualStackResolver(
                 else -> "Kaspa BlockDAG Mainnet"
             }
             val explorerBase = when (networkPrefix) {
-                "kaspatest" -> "https://explorer-testnet.kaspa.org/addresses/$cleanDomain"
+                "kaspatest" -> "https://tn10.kaspa.stream/addresses/$cleanDomain"
                 "kaspadev" -> "https://explorer-devnet.kaspa.org/addresses/$cleanDomain"
-                else -> "https://explorer.kaspa.org/addresses/$cleanDomain"
+                else -> "https://kaspa.stream/addresses/$cleanDomain"
             }
             val pubKey = CryptoUtils.extractPublicKeyFromAddress(cleanDomain)
             val pubKeyHex = pubKey?.joinToString("") { "%02x".format(it) } ?: "Schnorr 32-byte Public Key"

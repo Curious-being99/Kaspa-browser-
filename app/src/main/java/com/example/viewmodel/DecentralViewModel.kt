@@ -22,6 +22,7 @@ import com.example.data.toEntity
 import com.example.data.getDefaultCuratedNews
 import com.example.data.fetchLatestKaspaFeeds
 import com.example.network.kaspa.KaspaDomainRegistry
+import com.example.network.kaspa.KaspaTransactionEngine
 import com.example.network.kaspa.DomainAvailability
 import com.example.util.BrowserStateLog
 import com.example.util.BrowserTabWebViewManager
@@ -721,6 +722,29 @@ class DecentralViewModel(
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
+    private val _networkFeeCondition = MutableStateFlow(KaspaTransactionEngine.KaspaNetworkFeeCondition())
+    val networkFeeCondition: StateFlow<KaspaTransactionEngine.KaspaNetworkFeeCondition> = _networkFeeCondition.asStateFlow()
+
+    private val _isFetchingFeeCondition = MutableStateFlow(false)
+    val isFetchingFeeCondition: StateFlow<Boolean> = _isFetchingFeeCondition.asStateFlow()
+
+    // Working Testnet 10 Explorers: default to Kaspa Stream TN10 (https://tn10.kaspa.stream)
+    val testnetExplorerOptions = listOf(
+        "Kaspa Stream TN10 (tn10.kaspa.stream)" to "https://tn10.kaspa.stream",
+        "Kaspanet TN10 (explorer-tn10.kaspanet.io)" to "https://explorer-tn10.kaspanet.io",
+        "Katnip TN10" to "https://katnip-tn10.kaspa.org",
+        "Kaspa Stream (TESTNET-10)" to "https://kaspa.stream/TESTNET-10"
+    )
+    private val _selectedExplorerUrl = MutableStateFlow(
+        appPrefs.getString("selected_testnet_explorer", "https://tn10.kaspa.stream") ?: "https://tn10.kaspa.stream"
+    )
+    val selectedExplorerUrl: StateFlow<String> = _selectedExplorerUrl.asStateFlow()
+
+    fun setExplorerPreference(url: String) {
+        _selectedExplorerUrl.value = url
+        appPrefs.edit().putString("selected_testnet_explorer", url).apply()
+    }
+
     fun getTestnetAddressForAccount(account: AccountEntity?): String {
         if (account == null) return ""
         if (account.kaspaAddress.startsWith("kaspatest:")) return account.kaspaAddress
@@ -1390,6 +1414,7 @@ class DecentralViewModel(
                 networkStatus = "Kaspa BlockDAG Testnet 10"
             )
         }
+        refreshNetworkFeeCondition()
     }
 
     fun clearWalletStatusNotice() {
@@ -1399,18 +1424,61 @@ class DecentralViewModel(
         )
     }
 
+    fun refreshNetworkFeeCondition() {
+        viewModelScope.launch {
+            _isFetchingFeeCondition.value = true
+            try {
+                val isTestnet = testnetAddress.value.startsWith("kaspatest:") || (activeAccount.value?.kaspaAddress?.startsWith("kaspatest:") == true)
+                val cond = kaspaWalletService.fetchNetworkFeeEstimate(isTestnet = isTestnet)
+                _networkFeeCondition.value = cond
+            } catch (_: Exception) {}
+            finally {
+                _isFetchingFeeCondition.value = false
+            }
+        }
+    }
+
     fun refreshTestnetWallet() {
         refreshKaspaWallet(testnetAddress.value)
     }
 
-    fun sendKaspaTransaction(recipientAddress: String, amountKas: Double) {
+    fun calculateFeeBreakdown(
+        amountKas: Double,
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+    ): KaspaTransactionEngine.FeeCalculationBreakdown {
+        return KaspaTransactionEngine.calculateFeeBreakdown(
+            amountKas = amountKas,
+            inputsCount = maxOf(1, _kaspaWalletState.value.utxosCount),
+            outputsCount = 2,
+            sompiPerMass = sompiPerMass
+        )
+    }
+
+    fun calculateFeeRangeBreakdown(
+        amountKas: Double,
+        selectedSompiPerMass: Long = _networkFeeCondition.value.normalFeerate
+    ): KaspaTransactionEngine.FeeRangeCalculationBreakdown {
+        return KaspaTransactionEngine.calculateFeeRangeBreakdown(
+            amountKas = amountKas,
+            inputsCount = maxOf(1, _kaspaWalletState.value.utxosCount),
+            outputsCount = 2,
+            selectedSompiPerMass = selectedSompiPerMass,
+            networkCondition = _networkFeeCondition.value
+        )
+    }
+
+    fun sendKaspaTransaction(
+        recipientAddress: String,
+        amountKas: Double,
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+    ) {
         val senderAcc = activeAccount.value ?: return
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
             try {
                 val cleanRecipient = recipientAddress.trim()
-                if (!cleanRecipient.startsWith("kaspatest:")) {
-                    val errMsg = "Testnet 10 requires destination address starting with 'kaspatest:'"
+                if (!isValidKaspaAddress(cleanRecipient)) {
+                    val errMsg = "Invalid address. Please enter a valid Kaspa address"
                     _statusMessage.value = errMsg
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -1438,7 +1506,8 @@ class DecentralViewModel(
                     senderAddress = senderTestnetAddress,
                     senderSeed = decryptedSeed,
                     recipientAddress = cleanRecipient,
-                    amountKas = amountKas
+                    amountKas = amountKas,
+                    sompiPerMass = sompiPerMass
                 )
                 result.onSuccess { txItem ->
                     _statusMessage.value = "Testnet 10 KAS Broadcasted! Tx: ${txItem.txId.take(16)}..."
@@ -1500,7 +1569,7 @@ class DecentralViewModel(
                 _kaspaWalletState.value = scanned.copy(
                     kaspaAddress = newAcc.kaspaAddress,
                     networkStatus = "Kaspa BlockDAG Testnet 10",
-                    statusNotice = "On-chain scan complete: %.4f KAS (${scanned.utxosCount} UTXOs)".format(scanned.balanceKas)
+                    statusNotice = null
                 )
                 _statusMessage.value = "Wallet active: ${newAcc.kaspaAddress.take(16)}... (%.4f KAS on-chain)".format(scanned.balanceKas)
             } catch (e: Exception) {
@@ -1538,7 +1607,7 @@ class DecentralViewModel(
                 _kaspaWalletState.value = scanned.copy(
                     kaspaAddress = importedAcc.kaspaAddress,
                     networkStatus = "Kaspa BlockDAG Testnet 10",
-                    statusNotice = "On-chain scan complete: %.4f KAS (${scanned.utxosCount} UTXOs)".format(scanned.balanceKas)
+                    statusNotice = null
                 )
                 _statusMessage.value = "Wallet imported: ${importedAcc.kaspaAddress.take(16)}... (%.4f KAS on-chain)".format(scanned.balanceKas)
             } catch (e: Exception) {
@@ -1559,12 +1628,30 @@ class DecentralViewModel(
 
     fun openTestnetExplorer(address: String? = null) {
         val target = address ?: testnetAddress.value
-        val url = if (target.isNotBlank()) "https://explorer-tn10.kaspa.org/addresses/$target" else "https://explorer-tn10.kaspa.org"
+        val base = _selectedExplorerUrl.value.trimEnd('/')
+        val url = if (target.isNotBlank()) {
+            if (base.contains("kaspa.stream")) {
+                "$base/addresses/$target"
+            } else if (base.contains("katnip")) {
+                "$base/addr/$target"
+            } else {
+                "$base/addresses/$target"
+            }
+        } else {
+            base
+        }
         openUrlInBrowser(url, isExternal = false)
     }
 
     fun openTestnetTxExplorer(txId: String) {
-        val url = "https://explorer-tn10.kaspa.org/txs/$txId"
+        val base = _selectedExplorerUrl.value.trimEnd('/')
+        val url = if (base.contains("kaspa.stream")) {
+            "$base/txs/$txId"
+        } else if (base.contains("katnip")) {
+            "$base/tx/$txId"
+        } else {
+            "$base/txs/$txId"
+        }
         openUrlInBrowser(url, isExternal = false)
     }
 
@@ -2854,9 +2941,9 @@ class DecentralViewModel(
             }
 
             val explorerUrl = when (prefix) {
-                "kaspatest" -> "https://explorer-testnet.kaspa.org/addresses/$cleanAddress"
+                "kaspatest" -> "https://tn10.kaspa.stream/addresses/$cleanAddress"
                 "kaspadev" -> "https://explorer-devnet.kaspa.org/addresses/$cleanAddress"
-                else -> "https://explorer.kaspa.org/addresses/$cleanAddress"
+                else -> "https://kaspa.stream/addresses/$cleanAddress"
             }
 
             return KaspaAddressValidationResult(

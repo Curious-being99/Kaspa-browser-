@@ -276,6 +276,113 @@ class KaspaWalletService(
     }
 
     /**
+     * Real-time Kaspa transaction fee estimator that fetches current network conditions via RPC / REST.
+     * Queries /info/fee-estimate, /info/blockdag, and /info/virtual-chain-blue-score to estimate
+     * feerate buckets (Priority, Normal, Economy) and DAG finality conditions.
+     */
+    suspend fun fetchNetworkFeeEstimate(isTestnet: Boolean = true): KaspaTransactionEngine.KaspaNetworkFeeCondition = withContext(Dispatchers.IO) {
+        val apiBase = if (isTestnet) API_TESTNET else API_MAINNET
+        var lowRate = 1L
+        var normalRate = 10L
+        var priorityRate = 20L
+        var lowSecs = 30
+        var normSecs = 5
+        var prioSecs = 1
+        var mempoolCount = 0L
+        var daaScore = 0L
+        var networkBps = if (isTestnet) 10.0 else 1.0
+        var sourceRpc = if (isTestnet) "Kaspa TN10 (api-tn10.kaspa.org)" else "Kaspa Mainnet (api.kaspa.org)"
+
+        // 1. Fetch /info/fee-estimate (Returns FeeEstimateResponse with buckets)
+        try {
+            val url = "$apiBase/info/fee-estimate"
+            val req = Request.Builder().url(url).get().build()
+            fastRestClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank() && body.startsWith("{")) {
+                        val json = JSONObject(body)
+                        val prioBucket = json.optJSONObject("priorityBucket")
+                        if (prioBucket != null) {
+                            val r = prioBucket.optDouble("feerate", prioBucket.optDouble("fee_rate", 20.0)).toLong()
+                            if (r > 0) priorityRate = r
+                            prioSecs = prioBucket.optInt("estimatedSeconds", prioBucket.optInt("estimated_seconds", 1))
+                        }
+                        val normalBuckets = json.optJSONArray("normalBuckets")
+                        if (normalBuckets != null && normalBuckets.length() > 0) {
+                            val b0 = normalBuckets.getJSONObject(0)
+                            val r = b0.optDouble("feerate", b0.optDouble("fee_rate", 10.0)).toLong()
+                            if (r > 0) normalRate = r
+                            normSecs = b0.optInt("estimatedSeconds", b0.optInt("estimated_seconds", 5))
+                        }
+                        val lowBuckets = json.optJSONArray("lowBuckets")
+                        if (lowBuckets != null && lowBuckets.length() > 0) {
+                            val b0 = lowBuckets.getJSONObject(0)
+                            val r = b0.optDouble("feerate", b0.optDouble("fee_rate", 1.0)).toLong()
+                            if (r > 0) lowRate = r
+                            lowSecs = b0.optInt("estimatedSeconds", b0.optInt("estimated_seconds", 30))
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Fetch /info/blockdag for virtual DAA score & BPS metrics
+        try {
+            val url = "$apiBase/info/blockdag"
+            val req = Request.Builder().url(url).get().build()
+            fastRestClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank() && body.startsWith("{")) {
+                        val json = JSONObject(body)
+                        daaScore = json.optLong("virtualDaaScore", json.optLong("virtual_daa_score", 0L))
+                        val bps = json.optDouble("bps", json.optDouble("blocksPerSecond", 0.0))
+                        if (bps > 0) networkBps = bps
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        if (daaScore == 0L) {
+            try {
+                val url = "$apiBase/info/virtual-chain-blue-score"
+                val req = Request.Builder().url(url).get().build()
+                fastRestClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string()
+                        if (!body.isNullOrBlank()) {
+                            val json = if (body.startsWith("{")) JSONObject(body) else null
+                            daaScore = json?.optLong("blueScore", json.optLong("blue_score", 0L)) ?: (body.trim().toLongOrNull() ?: 0L)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        val congestion = when {
+            priorityRate > 30L -> "High DAG Load (Priority Feerate Active)"
+            normalRate > 15L -> "Moderate DAG Load"
+            else -> "Optimal (Instant BlockDAG Inclusion)"
+        }
+
+        KaspaTransactionEngine.KaspaNetworkFeeCondition(
+            lowFeerate = lowRate,
+            normalFeerate = normalRate,
+            priorityFeerate = priorityRate,
+            lowEstimatedSeconds = lowSecs,
+            normalEstimatedSeconds = normSecs,
+            priorityEstimatedSeconds = prioSecs,
+            mempoolCount = mempoolCount,
+            virtualDaaScore = daaScore,
+            networkBps = networkBps,
+            networkCongestion = congestion,
+            lastUpdatedTs = System.currentTimeMillis(),
+            sourceNode = sourceRpc
+        )
+    }
+
+    /**
      * Builds, signs, and broadcasts a Kaspa BlockDAG transaction
      * Strictly follows Rusty-Kaspa (kaspa-consensus-core & kaspa-txscript) specification:
      * 1. Decodes CashAddr addresses to ScriptPublicKey (pay_to_address_script)
@@ -387,7 +494,8 @@ class KaspaWalletService(
         senderAddress: String,
         senderSeed: String,
         recipientAddress: String,
-        amountKas: Double
+        amountKas: Double,
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         transactionMutex.withLock {
             try {
@@ -414,7 +522,8 @@ class KaspaWalletService(
                 val txPlan = KaspaTransactionEngine.selectUtxosAndPlanTransaction(
                     availableUtxos = liveUtxos,
                     targetAmountSompis = amountSompis,
-                    payloadByteCount = 0
+                    payloadByteCount = 0,
+                    sompiPerMass = sompiPerMass
                 )
 
                 // Real UTXO verification: Address must have confirmed unspent transaction outputs on-chain
@@ -1463,25 +1572,250 @@ class KaspaWalletService(
         0L
     }
 
+    data class ConfirmationResult(
+        val transactionId: String,
+        val accepted: Boolean,
+        val elapsedMs: Long
+    )
+
     /**
      * Verifies transaction acceptance via POST /transactions/acceptance
+     * Payload: { "transactionIds": ["txId"] }
      */
     suspend fun verifyTransactionAcceptance(txId: String, isTestnet: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         try {
             val base = if (isTestnet) API_TESTNET else API_MAINNET
-            val payload = JSONObject().apply { put("transactionId", txId) }
+            val payload = JSONObject().apply {
+                val arr = org.json.JSONArray().apply { put(txId) }
+                put("transactionIds", arr)
+                put("transactionId", txId)
+            }
             val body = payload.toString().toRequestBody("application/json".toMediaType())
             val req = Request.Builder().url("$base/transactions/acceptance").post(body).build()
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
-                    val respBody = resp.body?.string()
+                    val respBody = resp.body?.string()?.trim()
                     if (!respBody.isNullOrBlank()) {
-                        val json = JSONObject(respBody)
-                        return@withContext json.optBoolean("isAccepted", json.optBoolean("accepted", true))
+                        if (respBody.startsWith("[")) {
+                            val arr = org.json.JSONArray(respBody)
+                            for (i in 0 until arr.length()) {
+                                val item = arr.optJSONObject(i)
+                                if (item != null && item.optString("transactionId") == txId) {
+                                    return@withContext item.optBoolean("accepted", false)
+                                }
+                            }
+                        } else if (respBody.startsWith("{")) {
+                            val json = JSONObject(respBody)
+                            return@withContext json.optBoolean("isAccepted", json.optBoolean("accepted", false))
+                        }
                     }
                 }
             }
         } catch (_: Exception) {}
-        true
+        false
+    }
+
+    /**
+     * Polls transaction acceptance on the DAG after broadcast
+     */
+    suspend fun waitForAcceptance(
+        txId: String,
+        isTestnet: Boolean = false,
+        timeoutMs: Long = 60_000L,
+        pollIntervalMs: Long = 1_000L
+    ): ConfirmationResult = withContext(Dispatchers.IO) {
+        val startedAt = System.currentTimeMillis()
+        while (System.currentTimeMillis() - startedAt < timeoutMs) {
+            val isAccepted = verifyTransactionAcceptance(txId, isTestnet)
+            if (isAccepted) {
+                return@withContext ConfirmationResult(
+                    transactionId = txId,
+                    accepted = true,
+                    elapsedMs = System.currentTimeMillis() - startedAt
+                )
+            }
+            kotlinx.coroutines.delay(pollIntervalMs)
+        }
+        ConfirmationResult(
+            transactionId = txId,
+            accepted = false,
+            elapsedMs = System.currentTimeMillis() - startedAt
+        )
+    }
+
+    // ==========================================
+    // Kaspa REST API Suite (TN10 & Mainnet)
+    // ==========================================
+
+    /** GET /addresses/{address}/utxos/count */
+    suspend fun getAddressUtxoCount(address: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val base = getApiBase(address)
+            val req = Request.Builder().url("$base/addresses/$address/utxos/count").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = JSONObject(body)
+                        return@withContext json.optInt("count", 0)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        0
+    }
+
+    /** GET /addresses/{address}/transactions-count */
+    suspend fun getAddressTransactionCount(address: String): Long = withContext(Dispatchers.IO) {
+        try {
+            val base = getApiBase(address)
+            val req = Request.Builder().url("$base/addresses/$address/transactions-count").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = JSONObject(body)
+                        return@withContext json.optLong("total", json.optLong("count", 0L))
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        0L
+    }
+
+    /** POST /addresses/balances */
+    suspend fun getMultipleAddressBalances(addresses: List<String>, isTestnet: Boolean = false): Map<String, Long> = withContext(Dispatchers.IO) {
+        val result = mutableMapOf<String, Long>()
+        if (addresses.isEmpty()) return@withContext result
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val payload = JSONObject().apply {
+                val arr = org.json.JSONArray()
+                addresses.forEach { arr.put(it) }
+                put("addresses", arr)
+            }
+            val body = payload.toString().toRequestBody("application/json".toMediaType())
+            val req = Request.Builder().url("$base/addresses/balances").post(body).build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val bodyStr = resp.body?.string()
+                    if (!bodyStr.isNullOrBlank()) {
+                        val arr = org.json.JSONArray(bodyStr)
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i) ?: continue
+                            val addr = item.optString("address")
+                            val bal = item.optLong("balance", 0L)
+                            if (addr.isNotBlank()) {
+                                result[addr] = bal
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        result
+    }
+
+    /** GET /blocks/{blockId} */
+    suspend fun getBlockByHash(blockHash: String, isTestnet: Boolean = false): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/blocks/$blockHash").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        return@withContext JSONObject(body)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
+    }
+
+    /** GET /info/blockdag */
+    suspend fun getBlockDagInfo(isTestnet: Boolean = false): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/info/blockdag").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        return@withContext JSONObject(body)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
+    }
+
+    /** GET /info/virtual-chain-blue-score */
+    suspend fun getVirtualChainBlueScore(isTestnet: Boolean = false): Long = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/info/virtual-chain-blue-score").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = JSONObject(body)
+                        return@withContext json.optLong("blueScore", 0L)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        0L
+    }
+
+    /** GET /info/network */
+    suspend fun getNetworkInfo(isTestnet: Boolean = false): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/info/network").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        return@withContext JSONObject(body)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
+    }
+
+    /** GET /info/kaspad */
+    suspend fun getKaspadInfo(isTestnet: Boolean = false): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/info/kaspad").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        return@withContext JSONObject(body)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
+    }
+
+    /** GET /info/health */
+    suspend fun getHealthInfo(isTestnet: Boolean = false): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val req = Request.Builder().url("$base/info/health").get().build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        return@withContext JSONObject(body)
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        null
     }
 }

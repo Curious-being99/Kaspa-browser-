@@ -28,28 +28,41 @@ object ZkProofEngine {
         val responseHex: String,
         val timestamp: Long = System.currentTimeMillis()
     ) {
-        fun toJson(): JSONObject = JSONObject().apply {
-            put("protocol", "Schnorr-Sigma-NIZKP-secp256k1")
-            put("statement", statement)
-            put("publicKeyHex", publicKeyHex)
-            put("commitmentRxHex", commitmentRxHex)
-            put("commitmentRyHex", commitmentRyHex)
-            put("challengeHex", challengeHex)
-            put("responseHex", responseHex)
-            put("timestamp", timestamp)
+        fun toJsonString(): String {
+            val s = statement.replace("\"", "\\\"")
+            return "{\"protocol\":\"Schnorr-Sigma-NIZKP-secp256k1\",\"statement\":\"$s\",\"publicKeyHex\":\"$publicKeyHex\",\"commitmentRxHex\":\"$commitmentRxHex\",\"commitmentRyHex\":\"$commitmentRyHex\",\"challengeHex\":\"$challengeHex\",\"responseHex\":\"$responseHex\",\"timestamp\":$timestamp}"
+        }
+
+        fun toJson(): JSONObject = try {
+            JSONObject().apply {
+                put("protocol", "Schnorr-Sigma-NIZKP-secp256k1")
+                put("statement", statement)
+                put("publicKeyHex", publicKeyHex)
+                put("commitmentRxHex", commitmentRxHex)
+                put("commitmentRyHex", commitmentRyHex)
+                put("challengeHex", challengeHex)
+                put("responseHex", responseHex)
+                put("timestamp", timestamp)
+            }
+        } catch (_: Throwable) {
+            JSONObject()
         }
 
         companion object {
             fun fromJson(json: JSONObject): ZkProof {
-                return ZkProof(
-                    statement = json.optString("statement", ""),
-                    publicKeyHex = json.optString("publicKeyHex", ""),
-                    commitmentRxHex = json.optString("commitmentRxHex", ""),
-                    commitmentRyHex = json.optString("commitmentRyHex", ""),
-                    challengeHex = json.optString("challengeHex", ""),
-                    responseHex = json.optString("responseHex", ""),
-                    timestamp = json.optLong("timestamp", System.currentTimeMillis())
-                )
+                return try {
+                    ZkProof(
+                        statement = json.optString("statement", ""),
+                        publicKeyHex = json.optString("publicKeyHex", ""),
+                        commitmentRxHex = json.optString("commitmentRxHex", ""),
+                        commitmentRyHex = json.optString("commitmentRyHex", ""),
+                        challengeHex = json.optString("challengeHex", ""),
+                        responseHex = json.optString("responseHex", ""),
+                        timestamp = json.optLong("timestamp", System.currentTimeMillis())
+                    )
+                } catch (_: Throwable) {
+                    ZkProof("", "", "", "", "", "")
+                }
             }
         }
     }

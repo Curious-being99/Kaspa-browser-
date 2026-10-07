@@ -15,6 +15,7 @@ object KaspaTransactionEngine {
     // Domain separation keys from rusty-kaspa / kaspa-hashes
     val KEY_TRANSACTION_SIGNING_HASH: ByteArray = "TransactionSigningHash".toByteArray(Charsets.UTF_8)
     val KEY_TRANSACTION_HASH: ByteArray = "TransactionHash".toByteArray(Charsets.UTF_8)
+    val KEY_TRANSACTION_ID: ByteArray = "TransactionID".toByteArray(Charsets.UTF_8)
     val KEY_PERSONAL_MESSAGE_HASH: ByteArray = "PersonalMessageSigningHash".toByteArray(Charsets.UTF_8)
     val KEY_COVENANT_ID_HASH: ByteArray = "CovenantIDHash".toByteArray(Charsets.UTF_8)
 
@@ -151,19 +152,35 @@ object KaspaTransactionEngine {
     // Kaspa Consensus & Mass Constants (rusty-kaspa / kaspa-consensus-core)
     const val SOMPI_PER_KAS = 100_000_000L
     const val SOMPI_PER_KAS_DOUBLE = 100_000_000.0
-    const val MASS_PER_SIG_OP = 1000L
+    const val STORAGE_MASS_PARAMETER = 1_000_000_000_000L // 10^12 = SOMPI_PER_KAS * 10,000 (KIP-0009)
     const val MASS_PER_TX_BYTE = 1L
+    const val MASS_PER_SCRIPT_PUB_KEY_BYTE = 10L
+    const val MASS_PER_SIG_OP = 1000L
     const val MASS_PER_INPUT_COMPUTE = 100L
     const val MASS_PER_OUTPUT_COMPUTE = 100L
     const val MINIMUM_TRANSACTION_MASS = 1000L
+    const val MAXIMUM_STANDARD_TRANSACTION_MASS = 100_000L
     const val DEFAULT_SOMPI_PER_MASS = 10L // 10 sompi per mass unit (standard network relay feerate)
     const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 10_000L // 0.0001 KAS absolute minimum network fee floor
+    const val DUST_THRESHOLD_SOMPIS = 2_000_000L // 0.02 KAS (outputs below this incur high storage mass per KIP-9)
     const val STANDARD_SIGNATURE_SCRIPT_BYTES = 66 // 1 (0x41) + 64 (Schnorr Sig) + 1 (SIGHASH_ALL)
     const val STANDARD_P2PK_SCRIPT_BYTES = 34 // 1 (0x20) + 32 (pubkey) + 1 (0xac)
 
     fun sompiToKas(sompis: Long): Double = sompis / SOMPI_PER_KAS_DOUBLE
-    fun kasToSompi(kas: Double): Long = (kas * SOMPI_PER_KAS_DOUBLE).toLong()
+    fun kasToSompi(kas: Double): Long = Math.round(kas * SOMPI_PER_KAS_DOUBLE)
     fun formatKas(kas: Double): String = String.format(java.util.Locale.US, "%.8f", kas).trimEnd('0').trimEnd('.')
+    fun formatKasPadded(kas: Double): String = String.format(java.util.Locale.US, "%.8f", kas)
+
+    data class DynamicFeeEstimate(
+        val feeSompi: Long,
+        val feeKas: Double,
+        val feeKasFormatted: String,
+        val estimatedSize: Long,
+        val computeMass: Long,
+        val storageMass: Long,
+        val totalMass: Long,
+        val feerateSompiPerGram: Long
+    )
 
     data class TransactionPlan(
         val selectedUtxos: List<KaspaUtxo>,
@@ -474,11 +491,13 @@ object KaspaTransactionEngine {
 
     // ==========================================
     // Kaspa Non-Malleable Transaction ID (calc_tx_id)
+    // Strictly follows rusty-kaspa consensus rules (Blake2b-256 with key "TransactionID")
     // ==========================================
 
     /**
-     * Calculates the non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionHash")
+     * Calculates the non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionID")
      * following rusty-kaspa consensus rules.
+     * Note: Signature scripts and sigOpCounts are excluded for version 0 transactions.
      */
     fun calcTransactionId(tx: KaspaTransaction): String {
         val bos = ByteArrayOutputStream()
@@ -492,8 +511,12 @@ object KaspaTransactionEngine {
             }
             bos.write(padTxId)
             writeUInt32LE(bos, input.previousOutpoint.index)
+            // In rusty-kaspa id_v0 (TxEncodingFlags::EXCLUDE_SIGNATURE_SCRIPT):
+            // writes var_bytes(&[]), which is length 0 (u64 LE = 0)
+            writeUInt64LE(bos, 0L)
+            // sequence (u64 LE)
             writeUInt64LE(bos, input.sequence)
-            writeByte(bos, input.sigOpCount.toByte())
+            // sigOpCount is NOT written for transaction ID
         }
 
         writeUInt64LE(bos, tx.outputs.size.toLong())
@@ -514,6 +537,55 @@ object KaspaTransactionEngine {
         val payloadBytes = hexToBytes(tx.payload)
         writeUInt64LE(bos, payloadBytes.size.toLong())
         bos.write(payloadBytes)
+
+        val digest = CryptoUtils.blake2b256(bos.toByteArray(), KEY_TRANSACTION_ID)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Calculates the transaction hash (committing to mass, signatures, and full fields)
+     */
+    fun calcTransactionHash(tx: KaspaTransaction): String {
+        val bos = ByteArrayOutputStream()
+        writeUInt16LE(bos, tx.version)
+        writeUInt64LE(bos, tx.inputs.size.toLong())
+
+        for (input in tx.inputs) {
+            val txIdBytes = hexToBytes(input.previousOutpoint.transactionId)
+            val padTxId = if (txIdBytes.size == 32) txIdBytes else ByteArray(32).also {
+                System.arraycopy(txIdBytes, 0, it, 0, minOf(txIdBytes.size, 32))
+            }
+            bos.write(padTxId)
+            writeUInt32LE(bos, input.previousOutpoint.index)
+            val sigScriptBytes = hexToBytes(input.signatureScript)
+            writeUInt64LE(bos, sigScriptBytes.size.toLong())
+            bos.write(sigScriptBytes)
+            writeByte(bos, input.sigOpCount.toByte())
+            writeUInt64LE(bos, input.sequence)
+        }
+
+        writeUInt64LE(bos, tx.outputs.size.toLong())
+        for (output in tx.outputs) {
+            writeUInt64LE(bos, output.amount)
+            writeUInt16LE(bos, output.scriptPublicKey.version)
+            val outScriptBytes = hexToBytes(output.scriptPublicKey.script)
+            writeUInt64LE(bos, outScriptBytes.size.toLong())
+            bos.write(outScriptBytes)
+        }
+
+        writeUInt64LE(bos, tx.lockTime)
+        val subnetworkBytes = hexToBytes(tx.subnetworkId)
+        val padSubnetwork = if (subnetworkBytes.size == 20) subnetworkBytes else ByteArray(20)
+        bos.write(padSubnetwork)
+        writeUInt64LE(bos, tx.gas)
+
+        val payloadBytes = hexToBytes(tx.payload)
+        writeUInt64LE(bos, payloadBytes.size.toLong())
+        bos.write(payloadBytes)
+
+        if (tx.mass > 0L) {
+            writeUInt64LE(bos, tx.mass)
+        }
 
         val digest = CryptoUtils.blake2b256(bos.toByteArray(), KEY_TRANSACTION_HASH)
         return digest.joinToString("") { "%02x".format(it) }
@@ -575,13 +647,15 @@ object KaspaTransactionEngine {
     // ==========================================
 
     /**
-     * Calculates transaction compute mass based on signature operations and script evaluations.
+     * Calculates transaction compute mass based on serialized byte size, script public key bytes, and signature operations.
      */
-    fun calculateComputeMass(inputsCount: Int, outputsCount: Int, totalSigOps: Int): Long {
+    fun calculateComputeMass(inputsCount: Int, outputsCount: Int, totalSigOps: Int, payloadByteCount: Int = 0): Long {
+        val safeInputs = maxOf(1, inputsCount)
+        val safeOutputs = maxOf(1, outputsCount)
         val sigOpMass = totalSigOps * MASS_PER_SIG_OP
-        val inputMass = inputsCount * MASS_PER_INPUT_COMPUTE
-        val outputMass = outputsCount * MASS_PER_OUTPUT_COMPUTE
-        return sigOpMass + inputMass + outputMass
+        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
+        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
+        return sigOpMass + inputComputeMass + outputComputeMass + payloadByteCount
     }
 
     /**
@@ -594,8 +668,6 @@ object KaspaTransactionEngine {
         for (input in tx.inputs) {
             size += 32L // previousOutpoint transactionId
             size += 4L  // previousOutpoint index (uint32)
-            size += 8L  // sequence (uint64)
-            size += 1L  // sigOpCount (uint8)
             val sigScriptBytes = if (input.signatureScript.isNotBlank()) {
                 input.signatureScript.length / 2
             } else {
@@ -603,6 +675,7 @@ object KaspaTransactionEngine {
             }
             size += 8L // signatureScript length (uint64)
             size += sigScriptBytes
+            size += 8L  // sequence (uint64)
         }
 
         size += 8L // outputs count (uint64)
@@ -621,6 +694,7 @@ object KaspaTransactionEngine {
         size += 8L  // lockTime (uint64)
         size += 20L // subnetworkId (20 bytes)
         size += 8L  // gas (uint64)
+        size += 32L // payload hash (32 bytes HASH_SIZE)
         val payloadBytes = if (tx.payload.isNotBlank()) tx.payload.length / 2 else 0
         size += 8L  // payload length (uint64)
         size += payloadBytes
@@ -629,30 +703,98 @@ object KaspaTransactionEngine {
     }
 
     /**
-     * Calculates storage mass (KIP-9 state mass factor for small/dust outputs).
+     * Calculates the estimated serialized byte size for planned inputs, outputs, and payload.
      */
-    fun calculateStorageMass(outputs: List<KaspaTransactionOutput>): Long {
-        var storageMass = 0L
-        for (output in outputs) {
-            // Storage mass rule: outputs below 10_000 sompis consume proportional storage mass
-            if (output.amount in 1..9_999) {
-                storageMass += (10_000L - output.amount) / 10L
-            }
+    fun calculateEstimatedSerializedByteSize(inputsCount: Int, outputsCount: Int, payloadByteCount: Int = 0): Long {
+        val safeInputs = maxOf(1, inputsCount)
+        val safeOutputs = maxOf(1, outputsCount)
+        var size = 0L
+        size += 2L // version (uint16)
+        size += 8L // inputs count (uint64)
+        for (i in 0 until safeInputs) {
+            size += 32L // previousOutpoint transactionId
+            size += 4L  // previousOutpoint index (uint32)
+            size += 8L  // signatureScript length (uint64)
+            size += STANDARD_SIGNATURE_SCRIPT_BYTES // 66 bytes
+            size += 8L  // sequence (uint64)
         }
-        return storageMass
+        size += 8L // outputs count (uint64)
+        for (i in 0 until safeOutputs) {
+            size += 8L // amount (uint64)
+            size += 2L // scriptPublicKey version (uint16)
+            size += 8L // script length (uint64)
+            size += STANDARD_P2PK_SCRIPT_BYTES // 34 bytes
+        }
+        size += 8L  // lockTime (uint64)
+        size += 20L // subnetworkId (20 bytes)
+        size += 8L  // gas (uint64)
+        size += 32L // payload hash (32 bytes)
+        size += 8L  // payload length (uint64)
+        size += payloadByteCount
+        return size
+    }
+
+    /**
+     * Calculates storage mass (KIP-0009 state mass factor).
+     * Canonically evaluates max(0, C * (|O| / H(O) - |I| / A(I))) where C = 10^12 Sompi (STORAGE_MASS_PARAMETER).
+     * Disincentivizes state bloat and dust creation.
+     */
+    fun calculateStorageMass(
+        inputAmounts: List<Long>,
+        outputAmounts: List<Long>
+    ): Long {
+        if (outputAmounts.isEmpty()) return 0L
+        val stormParam = STORAGE_MASS_PARAMETER
+        var harmonicOuts = 0L
+        for (outAmt in outputAmounts) {
+            if (outAmt <= 0L) continue
+            // Standard P2PK script fits into 100-byte unit (plurality = 1)
+            harmonicOuts += stormParam / outAmt
+        }
+        val insPlurality = inputAmounts.size.toLong()
+        val outsPlurality = outputAmounts.size.toLong()
+        if (insPlurality == 0L) return harmonicOuts
+
+        val relaxedPath = (outsPlurality == 1L || insPlurality == 1L || (outsPlurality == 2L && insPlurality == 2L))
+        if (relaxedPath) {
+            var harmonicIns = 0L
+            for (inAmt in inputAmounts) {
+                if (inAmt <= 0L) continue
+                harmonicIns += stormParam / inAmt
+            }
+            return (harmonicOuts - harmonicIns).coerceAtLeast(0L)
+        }
+
+        var sumIns = 0L
+        for (inAmt in inputAmounts) sumIns += inAmt
+        val meanIns = (sumIns / insPlurality).coerceAtLeast(1L)
+        val arithmeticIns = insPlurality * (stormParam / meanIns)
+        return (harmonicOuts - arithmeticIns).coerceAtLeast(0L)
+    }
+
+    fun calculateStorageMass(outputs: List<KaspaTransactionOutput>): Long {
+        return calculateStorageMass(emptyList(), outputs.map { it.amount })
     }
 
     /**
      * Calculates the overall consensus mass of a Kaspa transaction.
-     * mass = max(compute_mass, serialized_mass) + storage_mass (minimum 1000 mass)
+     * mass = max(compute_mass, storage_mass)
      */
-    fun calculateMass(tx: KaspaTransaction): Long {
+    fun calculateMass(tx: KaspaTransaction, inputAmounts: List<Long> = emptyList()): Long {
         val totalSigOps = tx.inputs.sumOf { if (it.sigOpCount > 0) it.sigOpCount else 1 }
-        val computeMass = calculateComputeMass(tx.inputs.size, tx.outputs.size, totalSigOps)
-        val serializedMass = calculateSerializedByteSize(tx) * MASS_PER_TX_BYTE
-        val storageMass = calculateStorageMass(tx.outputs)
-        val overall = maxOf(computeMass, serializedMass) + storageMass
-        return maxOf(overall, MINIMUM_TRANSACTION_MASS)
+        val size = calculateSerializedByteSize(tx)
+        val computeMassForSize = size * MASS_PER_TX_BYTE
+        val scriptPubKeyMass = tx.outputs.sumOf {
+            val scriptLen = if (it.scriptPublicKey.script.isNotBlank()) it.scriptPublicKey.script.length / 2 else STANDARD_P2PK_SCRIPT_BYTES
+            (2L + scriptLen) * MASS_PER_SCRIPT_PUB_KEY_BYTE
+        }
+        val sigOpMass = totalSigOps * MASS_PER_SIG_OP
+        val computeMass = computeMassForSize + scriptPubKeyMass + sigOpMass
+
+        val outAmounts = tx.outputs.map { it.amount }
+        val storageMass = calculateStorageMass(inputAmounts, outAmounts)
+        val overall = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        return overall
     }
 
     /**
@@ -661,29 +803,25 @@ object KaspaTransactionEngine {
     fun estimateTransactionMass(
         inputsCount: Int,
         outputsCount: Int,
-        payloadByteCount: Int = 0
+        payloadByteCount: Int = 0,
+        inputAmounts: List<Long> = emptyList(),
+        outputAmounts: List<Long> = emptyList()
     ): Long {
         val safeInputs = maxOf(1, inputsCount)
         val safeOutputs = maxOf(1, outputsCount)
         val totalSigOps = safeInputs * 1 // Standard P2PK
-        val computeMass = calculateComputeMass(safeInputs, safeOutputs, totalSigOps)
-
-        // Estimated serialized size:
-        val estSize = 2L + 8L + (safeInputs * (32L + 4L + 8L + 1L + 8L + STANDARD_SIGNATURE_SCRIPT_BYTES)) +
-                8L + (safeOutputs * (8L + 2L + 8L + STANDARD_P2PK_SCRIPT_BYTES)) +
-                8L + 20L + 8L + 8L + payloadByteCount
-        val serializedMass = estSize * MASS_PER_TX_BYTE
-        val overall = maxOf(computeMass, serializedMass)
-        return maxOf(overall, MINIMUM_TRANSACTION_MASS)
+        val computeMass = calculateComputeMass(safeInputs, safeOutputs, totalSigOps, payloadByteCount)
+        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
+        val overall = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        return overall
     }
 
     /**
      * Calculates the exact transaction fee in Sompis for a given mass and sompi/mass feerate.
      */
     fun calculateFeeForMass(mass: Long, sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS): Long {
-        val calculatedFee = mass * sompiPerMass
-        val minFeeFloor = MINIMUM_TRANSACTION_MASS * sompiPerMass
-        return maxOf(calculatedFee, minFeeFloor)
+        val effectiveMass = maxOf(mass, MINIMUM_TRANSACTION_MASS)
+        return effectiveMass * sompiPerMass
     }
 
     /**
@@ -693,11 +831,250 @@ object KaspaTransactionEngine {
         inputsCount: Int,
         outputsCount: Int,
         payloadByteCount: Int = 0,
-        sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS
+        sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS,
+        inputAmounts: List<Long> = emptyList(),
+        outputAmounts: List<Long> = emptyList()
     ): Double {
-        val mass = estimateTransactionMass(inputsCount, outputsCount, payloadByteCount)
+        val mass = estimateTransactionMass(inputsCount, outputsCount, payloadByteCount, inputAmounts, outputAmounts)
         val feeSompis = calculateFeeForMass(mass, sompiPerMass)
         return sompiToKas(feeSompis)
+    }
+
+    /**
+     * Real-time network fee conditions fetched from Kaspa RPC node.
+     */
+    data class KaspaNetworkFeeCondition(
+        val lowFeerate: Long = 1L,
+        val normalFeerate: Long = 10L,
+        val priorityFeerate: Long = 20L,
+        val lowEstimatedSeconds: Int = 30,
+        val normalEstimatedSeconds: Int = 5,
+        val priorityEstimatedSeconds: Int = 1,
+        val mempoolCount: Long = 0L,
+        val virtualDaaScore: Long = 0L,
+        val networkBps: Double = 10.0,
+        val networkCongestion: String = "Optimal (Fast DAG Finality)",
+        val lastUpdatedTs: Long = System.currentTimeMillis(),
+        val sourceNode: String = "Kaspa TN10 RPC (api-tn10.kaspa.org)"
+    )
+
+    data class FeeEstimateOption(
+        val tierKey: String,             // "economy", "normal", "priority", "custom"
+        val label: String,               // "Economy", "Normal (Recommended)", "Priority", etc.
+        val sompiPerMass: Long,          // feerate in Sompi / gram
+        val estimatedSeconds: Int,       // estimated inclusion time in seconds
+        val feeSompis: Long,             // calculated fee in Sompis
+        val feeKas: Double,              // calculated fee in KAS
+        val totalRequiredKas: Double     // targetAmountKas + feeKas
+    )
+
+    data class FeeRangeCalculationBreakdown(
+        val estimatedSize: Long,
+        val computeMass: Long,
+        val storageMass: Long,
+        val totalMass: Long,
+        val targetAmountKas: Double,
+        val isDustWarning: Boolean,
+        val networkCondition: KaspaNetworkFeeCondition,
+        val economyOption: FeeEstimateOption,
+        val normalOption: FeeEstimateOption,
+        val priorityOption: FeeEstimateOption,
+        val selectedOption: FeeEstimateOption,
+        val minFeeKas: Double,
+        val maxFeeKas: Double,
+        val minFeeSompis: Long,
+        val maxFeeSompis: Long
+    )
+
+    /**
+     * Comprehensive Fee & Mass Calculation Breakdown for UI and Fee Calculator.
+     */
+    data class FeeCalculationBreakdown(
+        val estimatedSize: Long,
+        val computeMass: Long,
+        val storageMass: Long,
+        val totalMass: Long,
+        val sompiPerMass: Long,
+        val feeSompis: Long,
+        val feeKas: Double,
+        val targetAmountKas: Double,
+        val totalRequiredKas: Double,
+        val isDustWarning: Boolean
+    )
+
+    fun calculateFeeBreakdown(
+        amountKas: Double,
+        inputsCount: Int = 1,
+        outputsCount: Int = 2,
+        sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS,
+        inputAmounts: List<Long> = emptyList()
+    ): FeeCalculationBreakdown {
+        val amountSompis = kasToSompi(amountKas)
+        val outputAmounts = if (amountSompis > 0L) listOf(amountSompis) else emptyList()
+        val safeInputs = maxOf(1, inputsCount)
+        val safeOutputs = maxOf(1, outputsCount)
+        val size = calculateEstimatedSerializedByteSize(safeInputs, safeOutputs)
+        val sigOpMass = safeInputs * 1L * MASS_PER_SIG_OP
+        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
+        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
+        val computeMass = sigOpMass + inputComputeMass + outputComputeMass
+        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
+        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        val feeSompis = calculateFeeForMass(totalMass, sompiPerMass)
+        val feeKas = sompiToKas(feeSompis)
+        val totalRequiredKas = amountKas + feeKas
+        val isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS
+
+        return FeeCalculationBreakdown(
+            estimatedSize = size,
+            computeMass = computeMass,
+            storageMass = storageMass,
+            totalMass = totalMass,
+            sompiPerMass = sompiPerMass,
+            feeSompis = feeSompis,
+            feeKas = feeKas,
+            targetAmountKas = amountKas,
+            totalRequiredKas = totalRequiredKas,
+            isDustWarning = isDustWarning
+        )
+    }
+
+    /**
+     * Estimates dynamic fee returning structured DynamicFeeEstimate for easy consumption by UI & Builders.
+     */
+    fun estimateDynamicFee(
+        amountKas: Double,
+        inputsCount: Int = 1,
+        outputsCount: Int = 2,
+        sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS,
+        inputAmounts: List<Long> = emptyList(),
+        payloadByteCount: Int = 0
+    ): DynamicFeeEstimate {
+        val amountSompis = kasToSompi(amountKas)
+        val outputAmounts = if (amountSompis > 0L) listOf(amountSompis) else emptyList()
+        val safeInputs = maxOf(1, inputsCount)
+        val safeOutputs = maxOf(1, outputsCount)
+        val estimatedSize = calculateEstimatedSerializedByteSize(safeInputs, safeOutputs, payloadByteCount)
+        val sigOpMass = safeInputs * 1L * MASS_PER_SIG_OP
+        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
+        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
+        val computeMass = sigOpMass + inputComputeMass + outputComputeMass + payloadByteCount
+        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
+        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        val feeSompi = totalMass * sompiPerMass
+        val feeKas = sompiToKas(feeSompi)
+
+        return DynamicFeeEstimate(
+            feeSompi = feeSompi,
+            feeKas = feeKas,
+            feeKasFormatted = formatKasPadded(feeKas),
+            estimatedSize = estimatedSize,
+            computeMass = computeMass,
+            storageMass = storageMass,
+            totalMass = totalMass,
+            feerateSompiPerGram = sompiPerMass
+        )
+    }
+
+    /**
+     * Calculates real-time estimated fee range (Economy, Normal, Priority, and Selected)
+     * based on live RPC network conditions.
+     */
+    fun calculateFeeRangeBreakdown(
+        amountKas: Double,
+        inputsCount: Int = 1,
+        outputsCount: Int = 2,
+        selectedSompiPerMass: Long = DEFAULT_SOMPI_PER_MASS,
+        inputAmounts: List<Long> = emptyList(),
+        networkCondition: KaspaNetworkFeeCondition = KaspaNetworkFeeCondition()
+    ): FeeRangeCalculationBreakdown {
+        val amountSompis = kasToSompi(amountKas)
+        val outputAmounts = if (amountSompis > 0L) listOf(amountSompis) else emptyList()
+        val safeInputs = maxOf(1, inputsCount)
+        val safeOutputs = maxOf(1, outputsCount)
+        val size = 2L + 8L + (safeInputs * (36L + 8L + STANDARD_SIGNATURE_SCRIPT_BYTES + 8L)) +
+                8L + (safeOutputs * (8L + 2L + 8L + STANDARD_P2PK_SCRIPT_BYTES)) +
+                8L + 20L + 8L + 32L + 8L
+        val sigOpMass = safeInputs * 1L * MASS_PER_SIG_OP
+        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
+        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
+        val computeMass = sigOpMass + inputComputeMass + outputComputeMass
+        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
+        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+
+        val ecoFee = calculateFeeForMass(totalMass, networkCondition.lowFeerate)
+        val normFee = calculateFeeForMass(totalMass, networkCondition.normalFeerate)
+        val prioFee = calculateFeeForMass(totalMass, networkCondition.priorityFeerate)
+        val customSelectedFee = calculateFeeForMass(totalMass, selectedSompiPerMass)
+
+        val ecoOpt = FeeEstimateOption(
+            tierKey = "economy",
+            label = "Economy",
+            sompiPerMass = networkCondition.lowFeerate,
+            estimatedSeconds = networkCondition.lowEstimatedSeconds,
+            feeSompis = ecoFee,
+            feeKas = sompiToKas(ecoFee),
+            totalRequiredKas = amountKas + sompiToKas(ecoFee)
+        )
+        val normOpt = FeeEstimateOption(
+            tierKey = "normal",
+            label = "Normal (Recommended)",
+            sompiPerMass = networkCondition.normalFeerate,
+            estimatedSeconds = networkCondition.normalEstimatedSeconds,
+            feeSompis = normFee,
+            feeKas = sompiToKas(normFee),
+            totalRequiredKas = amountKas + sompiToKas(normFee)
+        )
+        val prioOpt = FeeEstimateOption(
+            tierKey = "priority",
+            label = "Priority (Fast)",
+            sompiPerMass = networkCondition.priorityFeerate,
+            estimatedSeconds = networkCondition.priorityEstimatedSeconds,
+            feeSompis = prioFee,
+            feeKas = sompiToKas(prioFee),
+            totalRequiredKas = amountKas + sompiToKas(prioFee)
+        )
+        val selOpt = FeeEstimateOption(
+            tierKey = when (selectedSompiPerMass) {
+                networkCondition.lowFeerate -> "economy"
+                networkCondition.normalFeerate -> "normal"
+                networkCondition.priorityFeerate -> "priority"
+                else -> "custom"
+            },
+            label = when (selectedSompiPerMass) {
+                networkCondition.lowFeerate -> "Economy"
+                networkCondition.normalFeerate -> "Normal"
+                networkCondition.priorityFeerate -> "Priority"
+                else -> "Custom (${selectedSompiPerMass} S/g)"
+            },
+            sompiPerMass = selectedSompiPerMass,
+            estimatedSeconds = when {
+                selectedSompiPerMass <= networkCondition.lowFeerate -> networkCondition.lowEstimatedSeconds
+                selectedSompiPerMass >= networkCondition.priorityFeerate -> networkCondition.priorityEstimatedSeconds
+                else -> networkCondition.normalEstimatedSeconds
+            },
+            feeSompis = customSelectedFee,
+            feeKas = sompiToKas(customSelectedFee),
+            totalRequiredKas = amountKas + sompiToKas(customSelectedFee)
+        )
+
+        return FeeRangeCalculationBreakdown(
+            estimatedSize = size,
+            computeMass = computeMass,
+            storageMass = storageMass,
+            totalMass = totalMass,
+            targetAmountKas = amountKas,
+            isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS,
+            networkCondition = networkCondition,
+            economyOption = ecoOpt,
+            normalOption = normOpt,
+            priorityOption = prioOpt,
+            selectedOption = selOpt,
+            minFeeKas = sompiToKas(ecoFee),
+            maxFeeKas = sompiToKas(prioFee),
+            minFeeSompis = ecoFee,
+            maxFeeSompis = prioFee
+        )
     }
 
     /**
@@ -734,8 +1111,17 @@ object KaspaTransactionEngine {
         for (utxo in sortedUtxos) {
             selected.add(utxo)
             accumulated += utxo.utxoEntry.amount
+            val selectedInAmounts = selected.map { it.utxoEntry.amount }
+            val tentativeChange = (accumulated - (targetAmountSompis + feeSompis)).coerceAtLeast(0L)
+            val outAmounts = if (tentativeChange > 0L) listOf(targetAmountSompis, tentativeChange) else listOf(targetAmountSompis)
             // Recalculate mass for the current input count (with 2 outputs: recipient + change)
-            calculatedMass = estimateTransactionMass(selected.size, 2, payloadByteCount)
+            calculatedMass = estimateTransactionMass(
+                selected.size,
+                outAmounts.size,
+                payloadByteCount,
+                selectedInAmounts,
+                outAmounts
+            )
             feeSompis = calculateFeeForMass(calculatedMass, sompiPerMass)
 
             if (accumulated >= (targetAmountSompis + feeSompis)) {
@@ -745,7 +1131,15 @@ object KaspaTransactionEngine {
 
         val tentativeChange = accumulated - (targetAmountSompis + feeSompis)
         val finalOutputsCount = if (tentativeChange > 0L) 2 else 1
-        val finalMass = estimateTransactionMass(selected.size, finalOutputsCount, payloadByteCount)
+        val finalInAmounts = selected.map { it.utxoEntry.amount }
+        val finalOutAmounts = if (tentativeChange > 0L) listOf(targetAmountSompis, tentativeChange) else listOf(targetAmountSompis)
+        val finalMass = estimateTransactionMass(
+            selected.size,
+            finalOutputsCount,
+            payloadByteCount,
+            finalInAmounts,
+            finalOutAmounts
+        )
         val finalFee = calculateFeeForMass(finalMass, sompiPerMass)
         val requiredTotal = targetAmountSompis + finalFee
         val isSufficient = accumulated >= requiredTotal

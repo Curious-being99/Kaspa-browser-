@@ -32,7 +32,7 @@ object CronetClientFactory {
                 CronetEngine.Builder(context)
             }
 
-            // Configure HTTP/3 (QUIC), HTTP/2, Brotli, AsyncDNS, StaleDNS, and Multi-Provider DoH
+            // Configure HTTP/3 (QUIC), AsyncDNS, and StaleDNS
             val experimentalOptionsJson = """
                 {
                   "AsyncDNS": {
@@ -49,14 +49,6 @@ object CronetClientFactory {
                   "QUIC": {
                     "enable": true,
                     "race_cert_verification": true
-                  },
-                  "DnsOverHttps": {
-                    "enable": true,
-                    "templates": [
-                      "https://cloudflare-dns.com/dns-query",
-                      "https://dns.quad9.net/dns-query",
-                      "https://dns.google/dns-query"
-                    ]
                   }
                 }
             """.trimIndent()

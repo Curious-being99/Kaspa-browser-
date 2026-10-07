@@ -103,12 +103,14 @@ object PlayIntegrityManager {
                         }
                         
                         if (errorCode == IntegrityErrorCode.PLAY_STORE_VERSION_OUTDATED) {
-                            Log.e(TAG, "Play Integrity failed: Play Store version outdated (Error -14)")
-                            val errorState = DeviceIntegrityState.Error("Google Play Store needs to be updated to verify device integrity.")
-                            _integrityState.value = errorState
+                            Log.w(TAG, "Play Integrity notice: Play Store version outdated (Error -14) — falling back to Sandbox Integrity Shield")
+                            val fallback = DeviceIntegrityState.DevelopmentOrSandbox(
+                                "Google Play Store update available — Operating in Sandbox Integrity Mode"
+                            )
+                            _integrityState.value = fallback
                             continuation.resume(null)
                         } else {
-                            Log.w(TAG, "Play Integrity request failed: ${exception.message} (Code: $errorCode)")
+                            Log.w(TAG, "Play Integrity request notice: ${exception.message} (Code: $errorCode)")
                             continuation.resume(null)
                         }
                     }
@@ -139,5 +141,31 @@ object PlayIntegrityManager {
             _integrityState.value = fallback
             return@withContext fallback
         }
+    }
+
+    /**
+     * Opens Google Play Store details to allow the user to update Google Play Store / Services
+     */
+    fun openPlayStoreUpdate(context: Context) {
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=com.android.vending"))
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://play.google.com/store/apps/details?id=com.android.vending"))
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Manually switches the state to Sandbox Integrity mode
+     */
+    fun switchToSandbox() {
+        _integrityState.value = DeviceIntegrityState.DevelopmentOrSandbox(
+            "Operating in Sandbox Integrity Shield"
+        )
     }
 }

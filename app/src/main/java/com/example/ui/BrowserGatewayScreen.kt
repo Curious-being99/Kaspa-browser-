@@ -1754,7 +1754,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 )
                                  HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
                                 DropdownMenuItem(
-                                    text = { Text("Kaspa Wallet (Testnet 10)", color = TextPrimary) },
+                                    text = { Text("Kaspa Wallet", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = KaspaTea) },
                                     onClick = {
                                         showBrowserMenu = false

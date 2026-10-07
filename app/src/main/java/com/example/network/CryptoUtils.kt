@@ -289,7 +289,7 @@ object CryptoUtils {
         System.arraycopy(iv, 0, combined, 0, iv.size)
         System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
         
-        return android.util.Base64.encodeToString(combined, android.util.Base64.NO_WRAP)
+        return encodeBase64(combined)
     }
 
     fun decryptAes256(cipherTextBase64: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
@@ -297,7 +297,7 @@ object CryptoUtils {
         val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
         val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
         
-        val combined = android.util.Base64.decode(cipherTextBase64, android.util.Base64.NO_WRAP)
+        val combined = decodeBase64(cipherTextBase64)
         if (combined.size < 12) {
             throw IllegalArgumentException("Invalid cipher text length")
         }
@@ -314,6 +314,23 @@ object CryptoUtils {
         
         val decryptedBytes = cipher.doFinal(encrypted)
         return String(decryptedBytes, Charsets.UTF_8)
+    }
+
+    fun encodeBase64(bytes: ByteArray): String {
+        return try {
+            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            java.util.Base64.getEncoder().withoutPadding().encodeToString(bytes)
+        }
+    }
+
+    fun decodeBase64(str: String): ByteArray {
+        val cleanStr = str.trim().filter { !it.isWhitespace() }
+        return try {
+            android.util.Base64.decode(cleanStr, android.util.Base64.NO_WRAP)
+        } catch (_: Throwable) {
+            java.util.Base64.getDecoder().decode(cleanStr)
+        }
     }
 
     // Kaspa secp256k1 Curve Constants
@@ -1007,7 +1024,7 @@ object CryptoUtils {
             accountType = "DECENTRALIZED_NATIVE",
             googleEmail = null,
             googleDisplayName = null,
-            zkProofJson = zkProof.toJson().toString(),
+            zkProofJson = zkProof.toJsonString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
         )
@@ -1047,7 +1064,7 @@ object CryptoUtils {
             accountType = "GOOGLE_ZK_BRIDGE",
             googleEmail = cleanEmail,
             googleDisplayName = displayName.ifBlank { cleanEmail.substringBefore("@") },
-            zkProofJson = zkProof.toJson().toString(),
+            zkProofJson = zkProof.toJsonString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
         )

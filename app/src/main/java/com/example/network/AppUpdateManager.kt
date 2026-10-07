@@ -393,8 +393,12 @@ class AppUpdateManager(
         val trimmed = jsonString.trim()
         val json: JSONObject = try {
             if (trimmed.startsWith("[")) {
-                // Reject fallback to /releases array if not latest release
-                throw IllegalArgumentException("JSON Arrays from /releases are not allowed. Only /releases/latest is supported.")
+                val array = org.json.JSONArray(trimmed)
+                if (array.length() > 0) {
+                    array.getJSONObject(0)
+                } else {
+                    throw IllegalArgumentException("Empty releases array.")
+                }
             } else {
                 JSONObject(trimmed)
             }
