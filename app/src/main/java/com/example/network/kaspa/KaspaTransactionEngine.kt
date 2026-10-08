@@ -58,6 +58,7 @@ object KaspaTransactionEngine {
         fun toJson(): JSONObject = JSONObject().apply {
             put("version", version)
             put("scriptPublicKey", script)
+            put("script", script)
         }
 
         companion object {
@@ -483,7 +484,8 @@ object KaspaTransactionEngine {
         totalBos.write(padSubnetwork)
         writeUInt64LE(totalBos, tx.gas)
         totalBos.write(payloadHash)
-        writeUInt32LE(totalBos, sigHashType.toLong())
+        // Kaspa BIP-143 specification: SigHashType is strictly serialized as 1-byte unsigned (single byte)
+        writeByte(totalBos, sigHashType.toByte())
 
         // Final digest with TransactionSigningHash key
         return CryptoUtils.blake2b256(totalBos.toByteArray(), KEY_TRANSACTION_SIGNING_HASH)

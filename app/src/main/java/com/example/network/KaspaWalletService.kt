@@ -42,6 +42,14 @@ class KaspaWalletService(
         private const val KNS_MAINNET_REGISTRY_ID = "ee2128c03dfac7f6d74734bb3c879bd999434c47a55945b8a6daae2a1e4a21de"
     }
 
+    fun getCandidateEndpoints(address: String): List<String> {
+        return if (address.startsWith("kaspatest:")) {
+            listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
+        } else {
+            listOf(API_MAINNET, "https://api.kaspanet.io")
+        }
+    }
+
     private fun getApiBase(address: String): String {
         return if (address.startsWith("kaspatest:")) API_TESTNET else API_MAINNET
     }
@@ -415,11 +423,11 @@ class KaspaWalletService(
         var confirmedTxId = computedTxId
         var lastBroadcastError = "Unable to connect to Kaspa BlockDAG network nodes."
 
-        val isTestnet = address.startsWith("kaspatest:")
+        val isTestnet = address.trim().lowercase().startsWith("kaspatest:")
         val candidateEndpoints = if (isTestnet) {
-            listOf("https://api-tn10.kaspa.org", "https://api-tn10.kaspanet.io")
+            listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
         } else {
-            listOf(API_MAINNET)
+            listOf(API_MAINNET, "https://api.kaspanet.io")
         }
 
         val broadcastClient = client.newBuilder()
@@ -459,7 +467,16 @@ class KaspaWalletService(
                             val parsedError = try {
                                 if (respBody.startsWith("{")) {
                                     val j = JSONObject(respBody)
-                                    j.optString("error", j.optString("message", j.optString("detail", respBody)))
+                                    val err = j.optString("error", "")
+                                    if (err.isNotBlank()) err
+                                    else {
+                                        val msg = j.optString("message", "")
+                                        if (msg.isNotBlank()) msg
+                                        else {
+                                            val detailObj = j.opt("detail")
+                                            detailObj?.toString() ?: respBody
+                                        }
+                                    }
                                 } else {
                                     respBody
                                 }
@@ -467,8 +484,8 @@ class KaspaWalletService(
                                 respBody
                             }
                             lastBroadcastError = "Kaspa node returned (${resp.code}): ${parsedError.take(200)}"
-                            // If it's a 4xx consensus rejection (e.g. invalid fee, already spent, orphan), do not retry
-                            if (resp.code in 400..499) {
+                            // If it's a 400 or 422 consensus rejection, do not retry
+                            if (resp.code == 400 || resp.code == 422) {
                                 return BroadcastResult(false, confirmedTxId, lastBroadcastError)
                             }
                         }
@@ -499,9 +516,16 @@ class KaspaWalletService(
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         transactionMutex.withLock {
             try {
-                val isTestnet = senderAddress.startsWith("kaspatest:")
+                val cleanSender = senderAddress.trim().lowercase()
+                val isTestnet = cleanSender.startsWith("kaspatest:")
                 val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
-                if (!CryptoUtils.isValidKaspaAddress(recipientAddress, expectedPrefix)) {
+                val rawRecipient = recipientAddress.trim().lowercase()
+                val cleanRecipient = if (!rawRecipient.contains(":")) {
+                    "$expectedPrefix:$rawRecipient"
+                } else {
+                    rawRecipient
+                }
+                if (!CryptoUtils.isValidKaspaAddress(cleanRecipient, expectedPrefix)) {
                     return@withLock Result.failure(IllegalArgumentException("Invalid Kaspa destination address. Must be a valid $expectedPrefix:q... CashAddr."))
                 }
                 if (amountKas <= 0.0) {
@@ -511,14 +535,14 @@ class KaspaWalletService(
                 val amountSompis = Math.round(amountKas * 100_000_000.0)
 
                 // 1. Decode addresses to scriptPublicKeys following rusty-kaspa standard
-                val recipientScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(recipientAddress)
-                val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(senderAddress)
+                val recipientScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanRecipient)
+                val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
 
                 // 2. Derive key pair
                 val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
 
                 // 3. Fetch live UTXOs & calculate authentic transaction mass & real dynamic fee
-                val liveUtxos = fetchLiveUtxos(senderAddress)
+                val liveUtxos = fetchLiveUtxos(cleanSender)
                 val txPlan = KaspaTransactionEngine.selectUtxosAndPlanTransaction(
                     availableUtxos = liveUtxos,
                     targetAmountSompis = amountSompis,
@@ -595,7 +619,7 @@ class KaspaWalletService(
                     type = "SENT",
                     isAccepted = true,
                     feeKas = txPlan.feeKas,
-                    counterpartyAddress = recipientAddress
+                    counterpartyAddress = cleanRecipient
                 )
 
                 Result.success(txItem)

@@ -287,7 +287,6 @@ fun PwaStandaloneScreen(
 
     var customVideoView by remember { mutableStateOf<View?>(null) }
     var customVideoCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
-    var uploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var pendingPermissionRequest by remember { mutableStateOf<PermissionRequest?>(null) }
     var pendingPermissionOrigin by remember { mutableStateOf<String?>(null) }
     var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
@@ -295,25 +294,30 @@ fun PwaStandaloneScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var pwaRecreateKey by remember { mutableStateOf(0) }
 
+    val pwaContext = androidx.compose.ui.platform.LocalContext.current
     val fileChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (uploadCallback != null) {
-            val results: Array<Uri>? = when {
-                result.resultCode == android.app.Activity.RESULT_OK -> {
-                    val data = result.data
-                    val clipData = data?.clipData
-                    if (clipData != null && clipData.itemCount > 0) {
-                        (0 until clipData.itemCount).mapNotNull { clipData.getItemAt(it).uri }.toTypedArray()
-                    } else {
-                        val singleUri = data?.data
-                        if (singleUri != null) arrayOf(singleUri) else null
-                    }
-                }
-                else -> null
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val uris = com.example.util.WebChromeUploadHelper.parseResultUris(result.resultCode, result.data, pwaContext)
+            com.example.util.WebChromeUploadHelper.completeUpload(uris)
+        } else {
+            com.example.util.WebChromeUploadHelper.completeUpload(null)
+        }
+    }
+
+    DisposableEffect(fileChooserLauncher) {
+        com.example.util.WebChromeUploadHelper.activeLauncher = { chooserIntent ->
+            try {
+                fileChooserLauncher.launch(chooserIntent)
+                true
+            } catch (e: Throwable) {
+                android.util.Log.e("PwaStandaloneActivity", "Failed to launch file chooser: ${e.message}")
+                false
             }
-            uploadCallback?.onReceiveValue(results)
-            uploadCallback = null
+        }
+        onDispose {
+            com.example.util.WebChromeUploadHelper.activeLauncher = null
         }
     }
 
@@ -643,21 +647,12 @@ fun PwaStandaloneScreen(
                                 filePathCallback: ValueCallback<Array<Uri>>?,
                                 fileChooserParams: FileChooserParams?
                             ): Boolean {
-                                uploadCallback?.onReceiveValue(null)
-                                uploadCallback = filePathCallback
-                                return try {
-                                    val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                                        addCategory(Intent.CATEGORY_OPENABLE)
-                                        type = "*/*"
-                                    }
-                                    val chooser = Intent.createChooser(intent, "Select File to Upload")
-                                    fileChooserLauncher.launch(chooser)
-                                    true
-                                } catch (_: Exception) {
-                                    uploadCallback?.onReceiveValue(null)
-                                    uploadCallback = null
-                                    false
-                                }
+                                return com.example.util.WebChromeUploadHelper.handleFileChooser(
+                                    callback = filePathCallback,
+                                    params = fileChooserParams,
+                                    context = webView?.context ?: ctx,
+                                    onStatusMessage = null
+                                )
                             }
 
                             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {

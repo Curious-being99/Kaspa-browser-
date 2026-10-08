@@ -75,34 +75,73 @@ class BrowserTabWebViewManager {
 
     fun saveTabBundle(tabId: String): Bundle? {
         val wv = webViewMap[tabId] ?: return null
-        return try {
-            val bundle = Bundle()
-            wv.saveState(bundle)
-            BrowserStateLog.save("Captured saveState bundle for tab $tabId")
+        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            try {
+                val bundle = Bundle()
+                wv.saveState(bundle)
+                BrowserStateLog.save("Captured saveState bundle for tab $tabId")
+                bundle
+            } catch (e: Exception) {
+                android.util.Log.w("BrowserTabWebViewManager", "Error saving bundle for tab $tabId: ${e.message}")
+                null
+            }
+        } else {
+            var bundle: Bundle? = null
+            val latch = java.util.concurrent.CountDownLatch(1)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    val b = Bundle()
+                    wv.saveState(b)
+                    bundle = b
+                } catch (e: Exception) {
+                    android.util.Log.w("BrowserTabWebViewManager", "Error saving bundle on main thread: ${e.message}")
+                } finally {
+                    latch.countDown()
+                }
+            }
+            try {
+                latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: Exception) {}
             bundle
-        } catch (e: Exception) {
-            android.util.Log.w("BrowserTabWebViewManager", "Error saving bundle for tab $tabId: ${e.message}")
-            null
         }
     }
 
     fun saveAllTabsBundle(): Map<String, Bundle> {
         val result = mutableMapOf<String, Bundle>()
-        webViewMap.forEach { (tabId, wv) ->
-            try {
-                val b = Bundle()
-                wv.saveState(b)
-                result[tabId] = b
-            } catch (e: Exception) {
-                android.util.Log.w("BrowserTabWebViewManager", "Error saving state for tab $tabId: ${e.message}")
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            webViewMap.forEach { (tabId, wv) ->
+                try {
+                    val b = Bundle()
+                    wv.saveState(b)
+                    result[tabId] = b
+                } catch (e: Exception) {
+                    android.util.Log.w("BrowserTabWebViewManager", "Error saving state for tab $tabId: ${e.message}")
+                }
             }
+        } else {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    webViewMap.forEach { (tabId, wv) ->
+                        try {
+                            val b = Bundle()
+                            wv.saveState(b)
+                            result[tabId] = b
+                        } catch (_: Exception) {}
+                    }
+                } finally {
+                    latch.countDown()
+                }
+            }
+            try {
+                latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: Exception) {}
         }
         BrowserStateLog.save("Saved bundles for all ${result.size} active WebViews")
         return result
     }
 
-    fun extractHistoryJson(tabId: String): String {
-        val wv = webViewMap[tabId] ?: return "[]"
+    private fun extractHistoryInternal(wv: WebView): String {
         return try {
             val historyList = wv.copyBackForwardList()
             val size = historyList.size
@@ -126,22 +165,52 @@ class BrowserTabWebViewManager {
         }
     }
 
+    fun extractHistoryJson(tabId: String): String {
+        val wv = webViewMap[tabId] ?: return "[]"
+        return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            extractHistoryInternal(wv)
+        } else {
+            var history = "[]"
+            val latch = java.util.concurrent.CountDownLatch(1)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    history = extractHistoryInternal(wv)
+                } catch (_: Exception) {}
+                finally {
+                    latch.countDown()
+                }
+            }
+            try {
+                latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (_: Exception) {}
+            history
+        }
+    }
+
     fun destroyTab(tabId: String, reason: String = "tab closed") {
         val wv = webViewMap.remove(tabId) ?: return
         tabScrollMap.remove(tabId)
         BrowserStateLog.webViewDestroyed("$reason: tab $tabId")
-        try {
-            (wv.parent as? ViewGroup)?.removeView(wv)
-            wv.stopLoading()
-            wv.clearHistory()
-            wv.destroy()
-        } catch (e: Exception) {
-            android.util.Log.w("BrowserTabWebViewManager", "Error destroying webView for $tabId: ${e.message}")
+        val task = Runnable {
+            try {
+                (wv.parent as? ViewGroup)?.removeView(wv)
+                wv.stopLoading()
+                wv.clearHistory()
+                wv.destroy()
+            } catch (e: Exception) {
+                android.util.Log.w("BrowserTabWebViewManager", "Error destroying webView for $tabId: ${e.message}")
+            }
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            task.run()
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(task)
         }
     }
 
     fun destroyAll(reason: String = "app shutdown") {
-        webViewMap.keys.toList().forEach { tabId ->
+        val allTabs = webViewMap.keys.toList()
+        allTabs.forEach { tabId ->
             destroyTab(tabId, reason)
         }
     }
@@ -186,7 +255,13 @@ class BrowserTabWebViewManager {
             if (clean1 == clean2) return true
             val noProto1 = clean1.removePrefix("https://").removePrefix("http://")
             val noProto2 = clean2.removePrefix("https://").removePrefix("http://")
-            return noProto1 == noProto2
+            if (noProto1 == noProto2) return true
+            val noWww1 = noProto1.removePrefix("www.")
+            val noWww2 = noProto2.removePrefix("www.")
+            if (noWww1 == noWww2) return true
+            val base1 = noWww1.substringBefore("?")
+            val base2 = noWww2.substringBefore("?")
+            return base1 == base2
         }
     }
 }

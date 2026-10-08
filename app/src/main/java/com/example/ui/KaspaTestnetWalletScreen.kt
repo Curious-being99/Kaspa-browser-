@@ -198,6 +198,11 @@ fun KaspaTestnetWalletScreen(
                 lastResultIsSuccess = true
                 lastResultTxId = walletState.lastBroadcastTxId ?: ""
                 showResultOverlay = true
+                // Close send screen and reset inputs on successful broadcast
+                showSendScreen = false
+                recipientInput = ""
+                amountInput = ""
+                viewModel.refreshTestnetWallet()
             } else if (walletState.statusNotice?.startsWith("Error:") == true) {
                 lastResultIsSuccess = false
                 lastResultError = walletState.statusNotice?.removePrefix("Error:")?.trim() ?: "Unknown error"
@@ -225,6 +230,13 @@ fun KaspaTestnetWalletScreen(
     LaunchedEffect(Unit) {
         viewModel.refreshTestnetWallet()
         viewModel.refreshNetworkFeeCondition()
+    }
+
+    LaunchedEffect(testnetAddress) {
+        if (testnetAddress.isNotBlank()) {
+            viewModel.refreshTestnetWallet()
+            viewModel.refreshNetworkFeeCondition()
+        }
     }
 
     LaunchedEffect(showSendScreen) {
@@ -561,6 +573,11 @@ fun KaspaTestnetWalletScreen(
                 onViewOnExplorer = {
                     showResultOverlay = false
                     viewModel.openTestnetTxExplorer(lastResultTxId)
+                    viewModel.clearWalletStatusNotice()
+                },
+                onOpenFaucet = {
+                    showResultOverlay = false
+                    viewModel.openTestnetFaucet(context)
                     viewModel.clearWalletStatusNotice()
                 },
                 onClose = {
@@ -1434,9 +1451,15 @@ private fun SendTabContent(
 ) {
     val amountNum = amountInput.toDoubleOrNull() ?: 0.0
     val isRecipientEntered = recipientInput.trim().isNotBlank()
-    val isRealAddressValid = com.example.viewmodel.DecentralViewModel.isValidKaspaAddress(recipientInput)
-    val isAddressError = isRecipientEntered && !isRealAddressValid
-    val isAddressSuccess = isRecipientEntered && isRealAddressValid
+    val cleanRecipient = recipientInput.trim().lowercase()
+    val isTestnetWallet = senderAddress.startsWith("kaspatest:")
+    val expectedPrefix = if (isTestnetWallet) "kaspatest" else "kaspa"
+    val isPrefixMismatch = if (isTestnetWallet) cleanRecipient.startsWith("kaspa:") else cleanRecipient.startsWith("kaspatest:")
+    val isRealAddressValid = com.example.viewmodel.DecentralViewModel.isValidKaspaAddress(cleanRecipient) ||
+        com.example.network.CryptoUtils.isValidKaspaAddress(cleanRecipient, expectedPrefix)
+    val isAddressValidOnNetwork = isRealAddressValid && !isPrefixMismatch
+    val isAddressError = isRecipientEntered && (!isRealAddressValid || isPrefixMismatch)
+    val isAddressSuccess = isRecipientEntered && isAddressValidOnNetwork
 
     val breakdown = remember(amountNum, selectedSompiPerMass) {
         KaspaTransactionEngine.calculateFeeBreakdown(
@@ -1446,7 +1469,9 @@ private fun SendTabContent(
             sompiPerMass = selectedSompiPerMass
         )
     }
-    val canSend = !isSending && isAddressSuccess && amountNum > 0.0 && (amountNum + breakdown.feeKas) <= balanceKas
+    val isInsufficientBalance = amountNum > 0.0 && (amountNum + breakdown.feeKas) > balanceKas
+    val isAmountError = (amountInput.isNotBlank() && amountNum <= 0.0) || isInsufficientBalance
+    val canSend = !isSending && isAddressSuccess && amountNum > 0.0 && !isInsufficientBalance
 
     LazyColumn(
         modifier = Modifier
@@ -1460,15 +1485,16 @@ private fun SendTabContent(
                 value = recipientInput,
                 onValueChange = onRecipientChange,
                 label = { Text("Recipient Address") },
-                placeholder = { Text("kaspatest:q...") },
+                placeholder = { Text(if (isTestnetWallet) "kaspatest:q..." else "kaspa:q...") },
                 supportingText = {
-                    if (isAddressSuccess) {
-                        Text("✓ Valid Kaspa address", color = KaspaTea, fontWeight = FontWeight.SemiBold)
-                    } else {
-                        Text("Only valid Kaspa address", color = TextMuted)
+                    when {
+                        isAddressSuccess -> Text("✓ Valid Kaspa address", color = KaspaTea, fontWeight = FontWeight.SemiBold)
+                        isPrefixMismatch -> Text("Network mismatch: Current wallet is on ${if (isTestnetWallet) "Testnet 10 (kaspatest:)" else "Mainnet (kaspa:)"}", color = RedTamper)
+                        isAddressError -> Text("Invalid Kaspa address (must start with ${if (isTestnetWallet) "kaspatest:" else "kaspa:"})", color = RedTamper)
+                        else -> Text("Only valid Kaspa address", color = TextMuted)
                     }
                 },
-                isError = false,
+                isError = isAddressError,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("send_recipient_input"),
@@ -1476,7 +1502,8 @@ private fun SendTabContent(
                     focusedBorderColor = KaspaTea,
                     unfocusedBorderColor = SurfaceCardBorder,
                     focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
+                    unfocusedTextColor = TextPrimary,
+                    errorBorderColor = RedTamper
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
                 singleLine = true
@@ -1490,6 +1517,7 @@ private fun SendTabContent(
                 onValueChange = onAmountChange,
                 label = { Text("Amount (KAS)") },
                 placeholder = { Text("0.0") },
+                isError = isAmountError,
                 trailingIcon = {
                     Surface(
                         onClick = {
@@ -1511,7 +1539,11 @@ private fun SendTabContent(
                     }
                 },
                 supportingText = {
-                    Text("Available: %.8f KAS".format(balanceKas), color = TextMuted)
+                    when {
+                        isInsufficientBalance -> Text("Insufficient balance: Required %.6f KAS exceeds available %.6f KAS".format(amountNum + breakdown.feeKas, balanceKas), color = RedTamper)
+                        amountInput.isNotBlank() && amountNum <= 0.0 -> Text("Amount must be greater than 0 KAS", color = RedTamper)
+                        else -> Text("Available: %.8f KAS".format(balanceKas), color = TextMuted)
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1520,7 +1552,8 @@ private fun SendTabContent(
                     focusedBorderColor = KaspaTea,
                     unfocusedBorderColor = SurfaceCardBorder,
                     focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
+                    unfocusedTextColor = TextPrimary,
+                    errorBorderColor = RedTamper
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
                 singleLine = true
@@ -2809,7 +2842,8 @@ private fun TransactionResultOverlay(
     txId: String,
     errorMessage: String,
     onViewOnExplorer: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenFaucet: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -2892,6 +2926,23 @@ private fun TransactionResultOverlay(
                     Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("View on Explorer", fontWeight = FontWeight.Bold, color = SurfaceDark)
+                }
+            }
+
+            if (!isSuccess && onOpenFaucet != null && (errorMessage.contains("Insufficient funds", ignoreCase = true) || errorMessage.contains("Please fund", ignoreCase = true))) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        onClose()
+                        onOpenFaucet()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AmberCentral),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.WaterDrop, null, modifier = Modifier.size(18.dp), tint = SurfaceDark)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Get Coins from Faucet", fontWeight = FontWeight.Bold, color = SurfaceDark)
                 }
             }
 

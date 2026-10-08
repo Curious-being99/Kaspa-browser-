@@ -190,9 +190,10 @@ object CryptoUtils {
     }
 
     fun isValidKaspaAddress(address: String, expectedPrefix: String = "kaspa"): Boolean {
-        if (!address.startsWith("$expectedPrefix:")) return false
-        val payloadPart = address.removePrefix("$expectedPrefix:")
-        if (payloadPart.length != 61) return false
+        val clean = address.trim().lowercase()
+        if (!clean.startsWith("$expectedPrefix:")) return false
+        val payloadPart = clean.removePrefix("$expectedPrefix:")
+        if (payloadPart.length !in 61..63) return false
         val data5Bit = ByteArray(payloadPart.length)
         for (i in payloadPart.indices) {
             val idx = KASPA_CHARSET.indexOf(payloadPart[i])
@@ -205,11 +206,12 @@ object CryptoUtils {
     fun isValidTestnetAddress(address: String): Boolean = isValidKaspaAddress(address, "kaspatest")
 
     fun isAnyValidKaspaAddress(address: String): Boolean {
-        val colonIdx = address.indexOf(':')
+        val clean = address.trim().lowercase()
+        val colonIdx = clean.indexOf(':')
         if (colonIdx == -1) return false
-        val prefix = address.substring(0, colonIdx)
+        val prefix = clean.substring(0, colonIdx)
         if (prefix != "kaspa" && prefix != "kaspatest" && prefix != "kaspadev" && prefix != "kaspasim") return false
-        return isValidKaspaAddress(address, prefix)
+        return isValidKaspaAddress(clean, prefix)
     }
 
     /**
@@ -316,13 +318,23 @@ object CryptoUtils {
         return String(decryptedBytes, Charsets.UTF_8)
     }
 
+    @android.annotation.SuppressLint("NewApi")
     fun encodeBase64(bytes: ByteArray): String {
-        return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        return try {
+            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        } catch (_: RuntimeException) {
+            java.util.Base64.getEncoder().withoutPadding().encodeToString(bytes)
+        }
     }
 
+    @android.annotation.SuppressLint("NewApi")
     fun decodeBase64(str: String): ByteArray {
         val cleanStr = str.trim().filter { !it.isWhitespace() }
-        return android.util.Base64.decode(cleanStr, android.util.Base64.NO_WRAP)
+        return try {
+            android.util.Base64.decode(cleanStr, android.util.Base64.NO_WRAP)
+        } catch (_: RuntimeException) {
+            java.util.Base64.getDecoder().decode(cleanStr)
+        }
     }
 
     // Kaspa secp256k1 Curve Constants
@@ -915,8 +927,8 @@ object CryptoUtils {
 
         val words = cleaned.split(" ").filter { it.isNotBlank() }
 
-        // If input is a raw seed phrase (12..24 words or plain alphabetic list), return directly
-        if (words.size in 12..24 || (words.isNotEmpty() && words.all { w -> w.all { c -> c in 'a'..'z' } })) {
+        // If input is already a multi-word mnemonic phrase (12 to 24 words)
+        if (words.size in 12..24 && words.all { w -> w.all { c -> c in 'a'..'z' } }) {
             return words.joinToString(" ")
         }
 

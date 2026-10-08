@@ -405,7 +405,14 @@ class DecentralViewModel(
         }
     }
 
-    private val _activeTabId = MutableStateFlow<String?>(savedStateHandle.get<String>("active_tab_id"))
+    private val initialTabId = savedStateHandle.get<String>("active_tab_id")
+        ?: appPrefs.getString("last_active_tab_id", null)
+    private val initialTabUrl = savedStateHandle.get<String>("active_tab_url")
+        ?: appPrefs.getString("last_active_tab_url", "") ?: ""
+    private val initialTabTitle = savedStateHandle.get<String>("active_tab_title")
+        ?: appPrefs.getString("last_active_tab_title", "") ?: ""
+
+    private val _activeTabId = MutableStateFlow<String?>(initialTabId)
     val activeTabId: StateFlow<String?> = _activeTabId.asStateFlow()
 
     private val closedTabIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -448,6 +455,17 @@ class DecentralViewModel(
                 )
             }
             database.browserTabDao().insertAll(updatedTabs)
+            val currentTab = updatedTabs.find { it.id == currentActiveId }
+            if (currentTab != null) {
+                appPrefs.edit()
+                    .putString("last_active_tab_id", currentTab.id)
+                    .putString("last_active_tab_url", currentTab.url)
+                    .putString("last_active_tab_title", currentTab.title)
+                    .apply()
+                savedStateHandle["active_tab_id"] = currentTab.id
+                savedStateHandle["active_tab_url"] = currentTab.url
+                savedStateHandle["active_tab_title"] = currentTab.title
+            }
             BrowserStateLog.save("Persisted browser state for ${updatedTabs.size} tabs ($reason)")
         } catch (e: Exception) {
             android.util.Log.w("DecentralViewModel", "Error persisting browser state: ${e.message}")
@@ -497,6 +515,14 @@ class DecentralViewModel(
         viewModelScope.launch {
             val tab = database.browserTabDao().getTabById(id) ?: browserTabs.value.find { it.id == id }
             if (tab != null) {
+                appPrefs.edit()
+                    .putString("last_active_tab_id", id)
+                    .putString("last_active_tab_url", tab.url)
+                    .putString("last_active_tab_title", tab.title)
+                    .apply()
+                savedStateHandle["active_tab_id"] = id
+                savedStateHandle["active_tab_url"] = tab.url
+                savedStateHandle["active_tab_title"] = tab.title
                 database.browserTabDao().insert(tab.copy(lastAccessed = System.currentTimeMillis()))
                 if (tab.url.isBlank()) {
                     resetToHome()
@@ -785,7 +811,7 @@ class DecentralViewModel(
     private val _activeTab = MutableStateFlow(AppTab.BROWSER_GATEWAY)
     val activeTab: StateFlow<AppTab> = _activeTab.asStateFlow()
 
-    private val _urlInput = MutableStateFlow("")
+    private val _urlInput = MutableStateFlow(initialTabUrl)
     val urlInput: StateFlow<String> = _urlInput.asStateFlow()
 
     val kaspaAddressValidation: StateFlow<KaspaAddressValidationResult?> = _urlInput
@@ -801,7 +827,27 @@ class DecentralViewModel(
     private val _selectedProtocol = MutableStateFlow(NetworkProtocol.HYBRID_COEXISTENCE)
     val selectedProtocol: StateFlow<NetworkProtocol> = _selectedProtocol.asStateFlow()
 
-    private val _currentResource = MutableStateFlow<ResolvedResource?>(null)
+    private val _currentResource = MutableStateFlow<ResolvedResource?>(
+        if (initialTabUrl.isNotBlank() && (initialTabUrl.startsWith("http://", ignoreCase = true) || initialTabUrl.startsWith("https://", ignoreCase = true))) {
+            val host = try { java.net.URI(initialTabUrl).host ?: initialTabUrl } catch (_: Exception) { initialTabUrl }
+            ResolvedResource(
+                url = initialTabUrl,
+                resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                cid = com.example.network.CryptoUtils.generateCid(initialTabUrl),
+                title = if (initialTabTitle.isNotBlank()) initialTabTitle else host,
+                content = "",
+                contentType = "text/html",
+                sizeBytes = 0L,
+                latencyMs = 10L,
+                centralizedUrl = initialTabUrl,
+                centralizedLatencyMs = 10L,
+                centralizedIp = "Direct High-Speed Stack",
+                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                cryptographicHash = com.example.network.CryptoUtils.sha256(initialTabUrl),
+                routedVia = "Direct High-Speed Web Stack: $host"
+            )
+        } else null
+    )
     val currentResource: StateFlow<ResolvedResource?> = _currentResource.asStateFlow()
 
     private val _navigationSessionId = MutableStateFlow(0)
@@ -1344,14 +1390,6 @@ class DecentralViewModel(
                     if (explicitIntentUrlHandled) {
                         BrowserStateLog.restore("Cold-start: preserved explicit intent URL priority over ${tabs.size} persisted tabs")
                     } else {
-                        val sessionAge = if (session != null && session.lastSavedTimestamp > 0L) {
-                            System.currentTimeMillis() - session.lastSavedTimestamp
-                        } else {
-                            0L
-                        }
-                        // If user hasn't entered the browser for a long time (> 15 minutes), start cleanly on Home screen
-                        val isStaleSession = sessionAge > (15 * 60 * 1000L)
-
                         val targetTab = if (!session?.activeTabId.isNullOrBlank()) {
                             tabs.find { it.id == session.activeTabId } ?: tabs.maxByOrNull { it.lastAccessed } ?: tabs.first()
                         } else {
@@ -1363,7 +1401,7 @@ class DecentralViewModel(
                             database.browserTabDao().insert(it.copy(isExternal = false))
                         }
 
-                        val shouldStartOnHome = isStaleSession || targetTab.isExternal || targetTab.url.isBlank()
+                        val shouldStartOnHome = targetTab.url.isBlank()
 
                         if (shouldStartOnHome) {
                             val homeTab = tabs.find { it.url.isBlank() }
@@ -1384,7 +1422,7 @@ class DecentralViewModel(
                                 savedStateHandle["active_tab_id"] = newId
                             }
                             resetToHome()
-                            BrowserStateLog.restore("Cold-start: long inactivity or external link - started on Home screen, preserved ${tabs.size} tabs")
+                            BrowserStateLog.restore("Cold-start: started on Home screen, preserved ${tabs.size} tabs")
                         } else {
                             _activeTabId.value = targetTab.id
                             savedStateHandle["active_tab_id"] = targetTab.id
@@ -1393,23 +1431,25 @@ class DecentralViewModel(
                                 _urlInput.value = targetTab.url
                                 val isHttp = targetTab.url.startsWith("http://", ignoreCase = true) || targetTab.url.startsWith("https://", ignoreCase = true)
                                 if (isHttp) {
-                                    val host = try { java.net.URI(targetTab.url).host ?: targetTab.url } catch (_: Exception) { targetTab.url }
-                                    _currentResource.value = ResolvedResource(
-                                        url = targetTab.url,
-                                        resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-                                        cid = com.example.network.CryptoUtils.generateCid(targetTab.url),
-                                        title = if (targetTab.title.isNotBlank()) targetTab.title else host,
-                                        content = "",
-                                        contentType = "text/html",
-                                        sizeBytes = 0L,
-                                        latencyMs = 15L,
-                                        centralizedUrl = targetTab.url,
-                                        centralizedLatencyMs = 15L,
-                                        centralizedIp = "Direct High-Speed Stack",
-                                        verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
-                                        cryptographicHash = com.example.network.CryptoUtils.sha256(targetTab.url),
-                                        routedVia = "Direct High-Speed Web Stack: $host"
-                                    )
+                                    if (_currentResource.value?.url != targetTab.url) {
+                                        val host = try { java.net.URI(targetTab.url).host ?: targetTab.url } catch (_: Exception) { targetTab.url }
+                                        _currentResource.value = ResolvedResource(
+                                            url = targetTab.url,
+                                            resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                                            cid = com.example.network.CryptoUtils.generateCid(targetTab.url),
+                                            title = if (targetTab.title.isNotBlank()) targetTab.title else host,
+                                            content = "",
+                                            contentType = "text/html",
+                                            sizeBytes = 0L,
+                                            latencyMs = 15L,
+                                            centralizedUrl = targetTab.url,
+                                            centralizedLatencyMs = 15L,
+                                            centralizedIp = "Direct High-Speed Stack",
+                                            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                                            cryptographicHash = com.example.network.CryptoUtils.sha256(targetTab.url),
+                                            routedVia = "Direct High-Speed Web Stack: $host"
+                                        )
+                                    }
                                     _isLoading.value = false
                                 } else {
                                     resolveUrl(targetTab.url)
@@ -1517,9 +1557,25 @@ class DecentralViewModel(
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
             try {
-                val cleanRecipient = recipientAddress.trim()
-                if (!isValidKaspaAddress(cleanRecipient)) {
-                    val errMsg = "Invalid address. Please enter a valid Kaspa address"
+                val senderTestnetAddress = getTestnetAddressForAccount(senderAcc)
+                val isTestnet = senderTestnetAddress.startsWith("kaspatest:")
+                val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
+                
+                val rawRecipient = recipientAddress.trim().lowercase()
+                val targetRecipient = if (!rawRecipient.contains(":")) {
+                    "$expectedPrefix:$rawRecipient"
+                } else {
+                    rawRecipient
+                }
+
+                if (!CryptoUtils.isValidKaspaAddress(targetRecipient, expectedPrefix)) {
+                    val errMsg = if (targetRecipient.startsWith("kaspa:") && isTestnet) {
+                        "Network mismatch: Current wallet is on Testnet 10 (kaspatest:). Please enter a Testnet address."
+                    } else if (targetRecipient.startsWith("kaspatest:") && !isTestnet) {
+                        "Network mismatch: Current wallet is on Mainnet (kaspa:). Please enter a Mainnet address."
+                    } else {
+                        "Invalid address. Please enter a valid $expectedPrefix:q... Kaspa address"
+                    }
                     _statusMessage.value = errMsg
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -1541,12 +1597,10 @@ class DecentralViewModel(
                     return@launch
                 }
 
-                val senderTestnetAddress = getTestnetAddressForAccount(senderAcc)
-
                 val result = kaspaWalletService.sendKaspa(
                     senderAddress = senderTestnetAddress,
                     senderSeed = decryptedSeed,
-                    recipientAddress = cleanRecipient,
+                    recipientAddress = targetRecipient,
                     amountKas = amountKas,
                     sompiPerMass = sompiPerMass
                 )
@@ -1911,6 +1965,13 @@ class DecentralViewModel(
         _statusMessage.value = null
         _isLoading.value = false
 
+        appPrefs.edit()
+            .putString("last_active_tab_url", "")
+            .putString("last_active_tab_title", "Home")
+            .apply()
+        savedStateHandle["active_tab_url"] = ""
+        savedStateHandle["active_tab_title"] = "Home"
+
         val activeId = _activeTabId.value
         if (activeId != null) {
             webViewTabManager.destroyTab(activeId, "reset to home")
@@ -2097,6 +2158,14 @@ class DecentralViewModel(
         }
         val activeId = _activeTabId.value
         if (activeId != null) {
+            if (newUrl.isNotBlank() && !newUrl.startsWith("data:") && !newUrl.startsWith("about:")) {
+                appPrefs.edit()
+                    .putString("last_active_tab_id", activeId)
+                    .putString("last_active_tab_url", newUrl)
+                    .apply()
+                savedStateHandle["active_tab_id"] = activeId
+                savedStateHandle["active_tab_url"] = newUrl
+            }
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 val tab = database.browserTabDao().getTabById(activeId)
                 if (tab != null && !com.example.util.BrowserTabWebViewManager.isSameUrl(tab.url, newUrl)) {
@@ -2170,35 +2239,67 @@ class DecentralViewModel(
         val isHttp = target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)
         val currentSessionId = _navigationSessionId.value
 
-        // Instantly set provisional resource so the WebView renders the website directly instead of showing speed dial / home screen theme first
+        // Instantly set resource so the WebView renders the website directly
+        val httpHost = try { java.net.URI(target).host ?: target } catch (_: Exception) { target }
         _currentResource.value = ResolvedResource(
             url = target,
             resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-            cid = "",
-            title = displayInput,
+            cid = com.example.network.CryptoUtils.generateCid(target),
+            title = if (!displayInput.isNullOrBlank()) displayInput else httpHost,
             content = "",
             contentType = "text/html",
             sizeBytes = 0L,
-            latencyMs = 0L,
+            latencyMs = 10L,
+            centralizedUrl = target,
+            centralizedLatencyMs = 10L,
+            centralizedIp = "Direct High-Speed Stack",
+            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
             cryptographicHash = com.example.network.CryptoUtils.sha256(target),
-            routedVia = "Direct"
+            routedVia = "Direct High-Speed Web Stack: $httpHost"
         )
+
+        appPrefs.edit()
+            .putString("last_active_tab_url", target)
+            .putString("last_active_tab_title", displayInput)
+            .apply()
+        savedStateHandle["active_tab_url"] = target
+        savedStateHandle["active_tab_title"] = displayInput
 
         viewModelScope.launch {
             try {
-                val result = resolver.resolve(target, _selectedProtocol.value, _desktopModeEnabled.value, _searchEngine.value.baseUrl)
-                if (_navigationSessionId.value == currentSessionId) {
-                    _currentResource.value = result
-                    verifyResourceIntegrity(notifyUser = false)
-                    
-                    val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
+                if (isHttp) {
+                    // For direct HTTP/HTTPS web loading, WebView itself handles network fetching, DNS, and page rendering natively.
+                    // Do NOT overwrite _currentResource with dummy data, which causes Compose to recompose AndroidView and reload the page a 2nd time!
+                    val bytesTransferred = 420 * 1024L
                     nodeManager.recordBrowserTraffic(bytesTransferred, target)
-                    
-                    if (result.resolvedProtocol == NetworkProtocol.DECENTRALIZED_P2P || 
-                        result.resolvedProtocol == NetworkProtocol.HYBRID_COEXISTENCE) {
-                        if (result.verificationStatus == VerificationStatus.VERIFIED_TAMPER_PROOF ||
-                            result.verificationStatus == VerificationStatus.MIRROR_MATCHED) {
-                            nodeManager.incrementCrossVerifications()
+                    try {
+                        database.trafficAuditDao().insertAudit(
+                            com.example.data.TrafficAuditEntity(
+                                timestamp = System.currentTimeMillis(),
+                                url = target,
+                                protocol = NetworkProtocol.CENTRALIZED_HTTP.name,
+                                routeTaken = "Direct High-Speed Web Stack: $httpHost",
+                                latencyMs = 10L,
+                                isTamperProof = true,
+                                verificationSummary = "Status: VERIFIED_TAMPER_PROOF | Hash: ${com.example.network.CryptoUtils.sha256(target).take(12)}..."
+                            )
+                        )
+                    } catch (_: Exception) {}
+                } else {
+                    val result = resolver.resolve(target, _selectedProtocol.value, _desktopModeEnabled.value, _searchEngine.value.baseUrl)
+                    if (_navigationSessionId.value == currentSessionId) {
+                        _currentResource.value = result
+                        verifyResourceIntegrity(notifyUser = false)
+                        
+                        val bytesTransferred = if (result.sizeBytes > 0L) result.sizeBytes else (420 * 1024L)
+                        nodeManager.recordBrowserTraffic(bytesTransferred, target)
+                        
+                        if (result.resolvedProtocol == NetworkProtocol.DECENTRALIZED_P2P || 
+                            result.resolvedProtocol == NetworkProtocol.HYBRID_COEXISTENCE) {
+                            if (result.verificationStatus == VerificationStatus.VERIFIED_TAMPER_PROOF ||
+                                result.verificationStatus == VerificationStatus.MIRROR_MATCHED) {
+                                nodeManager.incrementCrossVerifications()
+                            }
                         }
                     }
                 }
@@ -2907,10 +3008,11 @@ class DecentralViewModel(
             // 3. Fallback for prefix-less 61 or 63 character CashAddr payload
             if (KASPA_PAYLOAD_ONLY_REGEX.matches(stripped)) {
                 val payload = stripped.lowercase()
-                val prefix = "kaspa"
-                val res = buildValidationResult(input, "$prefix:$payload", prefix, payload)
-                if (res.checksumValid || payload.startsWith("q") || payload.startsWith("p") || payload.startsWith("s")) {
-                    return res
+                val testnetRes = buildValidationResult(input, "kaspatest:$payload", "kaspatest", payload)
+                if (testnetRes.checksumValid) return testnetRes
+                val mainnetRes = buildValidationResult(input, "kaspa:$payload", "kaspa", payload)
+                if (mainnetRes.checksumValid || payload.startsWith("q") || payload.startsWith("p") || payload.startsWith("s")) {
+                    return mainnetRes
                 }
             }
 

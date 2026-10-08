@@ -573,7 +573,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     var pendingGeoOrigin by remember { mutableStateOf<String?>(null) }
     var pendingGeoCallback by remember { mutableStateOf<android.webkit.GeolocationPermissions.Callback?>(null) }
-    var uploadCallback by remember { mutableStateOf<android.webkit.ValueCallback<Array<android.net.Uri>>?>(null) }
     var customVideoView by remember { mutableStateOf<android.view.View?>(null) }
     var customVideoCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
     var isInputFocused by remember { mutableStateOf(false) }
@@ -612,7 +611,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 jsConfirmResult?.cancel()
                 jsPromptResult?.cancel()
                 pendingGeoCallback?.invoke(pendingGeoOrigin, false, false)
-                uploadCallback?.onReceiveValue(null)
                 try {
                     customVideoCallback?.onCustomViewHidden()
                 } catch (_: Throwable) {}
@@ -898,38 +896,33 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         pendingPermissionOrigin = null
     }
 
+    val uploadContext = androidx.compose.ui.platform.LocalContext.current
     val fileChooserLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val data = result.data
-            val uris: Array<android.net.Uri>? = if (data != null) {
-                val parsed = try {
-                    android.webkit.WebChromeClient.FileChooserParams.parseResult(result.resultCode, data)
-                } catch (_: Throwable) {
-                    null
-                }
-                if (!parsed.isNullOrEmpty()) {
-                    parsed
-                } else if (data.data != null) {
-                    arrayOf(data.data!!)
-                } else if (data.clipData != null && data.clipData!!.itemCount > 0) {
-                    val list = mutableListOf<android.net.Uri>()
-                    for (i in 0 until data.clipData!!.itemCount) {
-                        data.clipData!!.getItemAt(i).uri?.let { list.add(it) }
-                    }
-                    if (list.isNotEmpty()) list.toTypedArray() else null
-                } else {
-                    null
-                }
-            } else {
-                null
-            }
-            uploadCallback?.onReceiveValue(uris)
+            val uris = com.example.util.WebChromeUploadHelper.parseResultUris(result.resultCode, result.data, uploadContext)
+            com.example.util.WebChromeUploadHelper.completeUpload(uris)
         } else {
-            uploadCallback?.onReceiveValue(null)
+            com.example.util.WebChromeUploadHelper.completeUpload(null)
         }
-        uploadCallback = null
+    }
+
+    // Keep active upload launcher fresh and resilient across compositions and preserved tabs
+    androidx.compose.runtime.DisposableEffect(fileChooserLauncher) {
+        com.example.util.WebChromeUploadHelper.activeLauncher = { chooserIntent ->
+            try {
+                fileChooserLauncher.launch(chooserIntent)
+                true
+            } catch (e: Throwable) {
+                android.util.Log.e("BrowserGatewayScreen", "Failed to launch file chooser: ${e.message}")
+                false
+            }
+        }
+        onDispose {
+            // Do NOT cancel active upload on dispose; the system file picker pauses the activity.
+            com.example.util.WebChromeUploadHelper.activeLauncher = null
+        }
     }
 
     LaunchedEffect(webAuthEnabled) {
@@ -2515,45 +2508,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     filePathCallback: android.webkit.ValueCallback<Array<android.net.Uri>>?,
                                     fileChooserParams: FileChooserParams?
                                 ): Boolean {
-                                    uploadCallback?.onReceiveValue(null)
                                     if (!enableUploads) {
                                         viewModel.setStatusMessage("File uploads are disabled in Settings")
                                         filePathCallback?.onReceiveValue(null)
-                                        return false
+                                        return true
                                     }
-                                    uploadCallback = filePathCallback
-                                    return try {
-                                        val baseIntent = try {
-                                            fileChooserParams?.createIntent()
-                                        } catch (_: Throwable) {
-                                            null
-                                        }
-                                        val intent = baseIntent ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            val rawAccept = fileChooserParams?.acceptTypes?.filter { !it.isNullOrBlank() }
-                                            if (!rawAccept.isNullOrEmpty()) {
-                                                if (rawAccept.size == 1) {
-                                                    type = rawAccept[0]
-                                                } else {
-                                                    type = "*/*"
-                                                    putExtra(Intent.EXTRA_MIME_TYPES, rawAccept.toTypedArray())
-                                                }
-                                            } else {
-                                                type = "*/*"
-                                            }
-                                        }
-                                        if (fileChooserParams?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
-                                            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                                        }
-                                        val title = fileChooserParams?.title?.takeIf { it.isNotBlank() } ?: "Choose file to upload"
-                                        val chooser = Intent.createChooser(intent, title)
-                                        fileChooserLauncher.launch(chooser)
-                                        true
-                                    } catch (_: Exception) {
-                                        uploadCallback?.onReceiveValue(null)
-                                        uploadCallback = null
-                                        false
-                                    }
+                                    return com.example.util.WebChromeUploadHelper.handleFileChooser(
+                                        callback = filePathCallback,
+                                        params = fileChooserParams,
+                                        context = webView?.context ?: ctx,
+                                        onStatusMessage = { viewModel.setStatusMessage(it) }
+                                    )
                                 }
 
                                 override fun onShowCustomView(
@@ -3234,8 +3199,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         webViewInstance = webView
                         targetWebView = webView
 
-                        if (!isNewlyCreated) {
+                        if (!isNewlyCreated || savedBundle != null) {
                             com.example.util.BrowserStateLog.tabSwitch("Reusing preserved WebView for tab $currentTabId (current url=${webView.url})")
+                            webView.tag = Pair(resource.url, navigationSessionId)
                             if (currentTab != null && (currentTab.scrollX > 0 || currentTab.scrollY > 0)) {
                                 webView.scrollTo(currentTab.scrollX, currentTab.scrollY)
                                 com.example.util.BrowserStateLog.restore("Restored scroll for tab $currentTabId to (${currentTab.scrollX}, ${currentTab.scrollY})")
@@ -3340,18 +3306,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             
                             val currentTag = webView.tag as? Pair<*, *>
                             val tagUrl = currentTag?.first as? String
+                            val tagSessionId = currentTag?.second as? Int
                             val isRecentDownload = (resource.url == lastDownloadedUrl && (System.currentTimeMillis() - lastDownloadTimestamp < 30000L))
                             val webViewCurrentUrl = webView.url
 
                             val matchesCurrentUrl = !webViewCurrentUrl.isNullOrBlank() && com.example.util.BrowserTabWebViewManager.isSameUrl(webViewCurrentUrl, resource.url)
                             val matchesTagUrl = !tagUrl.isNullOrBlank() && com.example.util.BrowserTabWebViewManager.isSameUrl(tagUrl, resource.url)
-                            val isAlreadyAtOrLoadingUrl = matchesCurrentUrl || matchesTagUrl
+                            val isAlreadyLoadedInSession = tagSessionId != null && tagSessionId == navigationSessionId
+                            val isAlreadyAtOrLoadingUrl = matchesCurrentUrl || matchesTagUrl || isAlreadyLoadedInSession
 
                             if (isAlreadyAtOrLoadingUrl && !uaChanged) {
-                                com.example.util.BrowserStateLog.loadUrl("Prevented unnecessary reload: currentUrl ($webViewCurrentUrl) / tagUrl ($tagUrl) matches requested destination (${resource.url})")
+                                com.example.util.BrowserStateLog.loadUrl("Prevented unnecessary reload: currentUrl ($webViewCurrentUrl) / tagUrl ($tagUrl) / sessionId ($tagSessionId) matches requested destination (${resource.url})")
                                 webView.tag = Pair(resource.url, navigationSessionId)
                             } else if (!isAlreadyAtOrLoadingUrl && !isRecentDownload) {
-                                com.example.util.BrowserStateLog.loadUrl("Navigating tab to ${resource.url} (was: $webViewCurrentUrl, tagUrl: $tagUrl)")
+                                com.example.util.BrowserStateLog.loadUrl("Navigating tab to ${resource.url} (was: $webViewCurrentUrl, tagUrl: $tagUrl, session: $navigationSessionId)")
                                 webView.tag = Pair(resource.url, navigationSessionId)
                                 val finalUrl = if (httpsOnlyMode && resource.url.startsWith("http://", ignoreCase = true)) {
                                     resource.url.replaceFirst("http://", "https://", ignoreCase = true)
