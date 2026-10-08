@@ -6801,8 +6801,6 @@ fun KaspaNewsSection(
 
     val newsItems = if (newsItemsState.isNotEmpty()) newsItemsState else defaultItems
 
-    val currentPhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
-
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -6822,8 +6820,8 @@ fun KaspaNewsSection(
                     val isSelected = selectedFilter == cat
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) currentPhotoTheme.primaryAccent else currentPhotoTheme.cardBgColor,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, currentPhotoTheme.cardBorderColor),
+                        color = if (isSelected) EmeraldMesh else SurfaceCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) EmeraldMesh else SurfaceCardBorder),
                         modifier = Modifier.clickable {
                             selectedFilter = cat
                         }
@@ -6923,9 +6921,9 @@ fun KaspaNewsSection(
 
         if (filteredItems.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = currentPhotoTheme.cardBgColor),
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
                 border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(currentPhotoTheme.cardBorderColor)
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -6986,7 +6984,6 @@ fun formatEpochToTime(epochMillis: Long, originalFallback: String): String {
 
 @Composable
 fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
-    val activePhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
     val brandColor = when (item.category) {
         "GitHub" -> Color(0xFFA855F7)
         "Reddit" -> Color(0xFFF97316)
@@ -7004,9 +7001,9 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
     }
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = activePhotoTheme.cardBgColor),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(activePhotoTheme.cardBorderColor)
+            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
         ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
@@ -7100,7 +7097,6 @@ fun YouTubeVideoCard(
     item: KaspaNewsItem,
     onNavigate: (String) -> Unit
 ) {
-    val activePhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
     val rawId = item.videoId?.trim()?.takeIf {
         it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
     } ?: extractYouTubeVideoId(item.url)
@@ -7113,9 +7109,9 @@ fun YouTubeVideoCard(
     val brandDrawableId = R.drawable.ic_youtube_logo
 
     Card(
-        colors = CardDefaults.cardColors(containerColor = activePhotoTheme.cardBgColor),
+        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
         border = CardDefaults.outlinedCardBorder().copy(
-            brush = androidx.compose.ui.graphics.SolidColor(activePhotoTheme.cardBorderColor)
+            brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
         ),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
