@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class],
+    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class],
     version = 11,
     exportSchema = false
 )
@@ -21,7 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun browserSessionDao(): BrowserSessionDao
     abstract fun domainDao(): DomainDao
     abstract fun newsArticleDao(): NewsArticleDao
-
+    abstract fun transactionDao(): TransactionDao
 
     companion object {
         @Volatile

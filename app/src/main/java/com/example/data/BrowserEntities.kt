@@ -182,3 +182,29 @@ interface NewsArticleDao {
     @Query("DELETE FROM news_articles")
     suspend fun clearAll()
 }
+
+@Entity(tableName = "transaction_history")
+data class TransactionEntity(
+    @PrimaryKey val txId: String,
+    val blockTime: Long,
+    val amountKas: Double,
+    val type: String, // "RECEIVED", "SENT", "DAG_MINT"
+    val isAccepted: Boolean = true,
+    val feeKas: Double = 0.0001,
+    val counterpartyAddress: String = ""
+)
+
+@Dao
+interface TransactionDao {
+    @Query("SELECT * FROM transaction_history ORDER BY blockTime DESC")
+    fun getAllTransactions(): Flow<List<TransactionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(transaction: TransactionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(transactions: List<TransactionEntity>)
+
+    @Query("DELETE FROM transaction_history")
+    suspend fun clearAll()
+}

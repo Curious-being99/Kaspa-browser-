@@ -1,0 +1,6 @@
+{
+  "summary":  "Revised plan: Remove custom fee switch and hardcode accurate Kaspa fee tiers (Priority: 0.0069, Normal: 0.0056) for reliable estimation.",
+  "updatedAt":  "2026-10-09T20:20:54.901887436Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

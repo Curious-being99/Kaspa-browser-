@@ -162,6 +162,8 @@ object KaspaTransactionEngine {
     const val MINIMUM_TRANSACTION_MASS = 1000L
     const val MAXIMUM_STANDARD_TRANSACTION_MASS = 100_000L
     const val DEFAULT_SOMPI_PER_MASS = 10L // 10 sompi per mass unit (standard network relay feerate)
+    const val PRIORITY_FEE_SOMPIS = 690_000L // 0.0069 KAS
+    const val NORMAL_FEE_SOMPIS = 560_000L // 0.0056 KAS
     const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 10_000L // 0.0001 KAS absolute minimum network fee floor
     const val DUST_THRESHOLD_SOMPIS = 2_000_000L // 0.02 KAS (outputs below this incur high storage mass per KIP-9)
     const val STANDARD_SIGNATURE_SCRIPT_BYTES = 66 // 1 (0x41) + 64 (Schnorr Sig) + 1 (SIGHASH_ALL)
@@ -996,7 +998,6 @@ object KaspaTransactionEngine {
         amountKas: Double,
         inputsCount: Int = 1,
         outputsCount: Int = 2,
-        selectedSompiPerMass: Long = DEFAULT_SOMPI_PER_MASS,
         inputAmounts: List<Long> = emptyList(),
         networkCondition: KaspaNetworkFeeCondition = KaspaNetworkFeeCondition()
     ): FeeRangeCalculationBreakdown {
@@ -1014,10 +1015,12 @@ object KaspaTransactionEngine {
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
 
-        val ecoFee = calculateFeeForMass(totalMass, networkCondition.lowFeerate)
-        val normFee = calculateFeeForMass(totalMass, networkCondition.normalFeerate)
-        val prioFee = calculateFeeForMass(totalMass, networkCondition.priorityFeerate)
-        val customSelectedFee = calculateFeeForMass(totalMass, selectedSompiPerMass)
+        val ecoFee = NORMAL_FEE_SOMPIS // Default to Normal if Economy not specifically defined
+        val normFee = NORMAL_FEE_SOMPIS
+        val prioFee = PRIORITY_FEE_SOMPIS
+        
+        // Use Normal as the default/selected option
+        val selectedFee = normFee 
 
         val ecoOpt = FeeEstimateOption(
             tierKey = "economy",
@@ -1047,27 +1050,13 @@ object KaspaTransactionEngine {
             totalRequiredKas = amountKas + sompiToKas(prioFee)
         )
         val selOpt = FeeEstimateOption(
-            tierKey = when (selectedSompiPerMass) {
-                networkCondition.lowFeerate -> "economy"
-                networkCondition.normalFeerate -> "normal"
-                networkCondition.priorityFeerate -> "priority"
-                else -> "custom"
-            },
-            label = when (selectedSompiPerMass) {
-                networkCondition.lowFeerate -> "Economy"
-                networkCondition.normalFeerate -> "Normal"
-                networkCondition.priorityFeerate -> "Priority"
-                else -> "Custom (${selectedSompiPerMass} S/g)"
-            },
-            sompiPerMass = selectedSompiPerMass,
-            estimatedSeconds = when {
-                selectedSompiPerMass <= networkCondition.lowFeerate -> networkCondition.lowEstimatedSeconds
-                selectedSompiPerMass >= networkCondition.priorityFeerate -> networkCondition.priorityEstimatedSeconds
-                else -> networkCondition.normalEstimatedSeconds
-            },
-            feeSompis = customSelectedFee,
-            feeKas = sompiToKas(customSelectedFee),
-            totalRequiredKas = amountKas + sompiToKas(customSelectedFee)
+            tierKey = "normal",
+            label = "Normal (Recommended)",
+            sompiPerMass = networkCondition.normalFeerate,
+            estimatedSeconds = networkCondition.normalEstimatedSeconds,
+            feeSompis = normFee,
+            feeKas = sompiToKas(normFee),
+            totalRequiredKas = amountKas + sompiToKas(normFee)
         )
 
         return FeeRangeCalculationBreakdown(

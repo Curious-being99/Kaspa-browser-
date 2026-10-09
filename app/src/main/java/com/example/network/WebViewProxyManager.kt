@@ -24,24 +24,24 @@ object WebViewProxyManager {
     private const val TAG = "WebViewProxyManager"
     private val executor = Executors.newSingleThreadExecutor()
 
-    fun applyCustomProxy(host: String, port: Int, isSocks: Boolean = true, onApplied: (() -> Unit)? = null) {
+    fun applyCustomProxy(host: String, port: Int, isSocks: Boolean = true, onApplied: (() -> Unit)? = null, onError: ((Throwable) -> Unit)? = null) {
         val cleanHost = host.trim()
             .removePrefix("http://")
             .removePrefix("https://")
             .removePrefix("socks5://")
             .removePrefix("socks://")
 
-        // Crucial: Android WebView's isolated sandboxed process cannot connect to loopback sockets (127.0.0.1)
-        // opened by the parent app process due to Android SELinux sandbox restrictions.
-        // Connecting to loopback via ProxyController causes ERR_PROXY_CONNECTION_FAILED on real devices.
-        if (cleanHost.isEmpty() || cleanHost == "127.0.0.1" || cleanHost == "localhost" || cleanHost == "::1") {
-            Log.d(TAG, "Loopback proxy skipped for WebView ProxyController to prevent sandbox isolation connection cutoff.")
+        // Android WebView's isolated sandboxed process might have restrictions connecting 
+        // to loopback sockets depending on SELinux policy.
+        if (cleanHost.isEmpty()) {
+            Log.d(TAG, "Empty host, skipping proxy setup.")
+            onError?.invoke(Exception("Empty host"))
             return
         }
 
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
             Log.d(TAG, "PROXY_OVERRIDE not supported by this WebView engine version")
-            onApplied?.invoke()
+            onError?.invoke(Exception("PROXY_OVERRIDE not supported"))
             return
         }
 
@@ -63,7 +63,7 @@ object WebViewProxyManager {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Notice setting native proxy override: ${t.message}")
-            onApplied?.invoke()
+            onError?.invoke(t)
         }
     }
 

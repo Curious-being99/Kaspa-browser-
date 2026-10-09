@@ -16,6 +16,7 @@ import com.example.data.BrowserTabEntity
 import com.example.data.BrowserSessionEntity
 import com.example.data.DomainEntity
 import com.example.data.NewsArticleEntity
+import com.example.data.TransactionEntity
 import com.example.data.KaspaNewsItem
 import com.example.data.toKaspaNewsItem
 import com.example.data.toEntity
@@ -1555,14 +1556,12 @@ class DecentralViewModel(
     }
 
     fun calculateFeeRangeBreakdown(
-        amountKas: Double,
-        selectedSompiPerMass: Long = _networkFeeCondition.value.normalFeerate
+        amountKas: Double
     ): KaspaTransactionEngine.FeeRangeCalculationBreakdown {
         return KaspaTransactionEngine.calculateFeeRangeBreakdown(
             amountKas = amountKas,
             inputsCount = maxOf(1, _kaspaWalletState.value.utxosCount),
             outputsCount = 2,
-            selectedSompiPerMass = selectedSompiPerMass,
             networkCondition = _networkFeeCondition.value
         )
     }
@@ -1625,6 +1624,20 @@ class DecentralViewModel(
                 )
                 result.onSuccess { txItem ->
                     _statusMessage.value = "Testnet 10 KAS Broadcasted! Tx: ${txItem.txId.take(16)}..."
+                    
+                    // Persist transaction
+                    viewModelScope.launch(Dispatchers.IO) {
+                        database.transactionDao().insert(TransactionEntity(
+                            txId = txItem.txId,
+                            blockTime = txItem.blockTime,
+                            amountKas = txItem.amountKas,
+                            type = txItem.type,
+                            isAccepted = txItem.isAccepted,
+                            feeKas = txItem.feeKas,
+                            counterpartyAddress = txItem.counterpartyAddress
+                        ))
+                    }
+
                     val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions
                     val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - txItem.feeKas).coerceAtLeast(0.0)
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
