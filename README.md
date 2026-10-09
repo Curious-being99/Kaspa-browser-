@@ -83,10 +83,10 @@
 KaspaBrowser supports standard Android **`ACTION_VIEW`** Web Intents, allowing any external Android application to launch the browser and navigate to URLs or execute search queries securely. 
 
 ### 1. Launching a Web URL from Another App
-To open a specific webpage in KaspaBrowser from your own Android app:
+To open any arbitrary webpage or web app in KaspaBrowser from your own Android app:
 
 ```kotlin
-val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://kaspa.org")).apply {
+val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")).apply {
     // Optionally scope to package if known
     setPackage(context.packageName)
 }
@@ -94,11 +94,11 @@ context.startActivity(intent)
 ```
 
 ### 2. Passing Search Queries
-You can also pass plain text search queries via `Intent.EXTRA_TEXT` or intent data. Unsecured plain text inputs are automatically sanitized and routed through the federated search engine (`https://html.duckduckgo.com/html/?q=...`):
+You can also pass plain text search queries or search URLs via `Intent.ACTION_VIEW`. Unsecured plain text inputs are automatically sanitized and routed through the federated search engine:
 
 ```kotlin
 val intent = Intent(Intent.ACTION_VIEW).apply {
-    data = Uri.parse("https://html.duckduckgo.com/html/?q=Kaspa+network")
+    data = Uri.parse("https://html.duckduckgo.com/html/?q=open+source+browser")
 }
 context.startActivity(intent)
 ```
