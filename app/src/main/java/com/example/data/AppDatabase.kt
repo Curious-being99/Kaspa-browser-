@@ -4,10 +4,12 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +26,25 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
 
     companion object {
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS transaction_history (
+                        txId TEXT NOT NULL,
+                        blockTime INTEGER NOT NULL,
+                        amountKas REAL NOT NULL,
+                        type TEXT NOT NULL,
+                        isAccepted INTEGER NOT NULL,
+                        feeKas REAL NOT NULL,
+                        counterpartyAddress TEXT NOT NULL,
+                        PRIMARY KEY(txId)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -34,8 +55,9 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "decentralnet_db"
                 )
-                .fallbackToDestructiveMigration(dropAllTables = true)
-                .build()
+                    .addMigrations(MIGRATION_11_12)
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build()
                 INSTANCE = instance
                 instance
             }
