@@ -522,5 +522,65 @@ class NetworkAuditUnitTest {
         assertTrue("Transaction ID must be valid lowercase hex", txId.matches(Regex("^[0-9a-f]{64}$")))
         assertFalse("TxID must not contain mock prefix", txId.startsWith("mock") || txId.startsWith("kas_") || txId.contains("local"))
     }
+
+    @Test
+    fun testRustyKaspaOfficialConsensusSighashTestVector() {
+        val prevTxId = "880eb9819a31821d9d2399e2f35e2433b72637e393d71ecc9b8d0250f49153c3"
+        val scriptPubKey1 = com.example.network.kaspa.KaspaTransactionEngine.KaspaScriptPublicKey(
+            version = 0,
+            script = "208325613d2eeaf7176ac6c670b13c0043156c427438ed72d74b7800862ad884e8ac"
+        )
+        val scriptPubKey2 = com.example.network.kaspa.KaspaTransactionEngine.KaspaScriptPublicKey(
+            version = 0,
+            script = "20fcef4c106cf11135bbd70f02a726a92162d2fb8b22f0469126f800862ad884e8ac"
+        )
+
+        val tx = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransaction(
+            version = 0,
+            inputs = listOf(
+                com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(
+                    previousOutpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint(prevTxId, 0),
+                    sequence = 0,
+                    sigOpCount = 0
+                ),
+                com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(
+                    previousOutpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint(prevTxId, 1),
+                    sequence = 1,
+                    sigOpCount = 0
+                ),
+                com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(
+                    previousOutpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint(prevTxId, 2),
+                    sequence = 2,
+                    sigOpCount = 0
+                )
+            ),
+            outputs = listOf(
+                com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
+                    amount = 300L,
+                    scriptPublicKey = scriptPubKey2
+                ),
+                com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
+                    amount = 300L,
+                    scriptPublicKey = scriptPubKey1
+                )
+            ),
+            lockTime = 1615462089000L,
+            subnetworkId = "0000000000000000000000000000000000000000",
+            gas = 0L,
+            payload = ""
+        )
+
+        val utxo0 = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(100L, scriptPubKey1)
+        val calculatedSighashBytes = com.example.network.kaspa.KaspaTransactionEngine.calcSchnorrSignatureHash(
+            tx = tx,
+            inputIndex = 0,
+            sigHashType = com.example.network.kaspa.KaspaTransactionEngine.SIGHASH_ALL,
+            utxoEntry = utxo0
+        )
+        val calculatedSighashHex = calculatedSighashBytes.joinToString("") { "%02x".format(it) }
+        val expectedHash = "03b7ac6927b2b67100734c3cc313ff8c2e8b3ce3e746d46dd660b706a916b1f5"
+
+        assertEquals(expectedHash, calculatedSighashHex)
+    }
 }
 

@@ -464,9 +464,19 @@ object KaspaTransactionEngine {
             else -> ByteArray(32)
         }
 
-        // 6. Payload hash (32 bytes)
-        val payloadBytes = hexToBytes(tx.payload)
-        val payloadHash = CryptoUtils.blake2b256(payloadBytes, KEY_TRANSACTION_SIGNING_HASH)
+        // 6. Payload hash (32 bytes) - rusty-kaspa consensus: ZERO_HASH for native tx with empty payload
+        val isNativeSubnetwork = tx.subnetworkId.isBlank() || 
+            tx.subnetworkId == DEFAULT_SUBNETWORK_ID || 
+            hexToBytes(tx.subnetworkId).all { it == 0.toByte() }
+        val payloadHash: ByteArray = if (isNativeSubnetwork && tx.payload.isBlank()) {
+            ByteArray(32) // ZERO_HASH
+        } else {
+            val payloadBytes = hexToBytes(tx.payload)
+            val pBos = ByteArrayOutputStream()
+            writeUInt64LE(pBos, payloadBytes.size.toLong())
+            pBos.write(payloadBytes)
+            CryptoUtils.blake2b256(pBos.toByteArray(), KEY_TRANSACTION_SIGNING_HASH)
+        }
 
         // 7. Subnetwork ID (20 bytes)
         val subnetworkBytes = hexToBytes(tx.subnetworkId)

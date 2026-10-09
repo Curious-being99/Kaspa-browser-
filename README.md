@@ -76,6 +76,11 @@
 7. **Native Download Manager Integration**:
    - Seamless file downloads using Android's native `DownloadManager` with notification tracking and automatic file handling.
 
+8. **Live Kaspa Ecosystem RSS & YouTube Feed Syndication (`NewsModels.kt`)**:
+   - Integrated live Atom/RSS feed parser with Cronet/OkHttp background synchronization.
+   - Dedicated YouTube channel feeds including **Kaspa Silver 𐤊** (`@KaspaSilver` - channel ID `UCv8-2oyrfqDigJAKjZ_RCzQ`), **Kaspa Official**, and **Pumpolinsky**.
+   - Features inline video playback, high-definition thumbnails, video duration badges, and single-tap switching to full browser mode.
+
 ---
 
 ## 🔗 Connecting & Integrating From Another Android App

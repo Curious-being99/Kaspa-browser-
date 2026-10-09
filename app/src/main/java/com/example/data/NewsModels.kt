@@ -114,34 +114,78 @@ fun extractImageUrl(xml: String): String? {
 }
 
 fun formatEpochToDisplay(epochMillis: Long): String {
-    val diff = System.currentTimeMillis() - epochMillis
-    if (diff < 0) return "Just now"
-    if (diff < 60_000) return "Just now"
-    if (diff < 3600_000) return "${diff / 60_000}m ago"
-    if (diff < 86400_000) return "${diff / 3600_000}h ago"
-    val days = diff / 86400_000
-    if (days < 7) return "${days}d ago"
-    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.US)
-    return sdf.format(java.util.Date(epochMillis))
+    if (epochMillis <= 0L) return "Recently"
+    val now = System.currentTimeMillis()
+    val diff = now - epochMillis
+
+    val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+    val dateFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+    val date = java.util.Date(epochMillis)
+    val formattedTime = timeFormat.format(date)
+    val formattedDate = dateFormat.format(date)
+
+    val itemCal = java.util.Calendar.getInstance().apply { timeInMillis = epochMillis }
+    val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = now }
+
+    val isToday = itemCal.get(java.util.Calendar.YEAR) == nowCal.get(java.util.Calendar.YEAR) &&
+            itemCal.get(java.util.Calendar.DAY_OF_YEAR) == nowCal.get(java.util.Calendar.DAY_OF_YEAR)
+    val isYesterday = itemCal.get(java.util.Calendar.YEAR) == nowCal.get(java.util.Calendar.YEAR) &&
+            itemCal.get(java.util.Calendar.DAY_OF_YEAR) == nowCal.get(java.util.Calendar.DAY_OF_YEAR) - 1
+
+    return when {
+        isToday -> {
+            when {
+                diff < 60_000 -> "Today, $formattedTime (Just now)"
+                diff < 3600_000 -> "Today, $formattedTime (${diff / 60_000}m ago)"
+                diff < 86400_000 -> "Today, $formattedTime (${diff / 3600_000}h ago)"
+                else -> "Today, $formattedTime"
+            }
+        }
+        isYesterday -> "Yesterday, $formattedTime"
+        else -> "$formattedDate • $formattedTime"
+    }
 }
 
 fun parseDateToEpoch(dateStr: String): Long {
     if (dateStr.isBlank() || dateStr == "Recently" || dateStr == "Just now") return System.currentTimeMillis()
+    val clean = dateStr.trim()
+
+    // Modern ISO 8601 parsing first (OffsetDateTime & ZonedDateTime handle offsets like +00:00 before Instant)
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        try {
+            return java.time.OffsetDateTime.parse(clean).toInstant().toEpochMilli()
+        } catch (_: Exception) {}
+        try {
+            return java.time.ZonedDateTime.parse(clean).toInstant().toEpochMilli()
+        } catch (_: Exception) {}
+        try {
+            return java.time.Instant.parse(clean).toEpochMilli()
+        } catch (_: Exception) {}
+    }
+
     val formats = listOf(
         "EEE, dd MMM yyyy HH:mm:ss z",
         "EEE, dd MMM yyyy HH:mm:ss Z",
+        "EEE, dd MMM yyyy HH:mm:ss zzz",
+        "EEE, d MMM yyyy HH:mm:ss z",
+        "EEE, d MMM yyyy HH:mm:ss Z",
         "EEE, dd MMM yyyy HH:mm:ss",
         "yyyy-MM-dd'T'HH:mm:ss'Z'",
         "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
         "yyyy-MM-dd'T'HH:mm:ssXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        "yyyy-MM-dd'T'HH:mm:ss",
         "yyyy-MM-dd HH:mm:ss",
-        "MMM dd, yyyy"
+        "MMM dd, yyyy HH:mm",
+        "MMM dd, yyyy",
+        "dd MMM yyyy HH:mm:ss z",
+        "dd MMM yyyy HH:mm:ss Z"
     )
     for (fmt in formats) {
         try {
             val sdf = SimpleDateFormat(fmt, Locale.US)
             sdf.timeZone = TimeZone.getTimeZone("UTC")
-            val parsed = sdf.parse(dateStr)
+            val parsed = sdf.parse(clean)
             if (parsed != null) return parsed.time
         } catch (_: Exception) {}
     }
@@ -197,10 +241,21 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
                 desc = desc.take(197) + "..."
             }
 
-            var rawDate = extractTagContent(itemXml, "pubDate")
-            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "updated")
-            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "published")
-            if (rawDate.isEmpty()) rawDate = extractTagContent(itemXml, "dc:date")
+            var rawDate = if (defaultCategory == "YouTube" || itemXml.contains("<published>")) {
+                extractTagContent(itemXml, "published").ifEmpty {
+                    extractTagContent(itemXml, "updated").ifEmpty {
+                        extractTagContent(itemXml, "pubDate")
+                    }
+                }
+            } else {
+                extractTagContent(itemXml, "pubDate").ifEmpty {
+                    extractTagContent(itemXml, "updated").ifEmpty {
+                        extractTagContent(itemXml, "published").ifEmpty {
+                            extractTagContent(itemXml, "dc:date")
+                        }
+                    }
+                }
+            }
 
             val epochMillis = parseDateToEpoch(rawDate)
             val displayDate = if (rawDate.isNotBlank()) formatEpochToDisplay(epochMillis) else "Recently"
@@ -210,6 +265,7 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
             if (author.isEmpty()) author = extractTagContent(itemXml, "dc:creator")
             if (author.isEmpty()) author = extractTagContent(itemXml, "source")
             if (author.isEmpty() && defaultCategory == "News") author = "Kaspa News"
+            if (author.isEmpty() && defaultCategory == "YouTube") author = "Kaspa Community"
 
             var videoId: String? = extractTagContent(itemXml, "yt:videoId").trim().takeIf {
                 it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
@@ -289,216 +345,12 @@ fun cleanXmlText(text: String): String {
 }
 
 fun getKaspaNewsDeduplicationKey(item: KaspaNewsItem): String {
+    if (!item.videoId.isNullOrBlank()) {
+        return "video_${item.videoId!!.lowercase().trim()}"
+    }
     val cleanTitle = item.title.lowercase().replace(Regex("[^a-z0-9]"), "")
     return if (cleanTitle.length > 8) cleanTitle else item.url.lowercase().trim()
 }
-
-fun getDefaultCuratedNews(): List<KaspaNewsItem> = listOf(
-    KaspaNewsItem(
-        title = "@KaspaCurrency: Kaspad v0.15.2 released with DagKnight sync optimizations and mainnet BPS enhancements",
-        desc = "Latest node update delivers major performance improvements for peer sync, UTXO set validation, and block propagation latency.",
-        url = "https://x.com/KaspaCurrency",
-        category = "X",
-        timestamp = "Sep 10, 2026",
-        author = "@KaspaCurrency",
-        epochMillis = 1788998400000L
-    ),
-    KaspaNewsItem(
-        title = "@Kaspa_Ecosystem: \$KAS ecosystem surges with 10M+ KRC-20 transactions and zero congestion",
-        desc = "High-speed BlockDAG transaction throughput easily handles millions of smart token transfers without fee spikes or network backlog.",
-        url = "https://x.com/Kaspa_Ecosystem",
-        category = "X",
-        timestamp = "Sep 10, 2026",
-        author = "@Kaspa_Ecosystem",
-        epochMillis = 1788998200000L
-    ),
-    KaspaNewsItem(
-        title = "kaspanet/kaspad: Release v0.15.2 mainnet binaries & DagKnight DAG engine",
-        desc = "Official release binaries compiled with Rust 1.80. High-performance peer-to-peer block ordering with zero latency assumptions.",
-        url = "https://github.com/kaspanet/kaspad",
-        category = "GitHub",
-        timestamp = "Sep 10, 2026",
-        author = "shaiwy",
-        epochMillis = 1788998000000L
-    ),
-    KaspaNewsItem(
-        title = "@YonatanSompo: \$KAS Proof-of-Work solves Satoshi's original scaling vision without compromises",
-        desc = "By structuring blocks into an acyclic graph rather than an isolated single chain, Kaspa enables parallel block creation with mathematical consensus security.",
-        url = "https://x.com/YonatanSompo",
-        category = "X",
-        timestamp = "Sep 10, 2026",
-        author = "@YonatanSompo",
-        epochMillis = 1788997500000L
-    ),
-    KaspaNewsItem(
-        title = "r/kaspa: Kaspad v0.15.2 is live! DagKnight performance tests inside",
-        desc = "Community node operators reporting 30% reduction in sync times and ultra-low RAM usage across desktop and server nodes.",
-        url = "https://reddit.com/r/kaspa",
-        category = "Reddit",
-        timestamp = "Sep 10, 2026",
-        author = "u/BlockDAGLover",
-        epochMillis = 1788997000000L
-    ),
-    KaspaNewsItem(
-        title = "@DesheShai: DagKnight formal security proofs published: parameterless PoW BlockDAG",
-        desc = "Zero latency bounds, adaptive ordering, and sub-second confirmation speed. Proof-of-Work has reached its theoretical optimum.",
-        url = "https://x.com/DesheShai",
-        category = "X",
-        timestamp = "Sep 09, 2026",
-        author = "@DesheShai",
-        epochMillis = 1788913000000L
-    ),
-    KaspaNewsItem(
-        title = "Kaspa BPS Upgrade & DagKnight Consensus Live Demo",
-        desc = "Dr. Yonatan Sompolinsky and core developers demonstrate parameterless proof-of-work DAG consensus achieving unprecedented throughput.",
-        url = "https://www.youtube.com/watch?v=By_Zw58PN6o",
-        category = "YouTube",
-        timestamp = "Sep 10, 2026",
-        author = "Kaspa Official",
-        videoId = "By_Zw58PN6o",
-        duration = "16:45",
-        epochMillis = 1788996000000L
-    ),
-    KaspaNewsItem(
-        title = "@Kaspa_Ecosystem: New decentralised bridge & KCC-20 indexer live on testnet",
-        desc = "Developers can now build cross-chain dApps on Kaspa BlockDAG with sub-second finality and zero latency overhead.",
-        url = "https://x.com/Kaspa_Ecosystem",
-        category = "X",
-        timestamp = "Sep 09, 2026",
-        author = "@Kaspa_Ecosystem",
-        epochMillis = 1788912000000L
-    ),
-    KaspaNewsItem(
-        title = "@KaspaCurrency: \$KAS mining network hash rate reaches historic all-time high",
-        desc = "Global ASIC and decentralised mining pool distribution reinforces Kaspa as the fastest and most secure PoW layer in existence.",
-        url = "https://x.com/KaspaCurrency",
-        category = "X",
-        timestamp = "Sep 08, 2026",
-        author = "@KaspaCurrency",
-        epochMillis = 1788825600000L
-    ),
-    KaspaNewsItem(
-        title = "Yonatan Sompolinsky at AusCryptoCon: BlockDAG & Scalability",
-        desc = "Dr. Yonatan Sompolinsky discusses the fundamentals of BlockDAG architecture, parameterless consensus, and high throughput decentralization.",
-        url = "https://www.youtube.com/watch?v=By_Zw58PN6o",
-        category = "YouTube",
-        timestamp = "Sep 07, 2026",
-        author = "Kaspa Official",
-        videoId = "By_Zw58PN6o",
-        duration = "14:20",
-        epochMillis = 1788739200000L
-    ),
-    KaspaNewsItem(
-        title = "Kaspa Commons X Space Featuring Kaskad",
-        desc = "Community discussion covering the latest network upgrades, ecosystem development, and decentralized applications.",
-        url = "https://www.youtube.com/watch?v=BbUSm6inXhg",
-        category = "YouTube",
-        timestamp = "Sep 06, 2026",
-        author = "Kaspa Official",
-        videoId = "BbUSm6inXhg",
-        duration = "18:45",
-        epochMillis = 1788652800000L
-    ),
-    KaspaNewsItem(
-        title = "@KaspaCurrency: DagKnight consensus protocol adapts dynamically to live internet latency",
-        desc = "Parameterless proof-of-work is the ultimate solution to the blockchain trilemma. Sub-second confirmations without hardcoded assumptions.",
-        url = "https://x.com/KaspaCurrency",
-        category = "X",
-        timestamp = "Sep 07, 2026",
-        author = "@KaspaCurrency",
-        epochMillis = 1788739200000L
-    ),
-    KaspaNewsItem(
-        title = "@Kaspa_Ecosystem: KCC-20 token indexer performance hits record highs",
-        desc = "Community node operators have processed millions of KCC-20 requests seamlessly. High-speed DAG token minting and smart contracts at scale.",
-        url = "https://x.com/KaspaCurrency",
-        category = "X",
-        timestamp = "Sep 06, 2026",
-        author = "@Kaspa_Ecosystem",
-        epochMillis = 1788652800000L
-    ),
-    KaspaNewsItem(
-        title = "kaspanet/rusty-kaspa: DagKnight consensus dynamic ordering engine (PR #2491)",
-        desc = "Parameterless DAG reachability tree and adaptive confirmation times. Mainnet benchmark tests achieving 32 blocks per second.",
-        url = "https://github.com/kaspanet/kaspad",
-        category = "GitHub",
-        timestamp = "Sep 06, 2026",
-        author = "shaiwy",
-        epochMillis = 1788652800000L
-    ),
-    KaspaNewsItem(
-        title = "kaspa-core/kcc20-protocol: Release v1.2.0-alpha for smart contracts",
-        desc = "High-throughput token inscription standard, automated UTXO batching and validation engine for KCC-20 composable contracts.",
-        url = "https://github.com/kaspanet/kaspad",
-        category = "GitHub",
-        timestamp = "Sep 05, 2026",
-        author = "michaels",
-        epochMillis = 1788566400000L
-    ),
-    KaspaNewsItem(
-        title = "kaspanet/rusty-kaspa: Optimize DAG traversal performance",
-        desc = "New optimizations for GHOSTDAG reachability and chain-block ordering in the Rust implementation.",
-        url = "https://github.com/kaspanet/rusty-kaspa",
-        category = "GitHub",
-        timestamp = "Sep 04, 2026",
-        author = "elichai",
-        epochMillis = 1788480000000L
-    ),
-    KaspaNewsItem(
-        title = "kaspa-core/wallet-adapter: Added support for KRC-20 tokens",
-        desc = "The official wallet adapter now supports token transfers and minting for the KRC-20 standard on BlockDAG.",
-        url = "https://github.com/kaspanet/wallet-adapter",
-        category = "GitHub",
-        timestamp = "Sep 03, 2026",
-        author = "tiramisu",
-        epochMillis = 1788393600000L
-    ),
-    KaspaNewsItem(
-        title = "@YonatanSompo: DagKnight achieves near-optimal 49% BFT security",
-        desc = "Unlike protocols with fixed latency bounds, DagKnight dynamically tightens confirmation times as network conditions improve.",
-        url = "https://x.com/YonatanSompo",
-        category = "X",
-        timestamp = "Sep 05, 2026",
-        author = "@YonatanSompo",
-        epochMillis = 1788566400000L
-    ),
-    KaspaNewsItem(
-        title = "r/kaspa: DagKnight is the true endgame for Proof-of-Work scalability",
-        desc = "Why parameterless consensus changes everything: zero latency assumptions, dynamic confirmation times, and 100 BPS capability.",
-        url = "https://reddit.com/r/kaspa",
-        category = "Reddit",
-        timestamp = "Sep 07, 2026",
-        author = "u/DagMaster",
-        epochMillis = 1788739200000L
-    ),
-    KaspaNewsItem(
-        title = "r/kaspa: KCC-20 tokens are taking off! What are your favorite projects?",
-        desc = "Community discussion about newly launched KCC-20 projects, volume milestones, and decentralized indexer incentives.",
-        url = "https://reddit.com/r/kaspa",
-        category = "Reddit",
-        timestamp = "Sep 06, 2026",
-        author = "u/BlockExplorer",
-        epochMillis = 1788652800000L
-    ),
-    KaspaNewsItem(
-        title = "Kaspa Core Research: High-Throughput GHOSTDAG and Sub-Second Confirmations",
-        desc = "An in-depth technical dive into the DAG mathematical formulation and fast confirmation guarantees under adversarial conditions.",
-        url = "https://medium.com/@kaspanet",
-        category = "News",
-        timestamp = "Aug 28, 2026",
-        author = "Kaspa Research",
-        epochMillis = 1787875200000L
-    ),
-    KaspaNewsItem(
-        title = "kaspanet/kaspad: Rust Node Engine Complete Transition Milestone",
-        desc = "Full deprecation of legacy Go node code base in favor of high-speed multi-threaded Rust p2p engine.",
-        url = "https://github.com/kaspanet/kaspad",
-        category = "GitHub",
-        timestamp = "Aug 15, 2026",
-        author = "shaiwy",
-        epochMillis = 1786752000000L
-    )
-).distinctBy { getKaspaNewsDeduplicationKey(it) }
 
 suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatchers.IO) {
     val baseOkHttpClient = okhttp3.OkHttpClient.Builder()
@@ -517,19 +369,26 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
         Pair("https://github.com/kaspanet/kaspad/releases.atom", "GitHub"),
         Pair("https://github.com/kaspanet/rusty-kaspa/releases.atom", "GitHub"),
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCsnbLKm_lpCUj63_HPW17og", "YouTube"),
+        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCv8-2oyrfqDigJAKjZ_RCzQ", "YouTube"),
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube"),
-        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCfT-h2_y4j69R4-vQ5iG84g", "YouTube"),
+        Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UC4Y7sxOP3dG5z-G6zJX94Kw", "YouTube"),
         Pair("https://news.google.com/rss/search?q=Kaspa+cryptocurrency&hl=en-US&gl=US&ceid=US:en", "News"),
         Pair("https://news.google.com/rss/search?q=Kaspa+BlockDAG&hl=en-US&gl=US&ceid=US:en", "News"),
         Pair("https://news.google.com/rss/search?q=Kaspa+network&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+KCC20+KRC20&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+vprog+smart+contracts&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+covenant+KIP20&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+Silver&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+KAS+crypto&hl=en-US&gl=US&ceid=US:en", "News"),
+        Pair("https://news.google.com/rss/search?q=Kaspa+crypto&hl=en-GB&gl=GB&ceid=GB:en", "News"),
         Pair("https://cryptoslate.com/news/kaspa/feed/", "News"),
         Pair("https://www.crypto-news-flash.com/tag/kaspa/feed/", "News"),
         Pair("https://captainaltcoin.com/tag/kaspa/feed/", "News"),
         Pair("https://cointelegraph.com/rss/tag/kaspa", "News"),
         Pair("https://coingape.com/tag/kaspa/feed/", "News"),
         Pair("https://u.today/rss/kaspa", "News"),
-        Pair("https://xcancel.com/KaspaCurrency/rss", "X"),
-        Pair("https://xcancel.com/Kaspa_Ecosystem/rss", "X")
+        Pair("https://xcancel.com/kaspadotnews/rss", "X"),
+        Pair("https://xcancel.com/kaspaunchained/rss", "X")
     )
 
     val list: MutableList<KaspaNewsItem> = coroutineScope {
@@ -555,7 +414,14 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
         }.awaitAll().flatten().toMutableList()
 
         // Removed Discord Widget fetch per user request to replace Discord with Telegram
-        rssResults
+        rssResults.filter { 
+            !it.title.contains("ecosystem", ignoreCase = true) && !it.author.contains("ecosystem", ignoreCase = true) && !it.url.contains("ecosystem", ignoreCase = true) &&
+            !it.title.contains("kaspacurrency", ignoreCase = true) && !it.author.contains("kaspacurrency", ignoreCase = true) && !it.url.contains("kaspacurrency", ignoreCase = true)
+        }
+            .distinctBy { getKaspaNewsDeduplicationKey(it) }
+            .sortedByDescending { it.epochMillis }
+            .take(120)
+            .toMutableList()
     }
     list
 }

@@ -19,7 +19,6 @@ import com.example.data.NewsArticleEntity
 import com.example.data.KaspaNewsItem
 import com.example.data.toKaspaNewsItem
 import com.example.data.toEntity
-import com.example.data.getDefaultCuratedNews
 import com.example.data.fetchLatestKaspaFeeds
 import com.example.network.kaspa.KaspaDomainRegistry
 import com.example.network.kaspa.KaspaTransactionEngine
@@ -309,10 +308,13 @@ class DecentralViewModel(
     val newsFeedItems: StateFlow<List<KaspaNewsItem>> = database.newsArticleDao()
         .getAllNews()
         .map { list ->
-            if (list.isEmpty()) getDefaultCuratedNews()
-            else list.map { it.toKaspaNewsItem() }
+            list.map { it.toKaspaNewsItem() }
+                .filter { 
+                    !it.title.contains("ecosystem", ignoreCase = true) && !it.author.contains("ecosystem", ignoreCase = true) && !it.url.contains("ecosystem", ignoreCase = true) &&
+                    !it.title.contains("kaspacurrency", ignoreCase = true) && !it.author.contains("kaspacurrency", ignoreCase = true) && !it.url.contains("kaspacurrency", ignoreCase = true)
+                }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, getDefaultCuratedNews())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _isNewsRefreshing = MutableStateFlow(false)
     val isNewsRefreshing = _isNewsRefreshing.asStateFlow()
@@ -322,10 +324,16 @@ class DecentralViewModel(
         _isNewsRefreshing.value = true
         viewModelScope.launch {
             try {
+                val oldNews = database.newsArticleDao().getAllNewsList()
                 val fetched = fetchLatestKaspaFeeds()
                 if (fetched.isNotEmpty()) {
                     val entities = fetched.map { it.toEntity() }
                     database.newsArticleDao().insertAll(entities)
+                    
+                    val newCount = fetched.size - oldNews.size
+                    if (newCount > 0) {
+                        showNewsNotification(newCount)
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.d("DecentralViewModel", "News refresh notice: ${e.message}")
@@ -333,6 +341,26 @@ class DecentralViewModel(
                 _isNewsRefreshing.value = false
             }
         }
+    }
+
+    private fun showNewsNotification(newCount: Int) {
+        val context = getApplication<android.app.Application>()
+        val channelId = "kaspa_news_channel"
+        val notificationManager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(channelId, "Kaspa News Updates", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+            notificationManager.createNotificationChannel(channel)
+        }
+        
+        val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("New Kaspa News")
+            .setContentText("Check out $newCount new items!")
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            
+        notificationManager.notify(1, builder.build())
     }
 
     private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
@@ -904,7 +932,7 @@ class DecentralViewModel(
     private val _desktopModeEnabled = MutableStateFlow(browserSettingsPrefs.getBoolean("desktop_mode_enabled", false))
     val desktopModeEnabled: StateFlow<Boolean> = _desktopModeEnabled.asStateFlow()
 
-    private val _enablePullToRefresh = MutableStateFlow(browserSettingsPrefs.getBoolean("pull_to_refresh_enabled", true))
+    private val _enablePullToRefresh = MutableStateFlow(browserSettingsPrefs.getBoolean("pull_to_refresh_enabled", false))
     val enablePullToRefresh: StateFlow<Boolean> = _enablePullToRefresh.asStateFlow()
 
     private val _httpsOnlyMode = MutableStateFlow(true)
@@ -1464,21 +1492,12 @@ class DecentralViewModel(
         }
 
         // Initialize and persist latest news cache so it catches naturally and never resets
-        viewModelScope.launch {
-            try {
-                val count = database.newsArticleDao().getCount()
-                if (count == 0) {
-                    val initialEntities = getDefaultCuratedNews().map { it.toEntity() }
-                    database.newsArticleDao().insertAll(initialEntities)
-                }
-                refreshNewsFeeds()
-            } catch (_: Exception) {}
-        }
+        // Removed placeholder initialization per user request
 
-        // Periodic background news fetcher every 15 minutes
+        // Periodic background news fetcher every 3 minutes so news continuously updates
         viewModelScope.launch {
             while (isActive) {
-                kotlinx.coroutines.delay(15 * 60_000L)
+                kotlinx.coroutines.delay(3 * 60_000L)
                 refreshNewsFeeds()
             }
         }

@@ -42,6 +42,11 @@ Kaspa Browser (formerly DecentralNet) is a modern, fully decentralized Android w
 7. **Native Download Manager Integration**:
    - Seamless file downloads using Android's native `DownloadManager` with notification tracking and automatic file handling.
 
+8. **Live Kaspa Ecosystem RSS & YouTube Feed Syndication**:
+   - Live Atom/RSS feed parser with Cronet/OkHttp synchronization.
+   - Dedicated YouTube channel feeds including **Kaspa Silver 𐤊** (`@KaspaSilver`), **Kaspa Official**, and **Pumpolinsky**.
+   - Embedded video playback, high-definition Coil thumbnail caching, and zero-tracking privacy player.
+
 ---
 
 ## 🛠️ Browser Engine Architecture

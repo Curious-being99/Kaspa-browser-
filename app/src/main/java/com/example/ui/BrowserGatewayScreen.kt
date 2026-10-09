@@ -5725,6 +5725,16 @@ fun DotkLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 36.dp) {
     }
 }
 
+@Composable
+fun KasmapLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 36.dp) {
+    Image(
+        painter = painterResource(id = R.drawable.ic_kasmap_logo),
+        contentDescription = "Kasmap",
+        modifier = modifier.size(iconSize),
+        contentScale = ContentScale.Fit
+    )
+}
+
 data class CustomShortcut(
     val id: String = java.util.UUID.randomUUID().toString(),
     val name: String,
@@ -6079,6 +6089,15 @@ fun BrowserSpeedDial(
                     onClick = { onNavigate("https://dotk.name/") }
                 ) {
                     DotkLogoIcon(iconSize = 36.dp)
+                }
+
+                // Item 10: Kasmap
+                SpeedDialCircleItem(
+                    label = "Kasmap",
+                    iconColor = Color(0xFF70C7BA),
+                    onClick = { onNavigate("https://kasmap.org") }
+                ) {
+                    KasmapLogoIcon(iconSize = 36.dp)
                 }
 
 
@@ -6791,15 +6810,60 @@ fun KaspaNewsSection(
     onNavigate: (String) -> Unit
 ) {
     var selectedFilter by remember { mutableStateOf("All") }
+    var visibleItemCount by remember(selectedFilter) { mutableStateOf(15) }
 
-    val defaultItems = remember { getDefaultCuratedNews() }
+    val defaultItems = remember { emptyList<com.example.data.KaspaNewsItem>() }
     val newsItemsState by (viewModel?.newsFeedItems ?: remember {
         kotlinx.coroutines.flow.MutableStateFlow(defaultItems)
+    }).collectAsState()
+    val isNewsRefreshing by (viewModel?.isNewsRefreshing ?: remember {
+        kotlinx.coroutines.flow.MutableStateFlow(false)
     }).collectAsState()
 
     val newsItems = if (newsItemsState.isNotEmpty()) newsItemsState else defaultItems
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // News Header Bar with Live Indicator and Refresh
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (isNewsRefreshing) ElectricCyan else EmeraldMesh)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isNewsRefreshing) "UPDATING LATEST NEWS..." else "LATEST KASPA FEEDS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (isNewsRefreshing) ElectricCyan else TextSecondary,
+                    letterSpacing = 0.8.sp
+                )
+            }
+
+            // Instant Live Refresh
+            IconButton(
+                onClick = { viewModel?.refreshNewsFeeds() },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Fetch latest news updates now",
+                    tint = if (isNewsRefreshing) ElectricCyan else TextMuted,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -6941,7 +7005,10 @@ fun KaspaNewsSection(
                 }
             }
         } else {
-            filteredItems.forEachIndexed { index, item ->
+            val displayedItems = remember(filteredItems, visibleItemCount) {
+                filteredItems.take(visibleItemCount)
+            }
+            displayedItems.forEachIndexed { index, item ->
                 val isActuallyVideo = item.category == "YouTube" || 
                                      !item.videoId.isNullOrBlank() || 
                                      item.url.contains("youtube.com/watch") || 
@@ -6952,8 +7019,28 @@ fun KaspaNewsSection(
                 } else {
                     NewsFeedCard(item = item, onNavigate = onNavigate)
                 }
-                if (index < filteredItems.lastIndex) {
+                if (index < displayedItems.lastIndex) {
                     Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+
+            if (filteredItems.size > visibleItemCount) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { visibleItemCount += 15 },
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextSecondary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                ) {
+                    Text(
+                        text = "Load more news (${filteredItems.size - visibleItemCount} more)",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ElectricCyan
+                    )
                 }
             }
         }
@@ -6961,21 +7048,21 @@ fun KaspaNewsSection(
 }
 
 fun formatEpochToTime(epochMillis: Long, originalFallback: String): String {
+    if (epochMillis <= 0L) return "Just now"
     val now = System.currentTimeMillis()
     val diff = now - epochMillis
+    val minutes = diff / 60_000
+    val hours = diff / 3600_000
+    val days = diff / 86400_000
+
     return when {
-        diff < 0 -> "1s ago"
-        diff < 60_000 -> "${maxOf(1, diff / 1000)}s ago"
-        diff < 3600_000 -> "${diff / 60_000}m ago"
-        diff < 86400_000 -> "${diff / 3600_000}h ago"
-        diff < 604800_000 -> "${diff / 86400_000}d ago"
+        diff < 60_000 -> "Just now"
+        minutes < 60 -> "${minutes}m ago"
+        hours < 24 -> "${hours}h ago"
+        days < 7 -> "${days}d ago"
         else -> {
-            try {
-                val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
-                sdf.format(java.util.Date(epochMillis))
-            } catch (_: Exception) {
-                originalFallback
-            }
+            val dateFormat = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+            dateFormat.format(java.util.Date(epochMillis))
         }
     }
 }
@@ -7024,9 +7111,7 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // RECENT UPDATE badge removed per user request
-                    }
+                    ) {}
                     Text(
                         text = displayTime,
                         fontSize = 9.sp,
@@ -7137,7 +7222,7 @@ fun YouTubeVideoCard(
                                 isVerticalScrollBarEnabled = false
                                 isHorizontalScrollBarEnabled = false
 
-                                // Disable third-party cookies by default in embed player
+                                // Disable third-party cookies
                                 val cookieManager = android.webkit.CookieManager.getInstance()
                                 cookieManager.setAcceptCookie(true)
                                 cookieManager.setAcceptThirdPartyCookies(this, false)
@@ -7415,17 +7500,6 @@ fun YouTubeVideoCard(
                         color = TextMuted
                     )
                 }
-
-                Spacer(modifier = Modifier.height(5.dp))
-
-                Text(
-                    text = item.desc,
-                    fontSize = 11.sp,
-                    color = TextSecondary,
-                    lineHeight = 15.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         }
     }
