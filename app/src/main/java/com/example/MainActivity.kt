@@ -217,6 +217,51 @@ class MainActivity : FragmentActivity() {
   private var lastHandledIntentUrl: String? = null
   private var lastHandledIntentTimestamp: Long = 0L
 
+  private fun sanitizeAndResolveIncomingUrl(intent: Intent?): String? {
+    if (intent == null) return null
+    val data = intent.data
+    val pwaUrl = intent.getStringExtra("PWA_URL")
+
+    // 1. Handle PWA or explicit extras first with validation
+    if (!pwaUrl.isNullOrBlank()) {
+      val trimmed = pwaUrl.trim()
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        return trimmed
+      }
+    }
+
+    if (data != null) {
+      val scheme = data.scheme?.lowercase()
+      // Block unsafe / local file URI schemes to prevent exposing sensitive local file paths
+      if (scheme == "file" || scheme == "content" || scheme == "javascript" || scheme == "data") {
+        Log.w("MainActivity", "Blocked unsafe local file or script URI scheme: $scheme")
+        return null
+      }
+
+
+      val dataString = intent.dataString
+      if (!dataString.isNullOrBlank()) {
+        val trimmed = dataString.trim()
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+          return trimmed
+        }
+      }
+    }
+
+    // Fallback: check text extras or query
+    val textExtra = intent.getStringExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra("query")
+    if (!textExtra.isNullOrBlank()) {
+      val trimmed = textExtra.trim()
+      return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        trimmed
+      } else {
+        "https://html.duckduckgo.com/html/?q=${android.net.Uri.encode(trimmed)}"
+      }
+    }
+
+    return null
+  }
+
   private fun handleIncomingIntent(intent: Intent?) {
     if (intent == null) return
 
@@ -240,9 +285,11 @@ class MainActivity : FragmentActivity() {
     if (checkAndRoutePwaIntent(intent)) {
       return
     }
-    val targetUrl = intent.getStringExtra("PWA_URL") ?: intent.dataString
+
+    val targetUrl = sanitizeAndResolveIncomingUrl(intent)
+
     if (!targetUrl.isNullOrBlank()) {
-      Log.d("PWA", "[PWA] MainActivity handling external VIEW intent: $targetUrl")
+      Log.d("PWA", "[PWA] MainActivity handling sanitized external intent URL: $targetUrl")
       viewModel.setPendingExplicitUrl(targetUrl)
       val now = System.currentTimeMillis()
       if (targetUrl != lastHandledIntentUrl || (now - lastHandledIntentTimestamp > 1500L)) {

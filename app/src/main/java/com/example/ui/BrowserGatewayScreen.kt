@@ -5993,13 +5993,11 @@ fun BrowserSpeedDial(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-        val activePhotoTheme = com.example.ui.theme.LocalPhotoTheme.current
-
         // 1. HORIZONTAL SPEED DIAL SHORTCUTS CONTAINER (Floating modern rounded dock)
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = activePhotoTheme.cardBgColor,
-            border = androidx.compose.foundation.BorderStroke(1.dp, activePhotoTheme.cardBorderColor),
+            color = SurfaceCard,
+            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -6117,7 +6115,7 @@ fun BrowserSpeedDial(
                             .background(Color(0xFF161D2B), CircleShape)
                             .border(
                                 width = 1.5.dp,
-                                color = activePhotoTheme.cardBorderColor,
+                                color = SurfaceCardBorder,
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center

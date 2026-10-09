@@ -78,7 +78,38 @@
 
 ---
 
+## 🔗 Connecting & Integrating From Another Android App
 
+KaspaBrowser supports standard Android **`ACTION_VIEW`** Web Intents, allowing any external Android application to launch the browser and navigate to URLs or execute search queries securely. 
+
+### 1. Launching a Web URL from Another App
+To open a specific webpage in KaspaBrowser from your own Android app:
+
+```kotlin
+val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://kaspa.org")).apply {
+    // Optionally scope to package if known
+    setPackage(context.packageName)
+}
+context.startActivity(intent)
+```
+
+### 2. Passing Search Queries
+You can also pass plain text search queries via `Intent.EXTRA_TEXT` or intent data. Unsecured plain text inputs are automatically sanitized and routed through the federated search engine (`https://html.duckduckgo.com/html/?q=...`):
+
+```kotlin
+val intent = Intent(Intent.ACTION_VIEW).apply {
+    data = Uri.parse("https://html.duckduckgo.com/html/?q=Kaspa+network")
+}
+context.startActivity(intent)
+```
+
+### 3. Built-in Security & Sanitization Safeguards
+To ensure zero vulnerabilities and robust production stability, KaspaBrowser enforces strict intent validation:
+1. **Unsafe Scheme Blocking**: Incoming intents with `file://`, `content://`, `javascript://`, or `data://` URI schemes are unconditionally intercepted and blocked to prevent local file traversal, storage leaks, or script injection.
+2. **Protocol Validation**: Only valid `http://` and `https://` URLs are permitted for direct navigation.
+3. **History Replay Prevention**: `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` is checked and ignored, ensuring that reopening the app from Android recent apps history does not accidentally replay stale external navigation intents.
+
+---
 
 ## Browser Rendering Engine & Gateway Architecture
 
