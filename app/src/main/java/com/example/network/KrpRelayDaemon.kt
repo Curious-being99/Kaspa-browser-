@@ -298,9 +298,12 @@ object KrpRelayDaemon {
                 } else {
                     exitHttpClient.newCall(reqBuilder.build()).execute()
                 }
-            } catch (_: Throwable) {
-                // If proxy drops connection or port is closed, gracefully fallback to direct clean exit
-                exitHttpClient.newCall(reqBuilder.build()).execute()
+            } catch (proxyFailure: Throwable) {
+                // Fail closed: never retry a failed configured proxy through the device's direct connection.
+                throw java.io.IOException(
+                    "Configured exit proxy failed; refusing direct-network fallback",
+                    proxyFailure
+                )
             }
             val bodyBytes = response.body?.bytes() ?: ByteArray(0)
 
@@ -476,6 +479,10 @@ object KrpRelayDaemon {
         System.arraycopy(ephemeralPubkey, 0, cell, 14, 32)
         System.arraycopy(nonce, 0, cell, 46, 12)
 
+        require(ephemeralPubkey.size == 32) { "KRP ephemeral public key must be 32 bytes" }
+        require(nonce.size == 12) { "KRP nonce must be 12 bytes" }
+        require(tag.size == 16) { "KRP authentication tag must be 16 bytes" }
+        require(ciphertext.size <= KRP_CELL_SIZE - 76) { "KRP ciphertext exceeds cell capacity" }
         val cipherLen = ciphertext.size
         cell[58] = ((cipherLen ushr 8) and 0xFF).toByte()
         cell[59] = (cipherLen and 0xFF).toByte()
@@ -486,7 +493,8 @@ object KrpRelayDaemon {
     }
 
     fun parseCell(cell: ByteArray): KrpFrameData? {
-        if (cell.size < KRP_CELL_SIZE) return null
+        if (cell.size != KRP_CELL_SIZE) return null
+        if (cell[4].toInt() != 1 || cell[5].toInt() != 1) return null
         if (cell[0] != 'K'.code.toByte() || cell[1] != 'R'.code.toByte() || cell[2] != 'P'.code.toByte() || cell[3] != '1'.code.toByte()) {
             return null
         }
@@ -499,6 +507,7 @@ object KrpRelayDaemon {
         val ephemPub = cell.copyOfRange(14, 46)
         val nonce = cell.copyOfRange(46, 58)
         val cipherLen = ((cell[58].toInt() and 0xFF) shl 8) or (cell[59].toInt() and 0xFF)
+        if (cipherLen > KRP_CELL_SIZE - 76) return null
         val tag = cell.copyOfRange(60, 76)
         val ciphertext = cell.copyOfRange(76, 76 + cipherLen)
 
