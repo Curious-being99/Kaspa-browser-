@@ -136,7 +136,7 @@ class MainActivity : FragmentActivity() {
       }
 
       try {
-        android.webkit.WebView.setWebContentsDebuggingEnabled(true)
+        android.webkit.WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
       } catch (e: Exception) {
         Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
       }

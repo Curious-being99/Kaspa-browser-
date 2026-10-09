@@ -36,7 +36,6 @@ object WebViewProxyManager {
         // Connecting to loopback via ProxyController causes ERR_PROXY_CONNECTION_FAILED on real devices.
         if (cleanHost.isEmpty() || cleanHost == "127.0.0.1" || cleanHost == "localhost" || cleanHost == "::1") {
             Log.d(TAG, "Loopback proxy skipped for WebView ProxyController to prevent sandbox isolation connection cutoff.")
-            clearProxy(onApplied)
             return
         }
 
@@ -50,7 +49,6 @@ object WebViewProxyManager {
             val scheme = if (isSocks) "socks5" else "http"
             val proxyConfig = ProxyConfig.Builder()
                 .addProxyRule("$scheme://$cleanHost:$port")
-                .addDirect() // Guarantee fallback so connections are never cut off
                 .build()
 
             if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
