@@ -210,7 +210,7 @@ class KaspaWalletService(
                             }
 
                             val isReceive = totalOutSompis > 0
-                            val displayKas = if (totalOutSompis > 0) totalOutSompis / 100_000_000.0 else 1.0
+                            val displayKas = totalOutSompis / 100_000_000.0
                             
                             val mass = txObj.optLong("mass", 0L)
                             val feeSompis = txObj.optLong("fee", if (mass > 0L) KaspaTransactionEngine.calculateFeeForMass(mass) else KaspaTransactionEngine.calculateFeeForMass(KaspaTransactionEngine.estimateTransactionMass(1, 2)))
