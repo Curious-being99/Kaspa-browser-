@@ -186,7 +186,7 @@ object KaspaPrivacyRelayEngine {
             if (!value.matches(Regex("^[0-9.]+$"))) return false
             val parts = value.split('.')
             return parts.size == 4 && parts.all {
-                it.isNotEmpty() && it.toIntOrNull() in 0..255
+                it.isNotEmpty() && (it.toIntOrNull()?.let { value -> value in 0..255 } == true)
             }
         }
 
@@ -196,7 +196,7 @@ object KaspaPrivacyRelayEngine {
                     1 -> {
                         if (!data.matches(Regex("^[0-9.]+$"))) return null
                         val parts = data.split('.')
-                        if (parts.size != 4 || parts.any { it.isEmpty() || it.toIntOrNull() !in 0..255 }) return null
+                        if (parts.size != 4 || parts.any { it.isEmpty() || (it.toIntOrNull()?.let { value -> value !in 0..255 } != false) }) return null
                         InetAddress.getByAddress(ByteArray(4) { i -> parts[i].toInt().toByte() })
                     }
                     28 -> {
