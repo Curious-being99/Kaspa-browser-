@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 import com.example.model.KaspaWalletState
+import com.example.model.KaspaTransactionItem
 import com.example.model.NetworkMetrics
 import com.example.model.NetworkProtocol
 import com.example.model.ResolvedResource
@@ -1510,8 +1511,39 @@ class DecentralViewModel(
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isLoading = true)
             val updated = kaspaWalletService.fetchWalletState(targetAddress)
+            
+            // Query local stored transactions to ensure recently broadcasted sent transactions are preserved
+            val localEntities = try {
+                database.transactionDao().getAllTransactionsList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val localTxItems = localEntities.map { entity ->
+                KaspaTransactionItem(
+                    txId = entity.txId,
+                    blockTime = entity.blockTime,
+                    amountKas = entity.amountKas,
+                    type = entity.type,
+                    isAccepted = entity.isAccepted,
+                    feeKas = entity.feeKas,
+                    counterpartyAddress = entity.counterpartyAddress
+                )
+            }
+            
+            // Merge local and remote: on-chain transactions take precedence by txId, then sorted by blockTime DESC
+            val remoteMap = updated.recentTransactions.associateBy { it.txId }
+            val mergedList = mutableListOf<KaspaTransactionItem>()
+            mergedList.addAll(updated.recentTransactions)
+            for (localTx in localTxItems) {
+                if (!remoteMap.containsKey(localTx.txId)) {
+                    mergedList.add(localTx)
+                }
+            }
+            mergedList.sortByDescending { it.blockTime }
+
             _kaspaWalletState.value = updated.copy(
                 kaspaAddress = targetAddress,
+                recentTransactions = mergedList,
                 networkStatus = "Kaspa BlockDAG Testnet 10"
             )
         }
@@ -1638,7 +1670,7 @@ class DecentralViewModel(
                         ))
                     }
 
-                    val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions
+                    val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions.filter { it.txId != txItem.txId }
                     val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - txItem.feeKas).coerceAtLeast(0.0)
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -1648,6 +1680,8 @@ class DecentralViewModel(
                         recentTransactions = updatedTxs,
                         statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId.take(16)}...)".format(amountKas)
                     )
+                    // Trigger wallet balance and on-chain sync
+                    refreshKaspaWallet(senderTestnetAddress)
                 }.onFailure { err ->
                     val errorMsg = err.message ?: "Transaction broadcast failed"
                     _statusMessage.value = "Testnet 10 failed: $errorMsg"

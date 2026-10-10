@@ -242,9 +242,8 @@ fun KaspaTestnetWalletScreen(
     LaunchedEffect(showSendScreen) {
         if (showSendScreen) {
             viewModel.refreshNetworkFeeCondition()
-            if (selectedSompiPerMass <= 1L && networkFeeCondition.normalFeerate > 1L) {
-                selectedSompiPerMass = networkFeeCondition.normalFeerate
-            }
+            // Dynamically sync fee rate with live RPC network conditions
+            selectedSompiPerMass = maxOf(10L, networkFeeCondition.normalFeerate)
         }
     }
 
@@ -1078,90 +1077,171 @@ private fun HistoryTabContent(
     onOpenTx: (String) -> Unit,
     onGetFaucetCoins: () -> Unit
 ) {
-    if (isLoading && transactions.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(color = KaspaTea)
+    var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Sent, 2: Received
+    val filterTabs = listOf("All", "Sent", "Received")
+
+    val filteredTransactions = remember(transactions, selectedFilterIndex) {
+        when (selectedFilterIndex) {
+            1 -> transactions.filter { it.type == "SENT" }
+            2 -> transactions.filter { it.type == "RECEIVED" }
+            else -> transactions
         }
-        return
     }
 
-    if (transactions.isEmpty()) {
-        Column(
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Transaction History Filter Tabs: All, Sent, Received
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Surface(
-                shape = CircleShape,
-                color = SurfaceCard,
-                border = BorderStroke(1.dp, SurfaceCardBorder),
-                modifier = Modifier.size(56.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.WaterDrop,
-                        contentDescription = null,
-                        tint = KaspaTea,
-                        modifier = Modifier.size(28.dp)
-                    )
+            filterTabs.forEachIndexed { index, title ->
+                val isSelected = selectedFilterIndex == index
+                val count = when (index) {
+                    1 -> transactions.count { it.type == "SENT" }
+                    2 -> transactions.count { it.type == "RECEIVED" }
+                    else -> transactions.size
                 }
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = "No Transactions Yet",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Your Kaspa wallet is ready. Request test coins from the faucet to begin.",
-                fontSize = 12.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = onGetFaucetCoins,
-                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = SurfaceDark)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Get Free Testnet KAS", color = SurfaceDark, fontWeight = FontWeight.Bold)
-            }
-        }
-    } else {
-        val groupedTransactions = remember(transactions) {
-            transactions.groupBy { tx ->
-                val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-                sdf.format(Date(if (tx.blockTime > 1000000000000L) tx.blockTime else tx.blockTime * 1000L))
+                Surface(
+                    onClick = { selectedFilterIndex = index },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) KaspaTea.copy(alpha = 0.18f) else SurfaceCard,
+                    border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = title,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) KaspaTea else TextSecondary
+                        )
+                        if (count > 0) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) KaspaTea else SurfaceCardBorder,
+                                modifier = Modifier.size(16.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = "$count",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) SurfaceDark else TextMuted
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp) // Tight vertical spacing for grouped look
-        ) {
-            groupedTransactions.forEach { (date, txs) ->
-                item {
-                    Text(
-                        text = date,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextMuted,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
-                    )
+        if (isLoading && transactions.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = KaspaTea)
+            }
+            return
+        }
+
+        if (filteredTransactions.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = SurfaceCard,
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = when (selectedFilterIndex) {
+                                1 -> Icons.AutoMirrored.Filled.CallMade
+                                2 -> Icons.AutoMirrored.Filled.CallReceived
+                                else -> Icons.Default.WaterDrop
+                            },
+                            contentDescription = null,
+                            tint = if (selectedFilterIndex == 1) RedTamper else KaspaTea,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
-                items(txs, key = { it.txId }) { tx ->
-                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        TransactionCard(tx = tx, onClick = { onOpenTx(tx.txId) })
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = when (selectedFilterIndex) {
+                        1 -> "No Sent Transactions"
+                        2 -> "No Received Transactions"
+                        else -> "No Transactions Yet"
+                    },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = when (selectedFilterIndex) {
+                        1 -> "You have not broadcasted any sent transactions from this wallet yet."
+                        2 -> "No incoming transactions recorded yet for this wallet address."
+                        else -> "Your Kaspa wallet is ready. Request test coins from the faucet to begin."
+                    },
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+                if (selectedFilterIndex == 0 || selectedFilterIndex == 2) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onGetFaucetCoins,
+                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = SurfaceDark)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Get Free Testnet KAS", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        } else {
+            val groupedTransactions = remember(filteredTransactions) {
+                filteredTransactions.groupBy { tx ->
+                    val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                    sdf.format(Date(if (tx.blockTime > 1000000000000L) tx.blockTime else tx.blockTime * 1000L))
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                groupedTransactions.forEach { (date, txs) ->
+                    item {
+                        Text(
+                            text = date,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextMuted,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                        )
+                    }
+                    items(txs, key = { it.txId }) { tx ->
+                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            TransactionCard(tx = tx, onClick = { onOpenTx(tx.txId) })
+                        }
                     }
                 }
             }
@@ -1184,66 +1264,103 @@ private fun TransactionCard(
         onClick = onClick,
         shape = RoundedCornerShape(12.dp),
         color = SurfaceDark,
-        border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.3f)),
+        border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.35f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(if (isReceive) KaspaTea.copy(alpha = 0.1f) else RedTamper.copy(alpha = 0.1f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
-                        contentDescription = tx.type,
-                        tint = if (isReceive) KaspaTea else RedTamper,
-                        modifier = Modifier.size(18.dp)
-                    )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (isReceive) KaspaTea.copy(alpha = 0.12f) else RedTamper.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
+                            contentDescription = tx.type,
+                            tint = if (isReceive) KaspaTea else RedTamper,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = if (isReceive) "Received KAS" else "Sent KAS",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isReceive) TextPrimary else RedTamper
+                        )
+                        Text(
+                            text = dateStr,
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = if (isReceive) "Received KAS" else "Sent KAS",
+                        text = "${if (isReceive) "+" else "-"}%.4f KAS".format(tx.amountKas),
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isReceive) KaspaTea else RedTamper
                     )
-                    Text(
-                        text = dateStr,
-                        fontSize = 11.sp,
-                        color = TextMuted
-                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.12f) else AmberCentral.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = if (tx.isAccepted) "Accepted" else "Pending",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (tx.isAccepted) KaspaTea else AmberCentral,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
+            // Extended Details: TxID & Fee / Address
+            Spacer(modifier = Modifier.height(6.dp))
+            HorizontalDivider(color = SurfaceCardBorder.copy(alpha = 0.25f), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(6.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = "${if (isReceive) "+" else "-"}%.4f".format(tx.amountKas),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (isReceive) KaspaTea else TextPrimary
+                    text = "Tx: ${tx.txId.take(12)}...${tx.txId.takeLast(6)}",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextMuted
                 )
-                Surface(
-                    color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.1f) else AmberCentral.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
+                if (tx.feeKas > 0.0) {
                     Text(
-                        text = if (tx.isAccepted) "Accepted" else "Pending",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (tx.isAccepted) KaspaTea else AmberCentral,
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        text = "Fee: ${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
+                        fontSize = 10.sp,
+                        color = AmberCentral
+                    )
+                } else if (tx.counterpartyAddress.isNotBlank()) {
+                    Text(
+                        text = "${if (isReceive) "From" else "To"}: ${tx.counterpartyAddress.take(10)}...",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextSecondary
                     )
                 }
             }
@@ -1296,17 +1413,16 @@ private fun KaspaFeeCalculatorSection(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Dynamic Feerate selection chips
-            val normRate = maxOf(1L, networkCondition.normalFeerate)
-            val prioRate = maxOf(normRate, networkCondition.priorityFeerate)
-            val fastRate = maxOf(prioRate * 2, 50L)
+            // Dynamic Feerate selection chips: Normal (0.0056 KAS, 10 sompi/g) & Fast Priority (0.0069 KAS, 20 sompi/g)
+            val normRate = maxOf(10L, networkCondition.normalFeerate)
+            val fastRate = maxOf(20L, networkCondition.priorityFeerate)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Network Feerate", fontSize = 11.sp, color = TextSecondary)
+                Text("Priority Fee Tier", fontSize = 11.sp, color = TextSecondary)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.clickable { onRefreshFeeCondition() }
@@ -1320,7 +1436,7 @@ private fun KaspaFeeCalculatorSection(
                         Spacer(modifier = Modifier.width(4.dp))
                     }
                     Text(
-                        text = "RPC Feerate",
+                        text = "Live RPC Sync",
                         fontSize = 9.sp,
                         color = KaspaTea
                     )
@@ -1330,13 +1446,12 @@ private fun KaspaFeeCalculatorSection(
             Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf(
-                    Triple("Normal", normRate, "$normRate"),
-                    Triple("Priority", prioRate, "$prioRate"),
-                    Triple("Fast", fastRate, "$fastRate")
-                ).forEach { (label, rate, rateStr) ->
+                    Triple("Normal", normRate, "0.0056 KAS"),
+                    Triple("Fast Priority", fastRate, "0.0069 KAS")
+                ).forEach { (label, rate, feeLabel) ->
                     val isSelected = selectedSompiPerMass == rate
                     Surface(
                         onClick = { onFeerateChange(rate) },
@@ -1346,19 +1461,21 @@ private fun KaspaFeeCalculatorSection(
                         modifier = Modifier.weight(1f)
                     ) {
                         Column(
-                            modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp),
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 text = label,
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 color = if (isSelected) SurfaceDark else TextPrimary
                             )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = rateStr,
-                                fontSize = 9.sp,
-                                color = if (isSelected) SurfaceDark.copy(alpha = 0.8f) else TextMuted
+                                text = feeLabel,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isSelected) SurfaceDark.copy(alpha = 0.9f) else AmberCentral
                             )
                         }
                     }

@@ -199,6 +199,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transaction_history ORDER BY blockTime DESC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transaction_history ORDER BY blockTime DESC")
+    suspend fun getAllTransactionsList(): List<TransactionEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transaction: TransactionEntity)
 

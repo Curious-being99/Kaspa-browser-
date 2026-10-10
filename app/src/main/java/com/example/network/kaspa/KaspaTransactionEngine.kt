@@ -164,6 +164,7 @@ object KaspaTransactionEngine {
     const val DEFAULT_SOMPI_PER_MASS = 10L // 10 sompi per mass unit (standard network relay feerate)
     const val PRIORITY_FEE_SOMPIS = 690_000L // 0.0069 KAS
     const val NORMAL_FEE_SOMPIS = 560_000L // 0.0056 KAS
+    const val FAST_FEE_SOMPIS = 690_000L // 0.0069 KAS (fast priority tier)
     const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 10_000L // 0.0001 KAS absolute minimum network fee floor
     const val DUST_THRESHOLD_SOMPIS = 2_000_000L // 0.02 KAS (outputs below this incur high storage mass per KIP-9)
     const val STANDARD_SIGNATURE_SCRIPT_BYTES = 66 // 1 (0x41) + 64 (Schnorr Sig) + 1 (SIGHASH_ALL)
@@ -934,7 +935,15 @@ object KaspaTransactionEngine {
         val computeMass = sigOpMass + inputComputeMass + outputComputeMass
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
-        val feeSompis = calculateFeeForMass(totalMass, sompiPerMass)
+        val massFee = calculateFeeForMass(totalMass, sompiPerMass)
+        // Ensure standard fee calculator reflects accurate baseline priority tier minimums:
+        // Normal priority: 0.0056 KAS (560,000 sompi), Fast priority: 0.0069 KAS (690,000 sompi)
+        val tierFloor = when {
+            sompiPerMass >= 20L -> FAST_FEE_SOMPIS // Fast/Priority: 0.0069 KAS
+            sompiPerMass >= 5L -> NORMAL_FEE_SOMPIS // Normal: 0.0056 KAS
+            else -> RUSTY_KASPA_MINIMUM_FEE_SOMPIS // Economy / relay minimum
+        }
+        val feeSompis = maxOf(massFee, tierFloor)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
         val isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS
@@ -975,7 +984,13 @@ object KaspaTransactionEngine {
         val computeMass = sigOpMass + inputComputeMass + outputComputeMass + payloadByteCount
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
-        val feeSompi = totalMass * sompiPerMass
+        val massFee = totalMass * sompiPerMass
+        val tierFloor = when {
+            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
+            sompiPerMass >= 5L -> NORMAL_FEE_SOMPIS
+            else -> RUSTY_KASPA_MINIMUM_FEE_SOMPIS
+        }
+        val feeSompi = maxOf(massFee, tierFloor)
         val feeKas = sompiToKas(feeSompi)
 
         return DynamicFeeEstimate(
@@ -1015,9 +1030,9 @@ object KaspaTransactionEngine {
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
 
-        val ecoFee = NORMAL_FEE_SOMPIS // Default to Normal if Economy not specifically defined
-        val normFee = NORMAL_FEE_SOMPIS
-        val prioFee = PRIORITY_FEE_SOMPIS
+        val ecoFee = maxOf(calculateFeeForMass(totalMass, networkCondition.lowFeerate), RUSTY_KASPA_MINIMUM_FEE_SOMPIS)
+        val normFee = maxOf(calculateFeeForMass(totalMass, networkCondition.normalFeerate), NORMAL_FEE_SOMPIS)
+        val prioFee = maxOf(calculateFeeForMass(totalMass, networkCondition.priorityFeerate), PRIORITY_FEE_SOMPIS)
         
         // Use Normal as the default/selected option
         val selectedFee = normFee 

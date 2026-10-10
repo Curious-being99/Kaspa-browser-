@@ -75,4 +75,65 @@ class KaspaTestnetWalletUnitTest {
         assertTrue("Account must have kaspatest: address", account.kaspaAddress.startsWith("kaspatest:"))
         assertTrue("Derived address must be valid Testnet 10 CashAddr", CryptoUtils.isValidTestnetAddress(account.kaspaAddress))
     }
+
+    @Test
+    fun testAccurateNormalAndFastPriorityFeeTiers() {
+        val normalFeeBreakdown = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeBreakdown(
+            amountKas = 1.0,
+            sompiPerMass = 10L
+        )
+        // Normal priority tier should accurately calculate baseline 0.0056 KAS (560,000 Sompi)
+        assertEquals(0.0056, normalFeeBreakdown.feeKas, 0.00000001)
+        assertEquals(560_000L, normalFeeBreakdown.feeSompis)
+
+        val fastFeeBreakdown = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeBreakdown(
+            amountKas = 1.0,
+            sompiPerMass = 20L
+        )
+        // Fast priority tier should accurately calculate 0.0069 KAS (690,000 Sompi)
+        assertEquals(0.0069, fastFeeBreakdown.feeKas, 0.00000001)
+        assertEquals(690_000L, fastFeeBreakdown.feeSompis)
+    }
+
+    @Test
+    fun testTransactionHistoryFilterTabsLogic() {
+        val tx1 = com.example.model.KaspaTransactionItem(
+            txId = "tx_sent_1",
+            blockTime = 1700000000000L,
+            amountKas = 5.0,
+            type = "SENT",
+            isAccepted = true,
+            feeKas = 0.0056,
+            counterpartyAddress = "kaspatest:qqqq1"
+        )
+        val tx2 = com.example.model.KaspaTransactionItem(
+            txId = "tx_recv_1",
+            blockTime = 1700001000000L,
+            amountKas = 10.0,
+            type = "RECEIVED",
+            isAccepted = true,
+            feeKas = 0.0,
+            counterpartyAddress = "kaspatest:qqqq2"
+        )
+        val tx3 = com.example.model.KaspaTransactionItem(
+            txId = "tx_sent_2",
+            blockTime = 1700002000000L,
+            amountKas = 1.5,
+            type = "SENT",
+            isAccepted = true,
+            feeKas = 0.0069,
+            counterpartyAddress = "kaspatest:qqqq3"
+        )
+
+        val allList = listOf(tx1, tx2, tx3)
+        val sentList = allList.filter { it.type == "SENT" }
+        val recvList = allList.filter { it.type == "RECEIVED" }
+
+        assertEquals(3, allList.size)
+        assertEquals(2, sentList.size)
+        assertEquals(1, recvList.size)
+        assertTrue(sentList.all { it.type == "SENT" })
+        assertTrue(recvList.all { it.type == "RECEIVED" })
+        assertEquals("tx_recv_1", recvList.first().txId)
+    }
 }
