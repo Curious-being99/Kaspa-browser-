@@ -2,6 +2,7 @@ package com.example.network
 
 import android.util.Log
 import okhttp3.OkHttpClient
+import okhttp3.Dns
 import okhttp3.Request
 import org.json.JSONObject
 import java.math.BigInteger
@@ -73,6 +74,10 @@ object KrpRelayDaemon {
 
     private val exitHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> =
+                    KaspaPrivacyRelayEngine.lookupEncryptedDns(hostname)
+            })
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
