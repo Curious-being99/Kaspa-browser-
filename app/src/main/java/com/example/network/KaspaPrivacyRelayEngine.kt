@@ -168,8 +168,13 @@ object KaspaPrivacyRelayEngine {
             )
             for (provider in providers) {
                 val addresses = mutableListOf<InetAddress>()
-                addresses += queryDoh(provider, asciiHost, "A").orEmpty()
-                addresses += queryDoh(provider, asciiHost, "AAAA").orEmpty()
+                if (provider == "dns.quad9.net") {
+                    addresses += queryWireDoh(provider, asciiHost, 1).orEmpty()
+                    addresses += queryWireDoh(provider, asciiHost, 28).orEmpty()
+                } else {
+                    addresses += queryDoh(provider, asciiHost, "A").orEmpty()
+                    addresses += queryDoh(provider, asciiHost, "AAAA").orEmpty()
+                }
                 val unique = addresses.distinct()
                 if (unique.isNotEmpty()) {
                     val safe = unique.toList()
@@ -207,6 +212,95 @@ object KaspaPrivacyRelayEngine {
                     else -> null
                 }
             } catch (_: Exception) {
+                null
+            }
+        }
+
+        private fun queryWireDoh(providerHost: String, queryHost: String, recordType: Int): List<InetAddress>? {
+            return try {
+                val id = java.security.SecureRandom().nextInt(0x10000)
+                val query = java.io.ByteArrayOutputStream().apply {
+                    write((id ushr 8) and 0xff)
+                    write(id and 0xff)
+                    write(0x01)
+                    write(0x00)
+                    write(0x00); write(0x01)
+                    write(0x00); write(0x00)
+                    write(0x00); write(0x00)
+                    write(0x00); write(0x00)
+                    queryHost.split('.').forEach { label ->
+                        val bytes = label.toByteArray(Charsets.US_ASCII)
+                        if (bytes.isEmpty() || bytes.size > 63) throw java.io.IOException("Invalid DNS label")
+                        write(bytes.size)
+                        write(bytes)
+                    }
+                    write(0)
+                    write((recordType ushr 8) and 0xff); write(recordType and 0xff)
+                    write(0x00); write(0x01)
+                }.toByteArray()
+
+                val request = Request.Builder()
+                    .url("https://$providerHost/dns-query")
+                    .header("Accept", "application/dns-message")
+                    .header("User-Agent", "KaspaPrivacyBrowser-DoH/1.0")
+                    .post(query.toRequestBody("application/dns-message".toMediaTypeOrNull()))
+                    .build()
+
+                dohClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return null
+                    val bytes = response.body?.bytes() ?: return null
+                    if (bytes.size < 12) return null
+                    val buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.BIG_ENDIAN)
+                    if ((buffer.get(0).toInt() and 0xff) != (id ushr 8) ||
+                        (buffer.get(1).toInt() and 0xff) != (id and 0xff)) return null
+                    val flags = buffer.getShort(2).toInt() and 0xffff
+                    if ((flags and 0x8000) == 0 || (flags and 0x000f) != 0) return null
+                    val questionCount = buffer.getShort(4).toInt() and 0xffff
+                    val answerCount = buffer.getShort(6).toInt() and 0xffff
+                    var offset = 12
+
+                    fun skipName(start: Int): Int {
+                        var pos = start
+                        var jumps = 0
+                        while (pos < bytes.size) {
+                            val length = bytes[pos].toInt() and 0xff
+                            if (length == 0) return pos + 1
+                            if ((length and 0xc0) == 0xc0) {
+                                if (pos + 1 >= bytes.size) throw java.io.IOException("Truncated DNS name pointer")
+                                return pos + 2
+                            }
+                            if ((length and 0xc0) != 0 || pos + 1 + length > bytes.size) {
+                                throw java.io.IOException("Malformed DNS name")
+                            }
+                            pos += 1 + length
+                            if (++jumps > 127) throw java.io.IOException("DNS name too long")
+                        }
+                        throw java.io.IOException("Truncated DNS name")
+                    }
+
+                    repeat(questionCount) {
+                        offset = skipName(offset)
+                        if (offset + 4 > bytes.size) throw java.io.IOException("Truncated DNS question")
+                        offset += 4
+                    }
+
+                    val addresses = mutableListOf<InetAddress>()
+                    repeat(answerCount) {
+                        offset = skipName(offset)
+                        if (offset + 10 > bytes.size) throw java.io.IOException("Truncated DNS answer")
+                        val type = ((bytes[offset].toInt() and 0xff) shl 8) or (bytes[offset + 1].toInt() and 0xff)
+                        val clazz = ((bytes[offset + 2].toInt() and 0xff) shl 8) or (bytes[offset + 3].toInt() and 0xff)
+                        val length = ((bytes[offset + 8].toInt() and 0xff) shl 8) or (bytes[offset + 9].toInt() and 0xff)
+                        offset += 10
+                        if (offset + length > bytes.size) throw java.io.IOException("Truncated DNS record data")
+                        if (clazz == 1 && type == recordType && ((type == 1 && length == 4) || (type == 28 && length == 16))) {
+                            addresses += InetAddress.getByAddress(bytes.copyOfRange(offset, offset + length))
+                        }
+                        offset += length
+                    }
+                    addresses.takeIf { it.isNotEmpty() }
+                }
+            } catch (_: Throwable) {
                 null
             }
         }
