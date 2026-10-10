@@ -640,9 +640,17 @@ object KrpRelayDaemon {
         }
 
         val result = x2.multiply(z2.modInverse(P_CURVE25519)).mod(P_CURVE25519)
-        val resBytes = result.toByteArray().reversedArray()
+        // BigInteger.toByteArray() is signed big-endian and may prepend a 0x00 sign byte.
+        // Convert the non-negative field element to exactly 32 bytes, little-endian, without
+        // accidentally shifting/truncating the value when that sign byte is present.
+        val bigEndian = result.toByteArray()
+        val firstMagnitudeByte = if (bigEndian.size > 32 && bigEndian[0] == 0.toByte()) 1 else 0
+        val magnitudeLength = bigEndian.size - firstMagnitudeByte
+        require(magnitudeLength <= 32) { "X25519 result exceeds 32 bytes" }
         val out = ByteArray(32)
-        System.arraycopy(resBytes, 0, out, 0, Math.min(resBytes.size, 32))
+        for (i in 0 until magnitudeLength) {
+            out[i] = bigEndian[bigEndian.lastIndex - i]
+        }
         return out
     }
 
