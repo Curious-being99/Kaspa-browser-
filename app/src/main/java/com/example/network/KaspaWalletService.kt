@@ -210,7 +210,10 @@ class KaspaWalletService(
                             }
 
                             val isReceive = totalOutSompis > 0
-                            val displayKas = if (totalOutSompis > 0) totalOutSompis / 100_000_000.0 else 1.0
+                            // Never fabricate a 1 KAS amount for outgoing transactions. This
+                            // endpoint's outputs alone cannot determine the sender's net spend
+                            // (inputs and change must also be accounted for).
+                            val displayKas = totalOutSompis / 100_000_000.0
                             
                             val mass = txObj.optLong("mass", 0L)
                             val feeSompis = txObj.optLong("fee", if (mass > 0L) KaspaTransactionEngine.calculateFeeForMass(mass) else KaspaTransactionEngine.calculateFeeForMass(KaspaTransactionEngine.estimateTransactionMass(1, 2)))
