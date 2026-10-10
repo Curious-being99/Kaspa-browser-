@@ -184,6 +184,7 @@ fun KaspaTestnetWalletScreen(
     var lastResultIsSuccess by remember { mutableStateOf(true) }
     var lastResultTxId by remember { mutableStateOf("") }
     var lastResultError by remember { mutableStateOf("") }
+    var selectedTransactionForDetails by remember { mutableStateOf<KaspaTransactionItem?>(null) }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
@@ -512,7 +513,7 @@ fun KaspaTestnetWalletScreen(
                 HistoryTabContent(
                     transactions = walletState.recentTransactions,
                     isLoading = walletState.isLoading,
-                    onOpenTx = { txId -> viewModel.openTestnetTxExplorer(txId) },
+                    onOpenTx = { tx -> selectedTransactionForDetails = tx },
                     onGetFaucetCoins = { viewModel.openTestnetFaucet(context) }
                 )
             }
@@ -583,6 +584,25 @@ fun KaspaTestnetWalletScreen(
                     showResultOverlay = false
                     viewModel.clearWalletStatusNotice()
                 }
+            )
+        }
+
+        // Transaction Details Popup Dialog
+        if (selectedTransactionForDetails != null) {
+            TransactionDetailDialog(
+                tx = selectedTransactionForDetails!!,
+                onCopyTxId = { txId ->
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa Transaction ID", txId))
+                    scope.launch {
+                        snackbarHostState.showSnackbar("Transaction ID copied to clipboard!")
+                    }
+                },
+                onViewOnExplorer = { txId ->
+                    selectedTransactionForDetails = null
+                    viewModel.openTestnetTxExplorer(txId)
+                },
+                onDismiss = { selectedTransactionForDetails = null }
             )
         }
 
@@ -1074,7 +1094,7 @@ private fun QuickActionButton(
 private fun HistoryTabContent(
     transactions: List<KaspaTransactionItem>,
     isLoading: Boolean,
-    onOpenTx: (String) -> Unit,
+    onOpenTx: (KaspaTransactionItem) -> Unit,
     onGetFaucetCoins: () -> Unit
 ) {
     var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Sent, 2: Received
@@ -1124,14 +1144,17 @@ private fun HistoryTabContent(
                         if (count > 0) {
                             Spacer(modifier = Modifier.width(4.dp))
                             Surface(
-                                shape = CircleShape,
+                                shape = RoundedCornerShape(8.dp),
                                 color = if (isSelected) KaspaTea else SurfaceCardBorder,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
                                     Text(
                                         text = "$count",
-                                        fontSize = 9.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = if (isSelected) SurfaceDark else TextMuted
                                     )
@@ -1240,7 +1263,7 @@ private fun HistoryTabContent(
                     }
                     items(txs, key = { it.txId }) { tx ->
                         Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                            TransactionCard(tx = tx, onClick = { onOpenTx(tx.txId) })
+                            TransactionCard(tx = tx, onClick = { onOpenTx(tx) })
                         }
                     }
                 }
@@ -3120,4 +3143,196 @@ private fun ManageScreenOverlay(
             )
         }
     }
+}
+
+
+@Composable
+private fun TransactionDetailDialog(
+    tx: KaspaTransactionItem,
+    onCopyTxId: (String) -> Unit,
+    onViewOnExplorer: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isReceive = tx.type == "RECEIVED"
+    val dateStr = remember(tx.blockTime) {
+        val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm:ss", Locale.getDefault())
+        sdf.format(Date(if (tx.blockTime > 1000000000000L) tx.blockTime else tx.blockTime * 1000L))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceCard,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(if (isReceive) KaspaTea.copy(alpha = 0.15f) else RedTamper.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
+                            contentDescription = null,
+                            tint = if (isReceive) KaspaTea else RedTamper,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (isReceive) "Received Transaction" else "Sent Transaction",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = TextPrimary
+                    )
+                }
+                Surface(
+                    color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.12f) else AmberCentral.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = if (tx.isAccepted) "Accepted" else "Pending",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (tx.isAccepted) KaspaTea else AmberCentral,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Amount
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Amount", fontSize = 12.sp, color = TextSecondary)
+                    Text(
+                        text = "${if (isReceive) "+" else "-"}%.8f KAS".format(tx.amountKas),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isReceive) KaspaTea else RedTamper
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Timestamp
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Timestamp", fontSize = 12.sp, color = TextSecondary)
+                    Text(
+                        text = dateStr,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary
+                    )
+                }
+
+                if (tx.feeKas > 0.0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Network Fee", fontSize = 12.sp, color = TextSecondary)
+                        Text(
+                            text = "${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AmberCentral
+                        )
+                    }
+                }
+
+                if (tx.counterpartyAddress.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column {
+                        Text(if (isReceive) "Sender Address" else "Recipient Address", fontSize = 11.sp, color = TextSecondary)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = tx.counterpartyAddress,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = ElectricCyan
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Transaction ID (TXID)", fontSize = 11.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    color = SurfaceDark,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = tx.txId,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = ElectricCyan,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = { onCopyTxId(tx.txId) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy TXID",
+                                tint = KaspaTea,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onViewOnExplorer(tx.txId) },
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.OpenInBrowser, null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("View on Explorer", color = SurfaceDark, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Close", color = TextSecondary)
+            }
+        }
+    )
 }

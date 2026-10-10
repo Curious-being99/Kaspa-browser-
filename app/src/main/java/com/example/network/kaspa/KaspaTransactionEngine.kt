@@ -933,17 +933,14 @@ object KaspaTransactionEngine {
         val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
         val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
         val computeMass = sigOpMass + inputComputeMass + outputComputeMass
-        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
-        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
-        val massFee = calculateFeeForMass(totalMass, sompiPerMass)
-        // Ensure standard fee calculator reflects accurate baseline priority tier minimums:
-        // Normal priority: 0.0056 KAS (560,000 sompi), Fast priority: 0.0069 KAS (690,000 sompi)
-        val tierFloor = when {
+        // Flat tier minimum fee for standard wallet sends (Normal: 0.0056 KAS, Priority: 0.0069 KAS)
+        val feeSompis = when {
             sompiPerMass >= 20L -> FAST_FEE_SOMPIS // Fast/Priority: 0.0069 KAS
             sompiPerMass >= 5L -> NORMAL_FEE_SOMPIS // Normal: 0.0056 KAS
-            else -> RUSTY_KASPA_MINIMUM_FEE_SOMPIS // Economy / relay minimum
+            else -> RUSTY_KASPA_MINIMUM_FEE_SOMPIS
         }
-        val feeSompis = maxOf(massFee, tierFloor)
+        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
+        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
         val isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS
@@ -983,14 +980,12 @@ object KaspaTransactionEngine {
         val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
         val computeMass = sigOpMass + inputComputeMass + outputComputeMass + payloadByteCount
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
-        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
-        val massFee = totalMass * sompiPerMass
-        val tierFloor = when {
+        val feeSompi = when {
             sompiPerMass >= 20L -> FAST_FEE_SOMPIS
             sompiPerMass >= 5L -> NORMAL_FEE_SOMPIS
             else -> RUSTY_KASPA_MINIMUM_FEE_SOMPIS
         }
-        val feeSompi = maxOf(massFee, tierFloor)
+        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
         val feeKas = sompiToKas(feeSompi)
 
         return DynamicFeeEstimate(

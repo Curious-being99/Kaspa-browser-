@@ -1806,12 +1806,14 @@ class DecentralViewModel(
 
     fun openTestnetTxExplorer(txId: String) {
         val base = _selectedExplorerUrl.value.trimEnd('/')
-        val url = if (base.contains("kaspa.stream")) {
-            "$base/txs/$txId"
-        } else if (base.contains("katnip")) {
-            "$base/tx/$txId"
+        val cleanBase = if (base.contains("(")) base.substringAfterLast("(").substringBefore(")").trim() else base
+        val finalBase = cleanBase.trimEnd('/')
+        val url = if (finalBase.contains("kaspa.stream")) {
+            "$finalBase/transactions/$txId"
+        } else if (finalBase.contains("katnip")) {
+            "$finalBase/tx/$txId"
         } else {
-            "$base/txs/$txId"
+            "$finalBase/transactions/$txId"
         }
         openUrlInBrowser(url, isExternal = false)
     }
