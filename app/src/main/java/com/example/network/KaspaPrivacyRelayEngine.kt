@@ -101,10 +101,9 @@ object KaspaPrivacyRelayEngine {
 
     private object EncryptedDnsResolver : Dns {
         private val cache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<InetAddress>>>()
-        private const val CACHE_TTL_MS = 300_000L // 5-minute DNS cache TTL
+        private const val CACHE_TTL_MS = 300_000L
 
-        // Direct IP bootstrap hosts to prevent circular DNS queries when resolving DoH servers
-        private val BOOTSTRAP_HOSTS = mapOf(
+        private val bootstrapHosts = mapOf(
             "cloudflare-dns.com" to listOf(
                 InetAddress.getByAddress("cloudflare-dns.com", byteArrayOf(1, 1, 1, 1)),
                 InetAddress.getByAddress("cloudflare-dns.com", byteArrayOf(1, 0, 0, 1))
@@ -112,6 +111,10 @@ object KaspaPrivacyRelayEngine {
             "dns.quad9.net" to listOf(
                 InetAddress.getByAddress("dns.quad9.net", byteArrayOf(9, 9, 9, 9)),
                 InetAddress.getByAddress("dns.quad9.net", byteArrayOf(149.toByte(), 112.toByte(), 112.toByte(), 112.toByte()))
+            ),
+            "dns.google" to listOf(
+                InetAddress.getByAddress("dns.google", byteArrayOf(8, 8, 8, 8)),
+                InetAddress.getByAddress("dns.google", byteArrayOf(8, 8, 4, 4))
             )
         )
 
@@ -119,13 +122,9 @@ object KaspaPrivacyRelayEngine {
             OkHttpClient.Builder()
                 .dns(object : Dns {
                     override fun lookup(hostname: String): List<InetAddress> {
-                        BOOTSTRAP_HOSTS[hostname]?.let { return it }
-                        try {
-                            if (hostname.matches(Regex("^[0-9.]+$")) || hostname.contains(":")) {
-                                return listOf(InetAddress.getByName(hostname))
-                            }
-                        } catch (_: Exception) {}
-                        throw java.io.IOException("Unbootstrapped host resolution blocked to prevent system leaks: $hostname")
+                        bootstrapHosts[hostname.lowercase(java.util.Locale.ROOT)]?.let { return it }
+                        if (isNumericIpLiteral(hostname)) return listOf(InetAddress.getByName(hostname))
+                        throw java.io.IOException("DoH bootstrap blocked for unlisted host: $hostname")
                     }
                 })
                 .connectTimeout(5, TimeUnit.SECONDS)
@@ -134,89 +133,119 @@ object KaspaPrivacyRelayEngine {
         }
 
         override fun lookup(hostname: String): List<InetAddress> {
-            if (hostname.equals("localhost", ignoreCase = true) || hostname.endsWith(".local")) {
+            val input = hostname.trim().trimEnd('.')
+            if (input.equals("localhost", ignoreCase = true)) {
                 return listOf(InetAddress.getLoopbackAddress())
             }
-            BOOTSTRAP_HOSTS[hostname]?.let { return it }
+            if (input.endsWith(".local", ignoreCase = true)) {
+                throw java.io.IOException("mDNS .local names are unsupported by the fail-closed encrypted DNS resolver")
+            }
+            if (isNumericIpLiteral(input)) return listOf(InetAddress.getByName(input))
+
+            val asciiHost = try {
+                java.net.IDN.toASCII(input, java.net.IDN.USE_STD3_ASCII_RULES)
+                    .lowercase(java.util.Locale.ROOT)
+            } catch (e: IllegalArgumentException) {
+                throw java.io.IOException("Invalid DNS hostname", e)
+            }
+            if (asciiHost.isBlank() || asciiHost.length > 253 ||
+                asciiHost.split('.').any { it.isBlank() || it.length > 63 }) {
+                throw java.io.IOException("Invalid DNS hostname")
+            }
+
+            bootstrapHosts[asciiHost]?.let { return it }
 
             val now = System.currentTimeMillis()
-            cache[hostname]?.let { (expiry, addrs) ->
-                if (now < expiry) return addrs
+            cache[asciiHost]?.let { (expiry, addresses) ->
+                if (now < expiry) return addresses
+                cache.remove(asciiHost)
             }
 
-            // 1. Primary: Cloudflare DNS-over-HTTPS resolved via bootstrap hosts (Zero Leak)
-            val cfResult = queryDoh("https://cloudflare-dns.com/dns-query?name=$hostname&type=A")
-            if (!cfResult.isNullOrEmpty()) {
-                cache[hostname] = Pair(now + CACHE_TTL_MS, cfResult)
-                return cfResult
+            val providers = listOf(
+                "cloudflare-dns.com",
+                "dns.quad9.net",
+                "dns.google"
+            )
+            for (provider in providers) {
+                val addresses = mutableListOf<InetAddress>()
+                addresses += queryDoh(provider, asciiHost, "A").orEmpty()
+                addresses += queryDoh(provider, asciiHost, "AAAA").orEmpty()
+                val unique = addresses.distinct()
+                if (unique.isNotEmpty()) {
+                    val safe = unique.toList()
+                    cache[asciiHost] = Pair(System.currentTimeMillis() + CACHE_TTL_MS, safe)
+                    return safe
+                }
             }
 
-            // 2. Secondary Failover: Quad9 Privacy-Preserving DoH resolved via bootstrap hosts
-            val quad9Result = queryDoh("https://dns.quad9.net/dns-query?name=$hostname&type=A")
-            if (!quad9Result.isNullOrEmpty()) {
-                cache[hostname] = Pair(now + CACHE_TTL_MS, quad9Result)
-                return quad9Result
-            }
-
-            // 3. Direct IP DoH Fallback (Cloudflare IP): Bypasses all local DNS resolvers
-            val cfIpResult = queryDoh("https://1.1.1.1/dns-query?name=$hostname&type=A")
-            if (!cfIpResult.isNullOrEmpty()) {
-                cache[hostname] = Pair(now + CACHE_TTL_MS, cfIpResult)
-                return cfIpResult
-            }
-
-            // 4. Direct IP DoH Fallback (Quad9 IP)
-            val quad9IpResult = queryDoh("https://9.9.9.9/dns-query?name=$hostname&type=A")
-            if (!quad9IpResult.isNullOrEmpty()) {
-                cache[hostname] = Pair(now + CACHE_TTL_MS, quad9IpResult)
-                return quad9IpResult
-            }
-
-            // 5. Direct IP DoH Fallback (Google IP)
-            val googleResult = queryDoh("https://8.8.8.8/dns-query?name=$hostname&type=A")
-            if (!googleResult.isNullOrEmpty()) {
-                cache[hostname] = Pair(now + CACHE_TTL_MS, googleResult)
-                return googleResult
-            }
-
-            // To guarantee 100% IP & query privacy, we enforce a strict fail-closed DNS posture
-            // rather than leaking unencrypted queries to local ISP system DNS.
-            throw java.io.IOException("Secure DNS resolution failed: All Direct-IP and Bootstrapped DoH endpoints unreachable (Fail-Closed Enforcement Active)")
+            throw java.io.IOException("Encrypted DNS resolution failed; system DNS fallback is disabled")
         }
 
-        private fun queryDoh(url: String): List<InetAddress>? {
+        private fun isNumericIpLiteral(value: String): Boolean {
+            if (value.contains(':')) return value.matches(Regex("^[0-9a-fA-F:.%]+$"))
+            if (!value.matches(Regex("^[0-9.]+$"))) return false
+            val parts = value.split('.')
+            return parts.size == 4 && parts.all {
+                it.isNotEmpty() && it.toIntOrNull() in 0..255
+            }
+        }
+
+        private fun parseAddress(type: Int, data: String): InetAddress? {
             return try {
-                val req = Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/dns-json")
-                    .header("User-Agent", "KaspaPrivacyBrowser-DoH/1.0")
-                    .build()
-                val resp = dohClient.newCall(req).execute()
-                if (!resp.isSuccessful) {
-                    resp.close()
-                    return null
-                }
-                val bodyStr = resp.body?.string() ?: return null
-                val json = JSONObject(bodyStr)
-                if (json.optInt("Status", -1) != 0) return null
-                val answerArr = json.optJSONArray("Answer") ?: return null
-                val results = mutableListOf<InetAddress>()
-                for (i in 0 until answerArr.length()) {
-                    val item = answerArr.optJSONObject(i) ?: continue
-                    val type = item.optInt("type", 0)
-                    val data = item.optString("data", "")
-                    if ((type == 1 || type == 28) && data.isNotBlank()) {
-                        try {
-                            results.add(InetAddress.getByName(data))
-                        } catch (_: Throwable) {}
+                when (type) {
+                    1 -> {
+                        if (!data.matches(Regex("^[0-9.]+$"))) return null
+                        val parts = data.split('.')
+                        if (parts.size != 4 || parts.any { it.isEmpty() || it.toIntOrNull() !in 0..255 }) return null
+                        InetAddress.getByAddress(ByteArray(4) { i -> parts[i].toInt().toByte() })
                     }
+                    28 -> {
+                        if (!data.contains(':') || !data.matches(Regex("^[0-9a-fA-F:.]+$"))) return null
+                        val address = InetAddress.getByName(data)
+                        if (address.address.size == 16) address else null
+                    }
+                    else -> null
                 }
-                if (results.isNotEmpty()) results else null
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        private fun queryDoh(providerHost: String, queryHost: String, recordType: String): List<InetAddress>? {
+            return try {
+                val encodedName = java.net.URLEncoder.encode(queryHost, "UTF-8")
+                val url = "https://$providerHost/dns-query?name=$encodedName&type=$recordType"
+                dohClient.newCall(
+                    Request.Builder()
+                        .url(url)
+                        .header("Accept", "application/dns-json")
+                        .header("User-Agent", "KaspaPrivacyBrowser-DoH/1.0")
+                        .build()
+                ).execute().use { response ->
+                    if (!response.isSuccessful) return null
+                    val body = response.body?.string() ?: return null
+                    val json = JSONObject(body)
+                    if (json.optInt("Status", -1) != 0) return null
+                    val answers = json.optJSONArray("Answer") ?: return null
+                    val addresses = mutableListOf<InetAddress>()
+                    for (i in 0 until answers.length()) {
+                        val answer = answers.optJSONObject(i) ?: continue
+                        val type = answer.optInt("type", 0)
+                        val data = answer.optString("data", "")
+                        if ((recordType == "A" && type == 1) || (recordType == "AAAA" && type == 28)) {
+                            parseAddress(type, data)?.let(addresses::add)
+                        }
+                    }
+                    addresses.takeIf { it.isNotEmpty() }
+                }
             } catch (_: Throwable) {
                 null
             }
         }
     }
+
+    internal fun lookupEncryptedDns(hostname: String): List<InetAddress> =
+        EncryptedDnsResolver.lookup(hostname)
 
     private fun buildHttpClient(): OkHttpClient {
         // Strict Modern TLS 1.3 / 1.2 Specification supporting Encrypted Client Hello (ECH) & Forward Secrecy
@@ -647,73 +676,20 @@ object KaspaPrivacyRelayEngine {
             }
         }
 
-        // KASPA PRIVACY SHIELD PIPELINE FOR WEB2 HTTPS:
-        // Shields all Web2 HTTPS traffic with anti-timing jitter, privacy headers, and DoH security.
-        val jitterMs = (10L + (java.security.SecureRandom().nextDouble() * 25.0).toLong())
-        kotlinx.coroutines.delay(jitterMs)
-
-        val reqBuilder = Request.Builder().url(targetUrl)
-
-        headers.forEach { (k, v) ->
-            if (!k.equals("Host", ignoreCase = true) && !k.equals("Content-Length", ignoreCase = true)) {
-                reqBuilder.addHeader(k, v)
-            }
-        }
-
-        reqBuilder.header("DNT", "1")
-        reqBuilder.header("Sec-GPC", "1")
-
-        if (method.equals("POST", ignoreCase = true) || method.equals("PUT", ignoreCase = true)) {
-            val mediaType = headers["Content-Type"]?.toMediaTypeOrNull()
-            val body = postData ?: ByteArray(0)
-            reqBuilder.method(method, body.toRequestBody(mediaType))
-        } else {
-            reqBuilder.method(method, null)
-        }
-
-        try {
-            val response = try {
-                httpClient.newCall(reqBuilder.build()).execute()
-            } catch (e: Exception) {
-                if (customProxy != null) {
-                    val fallbackClient = httpClient.newBuilder().proxy(java.net.Proxy.NO_PROXY).build()
-                    fallbackClient.newCall(reqBuilder.build()).execute()
-                } else {
-                    throw e
-                }
-            }
-            val latency = System.currentTimeMillis() - startTime
-
-            val respHeaders = mutableMapOf<String, String>()
-            for (i in 0 until response.headers.size) {
-                respHeaders[response.headers.name(i)] = response.headers.value(i)
-            }
-
-            val bodyBytes = response.body?.bytes() ?: ByteArray(0)
-            val bytesCount = bodyBytes.size.toLong()
-            totalRelayedBytesCounter.addAndGet(bytesCount)
-
-            RelayResponse(
-                statusCode = response.code,
-                statusMessage = response.message.ifBlank { "OK" },
-                headers = respHeaders,
-                bodyStream = ByteArrayInputStream(bodyBytes),
-                latencyMs = latency,
-                isEncryptedCircuit = true,
-                exitNodeName = circuit.exitNode.name
-            )
-        } catch (e: Exception) {
-            val latency = System.currentTimeMillis() - startTime
-            RelayResponse(
-                statusCode = 502,
-                statusMessage = "Kaspa Privacy Shield Gateway Notice",
-                headers = mapOf("Content-Type" to "text/html; charset=UTF-8"),
-                bodyStream = ByteArrayInputStream(generateFailClosedHtml(targetUrl, e.message ?: "Destination unreachable").toByteArray()),
-                latencyMs = latency,
-                isEncryptedCircuit = false,
-                exitNodeName = circuit.exitNode.name
-            )
-        }
+        return@withContext RelayResponse(
+            statusCode = 502,
+            statusMessage = "KRP Privacy Relay Unavailable",
+            headers = mapOf("Content-Type" to "text/html; charset=UTF-8"),
+            bodyStream = ByteArrayInputStream(
+                generateFailClosedHtml(
+                    targetUrl,
+                    "The KRP socket and native relay paths failed. Direct-network fallback is disabled."
+                ).toByteArray()
+            ),
+            latencyMs = System.currentTimeMillis() - startTime,
+            isEncryptedCircuit = false,
+            exitNodeName = circuit.exitNode.name
+        )
     }
 
     /**
