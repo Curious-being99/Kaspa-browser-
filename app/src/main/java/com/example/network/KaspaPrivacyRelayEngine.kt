@@ -647,73 +647,24 @@ object KaspaPrivacyRelayEngine {
             }
         }
 
-        // KASPA PRIVACY SHIELD PIPELINE FOR WEB2 HTTPS:
-        // Shields all Web2 HTTPS traffic with anti-timing jitter, privacy headers, and DoH security.
-        val jitterMs = (10L + (java.security.SecureRandom().nextDouble() * 25.0).toLong())
-        kotlinx.coroutines.delay(jitterMs)
-
-        val reqBuilder = Request.Builder().url(targetUrl)
-
-        headers.forEach { (k, v) ->
-            if (!k.equals("Host", ignoreCase = true) && !k.equals("Content-Length", ignoreCase = true)) {
-                reqBuilder.addHeader(k, v)
-            }
-        }
-
-        reqBuilder.header("DNT", "1")
-        reqBuilder.header("Sec-GPC", "1")
-
-        if (method.equals("POST", ignoreCase = true) || method.equals("PUT", ignoreCase = true)) {
-            val mediaType = headers["Content-Type"]?.toMediaTypeOrNull()
-            val body = postData ?: ByteArray(0)
-            reqBuilder.method(method, body.toRequestBody(mediaType))
-        } else {
-            reqBuilder.method(method, null)
-        }
-
-        try {
-            val response = try {
-                httpClient.newCall(reqBuilder.build()).execute()
-            } catch (e: Exception) {
-                if (customProxy != null) {
-                    val fallbackClient = httpClient.newBuilder().proxy(java.net.Proxy.NO_PROXY).build()
-                    fallbackClient.newCall(reqBuilder.build()).execute()
-                } else {
-                    throw e
-                }
-            }
-            val latency = System.currentTimeMillis() - startTime
-
-            val respHeaders = mutableMapOf<String, String>()
-            for (i in 0 until response.headers.size) {
-                respHeaders[response.headers.name(i)] = response.headers.value(i)
-            }
-
-            val bodyBytes = response.body?.bytes() ?: ByteArray(0)
-            val bytesCount = bodyBytes.size.toLong()
-            totalRelayedBytesCounter.addAndGet(bytesCount)
-
-            RelayResponse(
-                statusCode = response.code,
-                statusMessage = response.message.ifBlank { "OK" },
-                headers = respHeaders,
-                bodyStream = ByteArrayInputStream(bodyBytes),
-                latencyMs = latency,
-                isEncryptedCircuit = true,
-                exitNodeName = circuit.exitNode.name
-            )
-        } catch (e: Exception) {
-            val latency = System.currentTimeMillis() - startTime
-            RelayResponse(
-                statusCode = 502,
-                statusMessage = "Kaspa Privacy Shield Gateway Notice",
-                headers = mapOf("Content-Type" to "text/html; charset=UTF-8"),
-                bodyStream = ByteArrayInputStream(generateFailClosedHtml(targetUrl, e.message ?: "Destination unreachable").toByteArray()),
-                latencyMs = latency,
-                isEncryptedCircuit = false,
-                exitNodeName = circuit.exitNode.name
-            )
-        }
+        // Fail closed if both the local KRP daemon and native tunnel fail.
+        // Do not send the destination request directly: that would expose the device IP
+        // while this API reports that it is using the privacy circuit.
+        val latency = System.currentTimeMillis() - startTime
+        return@withContext RelayResponse(
+            statusCode = 502,
+            statusMessage = "KRP Privacy Circuit Unavailable",
+            headers = mapOf("Content-Type" to "text/html; charset=UTF-8"),
+            bodyStream = ByteArrayInputStream(
+                generateFailClosedHtml(
+                    targetUrl,
+                    "The relay circuit could not be established. Direct-network fallback is disabled."
+                ).toByteArray()
+            ),
+            latencyMs = latency,
+            isEncryptedCircuit = false,
+            exitNodeName = circuit.exitNode.name
+        )
     }
 
     /**
