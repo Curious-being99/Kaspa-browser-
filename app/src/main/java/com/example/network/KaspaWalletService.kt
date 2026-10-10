@@ -121,6 +121,97 @@ class KaspaWalletService(
         .readTimeout(2500, TimeUnit.MILLISECONDS)
         .build()
 
+    private data class ResolvedHistoryInput(val amountSompis: Long, val address: String)
+
+    private fun readSompiAmount(json: JSONObject, vararg keys: String): Long? {
+        val candidates = if (keys.isNotEmpty()) keys else arrayOf("amount", "value")
+        for (key in candidates) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val value = when (val raw = json.opt(key)) {
+                is Number -> raw.toLong()
+                is String -> raw.toLongOrNull()
+                else -> null
+            } ?: continue
+            if (value >= 0L) return value
+        }
+        return null
+    }
+
+    private fun readScriptAddress(json: JSONObject): String? {
+        val directKeys = arrayOf("script_public_key_address", "scriptPublicKeyAddress", "address")
+        for (key in directKeys) {
+            val value = json.optString(key, "").trim()
+            if (value.isNotEmpty() && value != "null") return value
+        }
+        val verbose = json.optJSONObject("verbose_data") ?: json.optJSONObject("verboseData")
+        if (verbose != null) {
+            for (key in directKeys) {
+                val value = verbose.optString(key, "").trim()
+                if (value.isNotEmpty() && value != "null") return value
+            }
+        }
+        val script = json.optJSONObject("script_public_key") ?: json.optJSONObject("scriptPublicKey")
+        if (script != null) {
+            val scriptVerbose = script.optJSONObject("verbose_data") ?: script.optJSONObject("verboseData")
+            if (scriptVerbose != null) {
+                for (key in directKeys) {
+                    val value = scriptVerbose.optString(key, "").trim()
+                    if (value.isNotEmpty() && value != "null") return value
+                }
+            }
+        }
+        return null
+    }
+
+    private suspend fun resolveHistoryInput(
+        walletAddress: String,
+        input: JSONObject,
+        previousTransactions: MutableMap<String, JSONObject?>
+    ): ResolvedHistoryInput? {
+        val verbose = input.optJSONObject("verbose_data") ?: input.optJSONObject("verboseData")
+        val utxo = input.optJSONObject("utxo_entry")
+            ?: input.optJSONObject("utxoEntry")
+            ?: verbose?.optJSONObject("utxo_entry")
+            ?: verbose?.optJSONObject("utxoEntry")
+
+        if (utxo != null) {
+            val amount = readSompiAmount(utxo)
+            val inputAddress = readScriptAddress(utxo)
+            if (amount != null && !inputAddress.isNullOrBlank()) {
+                return ResolvedHistoryInput(amount, inputAddress)
+            }
+        }
+
+        val outpoint = input.optJSONObject("previous_outpoint")
+            ?: input.optJSONObject("previousOutpoint")
+            ?: return null
+        val previousTxId = outpoint.optString(
+            "transaction_id",
+            outpoint.optString("transactionId", "")
+        )
+        val outputIndex = outpoint.optInt("index", -1)
+        if (previousTxId.isBlank() || outputIndex < 0) return null
+
+        val previousTx = if (previousTransactions.containsKey(previousTxId)) {
+            previousTransactions[previousTxId]
+        } else {
+            val fetched = getTransactionDetails(
+                previousTxId,
+                walletAddress.startsWith("kaspatest:")
+            )
+            previousTransactions[previousTxId] = fetched
+            fetched
+        } ?: return null
+
+        val previousOutputs = previousTx.optJSONArray("outputs") ?: return null
+        if (outputIndex >= previousOutputs.length()) return null
+        val previousOutput = previousOutputs.optJSONObject(outputIndex) ?: return null
+        val amount = readSompiAmount(previousOutput) ?: return null
+        val previousAddress = readScriptAddress(previousOutput) ?: return null
+        return ResolvedHistoryInput(amount, previousAddress)
+    }
+
+
     suspend fun fetchWalletState(address: String): KaspaWalletState = withContext(Dispatchers.IO) {
         if (address.isBlank()) {
             return@withContext KaspaWalletState()
@@ -192,28 +283,103 @@ class KaspaWalletService(
                             val blockTime = txObj.optLong("block_time", System.currentTimeMillis())
                             val isAccepted = txObj.optBoolean("is_accepted", true)
                             
-                            // Calculate amount
-                            val outputs = txObj.optJSONArray("outputs")
-                            var totalOutSompis = 0L
+                            val outputs = txObj.optJSONArray("outputs") ?: continue
+                            val inputs = txObj.optJSONArray("inputs") ?: JSONArray()
+                            var totalOutputSompis = 0L
+                            var ownedOutputSompis = 0L
+                            var externalOutputSompis = 0L
+                            var outputsComplete = true
                             var counterparty = ""
-                            if (outputs != null) {
-                                for (j in 0 until outputs.length()) {
-                                    val out = outputs.optJSONObject(j) ?: continue
-                                    val scriptPubKeyAddress = out.optString("script_public_key_address", "")
-                                    val amt = out.optLong("amount", 0L)
-                                    if (scriptPubKeyAddress == address) {
-                                        totalOutSompis += amt
-                                    } else if (counterparty.isEmpty() && scriptPubKeyAddress.isNotEmpty()) {
-                                        counterparty = scriptPubKeyAddress
+
+                            for (j in 0 until outputs.length()) {
+                                val out = outputs.optJSONObject(j)
+                                if (out == null) {
+                                    outputsComplete = false
+                                    continue
+                                }
+                                val amount = readSompiAmount(out)
+                                val outputAddress = readScriptAddress(out)
+                                if (amount == null || outputAddress.isNullOrBlank()) {
+                                    outputsComplete = false
+                                    continue
+                                }
+                                if (Long.MAX_VALUE - totalOutputSompis < amount) {
+                                    outputsComplete = false
+                                    continue
+                                }
+                                totalOutputSompis += amount
+                                if (outputAddress == address) {
+                                    if (Long.MAX_VALUE - ownedOutputSompis < amount) {
+                                        outputsComplete = false
+                                        continue
                                     }
+                                    ownedOutputSompis += amount
+                                } else {
+                                    if (Long.MAX_VALUE - externalOutputSompis < amount) {
+                                        outputsComplete = false
+                                        continue
+                                    }
+                                    externalOutputSompis += amount
+                                    if (counterparty.isEmpty()) counterparty = outputAddress
                                 }
                             }
 
-                            val isReceive = totalOutSompis > 0
-                            val displayKas = totalOutSompis / 100_000_000.0
-                            
-                            val mass = txObj.optLong("mass", 0L)
-                            val feeSompis = txObj.optLong("fee", if (mass > 0L) KaspaTransactionEngine.calculateFeeForMass(mass) else KaspaTransactionEngine.calculateFeeForMass(KaspaTransactionEngine.estimateTransactionMass(1, 2)))
+                            var totalInputSompis = 0L
+                            var ownedInputSompis = 0L
+                            var inputsComplete = inputs.length() > 0
+                            val previousTransactions = mutableMapOf<String, JSONObject?>()
+                            var incomingCounterparty = ""
+
+                            for (j in 0 until inputs.length()) {
+                                val input = inputs.optJSONObject(j)
+                                if (input == null) {
+                                    inputsComplete = false
+                                    continue
+                                }
+                                val resolved = resolveHistoryInput(address, input, previousTransactions)
+                                if (resolved == null) {
+                                    inputsComplete = false
+                                    continue
+                                }
+                                if (Long.MAX_VALUE - totalInputSompis < resolved.amountSompis) {
+                                    inputsComplete = false
+                                    continue
+                                }
+                                totalInputSompis += resolved.amountSompis
+                                if (resolved.address == address) {
+                                    if (Long.MAX_VALUE - ownedInputSompis < resolved.amountSompis) {
+                                        inputsComplete = false
+                                        continue
+                                    }
+                                    ownedInputSompis += resolved.amountSompis
+                                } else if (incomingCounterparty.isEmpty()) {
+                                    incomingCounterparty = resolved.address
+                                }
+                            }
+
+                            val isOutgoing = ownedInputSompis > 0L
+                            val amountSompis: Long
+                            val feeSompis: Long
+                            val type: String
+
+                            if (isOutgoing) {
+                                if (!inputsComplete || !outputsComplete || totalInputSompis < totalOutputSompis) {
+                                    continue
+                                }
+                                amountSompis = externalOutputSompis
+                                if (amountSompis <= 0L) continue
+                                feeSompis = totalInputSompis - totalOutputSompis
+                                type = "SENT"
+                            } else if (ownedOutputSompis > 0L && inputsComplete) {
+                                amountSompis = ownedOutputSompis
+                                feeSompis = 0L
+                                type = "RECEIVED"
+                                counterparty = incomingCounterparty
+                            } else {
+                                continue
+                            }
+
+                            val displayKas = amountSompis / 100_000_000.0
                             val txFeeKas = feeSompis / 100_000_000.0
                             
                             if (txId.isNotBlank()) {
@@ -222,7 +388,7 @@ class KaspaWalletService(
                                         txId = txId,
                                         blockTime = blockTime,
                                         amountKas = displayKas,
-                                        type = if (isReceive) "RECEIVED" else "SENT",
+                                        type = type,
                                         isAccepted = isAccepted,
                                         feeKas = txFeeKas,
                                         counterpartyAddress = counterparty
