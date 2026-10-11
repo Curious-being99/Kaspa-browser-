@@ -57,7 +57,7 @@ fun extractTagContent(xml: String, tagName: String): String {
 fun extractLinkUrl(xml: String): String {
     // Atom defaults a missing rel attribute to "alternate"; prefer that article URL
     // over rel="self" (the feed URL) or enclosure links.
-    val linkTags = Regex("<(?:[\\\\w.-]+:)?link\\\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(xml).toList()
+    val linkTags = Regex("<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?link[^>]*>", RegexOption.IGNORE_CASE).findAll(xml).toList()
     val hrefRegex = Regex("""\bhref\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     val relRegex = Regex("""\brel\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     val alternateTag = linkTags.firstOrNull { tag ->
