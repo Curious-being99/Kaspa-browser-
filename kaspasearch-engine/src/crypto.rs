@@ -3,7 +3,6 @@
 /// Complies strictly with RFC 7748, RFC 8439, RFC 5869, and FIPS 180-4.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // ============================================================================
 // 1. SHA-256 Digest Engine (FIPS 180-4)
@@ -218,43 +217,13 @@ pub fn generate_cid(content: &str) -> String {
 // 2. Real CSPRNG Entropy Engine
 // ============================================================================
 
-static COUNTER: AtomicU64 = AtomicU64::new(1);
-
-/// Fills output buffer with cryptographically secure pseudo-random bytes.
+/// Fills output buffer from the operating system CSPRNG.
+///
+/// Fails closed if the OS entropy source is unavailable; cryptographic keys and
+/// AEAD nonces must never fall back to timestamps, process IDs, counters, or hashes.
 pub fn fill_csprng_bytes(buf: &mut [u8]) {
-    let mut filled = false;
-    #[cfg(unix)]
-    {
-        if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-            use std::io::Read;
-            if file.read_exact(buf).is_ok() {
-                filled = true;
-            }
-        }
-    }
-
-    if !filled {
-        let mut state = [0u8; 64];
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(987654321);
-        let count = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let pid = std::process::id() as u64;
-
-        state[0..16].copy_from_slice(&now.to_be_bytes());
-        state[16..24].copy_from_slice(&count.to_be_bytes());
-        state[24..32].copy_from_slice(&pid.to_be_bytes());
-
-        let mut offset = 0;
-        let mut hash_key = sha256_raw(&state);
-        while offset < buf.len() {
-            let copy_len = std::cmp::min(32, buf.len() - offset);
-            buf[offset..offset + copy_len].copy_from_slice(&hash_key[..copy_len]);
-            offset += copy_len;
-            hash_key = sha256_raw(&hash_key);
-        }
-    }
+    getrandom::getrandom(buf)
+        .expect("operating-system CSPRNG unavailable; refusing insecure randomness");
 }
 
 // ============================================================================
