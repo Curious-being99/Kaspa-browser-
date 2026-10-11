@@ -2,7 +2,6 @@
 /// ChaCha20-Poly1305 AEAD, Poly1305 MAC Tags, Hex conversion, and CID generation.
 /// Complies strictly with RFC 7748, RFC 8439, RFC 5869, and FIPS 180-4.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 
 // ============================================================================
 // 1. SHA-256 Digest Engine (FIPS 180-4)
