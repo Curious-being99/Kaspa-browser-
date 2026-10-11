@@ -1218,6 +1218,28 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                             }
                         }
+
+                        // Keep New Tab available while the omnibar is focused.
+                        // Clear focus before creating the tab so the old query cannot remain in the editor.
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                isInputFocused = false
+                                focusManager.clearFocus()
+                                viewModel.createNewTab()
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("new_tab_plus_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "New Tab",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     // Compact visual feedback banner immediately under focused input
@@ -3668,9 +3690,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val liveFetchedSuggestions by viewModel.liveSuggestions.collectAsState()
 
                         LaunchedEffect(query) {
-                            if (query.length >= 2) {
-                                viewModel.fetchSearchSuggestions(query)
-                            }
+                            // Always notify the ViewModel, including empty/one-character input,
+                            // so suggestions from a previous longer query are cleared immediately.
+                            viewModel.fetchSearchSuggestions(query)
                         }
 
                         // Smart Omnibar Intelligent Resolvers (Instantaneous Real-Time Feedback on Keystroke)
