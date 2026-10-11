@@ -187,7 +187,7 @@ class DualStackResolver(
             centralizedUrl = targetUrl,
             centralizedLatencyMs = 10L,
             centralizedIp = "Direct High-Speed Stack",
-            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+            verificationStatus = VerificationStatus.UNVERIFIED,
             cryptographicHash = hash,
             routedVia = "Direct High-Speed Web Stack: $host"
         )
@@ -285,7 +285,7 @@ class DualStackResolver(
                 latencyMs = latency,
                 decentralizedPeersCount = 16,
                 decentralizedLatencyMs = latency,
-                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                verificationStatus = VerificationStatus.UNVERIFIED,
                 cryptographicHash = hash,
                 routedVia = "Kaspa BlockDAG Network -> Address ($cleanDomain)",
                 kaspaVerificationSummary = "Kaspa Address Validated | $networkTitle"
@@ -466,7 +466,7 @@ class DualStackResolver(
                 centralizedIp = "Kaspa DAG Peer Node",
                 decentralizedPeersCount = 12,
                 decentralizedLatencyMs = latency,
-                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                verificationStatus = VerificationStatus.UNVERIFIED,
                 cryptographicHash = hash,
                 routedVia = "Kaspa BlockDAG KNS Resolver -> Schnorr Signature Attested (${kProof.address.take(18)}...)",
                 kaspaProof = kProof,
@@ -530,7 +530,7 @@ class DualStackResolver(
                 centralizedIp = null,
                 decentralizedPeersCount = maxOf(1, realOnlinePeers),
                 decentralizedLatencyMs = localLatency,
-                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                verificationStatus = VerificationStatus.UNVERIFIED,
                 cryptographicHash = foundInLocal.sha256Hash,
                 routedVia = "Local Node Swarm Store -> SHA-256 Merkle Block Verified (${localLatency}ms)",
                 kaspaProof = kProof,
@@ -562,12 +562,9 @@ class DualStackResolver(
                         val maskedIp = maskIpAddress(realIp)
                         val kProof = CryptoUtils.verifyKaspaLinkProof(body, url)
 
-                        val isVerifiedHash = if (cleanQuery.startsWith("Qm") || cleanQuery.startsWith("bafy")) {
-                            val computedCid = CryptoUtils.generateCid(body)
-                            computedCid == cleanQuery || hash.isNotEmpty()
-                        } else true
-
-                        val vStatus = if (isVerifiedHash) VerificationStatus.VERIFIED_TAMPER_PROOF else VerificationStatus.TAMPERED_HASH_MISMATCH
+                        // A gateway response body is not verified against an IPFS CID here.
+                        // Raw-body SHA-256 is not sufficient to validate a UnixFS DAG CID.
+                        val vStatus = VerificationStatus.UNVERIFIED
 
                         // Auto-seed resolved P2P CID block into local database
                         try {
@@ -714,7 +711,7 @@ class DualStackResolver(
                 centralizedIp = maskedCentralIp,
                 decentralizedPeersCount = maxOf(1, onlinePeers),
                 decentralizedLatencyMs = p2pLatency,
-                verificationStatus = VerificationStatus.MIRROR_MATCHED,
+                verificationStatus = VerificationStatus.UNVERIFIED,
                 cryptographicHash = localContent.sha256Hash,
                 routedVia = "Dual-Stack: Local P2P Node Swarm + Centralized Gateway Bridge ($maskedCentralIp)"
             )
@@ -742,7 +739,6 @@ class DualStackResolver(
         val decResult = resolveDecentralized(url)
         return@withContext decResult.copy(
             resolvedProtocol = NetworkProtocol.HYBRID_COEXISTENCE,
-            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
             routedVia = "Dual-Stack: Decentralized Resolution + Centralized Public Gateway Attestation"
         )
     }
@@ -963,7 +959,7 @@ class DualStackResolver(
             latencyMs = 12L,
             decentralizedPeersCount = 0,
             decentralizedLatencyMs = 12L,
-            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+            verificationStatus = VerificationStatus.UNVERIFIED,
             cryptographicHash = hash,
             routedVia = "Kaspa Federated Search • Privacy Multi-Engine (Brave • DuckDuckGo • Bing • Kaspa)",
             kaspaVerificationSummary = "Kaspa Search • Zero Telemetry & On-Device Privacy Shield"

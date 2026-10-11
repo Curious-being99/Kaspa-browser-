@@ -135,7 +135,7 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 - **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `kas://`, `mesh://`, `dweb://`, `.kas`, `.hns`, `.eth`, and P2P CID targets).
 - **Network Pipeline**: Asynchronous OkHttp3 client with pure **HTTP/3 (QUIC over UDP)** transport layer, 0-RTT handshakes, zero head-of-line blocking, and connection migration (HTTP/2 removed).
 - **Decentralized DNS Engine**: Multi-chain DoH & ledger resolver querying Handshake (HNS) PoW root chain, Kaspa Block DAG (KNS), ENS (.eth), EmerDNS, and OpenNIC directly.
-- **Cryptographic Verification Engine**: Local in-browser SHA-256 message digest calculator certifying incoming payload streams as `VERIFIED_TAMPER_PROOF` and blocking tampered packets.
+- **Cryptographic Verification Engine**: Local SHA-256 digest calculation for diagnostics. A digest alone does not establish authenticity; ordinary web pages remain unverified unless an applicable integrity check succeeds.
 - **Local Mesh Seeding Engine**: Room SQLite database engine (`AppDatabase` / `ContentDao`) storing content-addressed blocks with `isSeeding = true` for peer mesh seeding and zero single point of failure during server outages.
 - **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and secure cryptographic signing without exposing private keys.
 - **Privacy & Content Shield Engine**: Real-time URL blocklist evaluator inspecting incoming DOM resources against ad-trackers and telemetry scripts before passing sanitized streams into the rendering pipeline.
@@ -246,11 +246,11 @@ The following diagram illustrates how user input, network resolution, peer disco
 +--------------------------------------------------------------------------------------------------------+
 |                                IN-BROWSER SHA-256 TAMPER VERIFICATION                                  |
 | - Computes local SHA-256 digest of payload data streams                                                |
-| - Verifies hash against CID: CERTIFIES AS VERIFIED_TAMPER_PROOF                                        |
-| - Rejects altered payloads (TAMPERED_HASH_MISMATCH)                                                    |
+| - A digest alone does not prove content authenticity                                                  |
+| - Reports verification only when an applicable integrity check succeeds                              |
 +--------------------------------------------------------------------------------------------------------+
                                                      |
-                                           (Verified Data Stream)
+                                           (Resource with explicit verification status)
                                                      v
 +--------------------------------------------------------------------------------------------------------+
 |                              LOCAL MESH SEEDING & ROOM DB PERSISTENCE                                  |

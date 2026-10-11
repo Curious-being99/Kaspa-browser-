@@ -27,7 +27,7 @@ data class ResolvedResource(
     val centralizedIp: String? = null,
     val decentralizedPeersCount: Int = 0,
     val decentralizedLatencyMs: Long? = null,
-    val verificationStatus: VerificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+    val verificationStatus: VerificationStatus = VerificationStatus.UNVERIFIED,
     val cryptographicHash: String,
     val routedVia: String,
     val kaspaProof: KaspaProof? = null,
@@ -71,5 +71,5 @@ data class KaspaProof(
     val blockDagTxHash: String,
     val blockHeight: Long,
     val schnorrSignature: String,
-    val isVerified: Boolean = true
+    val isVerified: Boolean = false
 )
