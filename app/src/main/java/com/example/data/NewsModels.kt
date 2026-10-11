@@ -55,15 +55,17 @@ fun extractTagContent(xml: String, tagName: String): String {
 }
 
 fun extractLinkUrl(xml: String): String {
-    // Atom feeds may list a self link before the article's alternate link.
-    // Prefer rel="alternate" so cards open the article rather than the feed endpoint.
-    val linkTags = Regex("<link\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(xml).toList()
+    // Atom defaults a missing rel attribute to "alternate"; prefer that article URL
+    // over rel="self" (the feed URL) or enclosure links.
+    val linkTags = Regex("<(?:[\\\\w.-]+:)?link\\\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(xml).toList()
     val hrefRegex = Regex("""\bhref\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     val relRegex = Regex("""\brel\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-    val selectedTag = linkTags.firstOrNull { tag ->
-        relRegex.find(tag.value)?.groupValues?.get(1)?.equals("alternate", ignoreCase = true) == true &&
+    val alternateTag = linkTags.firstOrNull { tag ->
+        val rel = relRegex.find(tag.value)?.groupValues?.get(1)
+        (rel == null || rel.equals("alternate", ignoreCase = true)) &&
             hrefRegex.containsMatchIn(tag.value)
-    } ?: linkTags.firstOrNull { hrefRegex.containsMatchIn(it.value) }
+    }
+    val selectedTag = alternateTag ?: linkTags.firstOrNull { hrefRegex.containsMatchIn(it.value) }
 
     var url = selectedTag?.let {
         hrefRegex.find(it.value)?.groupValues?.get(1)?.let(::cleanXmlText)?.trim()
