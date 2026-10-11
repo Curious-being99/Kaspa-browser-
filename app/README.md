@@ -60,7 +60,7 @@ The browser operates using a multi-layered hybrid engine stack:
 | **Protocol Routing Engine** | **`DualStackResolver` Engine** | Custom Kotlin network gateway intercepting requests and routing between P2P DHT swarms, blockchain resolution, and HTTP/3 fallback. |
 | **P2P Storage Engine** | **IPFS / Kaspa DNet & DHT** | Content-Addressed Storage engine retrieving files by cryptographic hashes (CIDs: `bafy...`, `Qm...`). |
 | **Decentralized DNS Engine** | **Handshake (HNS), KNS & ENS** | On-chain resolution resolving `.kas`, `.hns`, `.eth`, `.coin`, and `.bit` domains directly from distributed ledgers. |
-| **Cryptographic Verification** | **SHA-256 Digest Engine** | In-browser SHA-256 hashing certifying data streams as `VERIFIED_TAMPER_PROOF`. |
+| **Cryptographic Verification** | **SHA-256 Digest Engine** | Local SHA-256 digest calculation; ordinary web content is unverified unless an applicable integrity check succeeds. |
 | **Local Mesh Seeding Engine** | **Android Room / SQLite (`AppDatabase`)** | Indexed local database storing CID blocks for peer-to-peer mesh seeding and offline server outage protection. |
 
 ### 📐 End-to-End Request Data Flow
