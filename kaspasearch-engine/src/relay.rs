@@ -258,8 +258,9 @@ impl KrpFrame {
         let mut ephemeral_pubkey = [0u8; 32];
         ephemeral_pubkey.copy_from_slice(&cell[22..54]);
 
-        let mut nonce = [0u8; 12];
-        nonce.copy_from_slice(&cell[54..66]);
+        let nonce: [u8; 12] = cell[54..66]
+            .try_into()
+            .map_err(|_| "Invalid KRP1 nonce length")?;
 
         let payload_len = u16::from_be_bytes([cell[66], cell[67]]) as usize;
         if cell.len() < 68 + payload_len + 16 {
