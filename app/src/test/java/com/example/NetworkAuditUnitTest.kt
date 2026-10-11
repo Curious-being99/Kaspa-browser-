@@ -584,3 +584,37 @@ class NetworkAuditUnitTest {
     }
 }
 
+
+
+    @Test
+    fun resolvedResourcesAreUnverifiedByDefault() {
+        val resource = com.example.model.ResolvedResource(
+            url = "https://example.com/",
+            resolvedProtocol = com.example.model.NetworkProtocol.CENTRALIZED_HTTP,
+            cid = "not-a-verified-cid",
+            title = "example.com",
+            content = "",
+            contentType = "text/html",
+            sizeBytes = 0L,
+            latencyMs = 1L,
+            cryptographicHash = CryptoUtils.sha256("https://example.com/"),
+            routedVia = "direct"
+        )
+
+        assertEquals(
+            com.example.model.VerificationStatus.UNVERIFIED,
+            resource.verificationStatus
+        )
+    }
+
+    @Test
+    fun kaspaProofIsNotTrustedByDefault() {
+        val proof = com.example.model.KaspaProof(
+            address = "kaspatest:placeholder",
+            blockDagTxHash = "placeholder",
+            blockHeight = 0L,
+            schnorrSignature = "placeholder"
+        )
+
+        assertFalse("Proof must not be trusted until verified", proof.isVerified)
+    }
