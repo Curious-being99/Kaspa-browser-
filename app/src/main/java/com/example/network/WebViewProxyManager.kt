@@ -6,20 +6,7 @@ import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
 import java.util.concurrent.Executors
 
-/**
- * WebViewProxyManager
- *
- * Configures Chromium's native transport-layer proxy via AndroidX ProxyController.
- * Tunnels ALL web traffic (main-frame HTML, iframes, images, scripts, stylesheets,
- * XHR/fetch, WebSockets) through the in-process LightweightTorEngine SOCKS5 daemon
- * (127.0.0.1:9050) or custom proxy endpoints.
- *
- * Key benefits:
- * - Zero interference with request.isForMainFrame: Chromium handles TLS, HTTPS certificates,
- *   HTTP/2-3 multiplexing, automated redirects, and cookie sessions natively.
- * - Zero thread blocking: Eliminates runBlocking in shouldInterceptRequest.
- * - 100% leak-proof: Subresources are proxied natively without bypassing the circuit.
- */
+/** Configures optional Chromium proxy overrides. */
 object WebViewProxyManager {
     private const val TAG = "WebViewProxyManager"
     private val executor = Executors.newSingleThreadExecutor()
