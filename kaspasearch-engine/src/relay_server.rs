@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
     hex_to_bytes, bytes_to_hex, x25519_diffie_hellman, hkdf_sha256,
-    chacha20_poly1305_decrypt, chacha20_poly1305_encrypt, fill_csprng_bytes
+    chacha20_poly1305_decrypt, chacha20_poly1305_encrypt, generate_nonce_96
 };
 use crate::relay::{KrpFrame, KRP_CELL_SIZE, KRP_MAGIC};
 
@@ -117,7 +117,7 @@ impl KrpRelayServer {
         }
 
         let shared_secret = x25519_diffie_hellman(&node_priv, &frame.ephemeral_pubkey);
-        let entry_key_vec = hkdf_sha256(b"KRP1-Entry-Salt", &shared_secret, b"KRP1-Entry-Session-Key", 32);
+        let entry_key_vec = hkdf_sha256(&[], &shared_secret, b"KRP1-Entry-Session-Key", 32);
         let mut entry_key = [0u8; 32];
         entry_key.copy_from_slice(&entry_key_vec[..32]);
 
@@ -207,7 +207,7 @@ impl KrpRelayServer {
         }
 
         let shared_secret = x25519_diffie_hellman(&node_priv, &frame.ephemeral_pubkey);
-        let exit_key_vec = hkdf_sha256(b"KRP1-Exit-Salt", &shared_secret, b"KRP1-Exit-Session-Key", 32);
+        let exit_key_vec = hkdf_sha256(&[], &shared_secret, b"KRP1-Exit-Session-Key", 32);
         let mut exit_key = [0u8; 32];
         exit_key.copy_from_slice(&exit_key_vec[..32]);
 
@@ -300,8 +300,7 @@ impl KrpRelayServer {
         let resp_json = serde_json::to_string(&exit_resp)?;
 
         // Encrypt Response Back with Exit Key + Auth Tag
-        let mut resp_nonce = [0u8; 12];
-        fill_csprng_bytes(&mut resp_nonce);
+        let resp_nonce = generate_nonce_96();
 
         let (resp_ciphertext, resp_tag) = chacha20_poly1305_encrypt(
             &exit_key,
