@@ -311,7 +311,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                     fontSize = 14.sp
                                 )
                                 Text(
-                                    text = if (isPrivacyRelayEnabled) "3-Hop Onion Relay · Real IP Hidden · Tor Shield" else "Disabled · Direct connection",
+                                    text = if (isPrivacyRelayEnabled) "Relay services running · WebView may connect directly" else "Disabled · Direct connection",
                                     color = if (isPrivacyRelayEnabled) EmeraldMesh else TextMuted,
                                     fontSize = 11.sp
                                 )
@@ -540,7 +540,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(14.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Live Public Telemetry (Verified Real)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EmeraldMesh)
+                                            Text("Public IP Audit Result", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = EmeraldMesh)
                                         }
                                         IconButton(
                                             onClick = { liveAuditResult = null },
@@ -560,7 +560,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                             .clickable {
                                                 try {
                                                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Exit IP", telemetry.ip))
+                                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Observed Public IP", telemetry.ip))
                                                     android.widget.Toast.makeText(context, "IP copied: ${telemetry.ip}", android.widget.Toast.LENGTH_SHORT).show()
                                                 } catch (_: Throwable) {}
                                             }
@@ -569,7 +569,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column {
-                                            Text("Detected Public IP", fontSize = 10.sp, color = TextMuted)
+                                            Text("Public IP observed by audit endpoint", fontSize = 10.sp, color = TextMuted)
                                             Text(telemetry.ip, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = ElectricCyan, fontFamily = FontFamily.Monospace)
                                         }
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -610,8 +610,8 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                             Text("${telemetry.latencyMs}ms live latency", fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold)
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
-                                            Text("DNS Leak Protection", fontSize = 10.sp, color = TextMuted)
-                                            Text("DoH Active (Zero DNS Leaks)", fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold)
+                                            Text("WebView DNS privacy", fontSize = 10.sp, color = TextMuted)
+                                            Text("Not verified for all WebView requests", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
 
