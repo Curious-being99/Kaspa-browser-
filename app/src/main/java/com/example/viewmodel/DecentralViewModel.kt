@@ -998,38 +998,63 @@ class DecentralViewModel(
     private val _liveSuggestions = MutableStateFlow<List<String>>(emptyList())
     val liveSuggestions: StateFlow<List<String>> = _liveSuggestions.asStateFlow()
 
+    // Prevent out-of-order suggestion responses from replacing results for newer input.
+    private var suggestionsRequestId = 0L
+    private var suggestionsJob: Job? = null
+
     fun fetchSearchSuggestions(query: String) {
         val trimmed = query.trim()
-        if (trimmed.length < 2 || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        val requestId = ++suggestionsRequestId
+        suggestionsJob?.cancel()
+
+        if (trimmed.length < 2 ||
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
             _liveSuggestions.value = emptyList()
             return
         }
-        viewModelScope.launch(Dispatchers.IO) {
+
+        // Do not leave old-query suggestions tappable while the new query is loading.
+        _liveSuggestions.value = emptyList()
+        suggestionsJob = viewModelScope.launch(Dispatchers.IO) {
+            var connection: java.net.HttpURLConnection? = null
             try {
                 val encoded = java.net.URLEncoder.encode(trimmed, "UTF-8")
                 val url = "https://suggestqueries.google.com/complete/search?client=chrome&q=$encoded"
-                val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
                     connectTimeout = 2000
                     readTimeout = 2000
+                    requestMethod = "GET"
                     setRequestProperty("User-Agent", "Mozilla/5.0")
                 }
-                if (conn.responseCode == 200) {
-                    val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
-                    val jsonArray = org.json.JSONArray(jsonStr)
-                    if (jsonArray.length() >= 2) {
-                        val suggestionsArray = jsonArray.getJSONArray(1)
-                        val list = mutableListOf<String>()
-                        for (i in 0 until suggestionsArray.length()) {
-                            val suggestion = suggestionsArray.optString(i)
-                            if (suggestion.isNotBlank()) {
-                                list.add(suggestion)
-                            }
+
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = org.json.JSONArray(response)
+                    val results = mutableListOf<String>()
+                    if (json.length() >= 2) {
+                        val suggestions = json.getJSONArray(1)
+                        for (i in 0 until suggestions.length()) {
+                            val value = suggestions.optString(i).trim()
+                            if (value.isNotEmpty()) results.add(value)
                         }
-                        _liveSuggestions.value = list.take(6)
                     }
+
+                    if (requestId == suggestionsRequestId && isActive) {
+                        _liveSuggestions.value = results.distinct().take(6)
+                    }
+                } else if (requestId == suggestionsRequestId && isActive) {
+                    _liveSuggestions.value = emptyList()
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
-                _liveSuggestions.value = emptyList()
+                if (requestId == suggestionsRequestId && isActive) {
+                    _liveSuggestions.value = emptyList()
+                }
+            } finally {
+                connection?.disconnect()
             }
         }
     }
