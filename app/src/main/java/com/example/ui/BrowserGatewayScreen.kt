@@ -2012,7 +2012,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                                 setInitialScale(0)
                                 overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-                                isNestedScrollingEnabled = true
                                 isNestedScrollingEnabled = false
                                  setOnScrollChangeListener { _, scrollX, scrollY, _, _ ->
                                      viewModel.updateTabScroll(currentTabId, scrollX, scrollY)
@@ -3234,11 +3233,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             isWebLoading = true
                             hasMainPageFinished = false
                             webProgress = 0.15f
-                            postDelayed({
-                                if (isRefreshing) {
-                                    isRefreshing = false
-                                }
-                            }, 3500L)
                             val currentUrl = (webView.tag as? Pair<*, *>)?.first as? String
                                 ?: (if (webView.url?.startsWith("kaspa-error://") == true) urlInput else (webView.url ?: urlInput))
                             val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
