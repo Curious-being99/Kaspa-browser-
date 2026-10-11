@@ -267,6 +267,10 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Storage diagnostics: cache-only cleanup, preserving browser and wallet records.
+            BrowserStorageDiagnosticsCard(context)
+            Spacer(modifier = Modifier.height(14.dp))
+
             // 0. KASPA PRIVACY RELAY (COMPACT & SLEEK NATIVE M3 CARD)
             Card(
                 modifier = Modifier
