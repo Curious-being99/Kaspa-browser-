@@ -1218,6 +1218,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                isInputFocused = false
+                                focusManager.clearFocus()
+                                viewModel.createNewTab()
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("new_tab_plus_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "New Tab",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     // Compact visual feedback banner immediately under focused input
@@ -3668,9 +3688,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val liveFetchedSuggestions by viewModel.liveSuggestions.collectAsState()
 
                         LaunchedEffect(query) {
-                            if (query.length >= 2) {
-                                viewModel.fetchSearchSuggestions(query)
-                            }
+                            viewModel.fetchSearchSuggestions(query)
                         }
 
                         // Smart Omnibar Intelligent Resolvers (Instantaneous Real-Time Feedback on Keystroke)
