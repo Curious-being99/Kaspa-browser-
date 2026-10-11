@@ -752,9 +752,10 @@ mod tests {
         let mut key = [0u8; 32];
         key.copy_from_slice(&key_bytes);
 
-        let nonce_bytes = hex_to_bytes("070000004041424344454647");
-        let mut nonce = [0u8; 12];
-        nonce.copy_from_slice(&nonce_bytes);
+        // Fixed nonce is part of the RFC 8439 test vector only, never production.
+        let nonce: [u8; 12] = hex_to_bytes("070000004041424344454647")
+            .try_into()
+            .expect("RFC 8439 test vector nonce must be 12 bytes");
 
         let plaintext = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
         let aad = hex_to_bytes("50515253c0c1c2c3c4c5c6c7");
