@@ -1219,8 +1219,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
 
-                        // Keep New Tab available while the omnibar is focused.
-                        // Clear focus before creating the tab so the old query cannot remain in the editor.
                         Spacer(modifier = Modifier.width(4.dp))
                         IconButton(
                             onClick = {
@@ -3690,8 +3688,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val liveFetchedSuggestions by viewModel.liveSuggestions.collectAsState()
 
                         LaunchedEffect(query) {
-                            // Always notify the ViewModel, including empty/one-character input,
-                            // so suggestions from a previous longer query are cleared immediately.
                             viewModel.fetchSearchSuggestions(query)
                         }
 
