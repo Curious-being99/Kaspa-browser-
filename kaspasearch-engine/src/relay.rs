@@ -422,8 +422,10 @@ impl NativePrivacyRelayCore {
         let shared_entry = x25519_diffie_hellman(&client_priv, &entry_pub_bytes);
 
         // Derive 32-byte Symmetric AEAD Keys using HKDF-SHA256
-        let exit_key_vec = hkdf_sha256(b"KRP1-Exit-Salt", &shared_exit, b"KRP1-Exit-Session-Key", 32);
-        let entry_key_vec = hkdf_sha256(b"KRP1-Entry-Salt", &shared_entry, b"KRP1-Entry-Session-Key", 32);
+        // HKDF-SHA256 with an empty salt is valid: RFC 5869 defines this as a
+        // HashLen-sized zero salt. The role-specific info provides key separation.
+        let exit_key_vec = hkdf_sha256(&[], &shared_exit, b"KRP1-Exit-Session-Key", 32);
+        let entry_key_vec = hkdf_sha256(&[], &shared_entry, b"KRP1-Entry-Session-Key", 32);
 
         let mut exit_key = [0u8; 32];
         exit_key.copy_from_slice(&exit_key_vec[..32]);
