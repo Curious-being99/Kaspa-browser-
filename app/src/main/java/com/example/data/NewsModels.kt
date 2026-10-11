@@ -55,19 +55,26 @@ fun extractTagContent(xml: String, tagName: String): String {
 }
 
 fun extractLinkUrl(xml: String): String {
-    val hrefMatch = Regex("<link[^>]+href=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(xml)
-    var url = ""
-    if (hrefMatch != null) {
-        url = cleanXmlText(hrefMatch.groupValues[1]).trim()
-    } else {
+    // Atom feeds may list a self link before the article's alternate link.
+    // Prefer rel="alternate" so cards open the article rather than the feed endpoint.
+    val linkTags = Regex("<link\\b[^>]*>", RegexOption.IGNORE_CASE).findAll(xml).toList()
+    val hrefRegex = Regex("""\bhref\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+    val relRegex = Regex("""\brel\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+    val selectedTag = linkTags.firstOrNull { tag ->
+        relRegex.find(tag.value)?.groupValues?.get(1)?.equals("alternate", ignoreCase = true) == true &&
+            hrefRegex.containsMatchIn(tag.value)
+    } ?: linkTags.firstOrNull { hrefRegex.containsMatchIn(it.value) }
+
+    var url = selectedTag?.let {
+        hrefRegex.find(it.value)?.groupValues?.get(1)?.let(::cleanXmlText)?.trim()
+    } ?: ""
+    if (url.isEmpty()) {
         val content = extractTagContent(xml, "link")
         if (content.isNotEmpty()) url = content.trim()
     }
     if (url.contains("nitter.") || url.contains("xcancel.com") || url.contains("twitter.com")) {
         val path = url.substringAfter("://").substringAfter("/")
-        if (path.isNotBlank()) {
-            return "https://x.com/$path"
-        }
+        if (path.isNotBlank()) return "https://x.com/$path"
     }
     return url
 }
@@ -209,24 +216,23 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
     val items = mutableListOf<KaspaNewsItem>()
     try {
         var index = 0
+        val itemOpenTag = Regex("<item(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE)
+        val entryOpenTag = Regex("<entry(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE)
         while (index < xml.length) {
-            var itemStart = xml.indexOf("<item>", index)
-            var isAtom = false
-            if (itemStart == -1) {
-                itemStart = xml.indexOf("<entry>", index)
-                isAtom = true
-            }
-            if (itemStart == -1) break
+            val itemMatch = itemOpenTag.find(xml, index)
+            val entryMatch = entryOpenTag.find(xml, index)
+            if (itemMatch == null && entryMatch == null) break
 
-            val itemEnd = if (isAtom) {
-                xml.indexOf("</entry>", itemStart)
-            } else {
-                xml.indexOf("</item>", itemStart)
-            }
+            val isAtom = entryMatch != null &&
+                (itemMatch == null || entryMatch.range.first < itemMatch.range.first)
+            val openingMatch = if (isAtom) entryMatch!! else itemMatch!!
+            val itemStart = openingMatch.range.first
+            val closingTag = if (isAtom) "</entry>" else "</item>"
+            val itemEnd = xml.indexOf(closingTag, openingMatch.range.last + 1, ignoreCase = true)
             if (itemEnd == -1) break
 
             val itemXml = xml.substring(itemStart, itemEnd)
-            index = itemEnd
+            index = itemEnd + closingTag.length
 
             var title = extractTagContent(itemXml, "title")
             if (title.isEmpty()) title = extractTagContent(itemXml, "media:title")
