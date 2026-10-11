@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::crypto::{
-    fill_csprng_bytes, generate_x25519_keypair, x25519_diffie_hellman,
+    fill_csprng_bytes, generate_nonce_96, generate_x25519_keypair, x25519_diffie_hellman,
     hkdf_sha256, chacha20_poly1305_encrypt, chacha20_poly1305_decrypt,
     bytes_to_hex, hex_to_bytes, sha256
 };
@@ -461,8 +461,7 @@ impl NativePrivacyRelayCore {
         let inner_json = serde_json::to_string(&inner_payload).map_err(|e| e.to_string())?;
 
         // Encrypt Inner Layer with ExitKey + Poly1305 MAC Tag
-        let mut inner_nonce = [0u8; 12];
-        fill_csprng_bytes(&mut inner_nonce);
+        let inner_nonce = generate_nonce_96();
 
         let (inner_ciphertext, inner_tag) = chacha20_poly1305_encrypt(
             &exit_key,
@@ -506,8 +505,7 @@ impl NativePrivacyRelayCore {
         let outer_json = serde_json::to_string(&outer_envelope).map_err(|e| e.to_string())?;
 
         // Encrypt Outer Layer with EntryKey + Poly1305 MAC Tag
-        let mut outer_nonce = [0u8; 12];
-        fill_csprng_bytes(&mut outer_nonce);
+        let outer_nonce = generate_nonce_96();
 
         let (outer_ciphertext, outer_tag) = chacha20_poly1305_encrypt(
             &entry_key,
