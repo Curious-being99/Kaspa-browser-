@@ -977,7 +977,7 @@ class DecentralViewModel(
             // Keep native WebView connection direct without loopback proxy cutoff
             com.example.network.WebViewProxyManager.clearProxy()
             _activeRelayCircuit.value = KaspaPrivacyRelayEngine.getActiveCircuit()
-            _statusMessage.value = "Kaspa Privacy Relay Active: Dual-Hop KRP/1 Circuit Enabled"
+            _statusMessage.value = "Relay services started; WebView traffic may connect directly"
         } else {
             com.example.network.WebViewProxyManager.clearProxy()
             com.example.network.LightweightTorEngine.stop()
