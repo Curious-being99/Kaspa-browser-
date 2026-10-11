@@ -225,6 +225,13 @@ pub fn fill_csprng_bytes(buf: &mut [u8]) {
         .expect("operating-system CSPRNG unavailable; refusing insecure randomness");
 }
 
+/// Generates a fresh 96-bit AEAD nonce directly from the operating-system CSPRNG.
+pub fn generate_nonce_96() -> [u8; 12] {
+    let mut nonce = [0u8; 12];
+    fill_csprng_bytes(&mut nonce);
+    nonce
+}
+
 // ============================================================================
 // 3. Curve25519 / X25519 Diffie-Hellman Key Exchange (RFC 7748 Verified)
 // ============================================================================
