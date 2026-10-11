@@ -582,9 +582,6 @@ class NetworkAuditUnitTest {
 
         assertEquals(expectedHash, calculatedSighashHex)
     }
-}
-
-
 
     @Test
     fun resolvedResourcesAreUnverifiedByDefault() {
@@ -618,3 +615,4 @@ class NetworkAuditUnitTest {
 
         assertFalse("Proof must not be trusted until verified", proof.isVerified)
     }
+}
