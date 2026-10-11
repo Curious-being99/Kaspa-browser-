@@ -562,12 +562,9 @@ class DualStackResolver(
                         val maskedIp = maskIpAddress(realIp)
                         val kProof = CryptoUtils.verifyKaspaLinkProof(body, url)
 
-                        val isVerifiedHash = if (cleanQuery.startsWith("Qm") || cleanQuery.startsWith("bafy")) {
-                            val computedCid = CryptoUtils.generateCid(body)
-                            computedCid == cleanQuery || hash.isNotEmpty()
-                        } else true
-
-                        val vStatus = if (isVerifiedHash) VerificationStatus.VERIFIED_TAMPER_PROOF else VerificationStatus.TAMPERED_HASH_MISMATCH
+                        // A gateway response body is not verified against an IPFS CID here.
+                        // Raw-body SHA-256 is not sufficient to validate a UnixFS DAG CID.
+                        val vStatus = VerificationStatus.UNVERIFIED
 
                         // Auto-seed resolved P2P CID block into local database
                         try {
@@ -714,7 +711,7 @@ class DualStackResolver(
                 centralizedIp = maskedCentralIp,
                 decentralizedPeersCount = maxOf(1, onlinePeers),
                 decentralizedLatencyMs = p2pLatency,
-                verificationStatus = VerificationStatus.MIRROR_MATCHED,
+                verificationStatus = VerificationStatus.UNVERIFIED,
                 cryptographicHash = localContent.sha256Hash,
                 routedVia = "Dual-Stack: Local P2P Node Swarm + Centralized Gateway Bridge ($maskedCentralIp)"
             )
