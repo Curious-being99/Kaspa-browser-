@@ -42,7 +42,6 @@ fun BrowserStorageDiagnosticsCard(context: Context) {
     var cacheBytes by remember { mutableLongStateOf(0L) }
     var webViewCacheBytes by remember { mutableLongStateOf(0L) }
     var databaseBytes by remember { mutableLongStateOf(0L) }
-    var siteStorageBytes by remember { mutableLongStateOf(0L) }
     var siteOriginCount by remember { mutableLongStateOf(0L) }
     var measuring by remember { mutableStateOf(false) }
     var showConfirm by remember { mutableStateOf(false) }
@@ -64,7 +63,7 @@ fun BrowserStorageDiagnosticsCard(context: Context) {
             databaseBytes = sizes.third
             try {
                 WebStorage.getInstance().getOrigins { origins ->
-                    siteStorageBytes = origins.values.sumOf { origin -> origin.getUsage().coerceAtLeast(0L) }
+                    status = "Web Storage byte usage is not exposed by this WebView API; origin count is shown instead."
                     siteOriginCount = origins.size.toLong()
                     measuring = false
                 }
@@ -96,7 +95,7 @@ fun BrowserStorageDiagnosticsCard(context: Context) {
             StorageLine("App database files (includes user records)", databaseBytes)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Website storage (${siteOriginCount} origins)", style = MaterialTheme.typography.bodyMedium)
-                Text(formatBytes(siteStorageBytes), style = MaterialTheme.typography.bodyMedium)
+                Text("Usage unavailable", style = MaterialTheme.typography.bodyMedium)
             }
             if (measuring) Text("Measuring site storage…", style = MaterialTheme.typography.bodySmall)
             status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
