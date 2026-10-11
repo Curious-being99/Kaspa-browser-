@@ -573,7 +573,7 @@ class DecentralViewModel(
                             centralizedUrl = tab.url,
                             centralizedLatencyMs = 15L,
                             centralizedIp = "Direct High-Speed Stack",
-                            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                            verificationStatus = VerificationStatus.UNVERIFIED,
                             cryptographicHash = com.example.network.CryptoUtils.sha256(tab.url),
                             routedVia = "Direct High-Speed Web Stack: $host"
                         )
@@ -684,7 +684,7 @@ class DecentralViewModel(
                                 centralizedUrl = nextTab.url,
                                 centralizedLatencyMs = 15L,
                                 centralizedIp = "Direct High-Speed Stack",
-                                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                                verificationStatus = VerificationStatus.UNVERIFIED,
                                 cryptographicHash = com.example.network.CryptoUtils.sha256(nextTab.url),
                                 routedVia = "Direct High-Speed Web Stack: $host"
                             )
@@ -872,7 +872,7 @@ class DecentralViewModel(
                 centralizedUrl = initialTabUrl,
                 centralizedLatencyMs = 10L,
                 centralizedIp = "Direct High-Speed Stack",
-                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                verificationStatus = VerificationStatus.UNVERIFIED,
                 cryptographicHash = com.example.network.CryptoUtils.sha256(initialTabUrl),
                 routedVia = "Direct High-Speed Web Stack: $host"
             )
@@ -1500,7 +1500,7 @@ class DecentralViewModel(
                                             centralizedUrl = targetTab.url,
                                             centralizedLatencyMs = 15L,
                                             centralizedIp = "Direct High-Speed Stack",
-                                            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                                            verificationStatus = VerificationStatus.UNVERIFIED,
                                             cryptographicHash = com.example.network.CryptoUtils.sha256(targetTab.url),
                                             routedVia = "Direct High-Speed Web Stack: $host"
                                         )
@@ -2282,7 +2282,7 @@ class DecentralViewModel(
                     centralizedUrl = newUrl,
                     centralizedLatencyMs = 15L,
                     centralizedIp = "Direct High-Speed Stack",
-                    verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                    verificationStatus = VerificationStatus.UNVERIFIED,
                     cryptographicHash = com.example.network.CryptoUtils.sha256(newUrl),
                     routedVia = "Direct High-Speed Web Stack: $host"
                 )
@@ -2346,7 +2346,7 @@ class DecentralViewModel(
             centralizedUrl = target,
             centralizedLatencyMs = 10L,
             centralizedIp = "Direct High-Speed Stack",
-            verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+            verificationStatus = VerificationStatus.UNVERIFIED,
             cryptographicHash = com.example.network.CryptoUtils.sha256(target),
             routedVia = "Direct High-Speed Web Stack: $httpHost"
         )
