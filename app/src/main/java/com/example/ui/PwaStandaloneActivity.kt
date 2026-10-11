@@ -815,7 +815,13 @@ fun PwaStandaloneScreen(
                     }
 
                     swipeLayout.setOnRefreshListener {
+                        if (isLoading || isRefreshing) {
+                            swipeLayout.isRefreshing = false
+                            return@setOnRefreshListener
+                        }
                         isRefreshing = true
+                        isLoading = true
+                        webProgress = 0.15f
                         wv.reload()
                     }
 
