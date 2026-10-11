@@ -150,14 +150,20 @@ impl KrpRelayServer {
         let inner_tag_bytes = hex_to_bytes(&outer.inner_tag_hex);
         let client_pub_bytes = hex_to_bytes(&outer.client_pubkey_hex);
 
-        let mut inner_nonce = [0u8; 12];
-        if inner_nonce_bytes.len() >= 12 { inner_nonce.copy_from_slice(&inner_nonce_bytes[..12]); }
+        let inner_nonce: [u8; 12] = inner_nonce_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid inner nonce length")?;
 
-        let mut inner_tag = [0u8; 16];
-        if inner_tag_bytes.len() >= 16 { inner_tag.copy_from_slice(&inner_tag_bytes[..16]); }
+        let inner_tag: [u8; 16] = inner_tag_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid inner authentication tag length")?;
 
-        let mut client_pub = [0u8; 32];
-        if client_pub_bytes.len() >= 32 { client_pub.copy_from_slice(&client_pub_bytes[..32]); }
+        let client_pub: [u8; 32] = client_pub_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid client public key length")?;
 
         let inner_frame = KrpFrame {
             magic: *KRP_MAGIC,
