@@ -250,7 +250,7 @@ The following diagram illustrates how user input, network resolution, peer disco
 | - Reports verification only when an applicable integrity check succeeds                              |
 +--------------------------------------------------------------------------------------------------------+
                                                      |
-                                           (Verified Data Stream)
+                                           (Resource with explicit verification status)
                                                      v
 +--------------------------------------------------------------------------------------------------------+
 |                              LOCAL MESH SEEDING & ROOM DB PERSISTENCE                                  |
