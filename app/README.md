@@ -89,7 +89,7 @@ The browser operates using a multi-layered hybrid engine stack:
                                       v
 +-------------------------------------------------------------------------+
 |                 Local SHA-256 Cryptographic Verification                |
-|           (Verifies payload hash matches CID: VERIFIED_TAMPER_PROOF)    |
+|           (Digest alone does not verify authenticity)                  |
 +------------------------------------+------------------------------------+
                                      |
                                      v
