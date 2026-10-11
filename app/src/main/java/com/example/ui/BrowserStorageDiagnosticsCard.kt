@@ -64,7 +64,7 @@ fun BrowserStorageDiagnosticsCard(context: Context) {
             databaseBytes = sizes.third
             try {
                 WebStorage.getInstance().getOrigins { origins ->
-                    siteStorageBytes = origins.values.sumOf { it.usage.coerceAtLeast(0L) }
+                    siteStorageBytes = origins.values.sumOf { origin -> origin.getUsage().coerceAtLeast(0L) }
                     siteOriginCount = origins.size.toLong()
                     measuring = false
                 }
