@@ -3688,7 +3688,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val liveFetchedSuggestions by viewModel.liveSuggestions.collectAsState()
 
                         LaunchedEffect(query) {
-                            viewModel.fetchSearchSuggestions(query)
+                            val trimmedQuery = query.trim()
+                            if (trimmedQuery.length < 2 ||
+                                trimmedQuery.startsWith("http://", ignoreCase = true) ||
+                                trimmedQuery.startsWith("https://", ignoreCase = true)
+                            ) {
+                                viewModel.fetchSearchSuggestions(trimmedQuery)
+                            } else {
+                                kotlinx.coroutines.delay(300)
+                                viewModel.fetchSearchSuggestions(trimmedQuery)
+                            }
                         }
 
                         // Smart Omnibar Intelligent Resolvers (Instantaneous Real-Time Feedback on Keystroke)
