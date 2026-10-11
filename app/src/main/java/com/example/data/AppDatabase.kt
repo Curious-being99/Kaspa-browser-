@@ -56,7 +56,6 @@ abstract class AppDatabase : RoomDatabase() {
                     "decentralnet_db"
                 )
                     .addMigrations(MIGRATION_11_12)
-                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .build()
                 INSTANCE = instance
                 instance
