@@ -226,10 +226,24 @@ pub fn fill_csprng_bytes(buf: &mut [u8]) {
 }
 
 /// Generates a fresh 96-bit AEAD nonce directly from the operating-system CSPRNG.
+///
+/// The output is left uninitialized until the OS CSPRNG fills every byte, avoiding
+/// a zero-valued nonce ever being treated as valid cryptographic output.
 pub fn generate_nonce_96() -> [u8; 12] {
-    let mut nonce = [0u8; 12];
-    fill_csprng_bytes(&mut nonce);
-    nonce
+    let mut nonce = std::mem::MaybeUninit::<[u8; 12]>::uninit();
+    let nonce_bytes = unsafe {
+        std::slice::from_raw_parts_mut(
+            nonce.as_mut_ptr().cast::<u8>(),
+            std::mem::size_of::<[u8; 12]>(),
+        )
+    };
+
+    // getrandom returns Ok only after filling the entire supplied buffer.
+    getrandom::getrandom(nonce_bytes)
+        .expect("operating-system CSPRNG unavailable; refusing insecure nonce");
+
+    // SAFETY: the successful getrandom call above initialized all 12 bytes.
+    unsafe { nonce.assume_init() }
 }
 
 // ============================================================================
@@ -669,6 +683,17 @@ pub fn chacha20_poly1305_decrypt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_generate_nonce_96_uses_full_random_output() {
+        let first = generate_nonce_96();
+        let second = generate_nonce_96();
+
+        assert_eq!(first.len(), 12);
+        assert_eq!(second.len(), 12);
+        // Collision probability for independent 96-bit nonces is 2^-96.
+        assert_ne!(first, second, "independent AEAD nonce generations collided");
+    }
 
     #[test]
     fn test_x25519_key_exchange() {
