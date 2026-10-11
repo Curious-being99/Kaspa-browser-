@@ -49,19 +49,29 @@ fun BrowserStorageDiagnosticsCard(context: Context) {
     var status by remember { mutableStateOf<String?>(null) }
 
     fun measure() {
+        if (measuring) return
         measuring = true
-        cacheBytes = directorySize(context.cacheDir) + (context.externalCacheDir?.let(::directorySize) ?: 0L)
-        webViewCacheBytes = webViewCacheSize(context)
-        databaseBytes = directorySize(context.getDatabasePath("placeholder").parentFile)
-        try {
-            WebStorage.getInstance().getOrigins { origins ->
-                siteStorageBytes = origins.values.sumOf { it.usage.coerceAtLeast(0L) }
-                siteOriginCount = origins.size.toLong()
+        scope.launch {
+            val sizes = withContext(Dispatchers.IO) {
+                Triple(
+                    directorySize(context.cacheDir) + (context.externalCacheDir?.let(::directorySize) ?: 0L),
+                    webViewCacheSize(context),
+                    directorySize(context.getDatabasePath("placeholder").parentFile)
+                )
+            }
+            cacheBytes = sizes.first
+            webViewCacheBytes = sizes.second
+            databaseBytes = sizes.third
+            try {
+                WebStorage.getInstance().getOrigins { origins ->
+                    siteStorageBytes = origins.values.sumOf { it.usage.coerceAtLeast(0L) }
+                    siteOriginCount = origins.size.toLong()
+                    measuring = false
+                }
+            } catch (_: Exception) {
+                status = "Web Storage usage is unavailable on this WebView version."
                 measuring = false
             }
-        } catch (_: Exception) {
-            status = "Web Storage usage is unavailable on this WebView version."
-            measuring = false
         }
     }
 
