@@ -77,8 +77,8 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
-      - name: Require signing secrets for version-tag releases
-        if: (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))) && steps.check_secrets.outputs.HAS_SECRETS != 'true'
+      - name: Require signing secrets for public releases
+        if: ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))) && steps.check_secrets.outputs.HAS_SECRETS != 'true'
         run: |
           echo "Version-tag releases require configured production signing secrets."
           exit 1
@@ -190,10 +190,11 @@ jobs:
           echo "TITLE=$TITLE" >> "$GITHUB_OUTPUT"
 
       - name: Publish to GitHub Releases
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release_info.outputs.TAG }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.release_info.outputs.TITLE }}
           draft: false
           prerelease: false
