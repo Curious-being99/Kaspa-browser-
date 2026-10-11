@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
     hex_to_bytes, bytes_to_hex, x25519_diffie_hellman, hkdf_sha256,
-    chacha20_poly1305_decrypt, chacha20_poly1305_encrypt, fill_csprng_bytes
+    chacha20_poly1305_decrypt, chacha20_poly1305_encrypt, generate_nonce_96
 };
 use crate::relay::{KrpFrame, KRP_CELL_SIZE, KRP_MAGIC};
 
@@ -117,7 +117,7 @@ impl KrpRelayServer {
         }
 
         let shared_secret = x25519_diffie_hellman(&node_priv, &frame.ephemeral_pubkey);
-        let entry_key_vec = hkdf_sha256(b"KRP1-Entry-Salt", &shared_secret, b"KRP1-Entry-Session-Key", 32);
+        let entry_key_vec = hkdf_sha256(&[], &shared_secret, b"KRP1-Entry-Session-Key", 32);
         let mut entry_key = [0u8; 32];
         entry_key.copy_from_slice(&entry_key_vec[..32]);
 
@@ -150,14 +150,20 @@ impl KrpRelayServer {
         let inner_tag_bytes = hex_to_bytes(&outer.inner_tag_hex);
         let client_pub_bytes = hex_to_bytes(&outer.client_pubkey_hex);
 
-        let mut inner_nonce = [0u8; 12];
-        if inner_nonce_bytes.len() >= 12 { inner_nonce.copy_from_slice(&inner_nonce_bytes[..12]); }
+        let inner_nonce: [u8; 12] = inner_nonce_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid inner nonce length")?;
 
-        let mut inner_tag = [0u8; 16];
-        if inner_tag_bytes.len() >= 16 { inner_tag.copy_from_slice(&inner_tag_bytes[..16]); }
+        let inner_tag: [u8; 16] = inner_tag_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid inner authentication tag length")?;
 
-        let mut client_pub = [0u8; 32];
-        if client_pub_bytes.len() >= 32 { client_pub.copy_from_slice(&client_pub_bytes[..32]); }
+        let client_pub: [u8; 32] = client_pub_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| "invalid client public key length")?;
 
         let inner_frame = KrpFrame {
             magic: *KRP_MAGIC,
@@ -207,7 +213,7 @@ impl KrpRelayServer {
         }
 
         let shared_secret = x25519_diffie_hellman(&node_priv, &frame.ephemeral_pubkey);
-        let exit_key_vec = hkdf_sha256(b"KRP1-Exit-Salt", &shared_secret, b"KRP1-Exit-Session-Key", 32);
+        let exit_key_vec = hkdf_sha256(&[], &shared_secret, b"KRP1-Exit-Session-Key", 32);
         let mut exit_key = [0u8; 32];
         exit_key.copy_from_slice(&exit_key_vec[..32]);
 
@@ -300,8 +306,7 @@ impl KrpRelayServer {
         let resp_json = serde_json::to_string(&exit_resp)?;
 
         // Encrypt Response Back with Exit Key + Auth Tag
-        let mut resp_nonce = [0u8; 12];
-        fill_csprng_bytes(&mut resp_nonce);
+        let resp_nonce = generate_nonce_96();
 
         let (resp_ciphertext, resp_tag) = chacha20_poly1305_encrypt(
             &exit_key,
