@@ -1620,7 +1620,7 @@ class DecentralViewModel(
                 balanceKas = safeBalanceKas,
                 balanceUsd = safeBalanceUsd,
                 recentTransactions = mergedList,
-                networkStatus = "Kaspa BlockDAG Testnet 10"
+                networkStatus = _selectedNetwork.value
             )
         }
         refreshNetworkFeeCondition()
