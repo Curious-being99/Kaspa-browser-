@@ -818,6 +818,43 @@ class DecentralViewModel(
     )
     val selectedExplorerUrl: StateFlow<String> = _selectedExplorerUrl.asStateFlow()
 
+    private val _selectedNetwork = MutableStateFlow(
+        appPrefs.getString("selected_kaspa_network", "Kaspa Testnet 10") ?: "Kaspa Testnet 10"
+    )
+    val selectedNetwork: StateFlow<String> = _selectedNetwork.asStateFlow()
+
+    fun selectNetwork(networkName: String) {
+        _selectedNetwork.value = networkName
+        appPrefs.edit().putString("selected_kaspa_network", networkName).apply()
+
+        val prefix = if (networkName.contains("Mainnet", ignoreCase = true)) "kaspa" else "kaspatest"
+        val explorer = when {
+            networkName.contains("Mainnet", ignoreCase = true) -> "https://kaspa.stream"
+            networkName.contains("Testnet 11", ignoreCase = true) -> "https://tn11.kaspa.stream"
+            else -> "https://t10-kaspa.stream"
+        }
+        _selectedExplorerUrl.value = explorer
+        appPrefs.edit().putString("selected_testnet_explorer", explorer).apply()
+
+        val currentAcc = activeAccount.value
+        if (currentAcc != null) {
+            viewModelScope.launch {
+                try {
+                    val seed = CryptoUtils.getDecryptedSeed(currentAcc.seedPhrase)
+                    val newKp = CryptoUtils.deriveKaspaKeyPair(seed, prefix = prefix)
+                    val isMainnet = networkName.contains("Mainnet", ignoreCase = true)
+                    val isTn11 = networkName.contains("11")
+                    val updatedHandle = currentAcc.handle
+                    val updatedAcc = currentAcc.copy(kaspaAddress = newKp.kaspaAddress, handle = updatedHandle)
+                    database.accountDao().insertAccount(updatedAcc)
+                    refreshTestnetWallet()
+                } catch (e: Exception) {
+                    _statusMessage.value = "Failed to switch network: ${e.message}"
+                }
+            }
+        }
+    }
+
     fun setExplorerPreference(url: String) {
         _selectedExplorerUrl.value = url
         appPrefs.edit().putString("selected_testnet_explorer", url).apply()
@@ -825,16 +862,18 @@ class DecentralViewModel(
 
     fun getTestnetAddressForAccount(account: AccountEntity?): String {
         if (account == null) return ""
-        if (account.kaspaAddress.startsWith("kaspatest:")) return account.kaspaAddress
+        val isMainnet = _selectedNetwork.value.contains("Mainnet", ignoreCase = true)
+        val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
+        if (account.kaspaAddress.startsWith("$expectedPrefix:")) return account.kaspaAddress
         return try {
             val seed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
-            CryptoUtils.deriveKaspaKeyPair(seed, prefix = "kaspatest").kaspaAddress
+            CryptoUtils.deriveKaspaKeyPair(seed, prefix = expectedPrefix).kaspaAddress
         } catch (_: Exception) {
             account.kaspaAddress
         }
     }
 
-    val testnetAddress: StateFlow<String> = activeAccount.map { acc ->
+    val testnetAddress: StateFlow<String> = combine(activeAccount, _selectedNetwork) { acc, _ ->
         getTestnetAddressForAccount(acc)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
@@ -1535,7 +1574,7 @@ class DecentralViewModel(
         if (targetAddress.isBlank()) return
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isLoading = true)
-            val updated = kaspaWalletService.fetchWalletState(targetAddress)
+            val updated = kaspaWalletService.fetchWalletState(targetAddress, _selectedNetwork.value)
             
             // Query local stored transactions to ensure recently broadcasted sent transactions are preserved
             val localEntities = try {
@@ -1566,8 +1605,20 @@ class DecentralViewModel(
             }
             mergedList.sortByDescending { it.blockTime }
 
+            // Balance Preservation Safeguard: If remote query returned 0 due to network glitch, preserve last confirmed positive balance
+            val safeBalanceSompis = if (updated.balanceSompis == 0L && _kaspaWalletState.value.balanceSompis > 0L) {
+                _kaspaWalletState.value.balanceSompis
+            } else {
+                updated.balanceSompis
+            }
+            val safeBalanceKas = safeBalanceSompis / 100_000_000.0
+            val safeBalanceUsd = safeBalanceKas * updated.priceUsd
+
             _kaspaWalletState.value = updated.copy(
                 kaspaAddress = targetAddress,
+                balanceSompis = safeBalanceSompis,
+                balanceKas = safeBalanceKas,
+                balanceUsd = safeBalanceUsd,
                 recentTransactions = mergedList,
                 networkStatus = "Kaspa BlockDAG Testnet 10"
             )
@@ -1606,7 +1657,7 @@ class DecentralViewModel(
     ): KaspaTransactionEngine.FeeCalculationBreakdown {
         return KaspaTransactionEngine.calculateFeeBreakdown(
             amountKas = amountKas,
-            inputsCount = maxOf(1, _kaspaWalletState.value.utxosCount),
+            inputsCount = 1,
             outputsCount = 2,
             sompiPerMass = sompiPerMass
         )
@@ -1736,9 +1787,23 @@ class DecentralViewModel(
     fun createNewTestnetWallet(customName: String? = null, passphrase: String = "") {
         viewModelScope.launch {
             try {
+                val currentNet = _selectedNetwork.value
+                val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
+                val isTn11 = currentNet.contains("11")
+                val networkPrefix = if (isMainnet) "kaspa" else "kaspatest"
+                val defaultName = when {
+                    isMainnet -> "Kaspa Mainnet Wallet"
+                    isTn11 -> "Kaspa TN11 Wallet"
+                    else -> "Kaspa TN10 Wallet"
+                }
+                val networkStatusName = when {
+                    isMainnet -> "Kaspa BlockDAG Mainnet"
+                    isTn11 -> "Kaspa BlockDAG Testnet 11"
+                    else -> "Kaspa BlockDAG Testnet 10"
+                }
                 val newAcc = CryptoUtils.deriveDecentralizedAccount(
-                    customHandle = customName ?: "Testnet 10 Wallet",
-                    networkPrefix = "kaspatest",
+                    customHandle = customName?.ifBlank { null } ?: defaultName,
+                    networkPrefix = networkPrefix,
                     passphrase = passphrase.trim()
                 )
                 database.accountDao().deactivateAll()
@@ -1746,20 +1811,20 @@ class DecentralViewModel(
                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                     isLoading = true,
                     kaspaAddress = newAcc.kaspaAddress,
-                    statusNotice = "Scanning on-chain Testnet 10 BlockDAG for ${newAcc.kaspaAddress.take(18)}..."
+                    statusNotice = "Scanning on-chain $networkStatusName for ${newAcc.kaspaAddress.take(18)}..."
                 )
-                _statusMessage.value = "Created Kaspa TN10 Wallet. Performing on-chain scan..."
+                _statusMessage.value = "Created $defaultName. Performing on-chain scan..."
                 
                 // Immediate full on-chain scan
-                val scanned = kaspaWalletService.fetchWalletState(newAcc.kaspaAddress)
+                val scanned = kaspaWalletService.fetchWalletState(newAcc.kaspaAddress, _selectedNetwork.value)
                 _kaspaWalletState.value = scanned.copy(
                     kaspaAddress = newAcc.kaspaAddress,
-                    networkStatus = "Kaspa BlockDAG Testnet 10",
+                    networkStatus = networkStatusName,
                     statusNotice = null
                 )
                 _statusMessage.value = "Wallet active: ${newAcc.kaspaAddress.take(16)}... (%.4f KAS on-chain)".format(scanned.balanceKas)
             } catch (e: Exception) {
-                _statusMessage.value = "Failed to create Testnet 10 wallet: ${e.message}"
+                _statusMessage.value = "Failed to create wallet: ${e.message}"
             }
         }
     }
@@ -1773,10 +1838,24 @@ class DecentralViewModel(
                     _statusMessage.value = "Invalid seed phrase: Expected 12 or 24 words, got ${words.size}"
                     return@launch
                 }
+                val currentNet = _selectedNetwork.value
+                val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
+                val isTn11 = currentNet.contains("11")
+                val networkPrefix = if (isMainnet) "kaspa" else "kaspatest"
+                val defaultName = when {
+                    isMainnet -> "Kaspa Mainnet Wallet"
+                    isTn11 -> "Kaspa TN11 Wallet"
+                    else -> "Kaspa TN10 Wallet"
+                }
+                val networkStatusName = when {
+                    isMainnet -> "Kaspa BlockDAG Mainnet"
+                    isTn11 -> "Kaspa BlockDAG Testnet 11"
+                    else -> "Kaspa BlockDAG Testnet 10"
+                }
                 val importedAcc = CryptoUtils.deriveDecentralizedAccount(
-                    customHandle = customName ?: "Imported TN10 Wallet",
+                    customHandle = customName?.ifBlank { null } ?: defaultName,
                     seedMnemonic = cleanMnemonic,
-                    networkPrefix = "kaspatest",
+                    networkPrefix = networkPrefix,
                     passphrase = passphrase.trim()
                 )
                 database.accountDao().deactivateAll()
@@ -1784,15 +1863,15 @@ class DecentralViewModel(
                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                     isLoading = true,
                     kaspaAddress = importedAcc.kaspaAddress,
-                    statusNotice = "Scanning on-chain Testnet 10 BlockDAG for ${importedAcc.kaspaAddress.take(18)}..."
+                    statusNotice = "Scanning on-chain $networkStatusName for ${importedAcc.kaspaAddress.take(18)}..."
                 )
-                _statusMessage.value = "Imported wallet. Performing on-chain BlockDAG scan..."
+                _statusMessage.value = "Imported $defaultName. Performing on-chain BlockDAG scan..."
                 
                 // Immediate full on-chain scan
-                val scanned = kaspaWalletService.fetchWalletState(importedAcc.kaspaAddress)
+                val scanned = kaspaWalletService.fetchWalletState(importedAcc.kaspaAddress, _selectedNetwork.value)
                 _kaspaWalletState.value = scanned.copy(
                     kaspaAddress = importedAcc.kaspaAddress,
-                    networkStatus = "Kaspa BlockDAG Testnet 10",
+                    networkStatus = networkStatusName,
                     statusNotice = null
                 )
                 _statusMessage.value = "Wallet imported: ${importedAcc.kaspaAddress.take(16)}... (%.4f KAS on-chain)".format(scanned.balanceKas)

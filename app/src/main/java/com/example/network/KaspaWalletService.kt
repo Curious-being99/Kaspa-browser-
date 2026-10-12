@@ -35,6 +35,7 @@ class KaspaWalletService(
     companion object {
         private const val API_MAINNET = "https://api.kaspa.org"
         private const val API_TESTNET = "https://api-tn10.kaspa.org"
+        private const val API_TESTNET_11 = "https://api-tn11.kaspa.org"
         private const val USER_AGENT = "KaspaBrowser/1.0 (Android; Mobile)"
         
         // Official KNS (Kaspa Name Service) Registry Covenant ID for Mainnet
@@ -42,20 +43,24 @@ class KaspaWalletService(
         private const val KNS_MAINNET_REGISTRY_ID = "ee2128c03dfac7f6d74734bb3c879bd999434c47a55945b8a6daae2a1e4a21de"
     }
 
-    fun getCandidateEndpoints(address: String): List<String> {
-        return if (address.startsWith("kaspatest:")) {
-            listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
-        } else {
-            listOf(API_MAINNET, "https://api.kaspanet.io")
+    fun getCandidateEndpoints(address: String, networkName: String = "Kaspa Testnet 10"): List<String> {
+        return when {
+            networkName.contains("Mainnet", ignoreCase = true) || address.startsWith("kaspa:") -> listOf(API_MAINNET, "https://api.kaspanet.io")
+            networkName.contains("Testnet 11", ignoreCase = true) -> listOf(API_TESTNET_11, "https://api-tn11.kaspanet.io")
+            else -> listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
         }
     }
 
-    private fun getApiBase(address: String): String {
-        return if (address.startsWith("kaspatest:")) API_TESTNET else API_MAINNET
+    private fun getApiBase(address: String, networkName: String = "Kaspa Testnet 10"): String {
+        return when {
+            networkName.contains("Mainnet", ignoreCase = true) || address.startsWith("kaspa:") -> API_MAINNET
+            networkName.contains("Testnet 11", ignoreCase = true) -> API_TESTNET_11
+            else -> API_TESTNET
+        }
     }
 
-    private fun getNetworkName(address: String): String {
-        return if (address.startsWith("kaspatest:")) "Kaspa Testnet 10" else "Kaspa Mainnet"
+    private fun getNetworkName(address: String, networkName: String = "Kaspa Testnet 10"): String {
+        return networkName
     }
 
     /**
@@ -212,7 +217,7 @@ class KaspaWalletService(
     }
 
 
-    suspend fun fetchWalletState(address: String): KaspaWalletState = withContext(Dispatchers.IO) {
+    suspend fun fetchWalletState(address: String, networkName: String = "Kaspa Testnet 10"): KaspaWalletState = withContext(Dispatchers.IO) {
         if (address.isBlank()) {
             return@withContext KaspaWalletState()
         }
@@ -223,7 +228,8 @@ class KaspaWalletService(
         val transactions = mutableListOf<KaspaTransactionItem>()
 
         // 1. Fetch live balance from Kaspa API
-        val apiBase = getApiBase(address)
+        val apiBase = getApiBase(address, networkName)
+        var balanceFetchSuccess = false
         try {
             val balanceUrl = "$apiBase/addresses/$address/balance"
             val req = Request.Builder().url(balanceUrl).get().build()
@@ -233,6 +239,7 @@ class KaspaWalletService(
                     if (!bodyStr.isNullOrBlank()) {
                         val json = JSONObject(bodyStr)
                         balanceSompis = json.optLong("balance", 0L)
+                        balanceFetchSuccess = true
                     }
                 }
             }
@@ -253,7 +260,7 @@ class KaspaWalletService(
             }
         } catch (_: Exception) {}
 
-        // 3. Fetch UTXOs count
+        // 3. Fetch UTXOs count and balance fallback safeguard
         try {
             val utxosUrl = "$apiBase/addresses/$address/utxos"
             val req = Request.Builder().url(utxosUrl).get().build()
@@ -263,14 +270,26 @@ class KaspaWalletService(
                     if (!bodyStr.isNullOrBlank()) {
                         val array = JSONArray(bodyStr)
                         utxosCount = array.length()
+                        var utxoSum = 0L
+                        for (u in 0 until array.length()) {
+                            val uObj = array.optJSONObject(u) ?: continue
+                            val entry = uObj.optJSONObject("utxo_entry") ?: uObj.optJSONObject("utxoEntry") ?: uObj
+                            val amt = readSompiAmount(entry) ?: 0L
+                            utxoSum += amt
+                        }
+                        // Safeguard: If balance endpoint returned 0 or failed but address has unspent UTXOs, use live UTXO sum!
+                        if ((!balanceFetchSuccess || balanceSompis == 0L) && utxoSum > 0L) {
+                            balanceSompis = utxoSum
+                            balanceFetchSuccess = true
+                        }
                     }
                 }
             }
         } catch (_: Exception) {}
 
-        // 4. Fetch full transactions
+        // 4. Fetch full transactions with fast local resolution (zero blocking network loops)
         try {
-            val txsUrl = "$apiBase/addresses/$address/full-transactions?limit=10"
+            val txsUrl = "$apiBase/addresses/$address/full-transactions?limit=20"
             val req = Request.Builder().url(txsUrl).get().build()
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
@@ -288,37 +307,16 @@ class KaspaWalletService(
                             var totalOutputSompis = 0L
                             var ownedOutputSompis = 0L
                             var externalOutputSompis = 0L
-                            var outputsComplete = true
                             var counterparty = ""
 
                             for (j in 0 until outputs.length()) {
-                                val out = outputs.optJSONObject(j)
-                                if (out == null) {
-                                    outputsComplete = false
-                                    continue
-                                }
-                                val amount = readSompiAmount(out)
-                                val outputAddress = readScriptAddress(out)
-                                if (amount == null || outputAddress.isNullOrBlank()) {
-                                    outputsComplete = false
-                                    continue
-                                }
-                                if (Long.MAX_VALUE - totalOutputSompis < amount) {
-                                    outputsComplete = false
-                                    continue
-                                }
+                                val out = outputs.optJSONObject(j) ?: continue
+                                val amount = readSompiAmount(out) ?: continue
+                                val outputAddress = readScriptAddress(out) ?: continue
                                 totalOutputSompis += amount
                                 if (outputAddress == address) {
-                                    if (Long.MAX_VALUE - ownedOutputSompis < amount) {
-                                        outputsComplete = false
-                                        continue
-                                    }
                                     ownedOutputSompis += amount
                                 } else {
-                                    if (Long.MAX_VALUE - externalOutputSompis < amount) {
-                                        outputsComplete = false
-                                        continue
-                                    }
                                     externalOutputSompis += amount
                                     if (counterparty.isEmpty()) counterparty = outputAddress
                                 }
@@ -326,51 +324,38 @@ class KaspaWalletService(
 
                             var totalInputSompis = 0L
                             var ownedInputSompis = 0L
-                            var inputsComplete = inputs.length() > 0
-                            val previousTransactions = mutableMapOf<String, JSONObject?>()
                             var incomingCounterparty = ""
 
                             for (j in 0 until inputs.length()) {
-                                val input = inputs.optJSONObject(j)
-                                if (input == null) {
-                                    inputsComplete = false
-                                    continue
-                                }
-                                val resolved = resolveHistoryInput(address, input, previousTransactions)
-                                if (resolved == null) {
-                                    inputsComplete = false
-                                    continue
-                                }
-                                if (Long.MAX_VALUE - totalInputSompis < resolved.amountSompis) {
-                                    inputsComplete = false
-                                    continue
-                                }
-                                totalInputSompis += resolved.amountSompis
-                                if (resolved.address == address) {
-                                    if (Long.MAX_VALUE - ownedInputSompis < resolved.amountSompis) {
-                                        inputsComplete = false
-                                        continue
+                                val input = inputs.optJSONObject(j) ?: continue
+                                val utxo = input.optJSONObject("utxo_entry")
+                                    ?: input.optJSONObject("utxoEntry")
+                                    ?: input.optJSONObject("verbose_data")?.optJSONObject("utxo_entry")
+                                    ?: input.optJSONObject("verboseData")?.optJSONObject("utxoEntry")
+                                if (utxo != null) {
+                                    val inAmt = readSompiAmount(utxo) ?: 0L
+                                    val inAddr = readScriptAddress(utxo)
+                                    totalInputSompis += inAmt
+                                    if (inAddr == address) {
+                                        ownedInputSompis += inAmt
+                                    } else if (incomingCounterparty.isEmpty() && !inAddr.isNullOrBlank()) {
+                                        incomingCounterparty = inAddr
                                     }
-                                    ownedInputSompis += resolved.amountSompis
-                                } else if (incomingCounterparty.isEmpty()) {
-                                    incomingCounterparty = resolved.address
                                 }
                             }
 
+                            // Classify transaction based on funds flow:
                             val isOutgoing = ownedInputSompis > 0L
                             val amountSompis: Long
                             val feeSompis: Long
                             val type: String
 
                             if (isOutgoing) {
-                                if (!inputsComplete || !outputsComplete || totalInputSompis < totalOutputSompis) {
-                                    continue
-                                }
-                                amountSompis = externalOutputSompis
-                                if (amountSompis <= 0L) continue
-                                feeSompis = totalInputSompis - totalOutputSompis
+                                amountSompis = if (externalOutputSompis > 0L) externalOutputSompis else (totalInputSompis - ownedOutputSompis).coerceAtLeast(0L)
+                                feeSompis = (totalInputSompis - totalOutputSompis).coerceAtLeast(0L)
                                 type = "SENT"
-                            } else if (ownedOutputSompis > 0L && inputsComplete) {
+                            } else if (ownedOutputSompis > 0L) {
+                                // Real Received transaction: Output delivers funds to this wallet address
                                 amountSompis = ownedOutputSompis
                                 feeSompis = 0L
                                 type = "RECEIVED"
@@ -382,7 +367,7 @@ class KaspaWalletService(
                             val displayKas = amountSompis / 100_000_000.0
                             val txFeeKas = feeSompis / 100_000_000.0
                             
-                            if (txId.isNotBlank()) {
+                            if (txId.isNotBlank() && amountSompis > 0L) {
                                 transactions.add(
                                     KaspaTransactionItem(
                                         txId = txId,

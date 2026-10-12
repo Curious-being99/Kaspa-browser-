@@ -216,6 +216,10 @@ class PwaStandaloneActivity : FragmentActivity() {
             !extraUrl.isNullOrBlank() -> extraUrl
             !dataUrl.isNullOrBlank() -> dataUrl
             else -> "https://kaspa.org"
+        }.trim()
+
+        if (!targetUrl.startsWith("http://", ignoreCase = true) && !targetUrl.startsWith("https://", ignoreCase = true)) {
+            targetUrl = "https://$targetUrl"
         }
 
         appTitle = intent?.getStringExtra("PWA_TITLE")
@@ -448,7 +452,7 @@ fun PwaStandaloneScreen(
                         }
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, false)
+                            setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
                         }
 
                         // Apply full web settings parity (Requirement 3)
@@ -527,7 +531,17 @@ fun PwaStandaloneScreen(
 
                                 val mainHost = runCatching { Uri.parse(view?.url ?: currentUrl).host?.lowercase() }.getOrNull()
                                 val reqHost = request.url?.host?.lowercase()
-                                val isFirstParty = mainHost != null && reqHost != null && (reqHost == mainHost || reqHost.endsWith(".$mainHost"))
+                                val isFirstParty = mainHost != null && reqHost != null && (reqHost == mainHost || reqHost.endsWith(".$mainHost") || mainHost.endsWith(".$reqHost"))
+
+                                // Never block styles, fonts, images, or assets needed for PWA rendering
+                                val path = runCatching { request.url?.path?.lowercase() }.getOrNull() ?: ""
+                                val isAsset = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
+                                    path.endsWith(".ttf") || path.endsWith(".otf") || path.endsWith(".png") ||
+                                    path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".webp") ||
+                                    path.endsWith(".svg") || path.endsWith(".ico")
+                                if (isAsset) {
+                                    return null
+                                }
 
                                 if (!isFirstParty && KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
                                     return WebResourceResponse(
@@ -538,16 +552,6 @@ fun PwaStandaloneScreen(
                                         mapOf("Access-Control-Allow-Origin" to "*"),
                                         ByteArrayInputStream(ByteArray(0))
                                     )
-                                }
-
-                                if (KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
-                                    try {
-                                        val headers = request.requestHeaders ?: emptyMap()
-                                        val resp: WebResourceResponse? = kotlinx.coroutines.runBlocking {
-                                            KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, reqMethod, headers, false)
-                                        }
-                                        if (resp != null) return resp
-                                    } catch (_: Exception) {}
                                 }
 
                                 return super.shouldInterceptRequest(view, request)

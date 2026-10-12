@@ -37,6 +37,15 @@ object KaspaWebViewConfigurator {
                     if (request.isForMainFrame) return null
                     val reqUrl = request.url?.toString()
                     if (!reqUrl.isNullOrBlank()) {
+                        // Never block PWA offline stylesheets, scripts, or fonts
+                        val path = runCatching { request.url?.path?.lowercase() }.getOrNull() ?: ""
+                        val isAsset = path.endsWith(".css") || path.endsWith(".js") || path.endsWith(".json") ||
+                            path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
+                            path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".webp") || path.endsWith(".svg")
+                        if (isAsset) {
+                            return null
+                        }
+
                         if (KaspaPrivacyEngine.isTrackerOrAd(reqUrl)) {
                             return WebResourceResponse(
                                 "text/plain",
@@ -46,13 +55,6 @@ object KaspaWebViewConfigurator {
                                 mapOf("Access-Control-Allow-Origin" to "*"),
                                 java.io.ByteArrayInputStream(ByteArray(0))
                             )
-                        }
-                        if (com.example.network.KaspaPrivacyRelayEngine.isRelayApplicable(reqUrl)) {
-                            val headers = request.requestHeaders ?: emptyMap()
-                            val resp = kotlinx.coroutines.runBlocking {
-                                com.example.network.KaspaPrivacyRelayEngine.interceptForWebView(reqUrl, request.method ?: "GET", headers, false)
-                            }
-                            if (resp != null) return resp
                         }
                     }
                     return super.shouldInterceptRequest(request)
@@ -105,8 +107,8 @@ object KaspaWebViewConfigurator {
             blockNetworkLoads = false
             offscreenPreRaster = false
 
-            // Security Hardening: Never allow unencrypted mixed content on HTTPS connections
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            // Web Platform Parity: Compatibility mode allows secure webapps and modern PWAs to render seamlessly
+            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true

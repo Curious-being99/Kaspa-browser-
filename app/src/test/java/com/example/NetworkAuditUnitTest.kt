@@ -481,7 +481,7 @@ class NetworkAuditUnitTest {
         assertEquals(2, plan.selectedUtxos.size)
         assertEquals(150_000_000L, plan.accumulatedSompis)
         assertTrue("Calculated mass must be >= 1000", plan.calculatedMass >= 1000L)
-        assertTrue("Dynamic fee must be > 0 and calculated from mass", plan.feeSompis == plan.calculatedMass * plan.sompiPerMass)
+        assertTrue("Dynamic fee must be >= mass * sompiPerMass and respect network floor", plan.feeSompis == maxOf(plan.calculatedMass * plan.sompiPerMass, com.example.network.kaspa.KaspaTransactionEngine.MINIMUM_NETWORK_FEE_SOMPIS))
         assertEquals(plan.feeSompis / 100_000_000.0, plan.feeKas, 0.000000001)
         assertEquals(150_000_000L - 120_000_000L - plan.feeSompis, plan.changeSompis)
     }

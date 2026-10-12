@@ -1,5 +1,9 @@
 package com.example.ui
 
+import com.example.data.AccountEntity
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
+
 import com.example.network.kaspa.KaspaTransactionEngine
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -54,6 +58,11 @@ import com.example.utils.BiometricAuthHelper
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -85,6 +94,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -120,9 +133,11 @@ import androidx.compose.ui.unit.sp
 import com.example.model.KaspaTransactionItem
 import com.example.network.CryptoUtils
 import com.example.ui.components.KaspaQrCodeView
+import androidx.compose.material.icons.filled.Public
 import com.example.ui.theme.AmberCentral
 import com.example.ui.theme.CyanGlow
 import com.example.ui.theme.ElectricCyan
+import com.example.ui.theme.EmeraldMesh
 import com.example.ui.theme.KaspaTea
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.RedTamper
@@ -156,6 +171,8 @@ fun KaspaTestnetWalletScreen(
     val networkFeeCondition by viewModel.networkFeeCondition.collectAsState()
     val isFetchingFeeCondition by viewModel.isFetchingFeeCondition.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
+    val selectedNetwork by viewModel.selectedNetwork.collectAsState()
+    val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true)
 
     val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
     val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
@@ -169,6 +186,10 @@ fun KaspaTestnetWalletScreen(
     var isSeedPhraseRevealed by remember { mutableStateOf(false) }
     var seedPhraseError by remember { mutableStateOf<String?>(null) }
 
+    var showAccountsDialog by remember { mutableStateOf(false) }
+    var showRecoveryScreen by remember { mutableStateOf(false) }
+    var showFullWalletSetup by remember { mutableStateOf(false) }
+    var fullSetupInitialStep by remember { mutableStateOf(WalletSetupStep.CREATE_DETAILS) }
     var showCreateWalletDialog by remember { mutableStateOf(false) }
     var showImportWalletDialog by remember { mutableStateOf(false) }
 
@@ -217,6 +238,14 @@ fun KaspaTestnetWalletScreen(
         if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
+        } else if (selectedTransactionForDetails != null) {
+            selectedTransactionForDetails = null
+        } else if (showConfirmSendDialog) {
+            showConfirmSendDialog = false
+        } else if (showRecoveryScreen) {
+            showRecoveryScreen = false
+        } else if (showFullWalletSetup) {
+            showFullWalletSetup = false
         } else if (showSendScreen) {
             showSendScreen = false
         } else if (showReceiveScreen) {
@@ -244,7 +273,7 @@ fun KaspaTestnetWalletScreen(
         if (showSendScreen) {
             viewModel.refreshNetworkFeeCondition()
             // Dynamically sync fee rate with live RPC network conditions
-            selectedSompiPerMass = maxOf(10L, networkFeeCondition.normalFeerate)
+            selectedSompiPerMass = maxOf(1L, networkFeeCondition.normalFeerate)
         }
     }
 
@@ -302,36 +331,53 @@ fun KaspaTestnetWalletScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
 
-                    Column {
-                        Text(
-                            text = "Kaspa Wallet",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = activeAccount?.handle ?: "Kaspa Wallet",
-                            fontSize = 11.sp,
-                            color = TextMuted
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showAccountsDialog = true }
+                            .padding(vertical = 4.dp, horizontal = 4.dp)
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = selectedNetwork,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Switch Wallet",
+                                    tint = KaspaTea,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Text(
+                                text = "${activeAccount?.handle ?: "Kaspa Wallet"} • ${if (isMainnet) "Mainnet" else "Testnet"} Endpoint",
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
                     }
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
-                        onClick = { showCreateWalletDialog = true },
+                        onClick = { showManageScreen = true },
                         modifier = Modifier
                             .size(36.dp)
-                            .testTag("wallet_create_button")
+                            .testTag("manage_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Create Wallet",
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Manage",
                             tint = KaspaTea
                         )
                     }
@@ -347,19 +393,6 @@ fun KaspaTestnetWalletScreen(
                             contentDescription = "Refresh Wallet",
                             tint = KaspaTea,
                             modifier = if (walletState.isLoading) Modifier.rotate(refreshAngle) else Modifier
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showSeedPhraseDialog = true },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("wallet_keys_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Key,
-                            contentDescription = "Keys & Backup",
-                            tint = TextSecondary
                         )
                     }
                 }
@@ -447,14 +480,14 @@ fun KaspaTestnetWalletScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(horizontal = 40.dp),
+                horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 QuickActionButton(
                     icon = Icons.Default.Send,
                     label = "Send",
-                    color = KaspaTea,
+                    color = RedTamper.copy(alpha = 0.8f),
                     onClick = { showSendScreen = true }
                 )
                 QuickActionButton(
@@ -462,18 +495,6 @@ fun KaspaTestnetWalletScreen(
                     label = "Receive",
                     color = ElectricCyan,
                     onClick = { showReceiveScreen = true }
-                )
-                QuickActionButton(
-                    icon = Icons.Default.WaterDrop,
-                    label = "Faucet",
-                    color = KaspaTea,
-                    onClick = { viewModel.openTestnetFaucet(context) }
-                )
-                QuickActionButton(
-                    icon = Icons.Default.Settings,
-                    label = "Manage",
-                    color = TextSecondary,
-                    onClick = { showManageScreen = true }
                 )
             }
 
@@ -545,6 +566,7 @@ fun KaspaTestnetWalletScreen(
         if (showReceiveScreen) {
             ReceiveScreenOverlay(
                 address = testnetAddress,
+                isMainnet = isMainnet,
                 onOpenFaucet = { viewModel.openTestnetFaucet(context) },
                 onClose = { showReceiveScreen = false }
             )
@@ -553,14 +575,53 @@ fun KaspaTestnetWalletScreen(
         // Manage Settings Screen Overlay
         if (showManageScreen) {
             ManageScreenOverlay(
+                viewModel = viewModel,
                 activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccounts.size,
-                onViewSeed = { showSeedPhraseDialog = true },
-                onCreateNewWallet = { showCreateWalletDialog = true },
-                onImportWallet = { showImportWalletDialog = true },
+                onViewSeed = { showRecoveryScreen = true },
                 onSignOut = { showSignOutConfirmDialog = true },
                 onClose = { showManageScreen = false }
+            )
+        }
+
+        // Full-Page Recovery Screen Overlay
+        if (showRecoveryScreen) {
+            RecoveryScreenOverlay(
+                seedPhrase = viewModel.getActiveSeedPhrase() ?: "",
+                viewModel = viewModel,
+                onClose = { showRecoveryScreen = false }
+            )
+        }
+
+        // Full-Page Setup Flow (Create / Import Wallet)
+        if (showFullWalletSetup) {
+            WalletSetupFlow(
+                viewModel = viewModel,
+                onBackToBrowser = { showFullWalletSetup = false },
+                initialStep = fullSetupInitialStep,
+                modifier = modifier
+            )
+        }
+
+        // Accounts Dialog
+        if (showAccountsDialog) {
+            WalletAccountsDialog(
+                allAccounts = allAccounts,
+                activeAccount = activeAccount,
+                onSelectAccount = { account ->
+                    viewModel.switchAccount(account.did)
+                    viewModel.refreshTestnetWallet()
+                },
+                onCreateNewWallet = {
+                    fullSetupInitialStep = WalletSetupStep.CREATE_DETAILS
+                    showFullWalletSetup = true
+                },
+                onImportExistingWallet = {
+                    fullSetupInitialStep = WalletSetupStep.IMPORT_PHRASE
+                    showFullWalletSetup = true
+                },
+                onDismiss = { showAccountsDialog = false }
             )
         }
 
@@ -625,85 +686,22 @@ fun KaspaTestnetWalletScreen(
         }
     }
 
-    // Confirmation Dialog for Sending
+    // Full-Page Confirmation Overlay for Sending
     if (showConfirmSendDialog) {
         val amountNum = amountInput.toDoubleOrNull() ?: 0.0
         val breakdown = viewModel.calculateFeeBreakdown(amountNum, selectedSompiPerMass)
-        AlertDialog(
-            onDismissRequest = { showConfirmSendDialog = false },
-            containerColor = SurfaceCard,
-            title = {
-                Text(
-                    text = "Confirm Send",
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "You are sending KAS:",
-                        fontSize = 13.sp,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Surface(
-                        color = SurfaceDark,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, SurfaceCardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = "Amount: %.8f KAS".format(amountNum),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = KaspaTea
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Recipient: $recipientInput",
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = TextMuted
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Network Fee:", fontSize = 11.sp, color = TextSecondary)
-                                Text("${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Total Required:", fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
-                                Text("${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS", fontSize = 12.sp, color = KaspaTea, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showConfirmSendDialog = false
-                        viewModel.sendKaspaTransaction(recipientInput, amountNum, selectedSompiPerMass)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
-                ) {
-                    Text("Confirm & Broadcast", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showConfirmSendDialog = false }) {
-                    Text("Cancel", color = TextMuted)
-                }
+        ConfirmSendScreenOverlay(
+            recipientAddress = recipientInput,
+            amountKas = amountNum,
+            selectedSompiPerMass = selectedSompiPerMass,
+            breakdown = breakdown,
+            priceUsd = walletState.priceUsd,
+            isSending = walletState.isSending,
+            viewModel = viewModel,
+            onBack = { showConfirmSendDialog = false },
+            onBroadcastConfirmed = {
+                showConfirmSendDialog = false
+                viewModel.sendKaspaTransaction(recipientInput, amountNum, selectedSompiPerMass)
             }
         )
     }
@@ -839,30 +837,16 @@ fun KaspaTestnetWalletScreen(
 
     // Create New Wallet Dialog
     if (showCreateWalletDialog) {
-        var walletNameInput by remember { mutableStateOf("Kaspa Wallet") }
+        val activeNet by viewModel.selectedNetwork.collectAsState()
         var passphraseInput by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateWalletDialog = false },
             containerColor = SurfaceCard,
-            title = { Text("Create New Wallet", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text("Create $activeNet Wallet", color = TextPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("Generate a new BIP-39 12-word wallet.", fontSize = 12.sp, color = TextSecondary)
+                    Text("Generate a new BIP-39 12-word wallet for $activeNet.", fontSize = 12.sp, color = TextSecondary)
                     Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = walletNameInput,
-                        onValueChange = { walletNameInput = it },
-                        label = { Text("Wallet Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = KaspaTea,
-                            unfocusedBorderColor = SurfaceCardBorder,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = passphraseInput,
                         onValueChange = { passphraseInput = it },
@@ -884,7 +868,7 @@ fun KaspaTestnetWalletScreen(
                 Button(
                     onClick = {
                         showCreateWalletDialog = false
-                        viewModel.createNewTestnetWallet(walletNameInput, passphraseInput)
+                        viewModel.createNewTestnetWallet(null, passphraseInput)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                 ) {
@@ -901,16 +885,16 @@ fun KaspaTestnetWalletScreen(
 
     // Import Wallet Dialog
     if (showImportWalletDialog) {
+        val activeNet by viewModel.selectedNetwork.collectAsState()
         var mnemonicInput by remember { mutableStateOf("") }
-        var walletNameInput by remember { mutableStateOf("Imported Wallet") }
         var passphraseInput by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showImportWalletDialog = false },
             containerColor = SurfaceCard,
-            title = { Text("Import Wallet", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text("Import $activeNet Wallet", color = TextPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("Enter your 12 or 24-word recovery phrase separated by spaces:", fontSize = 12.sp, color = TextSecondary)
+                    Text("Enter your 12 or 24-word recovery phrase separated by spaces for $activeNet:", fontSize = 12.sp, color = TextSecondary)
                     Spacer(modifier = Modifier.height(10.dp))
                     OutlinedTextField(
                         value = mnemonicInput,
@@ -924,20 +908,6 @@ fun KaspaTestnetWalletScreen(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary
                         )
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = walletNameInput,
-                        onValueChange = { walletNameInput = it },
-                        label = { Text("Wallet Name") },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = KaspaTea,
-                            unfocusedBorderColor = SurfaceCardBorder,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        singleLine = true
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
@@ -961,7 +931,7 @@ fun KaspaTestnetWalletScreen(
                 Button(
                     onClick = {
                         showImportWalletDialog = false
-                        viewModel.importTestnetWallet(mnemonicInput, walletNameInput, passphraseInput)
+                        viewModel.importTestnetWallet(mnemonicInput, null, passphraseInput)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                     enabled = mnemonicInput.isNotBlank()
@@ -1123,15 +1093,39 @@ private fun HistoryTabContent(
                     2 -> transactions.count { it.type == "RECEIVED" }
                     else -> transactions.size
                 }
+                val tabBorderColor = when {
+                    isSelected && index == 1 -> RedTamper
+                    isSelected && index == 2 -> KaspaTea
+                    isSelected -> KaspaTea
+                    else -> SurfaceCardBorder
+                }
+                val tabTextColor = when {
+                    isSelected && index == 1 -> RedTamper
+                    isSelected && index == 2 -> KaspaTea
+                    isSelected -> KaspaTea
+                    else -> TextSecondary
+                }
+                val badgeColor = when (index) {
+                    1 -> RedTamper.copy(alpha = if (isSelected) 0.95f else 0.25f)
+                    2 -> KaspaTea.copy(alpha = if (isSelected) 0.95f else 0.25f)
+                    else -> if (isSelected) KaspaTea else SurfaceCardBorder.copy(alpha = 0.7f)
+                }
+                val badgeTextColor = when {
+                    isSelected -> SurfaceDark
+                    index == 1 -> RedTamper
+                    index == 2 -> KaspaTea
+                    else -> TextMuted
+                }
+
                 Surface(
                     onClick = { selectedFilterIndex = index },
                     shape = RoundedCornerShape(10.dp),
-                    color = if (isSelected) KaspaTea.copy(alpha = 0.18f) else SurfaceCard,
-                    border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
+                    color = if (isSelected) tabBorderColor.copy(alpha = 0.15f) else SurfaceCard,
+                    border = BorderStroke(1.dp, tabBorderColor),
                     modifier = Modifier.weight(1f)
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1139,26 +1133,23 @@ private fun HistoryTabContent(
                             text = title,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) KaspaTea else TextSecondary
+                            color = tabTextColor
                         )
-                        if (count > 0) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isSelected) KaspaTea else SurfaceCardBorder,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = badgeColor
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                ) {
-                                    Text(
-                                        text = "$count",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) SurfaceDark else TextMuted
-                                    )
-                                }
+                                Text(
+                                    text = "$count",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = badgeTextColor
+                                )
                             }
                         }
                     }
@@ -1323,7 +1314,7 @@ private fun TransactionCard(
                             text = if (isReceive) "Received KAS" else "Sent KAS",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isReceive) TextPrimary else RedTamper
+                            color = if (isReceive) KaspaTea else RedTamper
                         )
                         Text(
                             text = dateStr,
@@ -1436,9 +1427,11 @@ private fun KaspaFeeCalculatorSection(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Dynamic Feerate selection chips: Normal (0.0056 KAS, 10 sompi/g) & Fast Priority (0.0069 KAS, 20 sompi/g)
-            val normRate = maxOf(10L, networkCondition.normalFeerate)
-            val fastRate = maxOf(20L, networkCondition.priorityFeerate)
+            // Dynamic Feerate selection chips: calculated dynamically from mass with zero hardcoded floors
+            val normRate = maxOf(1L, networkCondition.normalFeerate)
+            val fastRate = maxOf(normRate * 2, networkCondition.priorityFeerate)
+            val normFee = KaspaTransactionEngine.calculateFeeBreakdown(amountKas, 1, 2, normRate).feeKas
+            val fastFee = KaspaTransactionEngine.calculateFeeBreakdown(amountKas, 1, 2, fastRate).feeKas
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1472,8 +1465,8 @@ private fun KaspaFeeCalculatorSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf(
-                    Triple("Normal", normRate, "0.0056 KAS"),
-                    Triple("Fast Priority", fastRate, "0.0069 KAS")
+                    Triple("Normal", normRate, "${KaspaTransactionEngine.formatKas(normFee)} KAS"),
+                    Triple("Fast Priority", fastRate, "${KaspaTransactionEngine.formatKas(fastFee)} KAS")
                 ).forEach { (label, rate, feeLabel) ->
                     val isSelected = selectedSompiPerMass == rate
                     Surface(
@@ -1745,6 +1738,7 @@ private fun SendTabContent(
 @Composable
 private fun ReceiveTabContent(
     address: String,
+    isMainnet: Boolean,
     onOpenFaucet: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1767,7 +1761,7 @@ private fun ReceiveTabContent(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Scan or copy this address to receive test coins.",
+                text = if (isMainnet) "Scan or copy this address to receive Kaspa." else "Scan or copy this address to receive test coins.",
                 fontSize = 12.sp,
                 color = TextSecondary
             )
@@ -1843,7 +1837,7 @@ private fun ReceiveTabContent(
                             putExtra(Intent.EXTRA_TEXT, address)
                             type = "text/plain"
                         }
-                        context.startActivity(Intent.createChooser(sendIntent, "Share Testnet 10 Address"))
+                        context.startActivity(Intent.createChooser(sendIntent, "Share Kaspa Address"))
                     },
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, SurfaceCardBorder),
@@ -1858,33 +1852,35 @@ private fun ReceiveTabContent(
             }
         }
 
-        item {
-            // Faucet Call-To-Action
-            Surface(
-                color = SurfaceElevated,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.3f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+        if (!isMainnet) {
+            item {
+                // Faucet Call-To-Action
+                Surface(
+                    color = SurfaceElevated,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = KaspaTea)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("Need Test Coins?", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                            Text("Open official Kaspa faucet", fontSize = 11.sp, color = TextSecondary)
-                        }
-                    }
-                    Button(
-                        onClick = onOpenFaucet,
-                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                        shape = RoundedCornerShape(8.dp)
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Open Faucet", color = SurfaceDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = KaspaTea)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Need Test Coins?", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text("Open official Kaspa faucet", fontSize = 11.sp, color = TextSecondary)
+                            }
+                        }
+                        Button(
+                            onClick = onOpenFaucet,
+                            colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Open Faucet", color = SurfaceDark, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -1894,55 +1890,102 @@ private fun ReceiveTabContent(
 
 @Composable
 private fun ManageTabContent(
+    viewModel: DecentralViewModel,
     activeAccountHandle: String,
     testnetAddress: String,
     allAccountsCount: Int,
-    onViewSeed: () -> Unit,
-    onCreateNewWallet: () -> Unit,
-    onImportWallet: () -> Unit,
+    onOpenRecovery: () -> Unit,
     onSignOut: () -> Unit
 ) {
+    val selectedNetwork by viewModel.selectedNetwork.collectAsState()
+    val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
+    val networkList = listOf(
+        Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
+        Triple("Kaspa Mainnet", "kaspa:", "https://api.kaspa.org"),
+        Triple("Kaspa Testnet 11", "kaspatest:", "https://api-tn11.kaspa.org")
+    )
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // 1. Network Section at Top as Radio Button Card List
         item {
-            Text("Wallet Security & Keys", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                networkList.forEach { (name, prefix, rpc) ->
+                    val isSelected = selectedNetwork == name
+                    Surface(
+                        onClick = { viewModel.selectNetwork(name) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
+                        border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { viewModel.selectNetwork(name) },
+                                colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = name,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = if (isSelected) KaspaTea else TextPrimary
+                                    )
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            color = KaspaTea.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "Connected",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = KaspaTea,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Text("Prefix: $prefix • RPC: $rpc", fontSize = 11.sp, color = TextMuted)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
+        // 2. Recovery Section
         item {
-            ManagementOptionCard(
-                icon = Icons.Default.Key,
-                iconColor = KaspaTea,
-                title = "Backup Recovery Phrase",
-                subtitle = "View your 12-word recovery mnemonic seed phrase",
-                onClick = onViewSeed
-            )
-        }
-
-        item {
-            ManagementOptionCard(
-                icon = Icons.Default.Add,
-                iconColor = KaspaTea,
-                title = "Create New Wallet",
-                subtitle = "Generate a fresh BIP-39 mnemonic wallet",
-                onClick = onCreateNewWallet
-            )
-        }
-
-        item {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("Recovery", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Spacer(modifier = Modifier.height(6.dp))
             ManagementOptionCard(
                 icon = Icons.Default.Lock,
-                iconColor = ElectricCyan,
-                title = "Import Existing Wallet",
-                subtitle = "Restore an existing 12 or 24-word seed phrase",
-                onClick = onImportWallet
+                iconColor = KaspaTea,
+                title = "Recovery",
+                subtitle = "Backup & view your 12-word recovery mnemonic seed phrase in full page",
+                onClick = onOpenRecovery
             )
         }
 
+        // 3. Security & Sign Out
         item {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text("Account", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Spacer(modifier = Modifier.height(6.dp))
             ManagementOptionCard(
                 icon = Icons.AutoMirrored.Filled.Logout,
                 iconColor = RedTamper,
@@ -1952,12 +1995,11 @@ private fun ManageTabContent(
             )
         }
 
+        // 4. Network Details Info Box
         item {
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text("Network Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-        }
-
-        item {
+            Spacer(modifier = Modifier.height(6.dp))
             Surface(
                 color = SurfaceCard,
                 shape = RoundedCornerShape(14.dp),
@@ -1965,11 +2007,11 @@ private fun ManageTabContent(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
-                    DetailRow(label = "Network", value = "Kaspa Testnet")
-                    DetailRow(label = "Prefix", value = "kaspatest:")
-                    DetailRow(label = "RPC Endpoint", value = "https://api-tn10.kaspa.org")
-                    DetailRow(label = "Finality", value = "Instant BlockDAG")
-                    DetailRow(label = "Explorer", value = "https://tn10.kaspa.stream")
+                    DetailRow(label = "Network", value = selectedNetwork)
+                    DetailRow(label = "Prefix", value = if (selectedNetwork.contains("Mainnet")) "kaspa:" else "kaspatest:")
+                    DetailRow(label = "RPC Endpoint", value = if (selectedNetwork.contains("Mainnet")) "https://api.kaspa.org" else "https://api-tn10.kaspa.org")
+                    DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
+                    DetailRow(label = "Explorer", value = selectedExplorerUrl)
                 }
             }
         }
@@ -2041,10 +2083,18 @@ enum class WalletSetupStep {
 fun WalletSetupFlow(
     viewModel: DecentralViewModel,
     onBackToBrowser: () -> Unit,
+    initialStep: WalletSetupStep = WalletSetupStep.WELCOME,
     modifier: Modifier = Modifier
 ) {
-    var step by remember { mutableStateOf(WalletSetupStep.WELCOME) }
-    var walletName by remember { mutableStateOf("Kaspa TN10 Wallet") }
+    val selectedNetwork by viewModel.selectedNetwork.collectAsState()
+    var step by remember(initialStep) { mutableStateOf(initialStep) }
+    val effectiveWalletName = remember(selectedNetwork) {
+        when {
+            selectedNetwork.contains("Mainnet", ignoreCase = true) -> "Kaspa Mainnet Wallet"
+            selectedNetwork.contains("11") -> "Kaspa TN11 Wallet"
+            else -> "Kaspa TN10 Wallet"
+        }
+    }
     var walletPassword by remember { mutableStateOf("") }
     var passphrase by remember { mutableStateOf("") }
     var generatedMnemonic by remember { mutableStateOf("") }
@@ -2086,12 +2136,12 @@ fun WalletSetupFlow(
             }
             WalletSetupStep.CREATE_DETAILS -> {
                 CreateDetailsSetupView(
-                    walletName = walletName,
-                    onWalletNameChange = { walletName = it },
                     walletPassword = walletPassword,
                     onWalletPasswordChange = { walletPassword = it },
                     passphrase = passphrase,
                     onPassphraseChange = { passphrase = it },
+                    selectedNetwork = selectedNetwork,
+                    onSelectNetwork = { viewModel.selectNetwork(it) },
                     onBack = { step = WalletSetupStep.WELCOME },
                     onContinue = { step = WalletSetupStep.CREATE_BACKUP }
                 )
@@ -2106,7 +2156,7 @@ fun WalletSetupFlow(
                         if (walletPassword.length >= 8) {
                             viewModel.setWalletPassword(walletPassword)
                         }
-                        viewModel.importTestnetWallet(generatedMnemonic, walletName, passphrase)
+                        viewModel.importTestnetWallet(generatedMnemonic, effectiveWalletName, passphrase)
                     },
                     onCopy = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -2119,18 +2169,18 @@ fun WalletSetupFlow(
                 ImportPhraseSetupView(
                     mnemonicInput = importMnemonicInput,
                     onMnemonicChange = { importMnemonicInput = it },
-                    walletName = walletName,
-                    onWalletNameChange = { walletName = it },
                     walletPassword = walletPassword,
                     onWalletPasswordChange = { walletPassword = it },
                     passphrase = passphrase,
                     onPassphraseChange = { passphrase = it },
+                    selectedNetwork = selectedNetwork,
+                    onSelectNetwork = { viewModel.selectNetwork(it) },
                     onBack = { step = WalletSetupStep.WELCOME },
                     onImport = {
                         if (walletPassword.length >= 8) {
                             viewModel.setWalletPassword(walletPassword)
                         }
-                        viewModel.importTestnetWallet(importMnemonicInput, walletName, passphrase)
+                        viewModel.importTestnetWallet(importMnemonicInput, effectiveWalletName, passphrase)
                     }
                 )
             }
@@ -2173,55 +2223,45 @@ private fun WelcomeSetupView(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Surface(
             shape = CircleShape,
             color = KaspaTea.copy(alpha = 0.12f),
             border = BorderStroke(1.5.dp, KaspaTea.copy(alpha = 0.4f)),
-            modifier = Modifier.size(70.dp)
+            modifier = Modifier.size(76.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.AccountBalanceWallet,
                     contentDescription = null,
                     tint = KaspaTea,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(40.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = "Kaspa Wallet",
-            fontSize = 24.sp,
+            fontSize = 25.sp,
             fontWeight = FontWeight.ExtraBold,
             color = TextPrimary
         )
 
-        Spacer(modifier = Modifier.height(2.dp))
-
-        Text(
-            text = "Non-Custodial BlockDAG Wallet",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = KaspaTea,
-            fontFamily = FontFamily.Monospace
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
             text = "Fast, secure, and decentralized. Set up your wallet to start transacting.",
-            fontSize = 12.5.sp,
+            fontSize = 13.sp,
             color = TextSecondary,
             textAlign = TextAlign.Center,
-            lineHeight = 17.sp,
-            modifier = Modifier.padding(horizontal = 8.dp)
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(horizontal = 12.dp)
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Feature Highlights
         Surface(
@@ -2230,7 +2270,7 @@ private fun WelcomeSetupView(
             border = BorderStroke(1.dp, SurfaceCardBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SetupFeatureItem(
                     icon = Icons.Default.Shield,
                     title = "Client-Side Cryptography",
@@ -2241,12 +2281,17 @@ private fun WelcomeSetupView(
                     title = "BIP-39 Passphrase Support",
                     subtitle = "Optional 13th-word salt for layered recovery security."
                 )
+                SetupFeatureItem(
+                    icon = Icons.Default.Public,
+                    title = "Multi-Network DAG Support",
+                    subtitle = "Choose between Kaspa Mainnet, Testnet 10, or Testnet 11 during setup."
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // Action Buttons
+        // Action Buttons - Always ready and enabled without sitting on network switch
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -2268,7 +2313,7 @@ private fun WelcomeSetupView(
             OutlinedButton(
                 onClick = onImportClick,
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, SurfaceCardBorder),
+                border = BorderStroke(1.dp, KaspaTea),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -2282,14 +2327,118 @@ private fun WelcomeSetupView(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NetworkSelectionCard(
+    selectedNetwork: String,
+    onSelectNetwork: (String) -> Unit
+) {
+    val networks = listOf("Kaspa Mainnet", "Kaspa Testnet 10", "Kaspa Testnet 11")
+    var expanded by remember { mutableStateOf(false) }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceCard,
+        border = BorderStroke(1.dp, SurfaceCardBorder),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Public,
+                        contentDescription = null,
+                        tint = KaspaTea,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Kaspa Network Zone",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (selectedNetwork.contains("Mainnet", ignoreCase = true)) KaspaTea.copy(alpha = 0.2f) else EmeraldMesh.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, if (selectedNetwork.contains("Mainnet", ignoreCase = true)) KaspaTea.copy(alpha = 0.6f) else EmeraldMesh.copy(alpha = 0.4f))
+                ) {
+                    Text(
+                        text = if (selectedNetwork.contains("Mainnet", ignoreCase = true)) "MAINNET" else "TESTNET",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (selectedNetwork.contains("Mainnet", ignoreCase = true)) KaspaTea else EmeraldMesh,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+            ) {
+                OutlinedTextField(
+                    value = selectedNetwork,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Active Network") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = KaspaTea,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary
+                    )
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    networks.forEach { network ->
+                        val isCurrent = network == selectedNetwork
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text(
+                                        text = network,
+                                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isCurrent) KaspaTea else TextPrimary
+                                    )
+                                    Text(
+                                        text = if (network.contains("Mainnet")) "Address prefix: kaspa: • Real DAG funds" else "Address prefix: kaspatest: • Test tokens",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onSelectNetwork(network)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun CreateDetailsSetupView(
-    walletName: String,
-    onWalletNameChange: (String) -> Unit,
     walletPassword: String,
     onWalletPasswordChange: (String) -> Unit,
     passphrase: String,
     onPassphraseChange: (String) -> Unit,
+    selectedNetwork: String,
+    onSelectNetwork: (String) -> Unit,
     onBack: () -> Unit,
     onContinue: () -> Unit
 ) {
@@ -2313,26 +2462,20 @@ private fun CreateDetailsSetupView(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
-                    Text("Configure Wallet", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    Text("Step 1 of 2: Security & Passphrase", fontSize = 12.sp, color = TextSecondary)
+                    Text("Configure Wallet - $selectedNetwork", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Step 1 of 2: Network & Security Credentials", fontSize = 12.sp, color = TextSecondary)
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = walletName,
-                onValueChange = onWalletNameChange,
-                label = { Text("Wallet Name") },
-                modifier = Modifier.fillMaxWidth().testTag("setup_wallet_name_input"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = KaspaTea,
-                    unfocusedBorderColor = SurfaceCardBorder,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
-                ),
-                singleLine = true
+            // Kaspa Network Zone
+            NetworkSelectionCard(
+                selectedNetwork = selectedNetwork,
+                onSelectNetwork = onSelectNetwork
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Spacer(modifier = Modifier.height(14.dp))
 
@@ -2397,7 +2540,7 @@ private fun CreateDetailsSetupView(
 
         Button(
             onClick = onContinue,
-            enabled = walletName.isNotBlank() && isPasswordValid,
+            enabled = isPasswordValid,
             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea, disabledContainerColor = SurfaceCardBorder),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
@@ -2405,7 +2548,7 @@ private fun CreateDetailsSetupView(
                 .height(50.dp)
                 .testTag("setup_continue_backup_button")
         ) {
-            Text("Generate Recovery Phrase", color = if (walletName.isNotBlank() && isPasswordValid) SurfaceDark else TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text("Generate Recovery Phrase", color = if (isPasswordValid) SurfaceDark else TextMuted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
     }
 }
@@ -2561,12 +2704,12 @@ private fun CreateBackupSetupView(
 private fun ImportPhraseSetupView(
     mnemonicInput: String,
     onMnemonicChange: (String) -> Unit,
-    walletName: String,
-    onWalletNameChange: (String) -> Unit,
     walletPassword: String,
     onWalletPasswordChange: (String) -> Unit,
     passphrase: String,
     onPassphraseChange: (String) -> Unit,
+    selectedNetwork: String,
+    onSelectNetwork: (String) -> Unit,
     onBack: () -> Unit,
     onImport: () -> Unit
 ) {
@@ -2595,10 +2738,23 @@ private fun ImportPhraseSetupView(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
-                    Text("Import Existing Wallet", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text(
+                        if (selectedNetwork.isNotBlank()) "Import Existing Wallet - $selectedNetwork" else "Import Existing Wallet",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
                     Text("Enter 12 or 24-word recovery phrase", fontSize = 12.sp, color = TextSecondary)
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Kaspa Network Zone
+            NetworkSelectionCard(
+                selectedNetwork = selectedNetwork,
+                onSelectNetwork = onSelectNetwork
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -2632,23 +2788,7 @@ private fun ImportPhraseSetupView(
                 )
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedTextField(
-                value = walletName,
-                onValueChange = onWalletNameChange,
-                label = { Text("Wallet Name") },
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = KaspaTea,
-                    unfocusedBorderColor = SurfaceCardBorder,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
-                ),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             OutlinedTextField(
                 value = walletPassword,
@@ -2941,6 +3081,7 @@ private fun SendScreenOverlay(
 @Composable
 private fun ReceiveScreenOverlay(
     address: String,
+    isMainnet: Boolean,
     onOpenFaucet: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -2970,6 +3111,7 @@ private fun ReceiveScreenOverlay(
             
             ReceiveTabContent(
                 address = address,
+                isMainnet = isMainnet,
                 onOpenFaucet = onOpenFaucet
             )
         }
@@ -3099,12 +3241,11 @@ private fun TransactionResultOverlay(
 }
 @Composable
 private fun ManageScreenOverlay(
+    viewModel: DecentralViewModel,
     activeAccountHandle: String,
     testnetAddress: String,
     allAccountsCount: Int,
     onViewSeed: () -> Unit,
-    onCreateNewWallet: () -> Unit,
-    onImportWallet: () -> Unit,
     onSignOut: () -> Unit,
     onClose: () -> Unit
 ) {
@@ -3133,12 +3274,11 @@ private fun ManageScreenOverlay(
             }
             
             ManageTabContent(
+                viewModel = viewModel,
                 activeAccountHandle = activeAccountHandle,
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccountsCount,
-                onViewSeed = onViewSeed,
-                onCreateNewWallet = onCreateNewWallet,
-                onImportWallet = onImportWallet,
+                onOpenRecovery = onViewSeed,
                 onSignOut = onSignOut
             )
         }
@@ -3335,4 +3475,959 @@ private fun TransactionDetailDialog(
             }
         }
     )
+}
+
+
+@Composable
+private fun ConfirmSendScreenOverlay(
+    recipientAddress: String,
+    amountKas: Double,
+    selectedSompiPerMass: Long,
+    breakdown: KaspaTransactionEngine.FeeCalculationBreakdown,
+    priceUsd: Double,
+    isSending: Boolean,
+    viewModel: DecentralViewModel,
+    onBack: () -> Unit,
+    onBroadcastConfirmed: () -> Unit
+) {
+    val context = LocalContext.current
+    val hasPassword by viewModel.hasWalletPassword.collectAsState()
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
+    var passwordInput by remember { mutableStateOf("") }
+    var authErrorMessage by remember { mutableStateOf<String?>(null) }
+    var showPasswordFallback by remember { mutableStateOf(false) }
+
+    fun proceedToBroadcast() {
+        authErrorMessage = null
+        onBroadcastConfirmed()
+    }
+
+    fun initiateAuthentication() {
+        if (isSending) return
+        val isProtected = hasPassword || biometricsEnabled
+        if (!isProtected) {
+            proceedToBroadcast()
+            return
+        }
+
+        if (biometricsEnabled && BiometricAuthHelper.isDeviceLockAvailable(context)) {
+            BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                context = context,
+                title = "Authorize KAS Broadcast",
+                subtitle = "Authenticate to confirm sending %.4f KAS".format(amountKas),
+                onSuccess = {
+                    proceedToBroadcast()
+                },
+                onError = { err ->
+                    if (hasPassword) {
+                        showPasswordFallback = true
+                        authErrorMessage = "$err. Please enter your wallet password below."
+                    } else {
+                        authErrorMessage = err
+                    }
+                }
+            )
+        } else if (hasPassword) {
+            showPasswordFallback = true
+        } else {
+            proceedToBroadcast()
+        }
+    }
+
+    fun verifyPasswordAndProceed() {
+        if (passwordInput.isBlank()) {
+            authErrorMessage = "Please enter your wallet password to authorize broadcast."
+            return
+        }
+        val isValid = viewModel.unlockWalletWithPassword(passwordInput)
+        if (isValid) {
+            proceedToBroadcast()
+        } else {
+            authErrorMessage = "Incorrect wallet password. Please try again."
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .testTag("confirm_send_screen_overlay")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            // Clean Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, enabled = !isSending) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Review & Confirm",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = TextPrimary
+                )
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    // Header Amount Hero Card
+                    Surface(
+                        color = SurfaceCard,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .clip(CircleShape)
+                                    .background(KaspaTea.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = null,
+                                    tint = KaspaTea,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "You are sending",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "%.8f KAS".format(amountKas),
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = KaspaTea
+                            )
+                            if (priceUsd > 0.0) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "≈ $%.2f USD".format(amountKas * priceUsd),
+                                    fontSize = 13.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Recipient Card
+                item {
+                    Surface(
+                        color = SurfaceDark,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Recipient Address",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Surface(
+                                    color = KaspaTea.copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Verified CashAddr",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = KaspaTea,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = recipientAddress,
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = ElectricCyan,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+
+                // Network Fee & Mass Details Card
+                item {
+                    Surface(
+                        color = SurfaceDark,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Network Fee & Consensus Details",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Calculated Network Fee:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AmberCentral
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Selected Priority Feerate:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "$selectedSompiPerMass sompi/gram",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Estimated BlockDAG Mass:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "${breakdown.totalMass} mass units",
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextSecondary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Total Required Deduction:",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = KaspaTea
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Security State Card
+                item {
+                    val isProtected = hasPassword || biometricsEnabled
+                    Surface(
+                        color = if (isProtected) KaspaTea.copy(alpha = 0.08f) else SurfaceCard,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, if (isProtected) KaspaTea.copy(alpha = 0.3f) else SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (isProtected) Icons.Default.Lock else Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = if (isProtected) KaspaTea else TextMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isProtected) "Security Verification Active" else "Standard Authorization",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (isProtected) KaspaTea else TextPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (isProtected) {
+                                    if (biometricsEnabled) "Hardware biometric confirmation or PIN is required prior to broadcasting on-chain."
+                                    else "Security password verification is required before broadcast."
+                                } else {
+                                    "No lock protection active. Instant confirmation enabled."
+                                },
+                                fontSize = 11.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+
+                            if (showPasswordFallback) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                OutlinedTextField(
+                                    value = passwordInput,
+                                    onValueChange = {
+                                        passwordInput = it
+                                        authErrorMessage = null
+                                    },
+                                    label = { Text("Wallet Password") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = KaspaTea,
+                                        unfocusedBorderColor = SurfaceCardBorder,
+                                        focusedLabelColor = KaspaTea,
+                                        unfocusedLabelColor = TextMuted,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    ),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = { verifyPasswordAndProceed() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Authorize with Password", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            if (!authErrorMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = authErrorMessage ?: "",
+                                    fontSize = 11.sp,
+                                    color = RedTamper,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // Bottom Actions
+            Surface(
+                color = SurfaceElevated,
+                border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            if (showPasswordFallback) {
+                                verifyPasswordAndProceed()
+                            } else {
+                                initiateAuthentication()
+                            }
+                        },
+                        enabled = !isSending,
+                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("confirm_and_broadcast_button")
+                    ) {
+                        if (isSending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = SurfaceDark,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Broadcasting to DAG...", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(
+                                imageVector = if (hasPassword || biometricsEnabled) Icons.Default.Fingerprint else Icons.Default.Send,
+                                contentDescription = null,
+                                tint = SurfaceDark,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (hasPassword || biometricsEnabled) "Authorize & Broadcast" else "Confirm & Broadcast",
+                                color = SurfaceDark,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = onBack,
+                        enabled = !isSending,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        Text("Cancel", color = TextSecondary, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun WalletAccountsDialog(
+    allAccounts: List<AccountEntity>,
+    activeAccount: AccountEntity?,
+    onSelectAccount: (AccountEntity) -> Unit,
+    onCreateNewWallet: () -> Unit,
+    onImportExistingWallet: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(onClick = onDismiss)
+            .testTag("wallet_accounts_overlay"),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 550.dp)
+                .clickable(enabled = false) {},
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            color = SurfaceCard,
+            border = BorderStroke(1.dp, SurfaceCardBorder)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .background(TextMuted.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Wallets & Accounts", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+                    Surface(
+                        color = SurfaceDark,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.4f))
+                    ) {
+                        Text(
+                            "${allAccounts.size} Wallets",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = KaspaTea,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Select an active wallet or add a new identity:", fontSize = 12.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 260.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(allAccounts) { account ->
+                        val isActive = account.kaspaAddress == activeAccount?.kaspaAddress
+                        Surface(
+                            onClick = {
+                                onSelectAccount(account)
+                                onDismiss()
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            color = SurfaceDark,
+                            border = BorderStroke(1.dp, if (isActive) KaspaTea else SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountBalanceWallet,
+                                        contentDescription = null,
+                                        tint = if (isActive) KaspaTea else TextMuted,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(account.handle, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isActive) KaspaTea else TextPrimary)
+                                        Text(
+                                            account.kaspaAddress.take(12) + "..." + account.kaspaAddress.takeLast(6),
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextMuted
+                                        )
+                                    }
+                                }
+                                if (isActive) {
+                                    Icon(Icons.Default.Check, contentDescription = "Active", tint = KaspaTea, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onCreateNewWallet()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, KaspaTea),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = SurfaceDark),
+                        modifier = Modifier.weight(1f).height(46.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, tint = KaspaTea, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Create", color = KaspaTea, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            onDismiss()
+                            onImportExistingWallet()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).height(46.dp)
+                    ) {
+                        Icon(Icons.Default.Download, null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Import", color = SurfaceDark, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecoveryScreenOverlay(
+    seedPhrase: String,
+    viewModel: DecentralViewModel,
+    onClose: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val hasPassword by viewModel.hasWalletPassword.collectAsState()
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
+    var isRevealed by remember { mutableStateOf(!hasPassword) }
+    var passwordInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var copyNotice by remember { mutableStateOf(false) }
+
+    val words = remember(seedPhrase) {
+        if (seedPhrase.isNotBlank()) seedPhrase.trim().split(Regex("\\s+")) else emptyList()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .clickable(enabled = false) {}
+            .testTag("recovery_screen_overlay")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Close",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Recovery Phrase",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    // Security Warning Card
+                    Surface(
+                        color = AmberCentral.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, AmberCentral.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shield,
+                                contentDescription = null,
+                                tint = AmberCentral,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Confidential Master Key",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = AmberCentral
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Your 12-word seed phrase gives full control of your wallet funds. Never share it, photograph it, or enter it on untrusted sites.",
+                                    fontSize = 11.5.sp,
+                                    color = TextSecondary,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (!isRevealed) {
+                    item {
+                        Surface(
+                            color = SurfaceCard,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = KaspaTea,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Security Verification Required",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Enter your wallet password or authenticate to reveal the phrase.",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                OutlinedTextField(
+                                    value = passwordInput,
+                                    onValueChange = {
+                                        passwordInput = it
+                                        errorMessage = null
+                                    },
+                                    label = { Text("Wallet Password") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = KaspaTea,
+                                        unfocusedBorderColor = SurfaceCardBorder,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    ),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                if (!errorMessage.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(errorMessage ?: "", color = RedTamper, fontSize = 11.sp)
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Button(
+                                    onClick = {
+                                        if (viewModel.unlockWalletWithPassword(passwordInput)) {
+                                            isRevealed = true
+                                            errorMessage = null
+                                        } else {
+                                            errorMessage = "Incorrect password. Please try again."
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                                ) {
+                                    Text("Reveal Seed Phrase", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                                }
+
+                                if (biometricsEnabled && BiometricAuthHelper.isDeviceLockAvailable(context)) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                                context = context,
+                                                title = "Authorize Seed Reveal",
+                                                subtitle = "Authenticate to view recovery phrase",
+                                                onSuccess = { isRevealed = true },
+                                                onError = { err -> errorMessage = err }
+                                            )
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.5f)),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                                    ) {
+                                        Icon(Icons.Default.Fingerprint, null, tint = KaspaTea, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Unlock with Biometrics", color = KaspaTea)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    item {
+                        Surface(
+                            color = SurfaceDark,
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "Your 12-Word Recovery Phrase",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextMuted
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Numbered Grid of Words
+                                for (rowIdx in 0 until (words.size + 1) / 2) {
+                                    val leftIdx = rowIdx * 2
+                                    val rightIdx = leftIdx + 1
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        if (leftIdx < words.size) {
+                                            Surface(
+                                                color = SurfaceCard,
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.6f)),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "${leftIdx + 1}.",
+                                                        fontSize = 11.sp,
+                                                        color = TextMuted,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.width(22.dp)
+                                                    )
+                                                    Text(
+                                                        text = words[leftIdx],
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = KaspaTea
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        if (rightIdx < words.size) {
+                                            Surface(
+                                                color = SurfaceCard,
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.6f)),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "${rightIdx + 1}.",
+                                                        fontSize = 11.sp,
+                                                        color = TextMuted,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier.width(22.dp)
+                                                    )
+                                                    Text(
+                                                        text = words[rightIdx],
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        color = KaspaTea
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Button(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa Recovery Phrase", seedPhrase))
+                                copyNotice = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(50.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, null, tint = SurfaceDark, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (copyNotice) "Phrase Copied!" else "Copy Recovery Phrase",
+                                color = SurfaceDark,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // Bottom Close Action
+            Surface(
+                color = SurfaceElevated,
+                border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    TextButton(
+                        onClick = onClose,
+                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                    ) {
+                        Text("Done", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
 }

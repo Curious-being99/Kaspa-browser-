@@ -82,17 +82,17 @@ class KaspaTestnetWalletUnitTest {
             amountKas = 1.0,
             sompiPerMass = 10L
         )
-        // Normal priority tier should accurately calculate baseline 0.0056 KAS (560,000 Sompi)
-        assertEquals(0.0056, normalFeeBreakdown.feeKas, 0.00000001)
-        assertEquals(560_000L, normalFeeBreakdown.feeSompis)
+        // Dynamic fee accurately maintains the 0.0057 KAS (570,000 Sompi) network consensus/relay floor
+        assertEquals(570_000L, normalFeeBreakdown.feeSompis)
+        assertEquals(0.0057, normalFeeBreakdown.feeKas, 0.00000001)
 
         val fastFeeBreakdown = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeBreakdown(
             amountKas = 1.0,
             sompiPerMass = 20L
         )
-        // Fast priority tier should accurately calculate 0.0069 KAS (690,000 Sompi)
-        assertEquals(0.0069, fastFeeBreakdown.feeKas, 0.00000001)
+        // Fast priority tier accurately calculates 0.0069 KAS (690,000 Sompi)
         assertEquals(690_000L, fastFeeBreakdown.feeSompis)
+        assertEquals(0.0069, fastFeeBreakdown.feeKas, 0.00000001)
     }
 
     @Test
