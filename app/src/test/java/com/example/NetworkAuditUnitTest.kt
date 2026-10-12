@@ -615,4 +615,54 @@ class NetworkAuditUnitTest {
 
         assertFalse("Proof must not be trusted until verified", proof.isVerified)
     }
+    @Test
+    fun desktopViewportScriptAvoidsRepeatedObserversAndWholeDomScans() {
+        val script = com.example.network.KaspaPrivacyEngine.getDesktopViewportScript(
+            isDesktop = true,
+            baseUa = "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36"
+        )
+
+        assertTrue(script.contains("window.__kaspa_viewport_mode === mode"))
+        assertTrue(script.contains("window.__kaspa_viewport_observer"))
+        assertTrue(script.contains("observer.observe(document.head, { childList: true })"))
+        assertFalse(script.contains("n.getElementsByTagName('meta')"))
+        assertFalse(script.contains("observer.observe(targetNode, { childList: true, subtree: true })"))
+    }
+
+
+    @Test
+    fun desktopToggleIgnoresAboutBlankAndFallsBackToAddressBarUrl() {
+        assertEquals(
+            "https://kaspa.stream/",
+            com.example.network.KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = "about:blank",
+                urlInput = "https://kaspa.stream/",
+                resourceUrl = "https://kaspa.org/"
+            )
+        )
+    }
+
+    @Test
+    fun desktopToggleUsesCurrentPageBeforeFallbackUrls() {
+        assertEquals(
+            "https://kaspa.stream/",
+            com.example.network.KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = "https://kaspa.stream/",
+                urlInput = "https://kaspa.org/",
+                resourceUrl = null
+            )
+        )
+    }
+
+    @Test
+    fun desktopToggleReturnsNullWhenNoUsableUrlExists() {
+        assertNull(
+            com.example.network.KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = "about:blank",
+                urlInput = "data:text/html,",
+                resourceUrl = " "
+            )
+        )
+    }
+
 }
