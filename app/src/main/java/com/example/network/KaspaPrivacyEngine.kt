@@ -493,6 +493,24 @@ object KaspaPrivacyEngine {
     }
 
     /**
+     * Selects the real page URL when toggling desktop mode. WebView.url can be
+     * "about:blank" during an in-flight navigation; because it is non-null, a
+     * simple Elvis fallback would reload the blank document and lose the page.
+     */
+    fun resolveUrlForDesktopToggle(
+        webViewUrl: String?,
+        urlInput: String?,
+        resourceUrl: String?
+    ): String? {
+        return sequenceOf(webViewUrl, urlInput, resourceUrl)
+            .mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
+            .firstOrNull { candidate ->
+                !candidate.equals("about:blank", ignoreCase = true) &&
+                    !candidate.startsWith("data:", ignoreCase = true)
+            }
+    }
+
+    /**
      * Converts common mobile subdomains (m.youtube.com, en.m.wikipedia.org, m.facebook.com)
      * to their full desktop equivalent when Desktop Mode is toggled, exactly like Chrome on Android.
      */
