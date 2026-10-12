@@ -140,6 +140,77 @@ class MainActivity : FragmentActivity() {
       } catch (e: Exception) {
         Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
       }
+
+      // Automatically maintain WebView cache health to prevent hanging during long browsing sessions
+      performAutomaticWebViewCacheMaintenance()
+    }
+  }
+
+  private fun performAutomaticWebViewCacheMaintenance() {
+    try {
+      val roots = mutableListOf<File>()
+      try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+          dataDir?.let { roots.add(File(it, "app_webview")) }
+        }
+      } catch (_: Throwable) {}
+      try {
+        applicationInfo?.dataDir?.let { roots.add(File(it, "app_webview")) }
+      } catch (_: Throwable) {}
+      try {
+        filesDir?.parentFile?.let { roots.add(File(it, "app_webview")) }
+      } catch (_: Throwable) {}
+
+      val cacheSubPaths = listOf(
+        "Default/Cache",
+        "Default/Code Cache",
+        "Default/GPUCache",
+        "Cache",
+        "Code Cache",
+        "GPUCache"
+      )
+
+      var totalCacheSize = 0L
+      val foldersToClear = mutableListOf<File>()
+      for (root in roots) {
+        if (!root.exists()) continue
+        for (sub in cacheSubPaths) {
+          val f = File(root, sub)
+          if (f.exists()) {
+            val size = getDirSize(f)
+            totalCacheSize += size
+            foldersToClear.add(f)
+          }
+        }
+      }
+
+      if (totalCacheSize > 35 * 1024 * 1024L) {
+        Log.i("MainActivity", "Automatic WebView cache cleanup triggered: cache size is ${totalCacheSize / (1024 * 1024)}MB")
+        for (folder in foldersToClear) {
+          deleteDirectoryContents(folder)
+        }
+      }
+    } catch (e: Throwable) {
+      Log.w("MainActivity", "Automatic cache maintenance notice: ${e.message}")
+    }
+  }
+
+  private fun getDirSize(dir: File?): Long {
+    if (dir == null || !dir.exists()) return 0L
+    if (dir.isFile) return dir.length()
+    return try {
+      dir.listFiles()?.sumOf { getDirSize(it) } ?: 0L
+    } catch (_: Throwable) {
+      0L
+    }
+  }
+
+  private fun deleteDirectoryContents(dir: File?) {
+    if (dir == null || !dir.exists() || !dir.isDirectory) return
+    dir.listFiles()?.forEach { child ->
+      try {
+        if (child.isDirectory) child.deleteRecursively() else child.delete()
+      } catch (_: Throwable) {}
     }
   }
 

@@ -180,6 +180,21 @@ object KaspaPrivacyEngine {
     }
 
     /**
+     * Checks if a URL is a Google authentication, sign-in, or 2FA URL.
+     */
+    fun isGoogleAuthUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        val lower = url.lowercase()
+        return lower.contains("accounts.google.com") ||
+               lower.contains("google.com/accounts") ||
+               lower.contains("signin.google.com") ||
+               lower.contains("oauth2") ||
+               lower.contains("ServiceLogin") ||
+               lower.contains("IdentifierVerification") ||
+               lower.contains("v2/identifier")
+    }
+
+    /**
      * Backward-compatible alias for checking Google Account URLs
      */
     fun isGoogleAccountUrl(url: String): Boolean = isGoogleAccountOrAuthUrl(url)
@@ -333,6 +348,12 @@ object KaspaPrivacyEngine {
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
             if (window.__kaspa_shield_injected) return;
+            try {
+                var h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 || h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 || h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1) {
+                    return;
+                }
+            } catch(e) {}
             window.__kaspa_shield_injected = true;
             try {
                 // 1. Global Privacy Control & Do-Not-Track (W3C Standard)

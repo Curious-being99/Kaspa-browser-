@@ -16,6 +16,20 @@ import androidx.webkit.WebViewFeature
 import com.example.network.KaspaPrivacyEngine
 
 object KaspaWebViewConfigurator {
+    /**
+     * Dynamically ensures Google Sign-In, OAuth, and 2FA authentication URLs have proper cookies and UA settings.
+     */
+    fun checkAndConfigureForUrl(webView: WebView, url: String?) {
+        if (url.isNullOrBlank()) return
+        try {
+            if (KaspaPrivacyEngine.isGoogleAuthUrl(url)) {
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.setAcceptCookie(true)
+                cookieManager.setAcceptThirdPartyCookies(webView, true)
+            }
+        } catch (_: Throwable) {}
+    }
+
 
     private const val TAG = "KaspaWebViewConfig"
 
@@ -71,7 +85,7 @@ object KaspaWebViewConfigurator {
      * Complies with Google Play policy and web standards.
      */
     @SuppressLint("SetJavaScriptEnabled")
-    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false, acceptThirdPartyCookies: Boolean = false) {
+    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false, acceptThirdPartyCookies: Boolean = true) {
         val defaultDeviceUa = try {
             WebSettings.getDefaultUserAgent(context)
         } catch (_: Throwable) {
@@ -125,7 +139,7 @@ object KaspaWebViewConfigurator {
         try {
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
+            cookieManager.setAcceptThirdPartyCookies(webView, true)
         } catch (e: Exception) {
             Log.w(TAG, "CookieManager setup notice: ${e.message}")
         }

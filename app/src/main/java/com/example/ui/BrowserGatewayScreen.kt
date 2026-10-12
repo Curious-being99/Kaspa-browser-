@@ -2488,6 +2488,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         webViewClient = object : WebViewClient() {
                                             override fun onPageStarted(wv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                                 super.onPageStarted(wv, url, favicon)
+                                                 if (wv != null && url != null) {
+                                                     com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(wv, url)
+                                                 }
                                                 val target = url ?: return
                                                 handleTargetUrl(wv, target, isUserGesture)
                                             }
@@ -2632,6 +2635,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 }
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                     if (view != null && url != null) {
+                                         com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
+                                     }
                                     if (!isReaderMode && !isExtractingOrLoadingReaderMode) {
                                         // normal page load
                                     } else if (url != null && !url.startsWith("data:") && url != originalPageUrl) {

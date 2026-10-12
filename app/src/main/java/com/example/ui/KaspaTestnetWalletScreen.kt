@@ -356,11 +356,7 @@ fun KaspaTestnetWalletScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                            Text(
-                                text = "${activeAccount?.handle ?: "Kaspa Wallet"} • ${if (isMainnet) "Mainnet" else "Testnet"} Endpoint",
-                                fontSize = 11.sp,
-                                color = TextMuted
-                            )
+                            
                         }
                     }
                 }
@@ -480,8 +476,8 @@ fun KaspaTestnetWalletScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp),
-                horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+                    .padding(horizontal = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(56.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 QuickActionButton(
@@ -535,7 +531,8 @@ fun KaspaTestnetWalletScreen(
                     transactions = walletState.recentTransactions,
                     isLoading = walletState.isLoading,
                     onOpenTx = { tx -> selectedTransactionForDetails = tx },
-                    onGetFaucetCoins = { viewModel.openTestnetFaucet(context) }
+                    onGetFaucetCoins = { viewModel.openTestnetFaucet(context) },
+                    isMainnet = isMainnet
                 )
             }
         }
@@ -1065,7 +1062,8 @@ private fun HistoryTabContent(
     transactions: List<KaspaTransactionItem>,
     isLoading: Boolean,
     onOpenTx: (KaspaTransactionItem) -> Unit,
-    onGetFaucetCoins: () -> Unit
+    onGetFaucetCoins: () -> Unit,
+    isMainnet: Boolean
 ) {
     var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Sent, 2: Received
     val filterTabs = listOf("All", "Sent", "Received")
@@ -1210,13 +1208,13 @@ private fun HistoryTabContent(
                     text = when (selectedFilterIndex) {
                         1 -> "You have not broadcasted any sent transactions from this wallet yet."
                         2 -> "No incoming transactions recorded yet for this wallet address."
-                        else -> "Your Kaspa wallet is ready. Request test coins from the faucet to begin."
+                        else -> if (isMainnet) "Your Kaspa mainnet wallet is ready for transactions." else "Your Kaspa wallet is ready. Request test coins from the faucet to begin."
                     },
                     fontSize = 12.sp,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
                 )
-                if (selectedFilterIndex == 0 || selectedFilterIndex == 2) {
+                if (!isMainnet && (selectedFilterIndex == 0 || selectedFilterIndex == 2)) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = onGetFaucetCoins,
