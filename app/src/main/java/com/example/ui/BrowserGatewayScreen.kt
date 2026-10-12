@@ -1714,7 +1714,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             wv.settings.userAgentString = currentUa
                                             wv.settings.useWideViewPort = newMode
                                             wv.settings.loadWithOverviewMode = newMode
-                                            val rawUrl = wv.url ?: (if (urlInput.isNotBlank()) urlInput else currentResource?.url)
+                                            val rawUrl = KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                                                webViewUrl = wv.url,
+                                                urlInput = urlInput,
+                                                resourceUrl = currentResource?.url
+                                            )
                                             val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
                                                 KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
                                             } else if (!newMode && !rawUrl.isNullOrBlank()) {
@@ -1727,8 +1731,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             }
                                             if (!curUrl.isNullOrBlank() && (curUrl.startsWith("http://", ignoreCase = true) || curUrl.startsWith("https://", ignoreCase = true))) {
                                                 wv.loadUrl(curUrl, KaspaPrivacyEngine.getDesktopHeaders(newMode, defaultDeviceUa))
+                                            } else if (!curUrl.isNullOrBlank()) {
+                                                // Preserve supported internal protocols; never reload an empty/about:blank document.
+                                                wv.loadUrl(curUrl)
                                             } else {
-                                                wv.reload()
+                                                viewModel.setStatusMessage("No page URL available to reload after changing desktop mode")
                                             }
                                         }
                                     }
