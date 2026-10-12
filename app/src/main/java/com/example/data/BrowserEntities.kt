@@ -191,7 +191,9 @@ data class TransactionEntity(
     val type: String, // "RECEIVED", "SENT", "DAG_MINT"
     val isAccepted: Boolean = true,
     val feeKas: Double = 0.0001,
-    val counterpartyAddress: String = ""
+    val counterpartyAddress: String = "",
+    // Exact selected network label; UNKNOWN keeps legacy rows isolated until provenance is known.
+    @ColumnInfo(defaultValue = "UNKNOWN") val network: String = "UNKNOWN"
 )
 
 @Dao
@@ -201,6 +203,9 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transaction_history ORDER BY blockTime DESC")
     suspend fun getAllTransactionsList(): List<TransactionEntity>
+
+    @Query("SELECT * FROM transaction_history WHERE network = :network ORDER BY blockTime DESC")
+    suspend fun getTransactionsForNetwork(network: String): List<TransactionEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transaction: TransactionEntity)
