@@ -630,4 +630,39 @@ class NetworkAuditUnitTest {
     }
 
 
+    @Test
+    fun desktopToggleIgnoresAboutBlankAndFallsBackToAddressBarUrl() {
+        assertEquals(
+            "https://kaspa.stream/",
+            com.example.network.KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = "about:blank",
+                urlInput = "https://kaspa.stream/",
+                resourceUrl = "https://kaspa.org/"
+            )
+        )
+    }
+
+    @Test
+    fun desktopToggleUsesCurrentPageBeforeFallbackUrls() {
+        assertEquals(
+            "https://kaspa.stream/",
+            com.example.network.KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = "https://kaspa.stream/",
+                urlInput = "https://kaspa.org/",
+                resourceUrl = null
+            )
+        )
+    }
+
+    @Test
+    fun desktopToggleReturnsNullWhenNoUsableUrlExists() {
+        assertNull(
+            com.example.network.KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = "about:blank",
+                urlInput = "data:text/html,",
+                resourceUrl = " "
+            )
+        )
+    }
+
 }
