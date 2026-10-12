@@ -1578,7 +1578,7 @@ class DecentralViewModel(
             
             // Query local stored transactions to ensure recently broadcasted sent transactions are preserved
             val localEntities = try {
-                database.transactionDao().getAllTransactionsList()
+                database.transactionDao().getTransactionsForNetwork(_selectedNetwork.value)
             } catch (_: Exception) {
                 emptyList()
             }
@@ -1620,7 +1620,7 @@ class DecentralViewModel(
                 balanceKas = safeBalanceKas,
                 balanceUsd = safeBalanceUsd,
                 recentTransactions = mergedList,
-                networkStatus = "Kaspa BlockDAG Testnet 10"
+                networkStatus = _selectedNetwork.value
             )
         }
         refreshNetworkFeeCondition()
@@ -1657,7 +1657,9 @@ class DecentralViewModel(
     ): KaspaTransactionEngine.FeeCalculationBreakdown {
         return KaspaTransactionEngine.calculateFeeBreakdown(
             amountKas = amountKas,
-            inputsCount = 1,
+            // The current UTXO count is a better estimate than always assuming one input.
+            // Final fee still depends on the actual transaction mass and selected UTXOs.
+            inputsCount = maxOf(1, _kaspaWalletState.value.utxosCount),
             outputsCount = 2,
             sompiPerMass = sompiPerMass
         )
@@ -1742,7 +1744,8 @@ class DecentralViewModel(
                             type = txItem.type,
                             isAccepted = txItem.isAccepted,
                             feeKas = txItem.feeKas,
-                            counterpartyAddress = txItem.counterpartyAddress
+                            counterpartyAddress = txItem.counterpartyAddress,
+                            network = _selectedNetwork.value
                         ))
                     }
 
