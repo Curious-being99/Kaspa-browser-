@@ -239,8 +239,6 @@ class KaspaWalletService(
                     val bodyStr = resp.body?.string()
                     if (!bodyStr.isNullOrBlank()) {
                         val json = JSONObject(bodyStr)
-                        // Treat only a present, integral, non-negative balance as authoritative.
-                        // Missing, malformed, or impossible values must not silently become zero.
                         val rawBalance = json.opt("balance")
                         val parsedBalance = when (rawBalance) {
                             is Byte, is Short, is Int, is Long -> (rawBalance as Number).toLong()
@@ -314,14 +312,10 @@ class KaspaWalletService(
                                 break
                             }
                         }
-                        // A valid empty UTXO array represents zero unspent outputs.
-                        // Reject malformed/overflowing snapshots instead of summing partial data.
-                        if (entriesValid) {
+                                                        if (entriesValid) {
                             utxoFetchSuccess = true
                             utxosCount = array.length()
-                            // Only use UTXOs when the balance endpoint did not provide a valid
-                            // response. A valid balance of zero remains authoritative.
-                            if (!balanceFetchSuccess) {
+                                                            if (!balanceFetchSuccess) {
                                 balanceSompis = utxoSum
                                 balanceFetchSuccess = true
                             }
@@ -331,9 +325,6 @@ class KaspaWalletService(
             }
         } catch (_: Exception) {}
 
-        // Avoid presenting a fabricated zero when neither live balance source responded.
-        // A successful balance response (including zero) is authoritative; if it failed,
-        // a successful UTXO response may still provide the fallback sum.
         if (!balanceFetchSuccess && !utxoFetchSuccess) {
             throw java.io.IOException("Unable to load wallet balance: balance and UTXO endpoints both failed.")
         }
