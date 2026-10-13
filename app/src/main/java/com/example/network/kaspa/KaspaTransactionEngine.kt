@@ -877,6 +877,26 @@ object KaspaTransactionEngine {
     }
 
     /**
+     * Computes the Toccata minimum-standard fee from the transaction's actual
+     * signed serialization size. The compute-gram term uses this engine's local
+     * estimator and therefore still requires cross-checking against Rusty-Kaspa.
+     */
+    fun calculateToccataMinimumStandardFee(tx: KaspaTransaction): Long {
+        require(tx.inputs.isNotEmpty()) { "A standard transaction must contain at least one input" }
+        require(tx.outputs.isNotEmpty()) { "A standard transaction must contain at least one output" }
+        val serializedBytes = calculateSerializedByteSize(tx)
+        val sigOps = tx.inputs.sumOf { if (it.sigOpCount > 0) it.sigOpCount else 1 }
+        val computeGrams = calculateComputeMass(
+            tx.inputs.size,
+            tx.outputs.size,
+            sigOps,
+            if (tx.payload.isBlank()) 0 else tx.payload.length / 2
+        )
+        val feeGrams = maxOf(computeGrams, Math.multiplyExact(serializedBytes, 2L))
+        return Math.multiplyExact(feeGrams, TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
+    }
+
+    /**
      * Estimates transaction fee in KAS units (8 decimals).
      */
     fun estimateFeeKas(
