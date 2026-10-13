@@ -556,10 +556,12 @@ object KaspaPrivacyEngine {
         return if (isDesktop) {
             mapOf(
                 "Sec-CH-UA-Mobile" to "?0",
-                "Sec-CH-UA-Platform" to "\"Windows\"",
+                "Sec-CH-UA-Platform" to "\"Linux\"",
                 "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
                 "Sec-CH-UA-Model" to "\"\"",
-                "Sec-CH-UA-Platform-Version" to "\"15.0.0\"",
+                "Sec-CH-UA-Platform-Version" to "\"6.0.0\"",
+                "Sec-CH-UA-Arch" to "\"x86\"",
+                "Sec-CH-UA-Bitness" to "\"64\"",
                 "Sec-CH-UA-Full-Version-List" to "\"Chromium\";v=\"$fullVer\", \"Google Chrome\";v=\"$fullVer\", \"Not?A_Brand\";v=\"99.0.0.0\""
             )
         } else {
