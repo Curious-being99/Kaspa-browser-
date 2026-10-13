@@ -1594,22 +1594,40 @@ class DecentralViewModel(
                 )
             }
             
-            // Merge local and remote: on-chain transactions take precedence by txId, then sorted by blockTime DESC
+            // Preserve locally recorded SENT type when the API returns the same txId with
+            // incomplete or incorrectly classified input details. Remote confirmation metadata
+            // may update the local item, but must not turn a known outgoing tx into RECEIVED.
+            val localById = localTxItems.associateBy { it.txId }
             val remoteMap = updated.recentTransactions.associateBy { it.txId }
-            val mergedList = mutableListOf<KaspaTransactionItem>()
-            mergedList.addAll(updated.recentTransactions)
-            for (localTx in localTxItems) {
-                if (!remoteMap.containsKey(localTx.txId)) {
-                    mergedList.add(localTx)
+            val mergedById = linkedMapOf<String, KaspaTransactionItem>()
+            for (remoteTx in updated.recentTransactions) {
+                val localTx = localById[remoteTx.txId]
+                mergedById[remoteTx.txId] = if (localTx?.type == "SENT" && remoteTx.type != "SENT") {
+                    localTx.copy(isAccepted = remoteTx.isAccepted)
+                } else {
+                    remoteTx
                 }
             }
-            mergedList.sortByDescending { it.blockTime }
+            for (localTx in localTxItems) {
+                if (!mergedById.containsKey(localTx.txId)) mergedById[localTx.txId] = localTx
+            }
+            val mergedList = mergedById.values.sortedByDescending { it.blockTime }
 
-            // Balance Preservation Safeguard: If remote query returned 0 due to network glitch, preserve last confirmed positive balance
-            val safeBalanceSompis = if (updated.balanceSompis == 0L && _kaspaWalletState.value.balanceSompis > 0L) {
-                _kaspaWalletState.value.balanceSompis
-            } else {
-                updated.balanceSompis
+            // A just-broadcast SENT tx can appear in Room before the address API's
+            // history catches up. While any locally persisted outgoing tx is absent
+            // from the remote history, retain the already-adjusted displayed balance.
+            // This avoids immediately restoring the pre-send balance on refresh. Once
+            // the API reports the tx, the authoritative API balance is used again.
+            val hasUnreconciledLocalSend = localTxItems.any {
+                it.type == "SENT" && !remoteMap.containsKey(it.txId)
+            }
+            val currentState = _kaspaWalletState.value
+            val safeBalanceSompis = when {
+                hasUnreconciledLocalSend && currentState.balanceSompis > 0L ->
+                    (currentState.balanceKas * 100_000_000.0).toLong()
+                updated.balanceSompis == 0L && currentState.balanceSompis > 0L ->
+                    currentState.balanceSompis
+                else -> updated.balanceSompis
             }
             val safeBalanceKas = safeBalanceSompis / 100_000_000.0
             val safeBalanceUsd = safeBalanceKas * updated.priceUsd
@@ -1735,8 +1753,8 @@ class DecentralViewModel(
                 result.onSuccess { txItem ->
                     _statusMessage.value = "Testnet 10 KAS Broadcasted! Tx: ${txItem.txId.take(16)}..."
                     
-                    // Persist transaction
-                    viewModelScope.launch(Dispatchers.IO) {
+                    // Persist before refreshing so the refresh cannot race ahead of Room history.
+                    withContext(Dispatchers.IO) {
                         database.transactionDao().insert(TransactionEntity(
                             txId = txItem.txId,
                             blockTime = txItem.blockTime,
