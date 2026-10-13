@@ -865,11 +865,13 @@ object KaspaTransactionEngine {
             payloadByteCount
         )
         val sigOps = inputsCount.toLong()
-        val computeGrams = calculateComputeMass(
-            inputsCount,
-            outputsCount,
-            sigOps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-            payloadByteCount
+        val scriptPublicKeyGrams = Math.multiplyExact(
+            outputsCount.toLong(),
+            (2L + STANDARD_P2PK_SCRIPT_BYTES) * MASS_PER_SCRIPT_PUB_KEY_BYTE
+        )
+        val computeGrams = Math.addExact(
+            Math.addExact(estimatedBytes, scriptPublicKeyGrams),
+            Math.multiplyExact(sigOps.coerceAtMost(Int.MAX_VALUE.toLong()), MASS_PER_SIG_OP)
         )
         val transientGrams = Math.multiplyExact(estimatedBytes, 2L)
         val feeGrams = maxOf(computeGrams, transientGrams)
@@ -886,11 +888,17 @@ object KaspaTransactionEngine {
         require(tx.outputs.isNotEmpty()) { "A standard transaction must contain at least one output" }
         val serializedBytes = calculateSerializedByteSize(tx)
         val sigOps = tx.inputs.sumOf { if (it.sigOpCount > 0) it.sigOpCount else 1 }
-        val computeGrams = calculateComputeMass(
-            tx.inputs.size,
-            tx.outputs.size,
-            sigOps,
-            if (tx.payload.isBlank()) 0 else tx.payload.length / 2
+        val scriptPublicKeyGrams = tx.outputs.fold(0L) { total, output ->
+            val scriptBytes = if (output.scriptPublicKey.script.isNotBlank()) {
+                output.scriptPublicKey.script.length / 2
+            } else {
+                STANDARD_P2PK_SCRIPT_BYTES
+            }
+            Math.addExact(total, Math.multiplyExact(2L + scriptBytes, MASS_PER_SCRIPT_PUB_KEY_BYTE))
+        }
+        val computeGrams = Math.addExact(
+            Math.addExact(serializedBytes, scriptPublicKeyGrams),
+            Math.multiplyExact(sigOps.toLong(), MASS_PER_SIG_OP)
         )
         val feeGrams = maxOf(computeGrams, Math.multiplyExact(serializedBytes, 2L))
         return Math.multiplyExact(feeGrams, TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
