@@ -811,7 +811,7 @@ class KaspaWalletService(
                 // Recalculate mass with the actual spent UTXO amounts. Omitting input
                 // amounts makes calculateStorageMass treat every output as newly created
                 // without subtracting the consumed UTXOs, inflating mass and the required fee.
-                val signedMass = tx.calculateMass(selectedUtxoEntries.map { it.amount })
+                val signedMass = KaspaTransactionEngine.calculateMass(tx, selectedUtxoEntries.map { it.amount })
                 val requiredSignedFee = maxOf(
                     KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
                     KaspaTransactionEngine.calculateFeeForMass(signedMass, txPlan.sompiPerMass),
