@@ -1826,7 +1826,8 @@ class KaspaWalletService(
 
     data class ConfirmationResult(
         val transactionId: String,
-        val accepted: Boolean,
+        // null means acceptance could not be verified before timeout; it is not a rejection.
+        val accepted: Boolean?,
         val elapsedMs: Long,
         val acceptingBlueScore: Long? = null,
         val currentBlueScore: Long? = null,
@@ -1835,78 +1836,84 @@ class KaspaWalletService(
 
     private data class AcceptanceSnapshot(val accepted: Boolean, val acceptingBlueScore: Long?)
 
-    private fun readNonNegativeLong(json: JSONObject, vararg keys: String): Long? {
-        for (key in keys) {
-            val raw = json.opt(key) ?: continue
-            val value = when (raw) { is Number -> raw.toLong(); is String -> raw.toLongOrNull(); else -> null }
-            if (value != null && value >= 0L) return value
+    private fun readNonNegativeLong(json: JSONObject, key: String): Long? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val raw = json.opt(key)
+        val value = when (raw) {
+            is Byte, is Short, is Int, is Long -> (raw as Number).toLong()
+            is Number -> {
+                val number = (raw as Number).toDouble()
+                if (number.isFinite() && number >= 0.0 && number % 1.0 == 0.0 && number <= Long.MAX_VALUE.toDouble()) number.toLong() else null
+            }
+            else -> null
         }
-        return null
+        return value?.takeIf { it >= 0L }
     }
 
-    private suspend fun queryAcceptance(txId: String, isTestnet: Boolean): AcceptanceSnapshot? = withContext(Dispatchers.IO) {
+    private fun acceptanceApiBase(networkName: String): String = when {
+        networkName.contains("Mainnet", ignoreCase = true) -> API_MAINNET
+        networkName.contains("Testnet 11", ignoreCase = true) -> API_TESTNET_11
+        else -> API_TESTNET
+    }
+
+    private suspend fun queryAcceptance(txId: String, networkName: String): AcceptanceSnapshot? = withContext(Dispatchers.IO) {
         try {
-            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val base = acceptanceApiBase(networkName)
             val payload = JSONObject().put("transactionIds", JSONArray().put(txId))
             val request = Request.Builder().url("$base/transactions/acceptance")
                 .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val raw = response.body?.string()?.takeIf { it.isNotBlank() } ?: return@withContext null
-                val root = raw.trimStart()
-                val entries = when {
-                    root.startsWith("[") -> JSONArray(raw)
-                    root.startsWith("{") -> {
-                        val obj = JSONObject(raw)
-                        obj.optJSONArray("transactions") ?: obj.optJSONArray("results") ?: JSONArray().put(obj)
-                    }
-                    else -> return@withContext null
-                }
+                // The documented endpoint returns an array of TxAcceptanceResponse objects.
+                val entries = JSONArray(raw)
                 for (i in 0 until entries.length()) {
                     val item = entries.optJSONObject(i) ?: continue
-                    val returnedId = item.optString("transactionId", item.optString("transaction_id", item.optString("txId", "")))
-                    if (returnedId.isNotBlank() && !returnedId.equals(txId, ignoreCase = true)) continue
-                    val accepted = item.optBoolean("accepted", item.optBoolean("isAccepted", item.optBoolean("is_accepted", false)))
-                    val score = readNonNegativeLong(item, "acceptingBlueScore", "accepting_blue_score", "acceptingBlockBlueScore", "accepting_block_blue_score")
-                    return@withContext AcceptanceSnapshot(accepted, score)
+                    val returnedId = item.optString("transactionId", "")
+                    if (!returnedId.equals(txId, ignoreCase = true)) continue
+                    if (!item.has("accepted") || item.isNull("accepted")) return@withContext null
+                    val acceptedRaw = item.opt("accepted")
+                    if (acceptedRaw !is Boolean) return@withContext null
+                    val score = readNonNegativeLong(item, "acceptingBlueScore")
+                    return@withContext AcceptanceSnapshot(acceptedRaw, score)
                 }
             }
         } catch (_: Exception) { }
         null
     }
 
-    private suspend fun queryVirtualBlueScore(isTestnet: Boolean): Long? = withContext(Dispatchers.IO) {
+    private suspend fun queryVirtualBlueScore(networkName: String): Long? = withContext(Dispatchers.IO) {
         try {
-            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val base = acceptanceApiBase(networkName)
             val request = Request.Builder().url("$base/info/virtual-chain-blue-score").get().build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val raw = response.body?.string()?.takeIf { it.isNotBlank() } ?: return@withContext null
-                readNonNegativeLong(JSONObject(raw), "blueScore", "blue_score")
+                readNonNegativeLong(JSONObject(raw), "blueScore")
             }
         } catch (_: Exception) { null }
     }
 
     suspend fun verifyTransactionAcceptance(txId: String, isTestnet: Boolean = false): Boolean =
-        queryAcceptance(txId, isTestnet)?.accepted == true
+        queryAcceptance(txId, if (isTestnet) "Kaspa Testnet 10" else "Kaspa Mainnet")?.accepted == true
 
     suspend fun waitForAcceptance(
         txId: String,
-        isTestnet: Boolean = false,
+        networkName: String,
         timeoutMs: Long = 60_000L,
         pollIntervalMs: Long = 1_000L
     ): ConfirmationResult = withContext(Dispatchers.IO) {
         val startedAt = System.currentTimeMillis()
         while (System.currentTimeMillis() - startedAt < timeoutMs) {
-            val snapshot = queryAcceptance(txId, isTestnet)
+            val snapshot = queryAcceptance(txId, networkName)
             if (snapshot?.accepted == true) {
-                val current = queryVirtualBlueScore(isTestnet)
-                val count = if (snapshot.acceptingBlueScore != null && current != null && current >= snapshot.acceptingBlueScore) current - snapshot.acceptingBlueScore else null
-                return@withContext ConfirmationResult(txId, true, System.currentTimeMillis() - startedAt, snapshot.acceptingBlueScore, current, count)
+                val current = queryVirtualBlueScore(networkName)
+                val progress = if (snapshot.acceptingBlueScore != null && current != null && current >= snapshot.acceptingBlueScore) current - snapshot.acceptingBlueScore else null
+                return@withContext ConfirmationResult(txId, true, System.currentTimeMillis() - startedAt, snapshot.acceptingBlueScore, current, progress)
             }
-            delay(pollIntervalMs)
+            delay(pollIntervalMs.coerceAtLeast(250L))
         }
-        ConfirmationResult(txId, false, System.currentTimeMillis() - startedAt)
+        ConfirmationResult(txId, null, System.currentTimeMillis() - startedAt)
     }
 
     // ==========================================
