@@ -470,7 +470,7 @@ object KaspaPrivacyEngine {
         })();
     """
 
-    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
     fun getDesktopUserAgent(baseUa: String? = null): String {
@@ -478,7 +478,7 @@ object KaspaPrivacyEngine {
             ?.let { Regex("Chrome/([0-9.]+)").find(it)?.groupValues?.get(1) }
             ?: Regex("Chrome/([0-9.]+)").find(DESKTOP_USER_AGENT)?.groupValues?.get(1)
             ?: "130.0.0.0"
-        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36"
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36"
     }
 
     /**
@@ -556,12 +556,10 @@ object KaspaPrivacyEngine {
         return if (isDesktop) {
             mapOf(
                 "Sec-CH-UA-Mobile" to "?0",
-                "Sec-CH-UA-Platform" to "\"Linux\"",
+                "Sec-CH-UA-Platform" to "\"Windows\"",
                 "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
                 "Sec-CH-UA-Model" to "\"\"",
-                "Sec-CH-UA-Platform-Version" to "\"6.0.0\"",
-                "Sec-CH-UA-Arch" to "\"x86\"",
-                "Sec-CH-UA-Bitness" to "\"64\"",
+                "Sec-CH-UA-Platform-Version" to "\"15.0.0\"",
                 "Sec-CH-UA-Full-Version-List" to "\"Chromium\";v=\"$fullVer\", \"Google Chrome\";v=\"$fullVer\", \"Not?A_Brand\";v=\"99.0.0.0\""
             )
         } else {
