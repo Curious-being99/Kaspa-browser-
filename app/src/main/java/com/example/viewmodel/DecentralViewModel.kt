@@ -1580,8 +1580,6 @@ class DecentralViewModel(
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                // A failed refresh must not escape the ViewModel coroutine or replace a
-                // previously displayed balance with a fabricated zero.
                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                     isLoading = false,
                     statusNotice = "Unable to refresh wallet balance. Check your connection and try again."
