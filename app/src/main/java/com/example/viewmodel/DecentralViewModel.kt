@@ -1786,7 +1786,7 @@ class DecentralViewModel(
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
                                 txId = txItem.txId,
-                                isTestnet = networkAtBroadcast != "mainnet",
+                                isTestnet = !networkAtBroadcast.contains("Mainnet", ignoreCase = true),
                                 timeoutMs = 5 * 60_000L,
                                 pollIntervalMs = 3_000L
                             )
@@ -1805,7 +1805,11 @@ class DecentralViewModel(
                                 }
                                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                                     recentTransactions = _kaspaWalletState.value.recentTransactions.map {
-                                        if (it.txId == txItem.txId) it.copy(isAccepted = true) else it
+                                        if (it.txId == txItem.txId) it.copy(
+                                            isAccepted = true,
+                                            acceptingBlueScore = confirmation.acceptingBlueScore,
+                                            confirmationCount = confirmation.confirmationCount
+                                        ) else it
                                     },
                                     statusNotice = "Transaction accepted by the Kaspa network"
                                 )
