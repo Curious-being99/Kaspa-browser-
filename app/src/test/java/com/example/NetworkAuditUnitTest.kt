@@ -438,23 +438,22 @@ class NetworkAuditUnitTest {
 
     @Test
     fun testKaspaDynamicFeeCalculation() {
-        // Test standard 1 sompi/mass fee calculation
-        val mass1 = 1200L
-        val fee1 = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(mass1, sompiPerMass = 1L)
-        assertEquals(1200L, fee1)
+        val engine = com.example.network.kaspa.KaspaTransactionEngine
+        val mass = 1200L
 
-        // Test fee in KAS (0.00001200 KAS)
-        val feeKas1 = fee1 / 100_000_000.0
-        assertEquals(0.000012, feeKas1, 0.000000001)
+        // Rates below the Toccata minimum are normalized to 100 sompi per gram.
+        val minimumRateFee = engine.calculateFeeForMass(mass, sompiPerMass = 1L)
+        assertEquals(120_000L, minimumRateFee)
+        assertEquals(0.0012, engine.sompiToKas(minimumRateFee), 0.000000001)
 
-        // Test priority fee (2 sompis/mass)
-        val feePriority = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(mass1, sompiPerMass = 2L)
-        assertEquals(2400L, feePriority)
+        // A higher selected rate must increase the fee proportionally.
+        val priorityFee = engine.calculateFeeForMass(mass, sompiPerMass = 200L)
+        assertEquals(240_000L, priorityFee)
 
-        // Test minimum fee threshold (1000 Sompi)
-        val smallMass = 500L
-        val minFee = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(smallMass, sompiPerMass = 1L)
-        assertEquals(1000L, minFee)
+        // Mass below the minimum transaction mass is charged using the minimum mass
+        // and minimum standard rate (1,000 * 100 sompi).
+        val smallMassFee = engine.calculateFeeForMass(500L, sompiPerMass = 1L)
+        assertEquals(100_000L, smallMassFee)
     }
 
     @Test
@@ -481,7 +480,20 @@ class NetworkAuditUnitTest {
         assertEquals(2, plan.selectedUtxos.size)
         assertEquals(150_000_000L, plan.accumulatedSompis)
         assertTrue("Calculated mass must be >= 1000", plan.calculatedMass >= 1000L)
-        assertTrue("Dynamic fee must be >= mass * sompiPerMass and respect network floor", plan.feeSompis == maxOf(plan.calculatedMass * plan.sompiPerMass, com.example.network.kaspa.KaspaTransactionEngine.MINIMUM_NETWORK_FEE_SOMPIS))
+        val expectedRateFee = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(
+            plan.calculatedMass,
+            plan.sompiPerMass
+        )
+        val expectedRelayMinimum = com.example.network.kaspa.KaspaTransactionEngine.calculateToccataMinimumStandardFee(
+            inputsCount = plan.selectedUtxos.size,
+            outputsCount = if (plan.changeSompis > 0L) 2 else 1,
+            payloadByteCount = 0
+        )
+        assertEquals(
+            "Planned fee must satisfy both the selected rate and Toccata minimum-standard relay policy",
+            maxOf(expectedRateFee, expectedRelayMinimum),
+            plan.feeSompis
+        )
         assertEquals(plan.feeSompis / 100_000_000.0, plan.feeKas, 0.000000001)
         assertEquals(150_000_000L - 120_000_000L - plan.feeSompis, plan.changeSompis)
     }

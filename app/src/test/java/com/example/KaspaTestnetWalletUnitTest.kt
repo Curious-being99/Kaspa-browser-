@@ -78,21 +78,48 @@ class KaspaTestnetWalletUnitTest {
 
     @Test
     fun testAccurateNormalAndFastPriorityFeeTiers() {
-        val normalFeeBreakdown = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeBreakdown(
-            amountKas = 1.0,
-            sompiPerMass = 10L
-        )
-        // Dynamic fee accurately maintains the 0.0057 KAS (570,000 Sompi) network consensus/relay floor
-        assertEquals(570_000L, normalFeeBreakdown.feeSompis)
-        assertEquals(0.0057, normalFeeBreakdown.feeKas, 0.00000001)
+        val engine = com.example.network.kaspa.KaspaTransactionEngine
+        val normalRate = engine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM
+        val fastRate = 200L
 
-        val fastFeeBreakdown = com.example.network.kaspa.KaspaTransactionEngine.calculateFeeBreakdown(
+        val normalFeeBreakdown = engine.calculateFeeBreakdown(
             amountKas = 1.0,
-            sompiPerMass = 20L
+            sompiPerMass = normalRate
         )
-        // Fast priority tier accurately calculates 0.0069 KAS (690,000 Sompi)
-        assertEquals(690_000L, fastFeeBreakdown.feeSompis)
-        assertEquals(0.0069, fastFeeBreakdown.feeKas, 0.00000001)
+        val normalRelayMinimum = engine.calculateToccataMinimumStandardFee(
+            inputsCount = 1,
+            outputsCount = 2
+        )
+        val expectedNormalFee = maxOf(
+            engine.calculateFeeForMass(normalFeeBreakdown.totalMass, normalRate),
+            normalRelayMinimum
+        )
+        assertEquals(expectedNormalFee, normalFeeBreakdown.feeSompis)
+        assertEquals(
+            engine.sompiToKas(expectedNormalFee),
+            normalFeeBreakdown.feeKas,
+            0.00000001
+        )
+
+        val fastFeeBreakdown = engine.calculateFeeBreakdown(
+            amountKas = 1.0,
+            sompiPerMass = fastRate
+        )
+        val fastRelayMinimum = engine.calculateToccataMinimumStandardFee(
+            inputsCount = 1,
+            outputsCount = 2
+        )
+        val expectedFastFee = maxOf(
+            engine.calculateFeeForMass(fastFeeBreakdown.totalMass, fastRate),
+            fastRelayMinimum
+        )
+        assertEquals(expectedFastFee, fastFeeBreakdown.feeSompis)
+        assertEquals(
+            engine.sompiToKas(expectedFastFee),
+            fastFeeBreakdown.feeKas,
+            0.00000001
+        )
+        assertTrue("Fast fee rate must produce a higher fee when it exceeds the normal tier", expectedFastFee > expectedNormalFee)
     }
 
     @Test
