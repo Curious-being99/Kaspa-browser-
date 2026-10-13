@@ -1620,10 +1620,15 @@ class DecentralViewModel(
             // the API reports the tx, the authoritative API balance is used again.
             val reconciliationWindowMs = 15 * 60 * 1000L
             val nowMs = System.currentTimeMillis()
-            val hasUnreconciledLocalSend = localTxItems.any {
-                it.type == "SENT" &&
-                    !remoteMap.containsKey(it.txId) &&
-                    it.blockTime >= nowMs - reconciliationWindowMs
+            val hasUnreconciledLocalSend = localTxItems.any { tx ->
+                val timestampMs = if (tx.blockTime in 1L..9_999_999_999L) {
+                    tx.blockTime * 1000L
+                } else {
+                    tx.blockTime
+                }
+                tx.type == "SENT" &&
+                    !remoteMap.containsKey(tx.txId) &&
+                    timestampMs >= nowMs - reconciliationWindowMs
             }
             val currentState = _kaspaWalletState.value
             val safeBalanceSompis = when {
