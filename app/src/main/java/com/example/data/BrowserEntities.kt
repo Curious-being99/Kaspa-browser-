@@ -190,7 +190,7 @@ data class TransactionEntity(
     val amountKas: Double,
     val type: String, // "RECEIVED", "SENT", "DAG_MINT"
     val isAccepted: Boolean = true,
-    val feeKas: Double = 0.0001,
+    val feeKas: Double = 0.0,
     val counterpartyAddress: String = "",
     // Exact selected network label; UNKNOWN keeps legacy rows isolated until provenance is known.
     @ColumnInfo(defaultValue = "UNKNOWN") val network: String = "UNKNOWN"
