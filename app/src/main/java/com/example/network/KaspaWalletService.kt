@@ -225,6 +225,7 @@ class KaspaWalletService(
         var balanceSompis = 0L
         var priceUsd = 0.165 // fallback reference price
         var utxosCount = 0
+        var utxoFetchSuccess = false
         val transactions = mutableListOf<KaspaTransactionItem>()
 
         // 1. Fetch live balance from Kaspa API
@@ -238,8 +239,27 @@ class KaspaWalletService(
                     val bodyStr = resp.body?.string()
                     if (!bodyStr.isNullOrBlank()) {
                         val json = JSONObject(bodyStr)
-                        balanceSompis = json.optLong("balance", 0L)
-                        balanceFetchSuccess = true
+                        val rawBalance = json.opt("balance")
+                        val parsedBalance = when (rawBalance) {
+                            is Byte, is Short, is Int, is Long -> (rawBalance as Number).toLong()
+                            is java.math.BigInteger -> try {
+                                rawBalance.longValueExact()
+                            } catch (_: ArithmeticException) {
+                                null
+                            }
+                            is Number -> {
+                                val numeric = rawBalance.toDouble()
+                                if (numeric.isFinite() && numeric >= 0.0 &&
+                                    numeric <= Long.MAX_VALUE.toDouble() &&
+                                    numeric % 1.0 == 0.0
+                                ) numeric.toLong() else null
+                            }
+                            else -> null
+                        }
+                        if (parsedBalance != null && parsedBalance >= 0L) {
+                            balanceSompis = parsedBalance
+                            balanceFetchSuccess = true
+                        }
                     }
                 }
             }
@@ -269,23 +289,45 @@ class KaspaWalletService(
                     val bodyStr = resp.body?.string()
                     if (!bodyStr.isNullOrBlank()) {
                         val array = JSONArray(bodyStr)
-                        utxosCount = array.length()
                         var utxoSum = 0L
+                        var entriesValid = true
                         for (u in 0 until array.length()) {
-                            val uObj = array.optJSONObject(u) ?: continue
-                            val entry = uObj.optJSONObject("utxo_entry") ?: uObj.optJSONObject("utxoEntry") ?: uObj
-                            val amt = readSompiAmount(entry) ?: 0L
-                            utxoSum += amt
+                            val uObj = array.optJSONObject(u)
+                            if (uObj == null) {
+                                entriesValid = false
+                                break
+                            }
+                            val entry = uObj.optJSONObject("utxo_entry")
+                                ?: uObj.optJSONObject("utxoEntry")
+                                ?: uObj
+                            val amount = readSompiAmount(entry)
+                            if (amount == null || amount < 0L) {
+                                entriesValid = false
+                                break
+                            }
+                            utxoSum = try {
+                                Math.addExact(utxoSum, amount)
+                            } catch (_: ArithmeticException) {
+                                entriesValid = false
+                                break
+                            }
                         }
-                        // Safeguard: If balance endpoint returned 0 or failed but address has unspent UTXOs, use live UTXO sum!
-                        if ((!balanceFetchSuccess || balanceSompis == 0L) && utxoSum > 0L) {
-                            balanceSompis = utxoSum
-                            balanceFetchSuccess = true
+                                                        if (entriesValid) {
+                            utxoFetchSuccess = true
+                            utxosCount = array.length()
+                                                            if (!balanceFetchSuccess) {
+                                balanceSompis = utxoSum
+                                balanceFetchSuccess = true
+                            }
                         }
                     }
                 }
             }
         } catch (_: Exception) {}
+
+        if (!balanceFetchSuccess && !utxoFetchSuccess) {
+            throw java.io.IOException("Unable to load wallet balance: balance and UTXO endpoints both failed.")
+        }
 
         // 4. Fetch full transactions with fast local resolution (zero blocking network loops)
         try {
@@ -745,11 +787,44 @@ class KaspaWalletService(
                     mass = txPlan.calculatedMass
                 )
 
+                // Verify the transaction's value conservation before signing/broadcasting.
+                // Kaspa's actual fee is input value minus output value, in sompi.
+                // Fail closed if output construction ever drifts from the displayed plan.
+                val inputTotalSompis = selectedUtxoEntries.fold(0L) { total, entry ->
+                    Math.addExact(total, entry.amount)
+                }
+                val outputTotalSompis = tx.outputs.fold(0L) { total, output ->
+                    Math.addExact(total, output.amount)
+                }
+                val transactionFeeSompis = Math.subtractExact(inputTotalSompis, outputTotalSompis)
+                require(transactionFeeSompis == txPlan.feeSompis && transactionFeeSompis >= 0L) {
+                    "Transaction fee validation failed before broadcast. Planned fee: ${txPlan.feeSompis} sompi; " +
+                        "actual input-output fee: ${transactionFeeSompis} sompi. Transaction was not broadcast."
+                }
+
                 // 6. Sign each input with rusty-kaspa BIP-340 Schnorr algorithm
                 KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
 
-                // Secure in-memory wipe: zeroize private key and key material immediately after signing
+                // Secure in-memory wipe immediately after signing, even if later validation fails.
                 keyPair.wipe()
+
+                // Recalculate the mass using the signed transaction and apply the engine's
+                // minimum-mass rule (do not multiply the raw mass directly).
+                val signedMass = tx.calculateMass()
+                val requiredSignedFee = maxOf(
+                    KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                    when {
+                        txPlan.sompiPerMass >= 20L -> KaspaTransactionEngine.FAST_FEE_SOMPIS
+                        txPlan.sompiPerMass >= 5L -> KaspaTransactionEngine.MINIMUM_NETWORK_FEE_SOMPIS
+                        else -> 0L
+                    }
+                )
+                require(transactionFeeSompis >= requiredSignedFee) {
+                    "Transaction fee is below the estimated Toccata minimum-standard fee for the signed transaction " +
+                        "(mass $signedMass): actual $transactionFeeSompis sompi, required at least $requiredSignedFee sompi. " +
+                        "Transaction was not broadcast; refresh the fee estimate and try again."
+                }
+                tx.mass = signedMass
 
                 // 7. Calculate non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionHash")
                 val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
@@ -768,8 +843,10 @@ class KaspaWalletService(
                     blockTime = System.currentTimeMillis(),
                     amountKas = amountKas,
                     type = "SENT",
-                    isAccepted = true,
-                    feeKas = txPlan.feeKas,
+                    // HTTP submission success means submitted, not DAG-accepted/confirmed.
+                    // Let live transaction history replace this pending status when the node reports it.
+                    isAccepted = false,
+                    feeKas = KaspaTransactionEngine.sompiToKas(transactionFeeSompis),
                     counterpartyAddress = cleanRecipient
                 )
 
