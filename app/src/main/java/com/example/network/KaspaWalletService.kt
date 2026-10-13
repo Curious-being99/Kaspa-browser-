@@ -808,9 +808,10 @@ class KaspaWalletService(
                 // Secure in-memory wipe immediately after signing, even if later validation fails.
                 keyPair.wipe()
 
-                // Recalculate the mass using the signed transaction and apply the engine's
-                // minimum-mass rule (do not multiply the raw mass directly).
-                val signedMass = tx.calculateMass()
+                // Recalculate mass with the actual spent UTXO amounts. Omitting input
+                // amounts makes calculateStorageMass treat every output as newly created
+                // without subtracting the consumed UTXOs, inflating mass and the required fee.
+                val signedMass = KaspaTransactionEngine.calculateMass(tx, selectedUtxoEntries.map { it.amount })
                 val requiredSignedFee = maxOf(
                     KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
                     KaspaTransactionEngine.calculateFeeForMass(signedMass, txPlan.sompiPerMass),
