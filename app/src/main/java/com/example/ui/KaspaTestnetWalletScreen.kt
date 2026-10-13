@@ -504,12 +504,20 @@ fun KaspaTestnetWalletScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Transaction History",
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Column {
+                    Text(
+                        text = "Transaction History",
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    val pendingCount = walletState.recentTransactions.count { !it.isAccepted }
+                    Text(
+                        text = "$pendingCount pending",
+                        fontSize = 11.sp,
+                        color = if (pendingCount > 0) AmberCentral else TextMuted
+                    )
+                }
                 if (walletState.recentTransactions.isNotEmpty()) {
                     Text(
                         text = "View Explorer",
@@ -1335,7 +1343,11 @@ private fun TransactionCard(
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = if (tx.isAccepted) "Accepted" else "Pending",
+                            text = when {
+                            !tx.isAccepted -> "Pending"
+                            tx.confirmationCount != null -> "Accepted · ${tx.confirmationCount} blue-score progress"
+                            else -> "Accepted"
+                        },
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (tx.isAccepted) KaspaTea else AmberCentral,
@@ -1343,6 +1355,15 @@ private fun TransactionCard(
                         )
                     }
                 }
+            }
+
+            if (tx.isAccepted && tx.acceptingBlueScore != null && tx.confirmationCount != null) {
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    text = "Accepting blue score ${tx.acceptingBlueScore} · current progress ${tx.confirmationCount}",
+                    fontSize = 10.sp,
+                    color = TextSecondary
+                )
             }
 
             // Extended Details: TxID & Fee / Address

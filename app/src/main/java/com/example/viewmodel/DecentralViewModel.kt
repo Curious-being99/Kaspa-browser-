@@ -1754,23 +1754,22 @@ class DecentralViewModel(
                     sompiPerMass = sompiPerMass
                 )
                 result.onSuccess { txItem ->
-                    _statusMessage.value = "Testnet 10 KAS Broadcasted! Tx: ${txItem.txId.take(16)}..."
-                    
-                    // Persist before refreshing so the refresh cannot race ahead of Room history.
+                    // Persist the outgoing transaction immediately as pending.
                     withContext(Dispatchers.IO) {
                         database.transactionDao().insert(TransactionEntity(
                             txId = txItem.txId,
                             blockTime = txItem.blockTime,
                             amountKas = txItem.amountKas,
                             type = txItem.type,
-                            isAccepted = txItem.isAccepted,
+                            isAccepted = false,
                             feeKas = txItem.feeKas,
                             counterpartyAddress = txItem.counterpartyAddress,
                             network = _selectedNetwork.value
                         ))
                     }
 
-                    val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions.filter { it.txId != txItem.txId }
+                    val pendingTx = txItem.copy(isAccepted = false)
+                    val updatedTxs = listOf(pendingTx) + _kaspaWalletState.value.recentTransactions.filter { it.txId != txItem.txId }
                     val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - txItem.feeKas).coerceAtLeast(0.0)
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -1778,10 +1777,50 @@ class DecentralViewModel(
                         balanceUsd = updatedBalance * _kaspaWalletState.value.priceUsd,
                         lastBroadcastTxId = txItem.txId,
                         recentTransactions = updatedTxs,
-                        statusNotice = "Sent %.4f KAS (TxID: ${txItem.txId.take(16)}...)".format(amountKas)
+                        statusNotice = "Transaction pending mempool acceptance"
                     )
-                    // Trigger wallet balance and on-chain sync
-                    refreshKaspaWallet(senderTestnetAddress)
+
+                    // Poll acceptance in the background; the user should not need to refresh manually.
+                    val networkAtBroadcast = _selectedNetwork.value
+                    viewModelScope.launch {
+                        try {
+                            val confirmation = kaspaWalletService.waitForAcceptance(
+                                txId = txItem.txId,
+                                networkName = networkAtBroadcast,
+                                timeoutMs = 5 * 60_000L,
+                                pollIntervalMs = 3_000L
+                            )
+                            if (confirmation.accepted == true) {
+                                withContext(Dispatchers.IO) {
+                                    database.transactionDao().insert(TransactionEntity(
+                                        txId = txItem.txId,
+                                        blockTime = txItem.blockTime,
+                                        amountKas = txItem.amountKas,
+                                        type = txItem.type,
+                                        isAccepted = true,
+                                        feeKas = txItem.feeKas,
+                                        counterpartyAddress = txItem.counterpartyAddress,
+                                        network = networkAtBroadcast
+                                    ))
+                                }
+                                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                                    recentTransactions = _kaspaWalletState.value.recentTransactions.map {
+                                        if (it.txId == txItem.txId) it.copy(
+                                            isAccepted = true,
+                                            acceptingBlueScore = confirmation.acceptingBlueScore,
+                                            confirmationCount = confirmation.confirmationCount
+                                        ) else it
+                                    },
+                                    statusNotice = "Transaction accepted by the Kaspa network"
+                                )
+                                refreshKaspaWallet(senderTestnetAddress)
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Keep the transaction pending; a later wallet refresh can reconcile it.
+                        }
+                    }
                 }.onFailure { err ->
                     val errorMsg = err.message ?: "Transaction broadcast failed"
                     _statusMessage.value = "Testnet 10 failed: $errorMsg"
