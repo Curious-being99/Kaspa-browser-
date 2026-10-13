@@ -470,18 +470,15 @@ object KaspaPrivacyEngine {
         })();
     """
 
-    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
-    /**
-     * Dynamically generates a desktop Chromium User-Agent matching the device's actual bundled Chromium version.
-     * Replaces Android platform tokens with Windows 10 64-bit and strips Mobile tokens.
-     */
     fun getDesktopUserAgent(baseUa: String? = null): String {
-        if (baseUa.isNullOrBlank()) return DESKTOP_USER_AGENT
-        val chromeMatch = Regex("Chrome/([0-9.]+)").find(baseUa)
-        val chromeVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVer Safari/537.36"
+        val chromeVersion = baseUa
+            ?.let { Regex("Chrome/([0-9.]+)").find(it)?.groupValues?.get(1) }
+            ?: Regex("Chrome/([0-9.]+)").find(DESKTOP_USER_AGENT)?.groupValues?.get(1)
+            ?: "130.0.0.0"
+        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36"
     }
 
     /**
