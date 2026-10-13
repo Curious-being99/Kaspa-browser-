@@ -841,6 +841,42 @@ object KaspaTransactionEngine {
     }
 
     /**
+     * Toccata minimum-standard fee policy used by Rusty-Kaspa nodes:
+     * 100 sompi * max(compute grams, 2 * serialized transaction bytes).
+     *
+     * This is a mempool/relay policy floor, not a consensus fee rule. The local
+     * compute-gram estimate must remain conservative until compared against the
+     * exact Rusty-Kaspa implementation and validated on an activated Testnet-10 node.
+     */
+    const val TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM = 100L
+
+    fun calculateToccataMinimumStandardFee(
+        inputsCount: Int,
+        outputsCount: Int,
+        payloadByteCount: Int = 0
+    ): Long {
+        require(inputsCount > 0) { "A standard transaction must contain at least one input" }
+        require(outputsCount > 0) { "A standard transaction must contain at least one output" }
+        require(payloadByteCount >= 0) { "Payload byte count cannot be negative" }
+
+        val estimatedBytes = calculateEstimatedSerializedByteSize(
+            inputsCount,
+            outputsCount,
+            payloadByteCount
+        )
+        val sigOps = inputsCount.toLong()
+        val computeGrams = calculateComputeMass(
+            inputsCount,
+            outputsCount,
+            sigOps.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+            payloadByteCount
+        )
+        val transientGrams = Math.multiplyExact(estimatedBytes, 2L)
+        val feeGrams = maxOf(computeGrams, transientGrams)
+        return Math.multiplyExact(feeGrams, TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
+    }
+
+    /**
      * Estimates transaction fee in KAS units (8 decimals).
      */
     fun estimateFeeKas(
@@ -943,11 +979,19 @@ object KaspaTransactionEngine {
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
         // Ensure dynamic fee does not drop below 0.0057 KAS so on-chain network doesn't reject transaction
+        // The legacy rate parameter is retained for call-site compatibility, but
+        // post-Toccata standard transactions must meet the node's 100 sompi/gram
+        // normalized-mass floor. Tier selection is not a substitute for this floor.
         val tierFloor = when {
             sompiPerMass >= 20L -> FAST_FEE_SOMPIS
             sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
             else -> 0L
         }
+        fun plannedFee(inputs: Int, outputs: Int, payloadBytes: Int): Long =
+            maxOf(
+                calculateToccataMinimumStandardFee(inputs, outputs, payloadBytes),
+                tierFloor
+            )
         val feeSompis = maxOf(massFee, tierFloor)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
@@ -1118,7 +1162,7 @@ object KaspaTransactionEngine {
         }
         if (availableUtxos.isEmpty()) {
             val initialMass = estimateTransactionMass(1, 2, payloadByteCount)
-            val initialFee = maxOf(calculateFeeForMass(initialMass, sompiPerMass), tierFloor)
+            val initialFee = maxOf(plannedFee(1, 2, payloadByteCount), tierFloor)
             return TransactionPlan(
                 selectedUtxos = emptyList(),
                 calculatedMass = initialMass,
@@ -1136,7 +1180,7 @@ object KaspaTransactionEngine {
         val selected = mutableListOf<KaspaUtxo>()
         var accumulated = 0L
         var calculatedMass = estimateTransactionMass(1, 2, payloadByteCount)
-        var feeSompis = maxOf(calculateFeeForMass(calculatedMass, sompiPerMass), tierFloor)
+        var feeSompis = plannedFee(1, 2, payloadByteCount)
 
         for (utxo in sortedUtxos) {
             selected.add(utxo)
@@ -1152,7 +1196,7 @@ object KaspaTransactionEngine {
                 selectedInAmounts,
                 outAmounts
             )
-            feeSompis = maxOf(calculateFeeForMass(calculatedMass, sompiPerMass), tierFloor)
+            feeSompis = plannedFee(selected.size, outAmounts.size, payloadByteCount)
 
             if (accumulated >= (targetAmountSompis + feeSompis)) {
                 break
@@ -1170,7 +1214,7 @@ object KaspaTransactionEngine {
             finalInAmounts,
             finalOutAmounts
         )
-        val finalFee = maxOf(calculateFeeForMass(finalMass, sompiPerMass), tierFloor)
+        val finalFee = plannedFee(selected.size, finalOutputsCount, payloadByteCount)
         val requiredTotal = targetAmountSompis + finalFee
         val isSufficient = accumulated >= requiredTotal
         val finalChange = if (isSufficient) accumulated - requiredTotal else 0L
