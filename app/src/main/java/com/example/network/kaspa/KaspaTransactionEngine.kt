@@ -1190,11 +1190,6 @@ object KaspaTransactionEngine {
         payloadByteCount: Int = 0,
         sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS
     ): TransactionPlan {
-        val tierFloor = when {
-            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
-            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
-            else -> 0L
-        }
         if (availableUtxos.isEmpty()) {
             val initialMass = estimateTransactionMass(1, 2, payloadByteCount)
             val initialFee = calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass)
