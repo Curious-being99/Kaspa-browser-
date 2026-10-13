@@ -763,17 +763,22 @@ class KaspaWalletService(
                 // 6. Sign each input with rusty-kaspa BIP-340 Schnorr algorithm
                 KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
 
-                // Check the signed transaction's mass estimate and fee floor before broadcast.
-                // A mass mismatch is surfaced rather than silently sending a fee different from the plan.
+                // Secure in-memory wipe immediately after signing, even if later validation fails.
+                keyPair.wipe()
+
+                // Recalculate the mass using the signed transaction and apply the engine's
+                // minimum-mass rule (do not multiply the raw mass directly).
                 val signedMass = tx.calculateMass()
-                val minimumMassFee = Math.multiplyExact(signedMass, txPlan.sompiPerMass)
-                require(transactionFeeSompis >= minimumMassFee) {
-                    "Transaction fee is below the fee required for its signed mass ($signedMass). " +
+                val requiredSignedMassFee = KaspaTransactionEngine.calculateFeeForMass(
+                    signedMass,
+                    txPlan.sompiPerMass
+                )
+                require(transactionFeeSompis >= requiredSignedMassFee) {
+                    "Transaction fee is below the fee required for its signed mass ($signedMass): " +
+                        "actual $transactionFeeSompis sompi, required at least $requiredSignedMassFee sompi. " +
                         "Transaction was not broadcast; refresh the fee estimate and try again."
                 }
-
-                // Secure in-memory wipe: zeroize private key and key material immediately after signing
-                keyPair.wipe()
+                tx.mass = signedMass
 
                 // 7. Calculate non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionHash")
                 val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
