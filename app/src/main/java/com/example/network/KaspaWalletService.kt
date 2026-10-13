@@ -797,8 +797,10 @@ class KaspaWalletService(
                     blockTime = System.currentTimeMillis(),
                     amountKas = amountKas,
                     type = "SENT",
-                    isAccepted = true,
-                    feeKas = txPlan.feeKas,
+                    // HTTP submission success means submitted, not DAG-accepted/confirmed.
+                    // Let live transaction history replace this pending status when the node reports it.
+                    isAccepted = false,
+                    feeKas = KaspaTransactionEngine.sompiToKas(transactionFeeSompis),
                     counterpartyAddress = cleanRecipient
                 )
 
