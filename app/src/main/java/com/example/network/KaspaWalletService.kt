@@ -769,13 +769,17 @@ class KaspaWalletService(
                 // Recalculate the mass using the signed transaction and apply the engine's
                 // minimum-mass rule (do not multiply the raw mass directly).
                 val signedMass = tx.calculateMass()
-                val requiredSignedMassFee = KaspaTransactionEngine.calculateFeeForMass(
-                    signedMass,
-                    txPlan.sompiPerMass
+                val requiredSignedFee = maxOf(
+                    KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                    when {
+                        txPlan.sompiPerMass >= 20L -> KaspaTransactionEngine.FAST_FEE_SOMPIS
+                        txPlan.sompiPerMass >= 5L -> KaspaTransactionEngine.MINIMUM_NETWORK_FEE_SOMPIS
+                        else -> 0L
+                    }
                 )
-                require(transactionFeeSompis >= requiredSignedMassFee) {
-                    "Transaction fee is below the fee required for its signed mass ($signedMass): " +
-                        "actual $transactionFeeSompis sompi, required at least $requiredSignedMassFee sompi. " +
+                require(transactionFeeSompis >= requiredSignedFee) {
+                    "Transaction fee is below the estimated Toccata minimum-standard fee for the signed transaction " +
+                        "(mass $signedMass): actual $transactionFeeSompis sompi, required at least $requiredSignedFee sompi. " +
                         "Transaction was not broadcast; refresh the fee estimate and try again."
                 }
                 tx.mass = signedMass
