@@ -1618,8 +1618,12 @@ class DecentralViewModel(
             // from the remote history, retain the already-adjusted displayed balance.
             // This avoids immediately restoring the pre-send balance on refresh. Once
             // the API reports the tx, the authoritative API balance is used again.
+            val reconciliationWindowMs = 15 * 60 * 1000L
+            val nowMs = System.currentTimeMillis()
             val hasUnreconciledLocalSend = localTxItems.any {
-                it.type == "SENT" && !remoteMap.containsKey(it.txId)
+                it.type == "SENT" &&
+                    !remoteMap.containsKey(it.txId) &&
+                    it.blockTime >= nowMs - reconciliationWindowMs
             }
             val currentState = _kaspaWalletState.value
             val safeBalanceSompis = when {
