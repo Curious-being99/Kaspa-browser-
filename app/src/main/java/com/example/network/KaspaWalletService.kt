@@ -239,8 +239,29 @@ class KaspaWalletService(
                     val bodyStr = resp.body?.string()
                     if (!bodyStr.isNullOrBlank()) {
                         val json = JSONObject(bodyStr)
-                        balanceSompis = json.optLong("balance", 0L)
-                        balanceFetchSuccess = true
+                        // Treat only a present, integral, non-negative balance as authoritative.
+                        // Missing, malformed, or impossible values must not silently become zero.
+                        val rawBalance = json.opt("balance")
+                        val parsedBalance = when (rawBalance) {
+                            is Byte, is Short, is Int, is Long -> (rawBalance as Number).toLong()
+                            is java.math.BigInteger -> try {
+                                rawBalance.longValueExact()
+                            } catch (_: ArithmeticException) {
+                                null
+                            }
+                            is Number -> {
+                                val numeric = rawBalance.toDouble()
+                                if (numeric.isFinite() && numeric >= 0.0 &&
+                                    numeric <= Long.MAX_VALUE.toDouble() &&
+                                    numeric % 1.0 == 0.0
+                                ) numeric.toLong() else null
+                            }
+                            else -> null
+                        }
+                        if (parsedBalance != null && parsedBalance >= 0L) {
+                            balanceSompis = parsedBalance
+                            balanceFetchSuccess = true
+                        }
                     }
                 }
             }
@@ -270,19 +291,40 @@ class KaspaWalletService(
                     val bodyStr = resp.body?.string()
                     if (!bodyStr.isNullOrBlank()) {
                         val array = JSONArray(bodyStr)
-                        utxoFetchSuccess = true
-                        utxosCount = array.length()
                         var utxoSum = 0L
+                        var entriesValid = true
                         for (u in 0 until array.length()) {
-                            val uObj = array.optJSONObject(u) ?: continue
-                            val entry = uObj.optJSONObject("utxo_entry") ?: uObj.optJSONObject("utxoEntry") ?: uObj
-                            val amt = readSompiAmount(entry) ?: 0L
-                            utxoSum += amt
+                            val uObj = array.optJSONObject(u)
+                            if (uObj == null) {
+                                entriesValid = false
+                                break
+                            }
+                            val entry = uObj.optJSONObject("utxo_entry")
+                                ?: uObj.optJSONObject("utxoEntry")
+                                ?: uObj
+                            val amount = readSompiAmount(entry)
+                            if (amount == null || amount < 0L) {
+                                entriesValid = false
+                                break
+                            }
+                            utxoSum = try {
+                                Math.addExact(utxoSum, amount)
+                            } catch (_: ArithmeticException) {
+                                entriesValid = false
+                                break
+                            }
                         }
-                        // Safeguard: If balance endpoint returned 0 or failed but address has unspent UTXOs, use live UTXO sum!
-                        if ((!balanceFetchSuccess || balanceSompis == 0L) && utxoSum > 0L) {
-                            balanceSompis = utxoSum
-                            balanceFetchSuccess = true
+                        // A valid empty UTXO array represents zero unspent outputs.
+                        // Reject malformed/overflowing snapshots instead of summing partial data.
+                        if (entriesValid) {
+                            utxoFetchSuccess = true
+                            utxosCount = array.length()
+                            // Only use UTXOs when the balance endpoint did not provide a valid
+                            // response. A valid balance of zero remains authoritative.
+                            if (!balanceFetchSuccess) {
+                                balanceSompis = utxoSum
+                                balanceFetchSuccess = true
+                            }
                         }
                     }
                 }
