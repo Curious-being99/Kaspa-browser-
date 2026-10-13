@@ -1518,6 +1518,14 @@ private fun KaspaFeeCalculatorSection(
                 }
             }
 
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Fee estimates follow the Toccata minimum-standard relay rule: 100 sompi per gram times the greater of compute mass and twice the serialized transaction size. Normal uses the current network rate subject to that minimum; Fast Priority uses a higher rate when available. The final fee depends on the actual inputs and outputs and is checked against the signed transaction.",
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                color = TextMuted
+            )
+
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(10.dp))
