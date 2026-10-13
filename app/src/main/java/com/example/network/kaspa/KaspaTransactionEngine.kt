@@ -994,10 +994,12 @@ object KaspaTransactionEngine {
         val safeInputs = maxOf(1, inputsCount)
         val safeOutputs = maxOf(1, outputsCount)
         val size = calculateEstimatedSerializedByteSize(safeInputs, safeOutputs)
-        val sigOpMass = safeInputs * 1L * MASS_PER_SIG_OP
-        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
-        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
-        val computeMass = sigOpMass + inputComputeMass + outputComputeMass
+        val computeMass = calculateComputeMass(
+            safeInputs,
+            safeOutputs,
+            safeInputs,
+            payloadByteCount = 0
+        )
         // Standard non-dust transactions with adequate inputs do not suffer storage mass bloat.
         // This is an estimate: the final fee is recalculated from the actual selected UTXOs
         // and signed transaction before broadcast.
@@ -1178,15 +1180,26 @@ object KaspaTransactionEngine {
         inputsCount: Int,
         outputsCount: Int,
         payloadByteCount: Int,
-        sompiPerMass: Long
+        sompiPerMass: Long,
+        inputAmounts: List<Long> = emptyList(),
+        outputAmounts: List<Long> = emptyList()
     ): Long {
         val tierFloor = when {
             sompiPerMass >= 20L -> FAST_FEE_SOMPIS
             sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
             else -> 0L
         }
+        val estimatedMass = estimateTransactionMass(
+            inputsCount,
+            outputsCount,
+            payloadByteCount,
+            inputAmounts,
+            outputAmounts
+        )
+        val rateBasedFee = calculateFeeForMass(estimatedMass, sompiPerMass)
         return maxOf(
             calculateToccataMinimumStandardFee(inputsCount, outputsCount, payloadByteCount),
+            rateBasedFee,
             tierFloor
         )
     }
@@ -1241,7 +1254,7 @@ object KaspaTransactionEngine {
                 selectedInAmounts,
                 outAmounts
             )
-            feeSompis = calculatePlannedFee(selected.size, outAmounts.size, payloadByteCount, sompiPerMass)
+            feeSompis = calculatePlannedFee(selected.size, outAmounts.size, payloadByteCount, sompiPerMass, selectedInAmounts, outAmounts)
 
             if (accumulated >= (targetAmountSompis + feeSompis)) {
                 break
@@ -1259,7 +1272,7 @@ object KaspaTransactionEngine {
             finalInAmounts,
             finalOutAmounts
         )
-        val finalFee = calculatePlannedFee(selected.size, finalOutputsCount, payloadByteCount, sompiPerMass)
+        val finalFee = calculatePlannedFee(selected.size, finalOutputsCount, payloadByteCount, sompiPerMass, finalInAmounts, finalOutAmounts)
         val requiredTotal = targetAmountSompis + finalFee
         val isSufficient = accumulated >= requiredTotal
         val finalChange = if (isSufficient) accumulated - requiredTotal else 0L
