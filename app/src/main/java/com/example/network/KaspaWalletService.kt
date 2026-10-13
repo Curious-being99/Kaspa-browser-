@@ -745,8 +745,32 @@ class KaspaWalletService(
                     mass = txPlan.calculatedMass
                 )
 
+                // Verify the transaction's value conservation before signing/broadcasting.
+                // Kaspa's actual fee is input value minus output value, in sompi.
+                // Fail closed if output construction ever drifts from the displayed plan.
+                val inputTotalSompis = selectedUtxoEntries.fold(0L) { total, entry ->
+                    Math.addExact(total, entry.amount)
+                }
+                val outputTotalSompis = tx.outputs.fold(0L) { total, output ->
+                    Math.addExact(total, output.amount)
+                }
+                val transactionFeeSompis = Math.subtractExact(inputTotalSompis, outputTotalSompis)
+                require(transactionFeeSompis == txPlan.feeSompis && transactionFeeSompis >= 0L) {
+                    "Transaction fee validation failed before broadcast. Planned fee: ${txPlan.feeSompis} sompi; " +
+                        "actual input-output fee: ${transactionFeeSompis} sompi. Transaction was not broadcast."
+                }
+
                 // 6. Sign each input with rusty-kaspa BIP-340 Schnorr algorithm
                 KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
+
+                // Check the signed transaction's mass estimate and fee floor before broadcast.
+                // A mass mismatch is surfaced rather than silently sending a fee different from the plan.
+                val signedMass = tx.calculateMass()
+                val minimumMassFee = Math.multiplyExact(signedMass, txPlan.sompiPerMass)
+                require(transactionFeeSompis >= minimumMassFee) {
+                    "Transaction fee is below the fee required for its signed mass ($signedMass). " +
+                        "Transaction was not broadcast; refresh the fee estimate and try again."
+                }
 
                 // Secure in-memory wipe: zeroize private key and key material immediately after signing
                 keyPair.wipe()
