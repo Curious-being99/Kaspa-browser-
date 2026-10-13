@@ -998,7 +998,9 @@ object KaspaTransactionEngine {
         val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
         val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
         val computeMass = sigOpMass + inputComputeMass + outputComputeMass
-        // Standard non-dust transactions with adequate inputs do not suffer storage mass bloat
+        // Standard non-dust transactions with adequate inputs do not suffer storage mass bloat.
+        // This is an estimate: the final fee is recalculated from the actual selected UTXOs
+        // and signed transaction before broadcast.
         val storageMass = if (inputAmounts.isNotEmpty() || (amountSompis > 0L && amountSompis < DUST_THRESHOLD_SOMPIS)) {
             calculateStorageMass(inputAmounts, outputAmounts)
         } else {
@@ -1006,21 +1008,19 @@ object KaspaTransactionEngine {
         }
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
-        // Ensure dynamic fee does not drop below 0.0057 KAS so on-chain network doesn't reject transaction
-        // The legacy rate parameter is retained for call-site compatibility, but
-        // post-Toccata standard transactions must meet the node's 100 sompi/gram
-        // normalized-mass floor. Tier selection is not a substitute for this floor.
+        // Match the minimum-standard relay floor used by the transaction planner; a
+        // feerate estimate alone must not understate the minimum-standard fee.
         val tierFloor = when {
             sompiPerMass >= 20L -> FAST_FEE_SOMPIS
             sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
             else -> 0L
         }
-        fun plannedFee(inputs: Int, outputs: Int, payloadBytes: Int): Long =
-            maxOf(
-                calculateToccataMinimumStandardFee(inputs, outputs, payloadBytes),
-                tierFloor
-            )
-        val feeSompis = maxOf(massFee, tierFloor)
+        val minimumStandardFee = calculateToccataMinimumStandardFee(
+            safeInputs,
+            safeOutputs,
+            payloadByteCount = 0
+        )
+        val feeSompis = maxOf(massFee, minimumStandardFee, tierFloor)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
         val isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS
