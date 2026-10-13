@@ -1827,49 +1827,69 @@ class KaspaWalletService(
     data class ConfirmationResult(
         val transactionId: String,
         val accepted: Boolean,
-        val elapsedMs: Long
+        val elapsedMs: Long,
+        val acceptingBlueScore: Long? = null,
+        val currentBlueScore: Long? = null,
+        val confirmationCount: Long? = null
     )
 
-    /**
-     * Verifies transaction acceptance via POST /transactions/acceptance
-     * Payload: { "transactionIds": ["txId"] }
-     */
-    suspend fun verifyTransactionAcceptance(txId: String, isTestnet: Boolean = false): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val base = if (isTestnet) API_TESTNET else API_MAINNET
-            val payload = JSONObject().apply {
-                val arr = org.json.JSONArray().apply { put(txId) }
-                put("transactionIds", arr)
-                put("transactionId", txId)
-            }
-            val body = payload.toString().toRequestBody("application/json".toMediaType())
-            val req = Request.Builder().url("$base/transactions/acceptance").post(body).build()
-            client.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val respBody = resp.body?.string()?.trim()
-                    if (!respBody.isNullOrBlank()) {
-                        if (respBody.startsWith("[")) {
-                            val arr = org.json.JSONArray(respBody)
-                            for (i in 0 until arr.length()) {
-                                val item = arr.optJSONObject(i)
-                                if (item != null && item.optString("transactionId") == txId) {
-                                    return@withContext item.optBoolean("accepted", false)
-                                }
-                            }
-                        } else if (respBody.startsWith("{")) {
-                            val json = JSONObject(respBody)
-                            return@withContext json.optBoolean("isAccepted", json.optBoolean("accepted", false))
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        false
+    private data class AcceptanceSnapshot(val accepted: Boolean, val acceptingBlueScore: Long?)
+
+    private fun readNonNegativeLong(json: JSONObject, vararg keys: String): Long? {
+        for (key in keys) {
+            val raw = json.opt(key) ?: continue
+            val value = when (raw) { is Number -> raw.toLong(); is String -> raw.toLongOrNull(); else -> null }
+            if (value != null && value >= 0L) return value
+        }
+        return null
     }
 
-    /**
-     * Polls transaction acceptance on the DAG after broadcast
-     */
+    private suspend fun queryAcceptance(txId: String, isTestnet: Boolean): AcceptanceSnapshot? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val payload = JSONObject().put("transactionIds", JSONArray().put(txId))
+            val request = Request.Builder().url("$base/transactions/acceptance")
+                .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val raw = response.body?.string()?.takeIf { it.isNotBlank() } ?: return@withContext null
+                val root = raw.trimStart()
+                val entries = when {
+                    root.startsWith("[") -> JSONArray(raw)
+                    root.startsWith("{") -> {
+                        val obj = JSONObject(raw)
+                        obj.optJSONArray("transactions") ?: obj.optJSONArray("results") ?: JSONArray().put(obj)
+                    }
+                    else -> return@withContext null
+                }
+                for (i in 0 until entries.length()) {
+                    val item = entries.optJSONObject(i) ?: continue
+                    val returnedId = item.optString("transactionId", item.optString("transaction_id", item.optString("txId", "")))
+                    if (returnedId.isNotBlank() && !returnedId.equals(txId, ignoreCase = true)) continue
+                    val accepted = item.optBoolean("accepted", item.optBoolean("isAccepted", item.optBoolean("is_accepted", false)))
+                    val score = readNonNegativeLong(item, "acceptingBlueScore", "accepting_blue_score", "acceptingBlockBlueScore", "accepting_block_blue_score")
+                    return@withContext AcceptanceSnapshot(accepted, score)
+                }
+            }
+        } catch (_: Exception) { }
+        null
+    }
+
+    private suspend fun queryVirtualBlueScore(isTestnet: Boolean): Long? = withContext(Dispatchers.IO) {
+        try {
+            val base = if (isTestnet) API_TESTNET else API_MAINNET
+            val request = Request.Builder().url("$base/info/virtual-chain-blue-score").get().build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val raw = response.body?.string()?.takeIf { it.isNotBlank() } ?: return@withContext null
+                readNonNegativeLong(JSONObject(raw), "blueScore", "blue_score")
+            }
+        } catch (_: Exception) { null }
+    }
+
+    suspend fun verifyTransactionAcceptance(txId: String, isTestnet: Boolean = false): Boolean =
+        queryAcceptance(txId, isTestnet)?.accepted == true
+
     suspend fun waitForAcceptance(
         txId: String,
         isTestnet: Boolean = false,
@@ -1878,21 +1898,15 @@ class KaspaWalletService(
     ): ConfirmationResult = withContext(Dispatchers.IO) {
         val startedAt = System.currentTimeMillis()
         while (System.currentTimeMillis() - startedAt < timeoutMs) {
-            val isAccepted = verifyTransactionAcceptance(txId, isTestnet)
-            if (isAccepted) {
-                return@withContext ConfirmationResult(
-                    transactionId = txId,
-                    accepted = true,
-                    elapsedMs = System.currentTimeMillis() - startedAt
-                )
+            val snapshot = queryAcceptance(txId, isTestnet)
+            if (snapshot?.accepted == true) {
+                val current = queryVirtualBlueScore(isTestnet)
+                val count = if (snapshot.acceptingBlueScore != null && current != null && current >= snapshot.acceptingBlueScore) current - snapshot.acceptingBlueScore else null
+                return@withContext ConfirmationResult(txId, true, System.currentTimeMillis() - startedAt, snapshot.acceptingBlueScore, current, count)
             }
-            kotlinx.coroutines.delay(pollIntervalMs)
+            delay(pollIntervalMs)
         }
-        ConfirmationResult(
-            transactionId = txId,
-            accepted = false,
-            elapsedMs = System.currentTimeMillis() - startedAt
-        )
+        ConfirmationResult(txId, false, System.currentTimeMillis() - startedAt)
     }
 
     // ==========================================
