@@ -1575,8 +1575,20 @@ class DecentralViewModel(
         if (targetAddress.isBlank()) return
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isLoading = true)
-            val updated = kaspaWalletService.fetchWalletState(targetAddress, _selectedNetwork.value)
-            
+            val updated = try {
+                kaspaWalletService.fetchWalletState(targetAddress, _selectedNetwork.value)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // A failed refresh must not escape the ViewModel coroutine or replace a
+                // previously displayed balance with a fabricated zero.
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isLoading = false,
+                    statusNotice = "Unable to refresh wallet balance. Check your connection and try again."
+                )
+                return@launch
+            }
+
             // Query local stored transactions to ensure recently broadcasted sent transactions are preserved
             val localEntities = try {
                 database.transactionDao().getTransactionsForNetwork(_selectedNetwork.value)
