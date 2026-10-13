@@ -161,12 +161,15 @@ object KaspaTransactionEngine {
     const val MASS_PER_OUTPUT_COMPUTE = 100L
     const val MINIMUM_TRANSACTION_MASS = 1000L
     const val MAXIMUM_STANDARD_TRANSACTION_MASS = 100_000L
-    const val DEFAULT_SOMPI_PER_MASS = 10L // 10 sompi per mass unit (standard network relay feerate)
-    const val PRIORITY_FEE_SOMPIS = 690_000L // 0.0069 KAS
-    const val NORMAL_FEE_SOMPIS = 570_000L // 0.0057 KAS baseline dynamic fee floor
-    const val FAST_FEE_SOMPIS = 690_000L // 0.0069 KAS (fast priority tier)
-    const val MINIMUM_NETWORK_FEE_SOMPIS = 570_000L // 0.0057 KAS network consensus & mempool floor to prevent rejection
-    const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 570_000L // 0.0057 KAS network minimum fee floor
+    // Toccata RPC submission policy: minimum standard rate is 100 sompi per gram.
+    const val DEFAULT_SOMPI_PER_MASS = 100L
+    // Deprecated legacy display constants retained for source compatibility only.
+    // They are not used as transaction fee floors; fees are calculated from mass and policy.
+    const val PRIORITY_FEE_SOMPIS = 690_000L
+    const val NORMAL_FEE_SOMPIS = 570_000L
+    const val FAST_FEE_SOMPIS = 690_000L
+    const val MINIMUM_NETWORK_FEE_SOMPIS = 570_000L
+    const val RUSTY_KASPA_MINIMUM_FEE_SOMPIS = 570_000L
     const val DUST_THRESHOLD_SOMPIS = 2_000_000L // 0.02 KAS (outputs below this incur high storage mass per KIP-9)
     const val STANDARD_SIGNATURE_SCRIPT_BYTES = 66 // 1 (0x41) + 64 (Schnorr Sig) + 1 (SIGHASH_ALL)
     const val STANDARD_P2PK_SCRIPT_BYTES = 34 // 1 (0x20) + 32 (pubkey) + 1 (0xac)
@@ -836,8 +839,11 @@ object KaspaTransactionEngine {
      * Calculates the exact transaction fee in Sompis for a given mass and sompi/mass feerate.
      */
     fun calculateFeeForMass(mass: Long, sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS): Long {
+        require(mass >= 0L) { "Transaction mass cannot be negative" }
+        require(sompiPerMass >= 0L) { "Fee rate cannot be negative" }
         val effectiveMass = maxOf(mass, MINIMUM_TRANSACTION_MASS)
-        return effectiveMass * sompiPerMass
+        val effectiveRate = maxOf(sompiPerMass, TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
+        return Math.multiplyExact(effectiveMass, effectiveRate)
     }
 
     /**
@@ -916,17 +922,22 @@ object KaspaTransactionEngine {
         outputAmounts: List<Long> = emptyList()
     ): Double {
         val mass = estimateTransactionMass(inputsCount, outputsCount, payloadByteCount, inputAmounts, outputAmounts)
-        val feeSompis = calculateFeeForMass(mass, sompiPerMass)
-        return sompiToKas(feeSompis)
+        val rateBasedFee = calculateFeeForMass(mass, sompiPerMass)
+        val minimumStandardFee = calculateToccataMinimumStandardFee(
+            inputsCount,
+            outputsCount,
+            payloadByteCount
+        )
+        return sompiToKas(maxOf(rateBasedFee, minimumStandardFee))
     }
 
     /**
      * Real-time network fee conditions fetched from Kaspa RPC node.
      */
     data class KaspaNetworkFeeCondition(
-        val lowFeerate: Long = 1L,
-        val normalFeerate: Long = 10L,
-        val priorityFeerate: Long = 20L,
+        val lowFeerate: Long = TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM,
+        val normalFeerate: Long = TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM,
+        val priorityFeerate: Long = TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM,
         val lowEstimatedSeconds: Int = 30,
         val normalEstimatedSeconds: Int = 5,
         val priorityEstimatedSeconds: Int = 1,
@@ -1012,17 +1023,12 @@ object KaspaTransactionEngine {
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
         // Match the minimum-standard relay floor used by the transaction planner; a
         // feerate estimate alone must not understate the minimum-standard fee.
-        val tierFloor = when {
-            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
-            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
-            else -> 0L
-        }
         val minimumStandardFee = calculateToccataMinimumStandardFee(
             safeInputs,
             safeOutputs,
             payloadByteCount = 0
         )
-        val feeSompis = maxOf(massFee, minimumStandardFee, tierFloor)
+        val feeSompis = maxOf(massFee, minimumStandardFee)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
         val isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS
@@ -1068,12 +1074,12 @@ object KaspaTransactionEngine {
         }
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
-        val tierFloor = when {
-            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
-            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
-            else -> 0L
-        }
-        val feeSompi = maxOf(massFee, tierFloor)
+        val minimumStandardFee = calculateToccataMinimumStandardFee(
+            safeInputs,
+            safeOutputs,
+            payloadByteCount
+        )
+        val feeSompi = maxOf(massFee, minimumStandardFee)
         val feeKas = sompiToKas(feeSompi)
 
         return DynamicFeeEstimate(
@@ -1113,9 +1119,14 @@ object KaspaTransactionEngine {
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
         val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
 
-        val ecoFee = maxOf(calculateFeeForMass(totalMass, networkCondition.lowFeerate), MINIMUM_NETWORK_FEE_SOMPIS)
-        val normFee = maxOf(calculateFeeForMass(totalMass, networkCondition.normalFeerate), MINIMUM_NETWORK_FEE_SOMPIS)
-        val prioFee = maxOf(calculateFeeForMass(totalMass, networkCondition.priorityFeerate), FAST_FEE_SOMPIS)
+        val minimumStandardFee = calculateToccataMinimumStandardFee(
+            safeInputs,
+            safeOutputs,
+            payloadByteCount = 0
+        )
+        val ecoFee = maxOf(calculateFeeForMass(totalMass, networkCondition.lowFeerate), minimumStandardFee)
+        val normFee = maxOf(calculateFeeForMass(totalMass, networkCondition.normalFeerate), minimumStandardFee)
+        val prioFee = maxOf(calculateFeeForMass(totalMass, networkCondition.priorityFeerate), minimumStandardFee)
         
         // Use Normal as the default/selected option
         val selectedFee = normFee 
@@ -1184,11 +1195,6 @@ object KaspaTransactionEngine {
         inputAmounts: List<Long> = emptyList(),
         outputAmounts: List<Long> = emptyList()
     ): Long {
-        val tierFloor = when {
-            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
-            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
-            else -> 0L
-        }
         val estimatedMass = estimateTransactionMass(
             inputsCount,
             outputsCount,
@@ -1197,11 +1203,12 @@ object KaspaTransactionEngine {
             outputAmounts
         )
         val rateBasedFee = calculateFeeForMass(estimatedMass, sompiPerMass)
-        return maxOf(
-            calculateToccataMinimumStandardFee(inputsCount, outputsCount, payloadByteCount),
-            rateBasedFee,
-            tierFloor
+        val minimumStandardFee = calculateToccataMinimumStandardFee(
+            inputsCount,
+            outputsCount,
+            payloadByteCount
         )
+        return maxOf(minimumStandardFee, rateBasedFee)
     }
 
     /**
@@ -1213,14 +1220,9 @@ object KaspaTransactionEngine {
         payloadByteCount: Int = 0,
         sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS
     ): TransactionPlan {
-        val tierFloor = when {
-            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
-            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
-            else -> 0L
-        }
         if (availableUtxos.isEmpty()) {
             val initialMass = estimateTransactionMass(1, 2, payloadByteCount)
-            val initialFee = maxOf(calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass), tierFloor)
+            val initialFee = calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass)
             return TransactionPlan(
                 selectedUtxos = emptyList(),
                 calculatedMass = initialMass,
