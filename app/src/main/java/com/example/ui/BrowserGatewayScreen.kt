@@ -626,8 +626,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var webViewRecreateKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var rendererCrashCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var lastCrashTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    var lastProgressChangeTime by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    var lastProgressValue by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
@@ -2107,7 +2105,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         this,
                                         KaspaPrivacyEngine.getPrivacyShieldScript(
                                             safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
-                                            isDesktop = false,
+                                            isDesktop = viewModel.desktopModeEnabled.value,
                                             baseUa = defaultDeviceUa
                                         ),
                                         setOf("*")
@@ -2340,11 +2338,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 }
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                    val now = System.currentTimeMillis()
-                                    if (newProgress != lastProgressValue) {
-                                        lastProgressValue = newProgress
-                                        lastProgressChangeTime = now
-                                    }
                                     if (newProgress >= 100) {
                                         webProgress = 1.0f
                                         hasMainPageFinished = true
@@ -2363,17 +2356,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             webProgress = progressFraction
                                         }
                                         isWebLoading = true
-                                        if (newProgress >= 90) {
-                                            view?.postDelayed({
-                                                if (isWebLoading && lastProgressValue == newProgress) {
-                                                    isWebLoading = false
-                                                    hasMainPageFinished = true
-                                                    webProgress = 1.0f
-                                                    viewModel.setIsLoading(false)
-                                                    (view.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
-                                                }
-                                            }, 3000L)
-                                        }
                                     }
                                 }
 
@@ -2683,7 +2665,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     view?.evaluateJavascript(
                                         KaspaPrivacyEngine.getPrivacyShieldScript(
                                             safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
-                                            isDesktop = desktopModeEnabled,
+                                            isDesktop = viewModel.desktopModeEnabled.value,
                                             baseUa = defaultDeviceUa
                                         ),
                                         null
@@ -2759,7 +2741,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     view?.evaluateJavascript(
                                         KaspaPrivacyEngine.getPrivacyShieldScript(
                                             safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
-                                            isDesktop = desktopModeEnabled,
+                                            isDesktop = viewModel.desktopModeEnabled.value,
                                             baseUa = defaultDeviceUa
                                         ),
                                         null
@@ -3005,7 +2987,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.updateCurrentUrl(cleanUrl)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = cleanUrl.contains("chromewebstore.google.com") || cleanUrl.contains("chrome.google.com/webstore")
-                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
+                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(viewModel.desktopModeEnabled.value || isWebStore, defaultDeviceUa)
                                             view?.tag = Pair(cleanUrl, System.currentTimeMillis().toInt())
                                             view?.loadUrl(cleanUrl, headers)
                                         } else {
@@ -3050,7 +3032,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.updateCurrentUrl(cleanUrl)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = cleanUrl.contains("chromewebstore.google.com") || cleanUrl.contains("chrome.google.com/webstore")
-                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
+                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(viewModel.desktopModeEnabled.value || isWebStore, defaultDeviceUa)
                                             view?.tag = Pair(cleanUrl, System.currentTimeMillis().toInt())
                                             view?.loadUrl(cleanUrl, headers)
                                         } else {

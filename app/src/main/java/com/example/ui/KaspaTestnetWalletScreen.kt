@@ -273,7 +273,7 @@ fun KaspaTestnetWalletScreen(
         if (showSendScreen) {
             viewModel.refreshNetworkFeeCondition()
             // Dynamically sync fee rate with live RPC network conditions
-            selectedSompiPerMass = maxOf(1L, networkFeeCondition.normalFeerate)
+            selectedSompiPerMass = maxOf(KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM, networkFeeCondition.normalFeerate)
         }
     }
 
@@ -1446,8 +1446,9 @@ private fun KaspaFeeCalculatorSection(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Dynamic Feerate selection chips: calculated dynamically from mass with zero hardcoded floors
-            val normRate = maxOf(1L, networkCondition.normalFeerate)
+            // Fee options use RPC rate hints, but never fall below the Toccata minimum-standard rate.
+            // The final fee is rechecked against the actual selected UTXOs and signed transaction.
+            val normRate = maxOf(KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM, networkCondition.normalFeerate)
             val fastRate = maxOf(normRate * 2, networkCondition.priorityFeerate)
             val normFee = KaspaTransactionEngine.calculateFeeBreakdown(amountKas, 1, 2, normRate).feeKas
             val fastFee = KaspaTransactionEngine.calculateFeeBreakdown(amountKas, 1, 2, fastRate).feeKas
@@ -1457,7 +1458,7 @@ private fun KaspaFeeCalculatorSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Priority Fee Tier", fontSize = 11.sp, color = TextSecondary)
+                Text("Fee Options", fontSize = 11.sp, color = TextSecondary)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.clickable { onRefreshFeeCondition() }
@@ -1551,6 +1552,14 @@ private fun KaspaFeeCalculatorSection(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Estimate only. The final fee depends on the actual inputs, outputs, and signed transaction mass. Toccata minimum-standard relay policy is applied; the node's acceptance policy can still vary by network and version.",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                lineHeight = 14.sp
+            )
 
             // Dust warning if output is < 0.02 KAS
             if (breakdown.isDustWarning) {
@@ -3719,7 +3728,7 @@ private fun ConfirmSendScreenOverlay(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = "Network Fee & Consensus Details",
+                                text = "Fee Estimate & Transaction Details",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 fontWeight = FontWeight.SemiBold
@@ -3744,7 +3753,7 @@ private fun ConfirmSendScreenOverlay(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Selected Priority Feerate:", fontSize = 12.sp, color = TextMuted)
+                                Text("Selected Fee Rate:", fontSize = 12.sp, color = TextMuted)
                                 Text(
                                     text = "$selectedSompiPerMass sompi/gram",
                                     fontSize = 12.sp,

@@ -813,6 +813,7 @@ class KaspaWalletService(
                 val signedMass = tx.calculateMass()
                 val requiredSignedFee = maxOf(
                     KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                    KaspaTransactionEngine.calculateFeeForMass(signedMass, txPlan.sompiPerMass),
                     when {
                         txPlan.sompiPerMass >= 20L -> KaspaTransactionEngine.FAST_FEE_SOMPIS
                         txPlan.sompiPerMass >= 5L -> KaspaTransactionEngine.MINIMUM_NETWORK_FEE_SOMPIS
