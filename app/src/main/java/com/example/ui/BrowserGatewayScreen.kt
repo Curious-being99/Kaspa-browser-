@@ -2337,7 +2337,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         pendingGeoCallback = callback
                                     }
                                 }
-                                override fun onProgressChanged(view: WebView?, newProgress: Int) {                                    if (newProgress >= 100) {
+                                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                    if (newProgress >= 100) {
                                         webProgress = 1.0f
                                         hasMainPageFinished = true
                                         isWebLoading = false
