@@ -96,7 +96,11 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
 
     LaunchedEffect(statusMessage) {
         statusMessage?.let { msg ->
-            snackbarHostState.showSnackbar(msg)
+            // Successful wallet broadcasts are shown in the wallet's transaction status,
+            // not as Android's high-contrast bottom snackbar.
+            if (!msg.contains("Broadcasted! Tx:", ignoreCase = true)) {
+                snackbarHostState.showSnackbar(msg)
+            }
             viewModel.clearStatusMessage()
         }
     }
