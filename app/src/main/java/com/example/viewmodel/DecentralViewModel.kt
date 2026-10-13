@@ -1790,7 +1790,7 @@ class DecentralViewModel(
                                 timeoutMs = 5 * 60_000L,
                                 pollIntervalMs = 3_000L
                             )
-                            if (confirmation.accepted) {
+                            if (confirmation.accepted == true) {
                                 withContext(Dispatchers.IO) {
                                     database.transactionDao().insert(TransactionEntity(
                                         txId = txItem.txId,
