@@ -504,12 +504,20 @@ fun KaspaTestnetWalletScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Transaction History",
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Column {
+                    Text(
+                        text = "Transaction History",
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    val pendingCount = walletState.recentTransactions.count { !it.isAccepted }
+                    Text(
+                        text = "$pendingCount pending",
+                        fontSize = 11.sp,
+                        color = if (pendingCount > 0) AmberCentral else TextMuted
+                    )
+                }
                 if (walletState.recentTransactions.isNotEmpty()) {
                     Text(
                         text = "View Explorer",
