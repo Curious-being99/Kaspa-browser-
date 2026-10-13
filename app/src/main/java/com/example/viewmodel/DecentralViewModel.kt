@@ -1786,7 +1786,7 @@ class DecentralViewModel(
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
                                 txId = txItem.txId,
-                                isTestnet = !networkAtBroadcast.contains("Mainnet", ignoreCase = true),
+                                networkName = networkAtBroadcast,
                                 timeoutMs = 5 * 60_000L,
                                 pollIntervalMs = 3_000L
                             )
