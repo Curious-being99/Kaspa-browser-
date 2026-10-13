@@ -1220,78 +1220,55 @@ object KaspaTransactionEngine {
         payloadByteCount: Int = 0,
         sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS
     ): TransactionPlan {
-        if (availableUtxos.isEmpty()) {
-            val initialMass = estimateTransactionMass(1, 2, payloadByteCount)
-            val initialFee = calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass)
+        require(targetAmountSompis > 0L) { "Target amount must be positive" }
+        require(payloadByteCount >= 0) { "Payload byte count cannot be negative" }
+        require(sompiPerMass >= 0L) { "Fee rate cannot be negative" }
+
+        fun plan(selected: List<KaspaUtxo>, accumulated: Long): TransactionPlan {
+            val safeInputs = selected.size.coerceAtLeast(1)
+            val inputAmounts = selected.map { it.utxoEntry.amount }
+            var fee = calculatePlannedFee(safeInputs, 1, payloadByteCount, sompiPerMass, inputAmounts, listOf(targetAmountSompis))
+            var outputs = listOf(targetAmountSompis)
+            var mass = estimateTransactionMass(safeInputs, 1, payloadByteCount, inputAmounts, outputs)
+            // Iterate because fee changes change the change-output value and storage mass.
+            repeat(12) {
+                val remaining = accumulated - targetAmountSompis - fee
+                outputs = if (remaining > 0L) listOf(targetAmountSompis, remaining) else listOf(targetAmountSompis)
+                mass = estimateTransactionMass(safeInputs, outputs.size, payloadByteCount, inputAmounts, outputs)
+                val nextFee = calculatePlannedFee(safeInputs, outputs.size, payloadByteCount, sompiPerMass, inputAmounts, outputs)
+                if (nextFee != fee) fee = nextFee
+            }
+            val remainder = accumulated - targetAmountSompis - fee
+            outputs = if (remainder > 0L) listOf(targetAmountSompis, remainder) else listOf(targetAmountSompis)
+            mass = estimateTransactionMass(safeInputs, outputs.size, payloadByteCount, inputAmounts, outputs)
+            fee = calculatePlannedFee(safeInputs, outputs.size, payloadByteCount, sompiPerMass, inputAmounts, outputs)
+            val change = accumulated - targetAmountSompis - fee
+            val requiredTotal = Math.addExact(targetAmountSompis, fee)
             return TransactionPlan(
-                selectedUtxos = emptyList(),
-                calculatedMass = initialMass,
-                feeSompis = initialFee,
-                feeKas = sompiToKas(initialFee),
-                changeSompis = 0L,
-                isSufficient = false,
-                requiredTotalSompis = targetAmountSompis + initialFee,
-                accumulatedSompis = 0L,
+                selectedUtxos = selected,
+                calculatedMass = mass,
+                feeSompis = fee,
+                feeKas = sompiToKas(fee),
+                changeSompis = if (change > 0L) change else 0L,
+                isSufficient = selected.isNotEmpty() && accumulated >= requiredTotal,
+                requiredTotalSompis = requiredTotal,
+                accumulatedSompis = accumulated,
                 sompiPerMass = sompiPerMass
             )
         }
 
-        val sortedUtxos = availableUtxos.sortedByDescending { it.utxoEntry.amount }
+        if (availableUtxos.isEmpty()) return plan(emptyList(), 0L).copy(isSufficient = false)
         val selected = mutableListOf<KaspaUtxo>()
         var accumulated = 0L
-        var calculatedMass = estimateTransactionMass(1, 2, payloadByteCount)
-        var feeSompis = calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass)
-
-        for (utxo in sortedUtxos) {
+        var result = plan(selected, accumulated)
+        for (utxo in availableUtxos.sortedByDescending { it.utxoEntry.amount }) {
             selected.add(utxo)
-            accumulated += utxo.utxoEntry.amount
-            val selectedInAmounts = selected.map { it.utxoEntry.amount }
-            val tentativeChange = (accumulated - (targetAmountSompis + feeSompis)).coerceAtLeast(0L)
-            val outAmounts = if (tentativeChange > 0L) listOf(targetAmountSompis, tentativeChange) else listOf(targetAmountSompis)
-            // Recalculate mass for the current input count (with 2 outputs: recipient + change)
-            calculatedMass = estimateTransactionMass(
-                selected.size,
-                outAmounts.size,
-                payloadByteCount,
-                selectedInAmounts,
-                outAmounts
-            )
-            feeSompis = calculatePlannedFee(selected.size, outAmounts.size, payloadByteCount, sompiPerMass, selectedInAmounts, outAmounts)
-
-            if (accumulated >= (targetAmountSompis + feeSompis)) {
-                break
-            }
+            accumulated = Math.addExact(accumulated, utxo.utxoEntry.amount)
+            result = plan(selected.toList(), accumulated)
+            if (result.isSufficient) break
         }
-
-        val tentativeChange = accumulated - (targetAmountSompis + feeSompis)
-        val finalOutputsCount = if (tentativeChange > 0L) 2 else 1
-        val finalInAmounts = selected.map { it.utxoEntry.amount }
-        val finalOutAmounts = if (tentativeChange > 0L) listOf(targetAmountSompis, tentativeChange) else listOf(targetAmountSompis)
-        val finalMass = estimateTransactionMass(
-            selected.size,
-            finalOutputsCount,
-            payloadByteCount,
-            finalInAmounts,
-            finalOutAmounts
-        )
-        val finalFee = calculatePlannedFee(selected.size, finalOutputsCount, payloadByteCount, sompiPerMass, finalInAmounts, finalOutAmounts)
-        val requiredTotal = targetAmountSompis + finalFee
-        val isSufficient = accumulated >= requiredTotal
-        val finalChange = if (isSufficient) accumulated - requiredTotal else 0L
-
-        return TransactionPlan(
-            selectedUtxos = selected,
-            calculatedMass = finalMass,
-            feeSompis = finalFee,
-            feeKas = sompiToKas(finalFee),
-            changeSompis = finalChange.coerceAtLeast(0L),
-            isSufficient = isSufficient,
-            requiredTotalSompis = requiredTotal,
-            accumulatedSompis = accumulated,
-            sompiPerMass = sompiPerMass
-        )
+        return result
     }
-
     /**
      * Builds standard submission payload for Kaspa Node RPC and REST API
      */
