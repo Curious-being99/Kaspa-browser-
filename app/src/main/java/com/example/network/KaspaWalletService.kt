@@ -225,6 +225,7 @@ class KaspaWalletService(
         var balanceSompis = 0L
         var priceUsd = 0.165 // fallback reference price
         var utxosCount = 0
+        var utxoFetchSuccess = false
         val transactions = mutableListOf<KaspaTransactionItem>()
 
         // 1. Fetch live balance from Kaspa API
@@ -269,6 +270,7 @@ class KaspaWalletService(
                     val bodyStr = resp.body?.string()
                     if (!bodyStr.isNullOrBlank()) {
                         val array = JSONArray(bodyStr)
+                        utxoFetchSuccess = true
                         utxosCount = array.length()
                         var utxoSum = 0L
                         for (u in 0 until array.length()) {
@@ -286,6 +288,13 @@ class KaspaWalletService(
                 }
             }
         } catch (_: Exception) {}
+
+        // Avoid presenting a fabricated zero when neither live balance source responded.
+        // A successful balance response (including zero) is authoritative; if it failed,
+        // a successful UTXO response may still provide the fallback sum.
+        if (!balanceFetchSuccess && !utxoFetchSuccess) {
+            throw java.io.IOException("Unable to load wallet balance: balance and UTXO endpoints both failed.")
+        }
 
         // 4. Fetch full transactions with fast local resolution (zero blocking network loops)
         try {
