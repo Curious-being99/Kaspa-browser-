@@ -22,5 +22,7 @@ data class KaspaTransactionItem(
     val type: String, // "RECEIVED", "SENT", "DAG_MINT"
     val isAccepted: Boolean = true,
     val feeKas: Double = 0.0001,
-    val counterpartyAddress: String = ""
+    val counterpartyAddress: String = "",
+    val acceptingBlueScore: Long? = null,
+    val confirmationCount: Long? = null
 )
