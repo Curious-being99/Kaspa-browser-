@@ -1010,16 +1010,6 @@ object KaspaTransactionEngine {
         // The legacy rate parameter is retained for call-site compatibility, but
         // post-Toccata standard transactions must meet the node's 100 sompi/gram
         // normalized-mass floor. Tier selection is not a substitute for this floor.
-        val tierFloor = when {
-            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
-            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
-            else -> 0L
-        }
-        fun plannedFee(inputs: Int, outputs: Int, payloadBytes: Int): Long =
-            maxOf(
-                calculateToccataMinimumStandardFee(inputs, outputs, payloadBytes),
-                tierFloor
-            )
         val feeSompis = maxOf(massFee, tierFloor)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
@@ -1174,6 +1164,23 @@ object KaspaTransactionEngine {
         )
     }
 
+    private fun calculatePlannedFee(
+        inputsCount: Int,
+        outputsCount: Int,
+        payloadByteCount: Int,
+        sompiPerMass: Long
+    ): Long {
+        val tierFloor = when {
+            sompiPerMass >= 20L -> FAST_FEE_SOMPIS
+            sompiPerMass >= 5L -> MINIMUM_NETWORK_FEE_SOMPIS
+            else -> 0L
+        }
+        return maxOf(
+            calculateToccataMinimumStandardFee(inputsCount, outputsCount, payloadByteCount),
+            tierFloor
+        )
+    }
+
     /**
      * Selects UTXOs iteratively, calculating real mass and fee at each iteration step.
      */
@@ -1190,7 +1197,7 @@ object KaspaTransactionEngine {
         }
         if (availableUtxos.isEmpty()) {
             val initialMass = estimateTransactionMass(1, 2, payloadByteCount)
-            val initialFee = maxOf(plannedFee(1, 2, payloadByteCount), tierFloor)
+            val initialFee = calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass)
             return TransactionPlan(
                 selectedUtxos = emptyList(),
                 calculatedMass = initialMass,
@@ -1208,7 +1215,7 @@ object KaspaTransactionEngine {
         val selected = mutableListOf<KaspaUtxo>()
         var accumulated = 0L
         var calculatedMass = estimateTransactionMass(1, 2, payloadByteCount)
-        var feeSompis = plannedFee(1, 2, payloadByteCount)
+        var feeSompis = calculatePlannedFee(1, 2, payloadByteCount, sompiPerMass)
 
         for (utxo in sortedUtxos) {
             selected.add(utxo)
@@ -1224,7 +1231,7 @@ object KaspaTransactionEngine {
                 selectedInAmounts,
                 outAmounts
             )
-            feeSompis = plannedFee(selected.size, outAmounts.size, payloadByteCount)
+            feeSompis = calculatePlannedFee(selected.size, outAmounts.size, payloadByteCount, sompiPerMass)
 
             if (accumulated >= (targetAmountSompis + feeSompis)) {
                 break
@@ -1242,7 +1249,7 @@ object KaspaTransactionEngine {
             finalInAmounts,
             finalOutAmounts
         )
-        val finalFee = plannedFee(selected.size, finalOutputsCount, payloadByteCount)
+        val finalFee = calculatePlannedFee(selected.size, finalOutputsCount, payloadByteCount, sompiPerMass)
         val requiredTotal = targetAmountSompis + finalFee
         val isSufficient = accumulated >= requiredTotal
         val finalChange = if (isSufficient) accumulated - requiredTotal else 0L
