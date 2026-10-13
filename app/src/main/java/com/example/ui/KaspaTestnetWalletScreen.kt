@@ -1450,8 +1450,9 @@ private fun KaspaFeeCalculatorSection(
             // The final fee is rechecked against the actual selected UTXOs and signed transaction.
             val normRate = maxOf(KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM, networkCondition.normalFeerate)
             val fastRate = maxOf(normRate * 2, networkCondition.priorityFeerate)
-            val normFee = KaspaTransactionEngine.calculateFeeBreakdown(amountKas, 1, 2, normRate).feeKas
-            val fastFee = KaspaTransactionEngine.calculateFeeBreakdown(amountKas, 1, 2, fastRate).feeKas
+            // UTXOs are not selected on this screen, so a one-input/two-output
+            // fee amount would be misleading. Show rates until the send planner
+            // has selected the real inputs and determined recipient/change outputs.
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1485,8 +1486,8 @@ private fun KaspaFeeCalculatorSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 listOf(
-                    Triple("Normal", normRate, "${KaspaTransactionEngine.formatKas(normFee)} KAS"),
-                    Triple("Fast Priority", fastRate, "${KaspaTransactionEngine.formatKas(fastFee)} KAS")
+                    Triple("Normal", normRate, "${normRate} sompi/gram"),
+                    Triple("Fast Priority", fastRate, "${fastRate} sompi/gram")
                 ).forEach { (label, rate, feeLabel) ->
                     val isSelected = selectedSompiPerMass == rate
                     Surface(
