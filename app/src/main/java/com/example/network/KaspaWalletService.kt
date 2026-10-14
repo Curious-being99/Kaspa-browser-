@@ -854,7 +854,7 @@ class KaspaWalletService(
                 var requiredSignedFee = 0L
                 var signedAndFeeValid = false
                 try {
-                    repeat(4) {
+                    for (attempt in 0 until 4) {
                         KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
                         signedMass = KaspaTransactionEngine.calculateMass(
                             tx,
@@ -872,7 +872,7 @@ class KaspaWalletService(
                         )
                         if (transactionFeeSompis >= requiredSignedFee) {
                             signedAndFeeValid = true
-                            return@repeat
+                            break
                         }
 
                         val deficit = requiredSignedFee - transactionFeeSompis
