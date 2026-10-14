@@ -1709,14 +1709,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             } else {
                                                 KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
                                             }
-                                            wv.settings.userAgentString = currentUa
-                                            wv.settings.useWideViewPort = newMode
-                                            wv.settings.loadWithOverviewMode = newMode
+                                            // Stop the current document before changing its UA. Android WebView may
+                                            // initiate an automatic reload when the UA changes; stopping first prevents
+                                            // the old mobile document from rendering while the desktop reload is pending.
                                             val rawUrl = KaspaPrivacyEngine.resolveUrlForDesktopToggle(
                                                 webViewUrl = wv.url,
                                                 urlInput = urlInput,
                                                 resourceUrl = currentResource?.url
                                             )
+                                            wv.stopLoading()
+                                            // Configure the viewport before changing UA, so any reload sees desktop
+                                            // viewport settings from its first layout pass.
+                                            wv.settings.useWideViewPort = newMode
+                                            wv.settings.loadWithOverviewMode = newMode
+                                            wv.settings.userAgentString = currentUa
                                             val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
                                                 KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
                                             } else if (!newMode && !rawUrl.isNullOrBlank()) {
