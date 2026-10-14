@@ -121,10 +121,10 @@ class KaspaTestnetWalletUnitTest {
             fastFeeBreakdown.feeKas,
             0.00000001
         )
-        assertTrue("Normal fee must not fall below the configured 0.0056 KAS wallet floor", normalFeeBreakdown.feeSompis >= 560_000L)
-        assertTrue("Fast fee must not fall below the configured 0.0056 KAS wallet floor", fastFeeBreakdown.feeSompis >= 560_000L)
-        assertEquals("Both tiers may equal the floor when the mass-based fee is lower", maxOf(expectedNormalFee, 560_000L), normalFeeBreakdown.feeSompis)
-        assertEquals(maxOf(expectedFastFee, 560_000L), fastFeeBreakdown.feeSompis)
+        assertTrue("Normal fee must not fall below the configured 0.0056 KAS wallet floor", normalFeeBreakdown.feeSompis >= 5_600_000L)
+        assertTrue("Fast fee must not fall below the configured 0.0056 KAS wallet floor", fastFeeBreakdown.feeSompis >= 5_600_000L)
+        assertEquals("Both tiers may equal the floor when the mass-based fee is lower", maxOf(expectedNormalFee, 5_600_000L), normalFeeBreakdown.feeSompis)
+        assertEquals(maxOf(expectedFastFee, 5_600_000L), fastFeeBreakdown.feeSompis)
     }
 
     @Test
@@ -141,7 +141,7 @@ class KaspaTestnetWalletUnitTest {
             "Dynamic estimates must preserve the 0.0056 KAS wallet fee floor",
             estimate.feeSompi >= engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
         )
-        assertEquals(560_000L, engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
+        assertEquals(5_600_000L, engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
         assertEquals(0.0056, engine.sompiToKas(engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS), 0.000000001)
     }
 
