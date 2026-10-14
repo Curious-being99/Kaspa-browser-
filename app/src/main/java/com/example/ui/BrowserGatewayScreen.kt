@@ -2102,6 +2102,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } else {
                                     KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
                                 }
+                                // Set UA + viewport as one pre-navigation configuration. Do not allow
+                                // WebView to render an initial mobile-width layout in desktop mode.
+                                useWideViewPort = desktopModeEnabled
+                                loadWithOverviewMode = desktopModeEnabled
                             }
 
                             // Early document-start JavaScript injection for WebGL stability, privacy shield, and Web3 wallet bridge
