@@ -92,7 +92,8 @@ class KaspaTestnetWalletUnitTest {
         )
         val expectedNormalFee = maxOf(
             engine.calculateFeeForMass(normalFeeBreakdown.totalMass, normalRate),
-            normalRelayMinimum
+            normalRelayMinimum,
+            engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
         )
         assertEquals(expectedNormalFee, normalFeeBreakdown.feeSompis)
         assertEquals(
@@ -111,7 +112,8 @@ class KaspaTestnetWalletUnitTest {
         )
         val expectedFastFee = maxOf(
             engine.calculateFeeForMass(fastFeeBreakdown.totalMass, fastRate),
-            fastRelayMinimum
+            fastRelayMinimum,
+            engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
         )
         assertEquals(expectedFastFee, fastFeeBreakdown.feeSompis)
         assertEquals(
@@ -119,7 +121,28 @@ class KaspaTestnetWalletUnitTest {
             fastFeeBreakdown.feeKas,
             0.00000001
         )
-        assertTrue("Fast fee rate must produce a higher fee when it exceeds the normal tier", expectedFastFee > expectedNormalFee)
+        assertTrue("Normal fee must not fall below the configured 0.0056 KAS wallet floor", normalFeeBreakdown.feeSompis >= 560_000L)
+        assertTrue("Fast fee must not fall below the configured 0.0056 KAS wallet floor", fastFeeBreakdown.feeSompis >= 560_000L)
+        assertEquals("Both tiers may equal the floor when the mass-based fee is lower", maxOf(expectedNormalFee, 560_000L), normalFeeBreakdown.feeSompis)
+        assertEquals(maxOf(expectedFastFee, 560_000L), fastFeeBreakdown.feeSompis)
+    }
+
+    @Test
+    fun testDynamicFeeEstimateNeverDropsBelowWalletFloor() {
+        val engine = com.example.network.kaspa.KaspaTransactionEngine
+        val estimate = engine.estimateDynamicFee(
+            amountKas = 1.0,
+            inputsCount = 1,
+            outputsCount = 2,
+            sompiPerMass = 1L
+        )
+
+        assertTrue(
+            "Dynamic estimates must preserve the 0.0056 KAS wallet fee floor",
+            estimate.feeSompi >= engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+        )
+        assertEquals(560_000L, engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
+        assertEquals(0.0056, engine.sompiToKas(engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS), 0.000000001)
     }
 
     @Test

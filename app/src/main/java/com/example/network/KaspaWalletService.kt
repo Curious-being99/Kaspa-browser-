@@ -813,6 +813,7 @@ class KaspaWalletService(
                 // without subtracting the consumed UTXOs, inflating mass and the required fee.
                 val signedMass = KaspaTransactionEngine.calculateMass(tx, selectedUtxoEntries.map { it.amount })
                 val requiredSignedFee = maxOf(
+                    KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
                     KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
                     KaspaTransactionEngine.calculateFeeForMass(signedMass, txPlan.sompiPerMass),
                     when {

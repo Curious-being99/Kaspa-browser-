@@ -1599,6 +1599,7 @@ private fun KaspaFeeCalculatorSection(
 private fun SendTabContent(
     senderAddress: String,
     balanceKas: Double,
+    estimatedInputCount: Int,
     isSending: Boolean,
     recipientInput: String,
     onRecipientChange: (String) -> Unit,
@@ -1623,10 +1624,11 @@ private fun SendTabContent(
     val isAddressError = isRecipientEntered && (!isRealAddressValid || isPrefixMismatch)
     val isAddressSuccess = isRecipientEntered && isAddressValidOnNetwork
 
-    val breakdown = remember(amountNum, selectedSompiPerMass) {
+    val safeEstimatedInputCount = estimatedInputCount.coerceAtLeast(1)
+    val breakdown = remember(amountNum, safeEstimatedInputCount, selectedSompiPerMass) {
         KaspaTransactionEngine.calculateFeeBreakdown(
             amountKas = amountNum,
-            inputsCount = 1,
+            inputsCount = safeEstimatedInputCount,
             outputsCount = 2,
             sompiPerMass = selectedSompiPerMass
         )
@@ -3091,6 +3093,7 @@ private fun SendScreenOverlay(
             SendTabContent(
                 senderAddress = senderAddress,
                 balanceKas = balanceKas,
+                estimatedInputCount = maxOf(1, walletState.utxosCount),
                 isSending = isSending,
                 recipientInput = recipientInput,
                 onRecipientChange = onRecipientChange,
