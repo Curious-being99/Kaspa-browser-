@@ -128,6 +128,24 @@ class KaspaTestnetWalletUnitTest {
     }
 
     @Test
+    fun testDynamicFeeEstimateNeverDropsBelowWalletFloor() {
+        val engine = com.example.network.kaspa.KaspaTransactionEngine
+        val estimate = engine.estimateDynamicFee(
+            amountKas = 1.0,
+            inputsCount = 1,
+            outputsCount = 2,
+            sompiPerMass = 1L
+        )
+
+        assertTrue(
+            "Dynamic estimates must preserve the 0.0056 KAS wallet fee floor",
+            estimate.feeSompi >= engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+        )
+        assertEquals(560_000L, engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
+        assertEquals(0.0056, engine.sompiToKas(engine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS), 0.000000001)
+    }
+
+    @Test
     fun testTransactionHistoryFilterTabsLogic() {
         val tx1 = com.example.model.KaspaTransactionItem(
             txId = "tx_sent_1",
