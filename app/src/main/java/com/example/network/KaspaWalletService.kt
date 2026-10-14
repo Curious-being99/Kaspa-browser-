@@ -776,7 +776,7 @@ class KaspaWalletService(
                 }
 
                 // 5. Build Kaspa Transaction with authentic calculated mass
-                val tx = KaspaTransactionEngine.KaspaTransaction(
+                var tx = KaspaTransactionEngine.KaspaTransaction(
                     version = 0,
                     inputs = selectedInputs,
                     outputs = outputs,
@@ -787,19 +787,63 @@ class KaspaWalletService(
                     mass = txPlan.calculatedMass
                 )
 
-                // Verify the transaction's value conservation before signing/broadcasting.
-                // Kaspa's actual fee is input value minus output value, in sompi.
-                // Fail closed if output construction ever drifts from the displayed plan.
+                // Kaspire-style final planning: evaluate the constructed transaction shape,
+                // then iterate fee/change until the fee covers its own Toccata policy cost.
+                // Do this before signing so the UI's estimate cannot silently underfund it.
                 val inputTotalSompis = selectedUtxoEntries.fold(0L) { total, entry ->
                     Math.addExact(total, entry.amount)
                 }
-                val outputTotalSompis = tx.outputs.fold(0L) { total, output ->
-                    Math.addExact(total, output.amount)
+                var transactionFeeSompis = Math.subtractExact(
+                    inputTotalSompis,
+                    tx.outputs.fold(0L) { total, output -> Math.addExact(total, output.amount) }
+                )
+                repeat(4) {
+                    val preSignMass = KaspaTransactionEngine.calculateMass(
+                        tx,
+                        selectedUtxoEntries.map { it.amount }
+                    )
+                    val requiredFee = maxOf(
+                        KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                        KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                        KaspaTransactionEngine.calculateFeeForMass(preSignMass, txPlan.sompiPerMass)
+                    )
+                    if (transactionFeeSompis >= requiredFee) return@repeat
+
+                    val deficit = requiredFee - transactionFeeSompis
+                    val changeIndex = tx.outputs.indexOfLast {
+                        it.scriptPublicKey.script == senderScriptPubKey.script
+                    }
+                    require(changeIndex >= 0 && tx.outputs[changeIndex].amount > deficit) {
+                        "Insufficient change to cover the transaction's actual required fee. " +
+                            "Current fee: $transactionFeeSompis sompi; required: $requiredFee sompi. " +
+                            "Transaction was not broadcast; refresh UTXOs and fee estimate."
+                    }
+                    val adjustedOutputs = tx.outputs.toMutableList()
+                    adjustedOutputs[changeIndex] = adjustedOutputs[changeIndex].copy(
+                        amount = adjustedOutputs[changeIndex].amount - deficit
+                    )
+                    tx = tx.copy(outputs = adjustedOutputs)
+                    transactionFeeSompis = Math.subtractExact(
+                        inputTotalSompis,
+                        tx.outputs.fold(0L) { total, output -> Math.addExact(total, output.amount) }
+                    )
                 }
-                val transactionFeeSompis = Math.subtractExact(inputTotalSompis, outputTotalSompis)
-                require(transactionFeeSompis == txPlan.feeSompis && transactionFeeSompis >= 0L) {
-                    "Transaction fee validation failed before broadcast. Planned fee: ${txPlan.feeSompis} sompi; " +
-                        "actual input-output fee: ${transactionFeeSompis} sompi. Transaction was not broadcast."
+
+                val finalPreSignMass = KaspaTransactionEngine.calculateMass(
+                    tx,
+                    selectedUtxoEntries.map { it.amount }
+                )
+                val finalRequiredFee = maxOf(
+                    KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                    KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                    KaspaTransactionEngine.calculateFeeForMass(finalPreSignMass, txPlan.sompiPerMass)
+                )
+                require(transactionFeeSompis >= finalRequiredFee) {
+                    "Fee/change planning did not converge. Actual fee: $transactionFeeSompis sompi; " +
+                        "required: $finalRequiredFee sompi. Transaction was not broadcast."
+                }
+                require(transactionFeeSompis >= 0L) {
+                    "Transaction value conservation failed; transaction was not broadcast."
                 }
 
                 // 6. Sign each input with rusty-kaspa BIP-340 Schnorr algorithm
