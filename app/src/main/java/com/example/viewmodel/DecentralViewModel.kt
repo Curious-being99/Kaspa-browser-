@@ -1823,7 +1823,8 @@ class DecentralViewModel(
                     }
                 }.onFailure { err ->
                     val errorMsg = err.message ?: "Transaction broadcast failed"
-                    _statusMessage.value = "Testnet 10 failed: $errorMsg"
+                    val networkLabel = if (isTestnet) "Testnet 10" else "Mainnet"
+                    _statusMessage.value = "$networkLabel failed: $errorMsg"
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
                         lastBroadcastTxId = null,
