@@ -152,6 +152,8 @@ object KaspaTransactionEngine {
 
     // Kaspa Consensus & Mass Constants (rusty-kaspa / kaspa-consensus-core)
     const val SOMPI_PER_KAS = 100_000_000L
+    // Product-level minimum fee floor: 0.0056 KAS = 560,000 sompi.
+    const val MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS = 560_000L
     const val SOMPI_PER_KAS_DOUBLE = 100_000_000.0
     const val STORAGE_MASS_PARAMETER = 1_000_000_000_000L // 10^12 = SOMPI_PER_KAS * 10,000 (KIP-0009)
     const val MASS_PER_TX_BYTE = 1L
@@ -1028,7 +1030,7 @@ object KaspaTransactionEngine {
             safeOutputs,
             payloadByteCount = 0
         )
-        val feeSompis = maxOf(massFee, minimumStandardFee)
+        val feeSompis = maxOf(massFee, minimumStandardFee, MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
         val feeKas = sompiToKas(feeSompis)
         val totalRequiredKas = amountKas + feeKas
         val isDustWarning = amountSompis in 1 until DUST_THRESHOLD_SOMPIS
@@ -1124,9 +1126,9 @@ object KaspaTransactionEngine {
             safeOutputs,
             payloadByteCount = 0
         )
-        val ecoFee = maxOf(calculateFeeForMass(totalMass, networkCondition.lowFeerate), minimumStandardFee)
-        val normFee = maxOf(calculateFeeForMass(totalMass, networkCondition.normalFeerate), minimumStandardFee)
-        val prioFee = maxOf(calculateFeeForMass(totalMass, networkCondition.priorityFeerate), minimumStandardFee)
+        val ecoFee = maxOf(calculateFeeForMass(totalMass, networkCondition.lowFeerate), minimumStandardFee, MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
+        val normFee = maxOf(calculateFeeForMass(totalMass, networkCondition.normalFeerate), minimumStandardFee, MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
+        val prioFee = maxOf(calculateFeeForMass(totalMass, networkCondition.priorityFeerate), minimumStandardFee, MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
         
         // Use Normal as the default/selected option
         val selectedFee = normFee 
@@ -1208,7 +1210,7 @@ object KaspaTransactionEngine {
             outputsCount,
             payloadByteCount
         )
-        return maxOf(minimumStandardFee, rateBasedFee)
+        return maxOf(minimumStandardFee, rateBasedFee, MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
     }
 
     /**
