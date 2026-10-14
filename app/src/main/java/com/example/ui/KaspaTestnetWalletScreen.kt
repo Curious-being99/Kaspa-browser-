@@ -552,6 +552,7 @@ fun KaspaTestnetWalletScreen(
             SendScreenOverlay(
                 senderAddress = testnetAddress,
                 balanceKas = walletState.balanceKas,
+                estimatedInputCount = maxOf(1, walletState.utxosCount),
                 isSending = walletState.isSending,
                 recipientInput = recipientInput,
                 onRecipientChange = { recipientInput = it },
@@ -3053,6 +3054,7 @@ private fun WalletLockOverlay(
 private fun SendScreenOverlay(
     senderAddress: String,
     balanceKas: Double,
+    estimatedInputCount: Int,
     isSending: Boolean,
     recipientInput: String,
     onRecipientChange: (String) -> Unit,
@@ -3093,7 +3095,7 @@ private fun SendScreenOverlay(
             SendTabContent(
                 senderAddress = senderAddress,
                 balanceKas = balanceKas,
-                estimatedInputCount = maxOf(1, walletState.utxosCount),
+                estimatedInputCount = estimatedInputCount,
                 isSending = isSending,
                 recipientInput = recipientInput,
                 onRecipientChange = onRecipientChange,
