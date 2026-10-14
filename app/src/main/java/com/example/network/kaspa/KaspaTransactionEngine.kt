@@ -1081,7 +1081,7 @@ object KaspaTransactionEngine {
             safeOutputs,
             payloadByteCount
         )
-        val feeSompi = maxOf(massFee, minimumStandardFee)
+        val feeSompi = maxOf(massFee, minimumStandardFee, MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
         val feeKas = sompiToKas(feeSompi)
 
         return DynamicFeeEstimate(
