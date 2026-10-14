@@ -152,8 +152,8 @@ object KaspaTransactionEngine {
 
     // Kaspa Consensus & Mass Constants (rusty-kaspa / kaspa-consensus-core)
     const val SOMPI_PER_KAS = 100_000_000L
-    // Product-level minimum fee floor: 0.056 KAS = 5,600,000 sompi.
-    const val MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS = 5_600_000L
+    // Product-level minimum fee floor: 0.0056 KAS = 560,000 sompi.
+    const val MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS = 560_000L
     const val SOMPI_PER_KAS_DOUBLE = 100_000_000.0
     const val STORAGE_MASS_PARAMETER = 1_000_000_000_000L // 10^12 = SOMPI_PER_KAS * 10,000 (KIP-0009)
     const val MASS_PER_TX_BYTE = 1L
