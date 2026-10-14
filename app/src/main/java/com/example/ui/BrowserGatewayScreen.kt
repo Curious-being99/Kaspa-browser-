@@ -3311,10 +3311,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             } catch (_: Throwable) {
                                 null
                             }
-                            // Never change the User-Agent from Compose's update block.
-                            // This block may run during page rendering; a UA change can cause a
-                            // second navigation and visibly flash the mobile layout. UA and viewport
-                            // are configured at WebView creation and when the user toggles the mode.
                             val currentTag = webView.tag as? Pair<*, *>
                             val tagUrl = currentTag?.first as? String
                             val tagSessionId = currentTag?.second as? Int
