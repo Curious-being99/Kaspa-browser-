@@ -3311,18 +3311,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             } catch (_: Throwable) {
                                 null
                             }
-                            val desiredUa = if (desktopModeEnabled || isWebStore) {
-                                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
-                            } else {
-                                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
-                            }
-                            val uaChanged = webView.settings.userAgentString != desiredUa
-                            if (uaChanged) {
-                                webView.settings.userAgentString = desiredUa
-                                webView.settings.useWideViewPort = (desktopModeEnabled || isWebStore)
-                                webView.settings.loadWithOverviewMode = (desktopModeEnabled || isWebStore)
-                            }
-                            
                             val currentTag = webView.tag as? Pair<*, *>
                             val tagUrl = currentTag?.first as? String
                             val tagSessionId = currentTag?.second as? Int
@@ -3334,7 +3322,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val isAlreadyLoadedInSession = tagSessionId != null && tagSessionId == navigationSessionId
                             val isAlreadyAtOrLoadingUrl = matchesCurrentUrl || matchesTagUrl || isAlreadyLoadedInSession
 
-                            if (isAlreadyAtOrLoadingUrl && !uaChanged) {
+                            if (isAlreadyAtOrLoadingUrl) {
                                 com.example.util.BrowserStateLog.loadUrl("Prevented unnecessary reload: currentUrl ($webViewCurrentUrl) / tagUrl ($tagUrl) / sessionId ($tagSessionId) matches requested destination (${resource.url})")
                                 webView.tag = Pair(resource.url, navigationSessionId)
                             } else if (!isAlreadyAtOrLoadingUrl && !isRecentDownload) {
@@ -3347,23 +3335,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
                                 webView.loadUrl(finalUrl, desktopHeaders)
-                            } else if (uaChanged) {
-                                val rawUrl = webView.url ?: resource.url
-                                val targetUrl = if (desktopModeEnabled && !rawUrl.isNullOrBlank()) {
-                                    KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
-                                } else if (!desktopModeEnabled && !rawUrl.isNullOrBlank()) {
-                                    KaspaPrivacyEngine.convertDesktopUrlToMobile(rawUrl)
-                                } else {
-                                    rawUrl
-                                }
-                                if (!targetUrl.isNullOrBlank() && targetUrl != rawUrl) {
-                                    viewModel.setUrlInput(targetUrl)
-                                }
-                                if (!targetUrl.isNullOrBlank()) {
-                                    com.example.util.BrowserStateLog.loadUrl("User-Agent toggled, reloading with new UA: $targetUrl")
-                                    val desktopHeaders = KaspaPrivacyEngine.getDesktopHeaders(desktopModeEnabled || isWebStore, defaultDeviceUa)
-                                    webView.loadUrl(targetUrl, desktopHeaders)
-                                }
+
                             }
                         } else {
                             val cidKey = if (resource.cid.isNotBlank()) resource.cid else "kaspa"
