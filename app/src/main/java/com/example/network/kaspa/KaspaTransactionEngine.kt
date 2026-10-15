@@ -1120,10 +1120,7 @@ object KaspaTransactionEngine {
         val size = 2L + 8L + (safeInputs * (36L + 8L + STANDARD_SIGNATURE_SCRIPT_BYTES + 8L)) +
                 8L + (safeOutputs * (8L + 2L + 8L + STANDARD_P2PK_SCRIPT_BYTES)) +
                 8L + 20L + 8L + 32L + 8L
-        val sigOpMass = safeInputs * 1L * MASS_PER_SIG_OP
-        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
-        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
-        val computeMass = sigOpMass + inputComputeMass + outputComputeMass
+        val computeMass = calculateComputeMass(safeInputs, safeOutputs, safeInputs, payloadByteCount = 0)
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
         val totalMass = calculateFeeMass(computeMass, size)
 
