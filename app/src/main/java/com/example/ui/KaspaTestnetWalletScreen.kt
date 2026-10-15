@@ -1486,45 +1486,6 @@ private fun KaspaFeeCalculatorSection(
             HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Calculated Fee
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Calculated Network Fee", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                Text(
-                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = AmberCentral
-                )
-            }
-
-            if (amountKas > 0.0) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Total Required (Amount + Fee)", fontSize = 11.sp, color = TextSecondary)
-                    Text(
-                        text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = KaspaTea
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Estimate only. The final fee depends on the actual inputs, outputs, and signed transaction mass. Toccata minimum-standard relay policy is applied; the node's acceptance policy can still vary by network and version.",
-                fontSize = 10.sp,
-                color = TextSecondary,
-                lineHeight = 14.sp
-            )
-
             // Dust warning if output is < 0.02 KAS
             if (breakdown.isDustWarning) {
                 Spacer(modifier = Modifier.height(8.dp))
