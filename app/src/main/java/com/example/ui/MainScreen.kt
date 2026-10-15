@@ -97,7 +97,8 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     LaunchedEffect(statusMessage) {
         statusMessage?.let { msg ->
             val walletBroadcastResult = msg.contains("Broadcasted! Tx:", ignoreCase = true) ||
-                msg.contains(" failed:", ignoreCase = true) ||
+                msg.contains("Testnet 10 failed:", ignoreCase = true) ||
+                msg.contains("Mainnet failed:", ignoreCase = true) ||
                 msg.contains("Broadcast Failed", ignoreCase = true) ||
                 msg.contains("Fee/change planning", ignoreCase = true) ||
                 msg.contains("Insufficient funds", ignoreCase = true)
