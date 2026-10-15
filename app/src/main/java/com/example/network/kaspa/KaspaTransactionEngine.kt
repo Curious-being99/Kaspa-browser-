@@ -686,8 +686,7 @@ object KaspaTransactionEngine {
     fun calculateFeeMass(computeMass: Long, serializedBytes: Long): Long {
         require(computeMass >= 0L) { "Compute mass cannot be negative" }
         require(serializedBytes >= 0L) { "Serialized size cannot be negative" }
-        return maxOf(computeMass, Math.multiplyExact(serializedBytes, 2L))
-            .coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        return maxOf(computeMass, Math.multiplyExact(serializedBytes, 2L), MINIMUM_TRANSACTION_MASS)
     }
 
     /**
@@ -825,7 +824,7 @@ object KaspaTransactionEngine {
 
         val outAmounts = tx.outputs.map { it.amount }
         val storageMass = calculateStorageMass(inputAmounts, outAmounts)
-        return maxOf(computeMass, storageMass).coerceAtMost(MAXIMUM_STANDARD_TRANSACTION_MASS)
+        return maxOf(computeMass, storageMass).coerceAtLeast(MINIMUM_TRANSACTION_MASS)
     }
 
     /**
