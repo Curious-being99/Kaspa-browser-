@@ -1080,7 +1080,7 @@ object KaspaTransactionEngine {
         } else {
             0L
         }
-        val totalMass = calculateFeeMass(computeMass, size)
+        val totalMass = calculateFeeMass(computeMass, estimatedSize)
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
         val minimumStandardFee = calculateToccataMinimumStandardFee(
             safeInputs,
