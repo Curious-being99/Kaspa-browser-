@@ -511,12 +511,6 @@ fun KaspaTestnetWalletScreen(
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
-                    val pendingCount = walletState.recentTransactions.count { !it.isAccepted }
-                    Text(
-                        text = "$pendingCount pending",
-                        fontSize = 11.sp,
-                        color = if (pendingCount > 0) AmberCentral else TextMuted
-                    )
                 }
                 if (walletState.recentTransactions.isNotEmpty()) {
                     Text(
@@ -1480,37 +1474,6 @@ private fun KaspaFeeCalculatorSection(
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(10.dp))
-
-            // Calculated Fee
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Calculated Network Fee", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                Text(
-                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = AmberCentral
-                )
-            }
-
-            if (amountKas > 0.0) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("Total Required (Amount + Fee)", fontSize = 11.sp, color = TextSecondary)
-                    Text(
-                        text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = KaspaTea
-                    )
-                }
-            }
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -3730,27 +3693,7 @@ private fun ConfirmSendScreenOverlay(
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
-                            Spacer(modifier = Modifier.height(10.dp))
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Total Required Deduction:",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = KaspaTea
-                                )
-                            }
                         }
                     }
                 }
