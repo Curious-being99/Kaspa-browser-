@@ -643,11 +643,6 @@ fun KaspaTestnetWalletScreen(
                     viewModel.openTestnetTxExplorer(lastResultTxId)
                     viewModel.clearWalletStatusNotice()
                 },
-                onOpenFaucet = {
-                    showResultOverlay = false
-                    viewModel.openTestnetFaucet(context)
-                    viewModel.clearWalletStatusNotice()
-                },
                 onClose = {
                     showResultOverlay = false
                     viewModel.clearWalletStatusNotice()
@@ -3121,8 +3116,7 @@ private fun TransactionResultOverlay(
     errorMessage: String,
     transaction: KaspaTransactionItem?,
     onViewOnExplorer: () -> Unit,
-    onClose: () -> Unit,
-    onOpenFaucet: (() -> Unit)? = null
+    onClose: () -> Unit
 ) {
     Box(
         modifier = Modifier
