@@ -637,6 +637,7 @@ fun KaspaTestnetWalletScreen(
                 isSuccess = lastResultIsSuccess,
                 txId = lastResultTxId,
                 errorMessage = lastResultError,
+                transaction = walletState.recentTransactions.firstOrNull { it.txId == lastResultTxId },
                 onViewOnExplorer = {
                     showResultOverlay = false
                     viewModel.openTestnetTxExplorer(lastResultTxId)
@@ -3118,6 +3119,7 @@ private fun TransactionResultOverlay(
     isSuccess: Boolean,
     txId: String,
     errorMessage: String,
+    transaction: KaspaTransactionItem?,
     onViewOnExplorer: () -> Unit,
     onClose: () -> Unit,
     onOpenFaucet: (() -> Unit)? = null
@@ -3171,6 +3173,27 @@ private fun TransactionResultOverlay(
                 textAlign = TextAlign.Center,
                 lineHeight = 18.sp
             )
+
+            if (isSuccess && transaction != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Amount sent", fontSize = 12.sp, color = TextSecondary)
+                        Text("${KaspaTransactionEngine.formatKas(transaction.amountKas)} KAS", fontSize = 12.sp, color = TextPrimary)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Network fee", fontSize = 12.sp, color = TextSecondary)
+                        Text("${KaspaTransactionEngine.formatKas(transaction.feeKas)} KAS", fontSize = 12.sp, color = TextPrimary)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Total deduction", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("${KaspaTransactionEngine.formatKas(transaction.amountKas + transaction.feeKas)} KAS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                    }
+                }
+            }
 
             if (isSuccess && txId.isNotBlank()) {
                 Spacer(modifier = Modifier.height(20.dp))
