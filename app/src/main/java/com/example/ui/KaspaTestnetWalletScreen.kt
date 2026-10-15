@@ -1486,6 +1486,45 @@ private fun KaspaFeeCalculatorSection(
             HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Calculated Fee
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Calculated Network Fee", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                Text(
+                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = AmberCentral
+                )
+            }
+
+            if (amountKas > 0.0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Total Required (Amount + Fee)", fontSize = 11.sp, color = TextSecondary)
+                    Text(
+                        text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = KaspaTea
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Estimate only. The final fee depends on the actual inputs, outputs, and signed transaction mass. Toccata minimum-standard relay policy is applied; the node's acceptance policy can still vary by network and version.",
+                fontSize = 10.sp,
+                color = TextSecondary,
+                lineHeight = 14.sp
+            )
+
             // Dust warning if output is < 0.02 KAS
             if (breakdown.isDustWarning) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -3648,6 +3687,90 @@ private fun ConfirmSendScreenOverlay(
                                 color = ElectricCyan,
                                 lineHeight = 18.sp
                             )
+                        }
+                    }
+                }
+
+                // Network Fee & Mass Details Card
+                item {
+                    Surface(
+                        color = SurfaceDark,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Fee Estimate & Transaction Details",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Calculated Network Fee:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AmberCentral
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Selected Fee Rate:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "$selectedSompiPerMass sompi/gram",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = TextPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Estimated BlockDAG Mass:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "${breakdown.totalMass} mass units",
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextSecondary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Total Required Deduction:",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary
+                                )
+                                Text(
+                                    text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = KaspaTea
+                                )
+                            }
                         }
                     }
                 }
