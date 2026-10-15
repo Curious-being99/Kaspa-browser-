@@ -637,14 +637,10 @@ fun KaspaTestnetWalletScreen(
                 isSuccess = lastResultIsSuccess,
                 txId = lastResultTxId,
                 errorMessage = lastResultError,
+                transaction = walletState.recentTransactions.firstOrNull { it.txId == lastResultTxId },
                 onViewOnExplorer = {
                     showResultOverlay = false
                     viewModel.openTestnetTxExplorer(lastResultTxId)
-                    viewModel.clearWalletStatusNotice()
-                },
-                onOpenFaucet = {
-                    showResultOverlay = false
-                    viewModel.openTestnetFaucet(context)
                     viewModel.clearWalletStatusNotice()
                 },
                 onClose = {
@@ -1478,45 +1474,6 @@ private fun KaspaFeeCalculatorSection(
                         fontSize = 9.sp,
                         color = KaspaTea
                     )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    Triple("Normal", normRate, "${normRate} sompi/gram"),
-                    Triple("Fast Priority", fastRate, "${fastRate} sompi/gram")
-                ).forEach { (label, rate, feeLabel) ->
-                    val isSelected = selectedSompiPerMass == rate
-                    Surface(
-                        onClick = { onFeerateChange(rate) },
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) KaspaTea else SurfaceElevated,
-                        border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) SurfaceDark else TextPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = feeLabel,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isSelected) SurfaceDark.copy(alpha = 0.9f) else AmberCentral
-                            )
-                        }
-                    }
                 }
             }
 
@@ -3157,9 +3114,9 @@ private fun TransactionResultOverlay(
     isSuccess: Boolean,
     txId: String,
     errorMessage: String,
+    transaction: KaspaTransactionItem?,
     onViewOnExplorer: () -> Unit,
-    onClose: () -> Unit,
-    onOpenFaucet: (() -> Unit)? = null
+    onClose: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -3211,6 +3168,27 @@ private fun TransactionResultOverlay(
                 lineHeight = 18.sp
             )
 
+            if (isSuccess && transaction != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Amount sent", fontSize = 12.sp, color = TextSecondary)
+                        Text("${KaspaTransactionEngine.formatKas(transaction.amountKas)} KAS", fontSize = 12.sp, color = TextPrimary)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Network fee", fontSize = 12.sp, color = TextSecondary)
+                        Text("${KaspaTransactionEngine.formatKas(transaction.feeKas)} KAS", fontSize = 12.sp, color = TextPrimary)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Total deduction", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("${KaspaTransactionEngine.formatKas(transaction.amountKas + transaction.feeKas)} KAS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                    }
+                }
+            }
+
             if (isSuccess && txId.isNotBlank()) {
                 Spacer(modifier = Modifier.height(20.dp))
                 Surface(
@@ -3242,23 +3220,6 @@ private fun TransactionResultOverlay(
                     Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("View on Explorer", fontWeight = FontWeight.Bold, color = SurfaceDark)
-                }
-            }
-
-            if (!isSuccess && onOpenFaucet != null && (errorMessage.contains("Insufficient funds", ignoreCase = true) || errorMessage.contains("Please fund", ignoreCase = true))) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        onClose()
-                        onOpenFaucet()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AmberCentral),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(Icons.Default.WaterDrop, null, modifier = Modifier.size(18.dp), tint = SurfaceDark)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Get Coins from Faucet", fontWeight = FontWeight.Bold, color = SurfaceDark)
                 }
             }
 
