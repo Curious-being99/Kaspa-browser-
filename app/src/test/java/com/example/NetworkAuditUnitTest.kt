@@ -419,13 +419,18 @@ class NetworkAuditUnitTest {
             payload = "7b2270726f746f636f6c223a226b6e732d6b227d" // 20 bytes payload
         )
 
-        // 1. Verify compute mass calculation: 2 sigops * 1000 + 2 inputs * 100 + 2 outputs * 100 = 2400
-        val computeMass = com.example.network.kaspa.KaspaTransactionEngine.calculateComputeMass(
+        // 1. Verify compute mass includes estimated serialized bytes, output script bytes, and sigops.
+        val engine = com.example.network.kaspa.KaspaTransactionEngine
+        val computeMass = engine.calculateComputeMass(
             inputsCount = 2,
             outputsCount = 2,
             totalSigOps = 2
         )
-        assertEquals(2400L, computeMass)
+        val estimatedBytes = engine.calculateEstimatedSerializedByteSize(2, 2)
+        val expectedComputeMass = estimatedBytes +
+            2L * (2L + engine.STANDARD_P2PK_SCRIPT_BYTES) * engine.MASS_PER_SCRIPT_PUB_KEY_BYTE +
+            2L * engine.MASS_PER_SIG_OP
+        assertEquals(expectedComputeMass, computeMass)
 
         // 2. Verify serialized size calculation
         val serializedBytes = com.example.network.kaspa.KaspaTransactionEngine.calculateSerializedByteSize(tx)
@@ -450,10 +455,10 @@ class NetworkAuditUnitTest {
         val priorityFee = engine.calculateFeeForMass(mass, sompiPerMass = 200L)
         assertEquals(240_000L, priorityFee)
 
-        // Mass below the minimum transaction mass is charged using the minimum mass
-        // and minimum standard rate (1,000 * 100 sompi).
+        // Fee calculation does not invent a minimum transaction mass; only the minimum
+        // standard fee rate is applied to the supplied mass.
         val smallMassFee = engine.calculateFeeForMass(500L, sompiPerMass = 1L)
-        assertEquals(100_000L, smallMassFee)
+        assertEquals(50_000L, smallMassFee)
     }
 
     @Test
@@ -491,7 +496,7 @@ class NetworkAuditUnitTest {
         )
         assertEquals(
             "Planned fee must satisfy both the selected rate and Toccata minimum-standard relay policy",
-            maxOf(expectedRateFee, expectedRelayMinimum),
+            maxOf(expectedRateFee, expectedRelayMinimum, com.example.network.kaspa.KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS),
             plan.feeSompis
         )
         assertEquals(plan.feeSompis / 100_000_000.0, plan.feeKas, 0.000000001)
