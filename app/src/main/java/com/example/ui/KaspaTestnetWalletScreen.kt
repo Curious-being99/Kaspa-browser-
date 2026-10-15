@@ -3706,20 +3706,6 @@ private fun ConfirmSendScreenOverlay(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Calculated Network Fee:", fontSize = 12.sp, color = TextMuted)
-                                Text(
-                                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AmberCentral
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
                                 Text("Selected Fee Rate:", fontSize = 12.sp, color = TextMuted)
                                 Text(
                                     text = "$selectedSompiPerMass sompi/gram",
