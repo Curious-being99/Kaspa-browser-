@@ -842,7 +842,7 @@ object KaspaTransactionEngine {
     fun calculateFeeForMass(mass: Long, sompiPerMass: Long = DEFAULT_SOMPI_PER_MASS): Long {
         require(mass >= 0L) { "Transaction mass cannot be negative" }
         require(sompiPerMass >= 0L) { "Fee rate cannot be negative" }
-        val effectiveMass = maxOf(mass, MINIMUM_TRANSACTION_MASS)
+        val effectiveMass = mass
         val effectiveRate = maxOf(sompiPerMass, TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
         return Math.multiplyExact(effectiveMass, effectiveRate)
     }
