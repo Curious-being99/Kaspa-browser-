@@ -162,7 +162,7 @@ object KaspaTransactionEngine {
     const val MASS_PER_INPUT_COMPUTE = 100L
     const val MASS_PER_OUTPUT_COMPUTE = 100L
     const val MINIMUM_TRANSACTION_MASS = 1000L
-    const val MAXIMUM_STANDARD_TRANSACTION_MASS = 100_000L
+    const val MAXIMUM_STANDARD_TRANSACTION_MASS = 500_000L
     // Toccata RPC submission policy: minimum standard rate is 100 sompi per gram.
     const val DEFAULT_SOMPI_PER_MASS = 100L
     // Deprecated legacy display constants retained for source compatibility only.
@@ -671,12 +671,23 @@ object KaspaTransactionEngine {
      * Calculates transaction compute mass based on serialized byte size, script public key bytes, and signature operations.
      */
     fun calculateComputeMass(inputsCount: Int, outputsCount: Int, totalSigOps: Int, payloadByteCount: Int = 0): Long {
+        require(payloadByteCount >= 0) { "Payload byte count cannot be negative" }
         val safeInputs = maxOf(1, inputsCount)
         val safeOutputs = maxOf(1, outputsCount)
-        val sigOpMass = totalSigOps * MASS_PER_SIG_OP
-        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
-        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
-        return sigOpMass + inputComputeMass + outputComputeMass + payloadByteCount
+        val serializedBytes = calculateEstimatedSerializedByteSize(safeInputs, safeOutputs, payloadByteCount)
+        val scriptPubKeyGrams = Math.multiplyExact(
+            safeOutputs.toLong(),
+            (2L + STANDARD_P2PK_SCRIPT_BYTES) * MASS_PER_SCRIPT_PUB_KEY_BYTE
+        )
+        val sigOpGrams = Math.multiplyExact(totalSigOps.coerceAtLeast(0).toLong(), MASS_PER_SIG_OP)
+        return Math.addExact(Math.addExact(serializedBytes * MASS_PER_TX_BYTE, scriptPubKeyGrams), sigOpGrams)
+    }
+
+    fun calculateFeeMass(computeMass: Long, serializedBytes: Long): Long {
+        require(computeMass >= 0L) { "Compute mass cannot be negative" }
+        require(serializedBytes >= 0L) { "Serialized size cannot be negative" }
+        return maxOf(computeMass, Math.multiplyExact(serializedBytes, 2L))
+            .coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
     }
 
     /**
@@ -814,8 +825,7 @@ object KaspaTransactionEngine {
 
         val outAmounts = tx.outputs.map { it.amount }
         val storageMass = calculateStorageMass(inputAmounts, outAmounts)
-        val overall = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
-        return overall
+        return maxOf(computeMass, storageMass).coerceAtMost(MAXIMUM_STANDARD_TRANSACTION_MASS)
     }
 
     /**
@@ -832,9 +842,8 @@ object KaspaTransactionEngine {
         val safeOutputs = maxOf(1, outputsCount)
         val totalSigOps = safeInputs * 1 // Standard P2PK
         val computeMass = calculateComputeMass(safeInputs, safeOutputs, totalSigOps, payloadByteCount)
-        val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
-        val overall = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
-        return overall
+        val estimatedBytes = calculateEstimatedSerializedByteSize(safeInputs, safeOutputs, payloadByteCount)
+        return calculateFeeMass(computeMass, estimatedBytes)
     }
 
     /**
@@ -1021,7 +1030,7 @@ object KaspaTransactionEngine {
         } else {
             0L
         }
-        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        val totalMass = calculateFeeMass(computeMass, size)
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
         // Match the minimum-standard relay floor used by the transaction planner; a
         // feerate estimate alone must not understate the minimum-standard fee.
@@ -1065,16 +1074,13 @@ object KaspaTransactionEngine {
         val safeInputs = maxOf(1, inputsCount)
         val safeOutputs = maxOf(1, outputsCount)
         val estimatedSize = calculateEstimatedSerializedByteSize(safeInputs, safeOutputs, payloadByteCount)
-        val sigOpMass = safeInputs * 1L * MASS_PER_SIG_OP
-        val inputComputeMass = safeInputs * MASS_PER_INPUT_COMPUTE
-        val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
-        val computeMass = sigOpMass + inputComputeMass + outputComputeMass + payloadByteCount
+        val computeMass = calculateComputeMass(safeInputs, safeOutputs, safeInputs, payloadByteCount)
         val storageMass = if (inputAmounts.isNotEmpty() || (amountSompis > 0L && amountSompis < DUST_THRESHOLD_SOMPIS)) {
             calculateStorageMass(inputAmounts, outputAmounts)
         } else {
             0L
         }
-        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        val totalMass = calculateFeeMass(computeMass, size)
         val massFee = calculateFeeForMass(totalMass, sompiPerMass)
         val minimumStandardFee = calculateToccataMinimumStandardFee(
             safeInputs,
@@ -1119,7 +1125,7 @@ object KaspaTransactionEngine {
         val outputComputeMass = safeOutputs * MASS_PER_OUTPUT_COMPUTE
         val computeMass = sigOpMass + inputComputeMass + outputComputeMass
         val storageMass = calculateStorageMass(inputAmounts, outputAmounts)
-        val totalMass = maxOf(computeMass, storageMass).coerceIn(MINIMUM_TRANSACTION_MASS, MAXIMUM_STANDARD_TRANSACTION_MASS)
+        val totalMass = calculateFeeMass(computeMass, size)
 
         val minimumStandardFee = calculateToccataMinimumStandardFee(
             safeInputs,
