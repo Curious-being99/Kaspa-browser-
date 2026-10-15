@@ -160,7 +160,8 @@ object KaspaTransactionEngine {
     const val MASS_PER_SCRIPT_PUB_KEY_BYTE = 10L
     const val MASS_PER_SIG_OP = 1000L
     // No generic fixed per-input/output compute charge or minimum transaction mass is defined here.
-    // Optional client-side batching threshold only; not a Kaspa consensus or node standardness limit.
+    // Advisory client-side batching threshold only. This value is not a protocol limit,
+    // and this constant alone does not split transactions; the transaction planner must enforce it.
     const val CLIENT_SOFT_TRANSACTION_MASS_LIMIT = 100_000L
     // Toccata RPC submission policy: minimum standard rate is 100 sompi per gram.
     const val DEFAULT_SOMPI_PER_MASS = 100L
