@@ -1481,45 +1481,6 @@ private fun KaspaFeeCalculatorSection(
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    Triple("Normal", normRate, "${normRate} sompi/gram"),
-                    Triple("Fast Priority", fastRate, "${fastRate} sompi/gram")
-                ).forEach { (label, rate, feeLabel) ->
-                    val isSelected = selectedSompiPerMass == rate
-                    Surface(
-                        onClick = { onFeerateChange(rate) },
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) KaspaTea else SurfaceElevated,
-                        border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) SurfaceDark else TextPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = feeLabel,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isSelected) SurfaceDark.copy(alpha = 0.9f) else AmberCentral
-                            )
-                        }
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
             Spacer(modifier = Modifier.height(10.dp))
@@ -3245,23 +3206,6 @@ private fun TransactionResultOverlay(
                 }
             }
 
-            if (!isSuccess && onOpenFaucet != null && (errorMessage.contains("Insufficient funds", ignoreCase = true) || errorMessage.contains("Please fund", ignoreCase = true))) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        onClose()
-                        onOpenFaucet()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AmberCentral),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Icon(Icons.Default.WaterDrop, null, modifier = Modifier.size(18.dp), tint = SurfaceDark)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Get Coins from Faucet", fontWeight = FontWeight.Bold, color = SurfaceDark)
-                }
-            }
-
             Spacer(modifier = Modifier.height(12.dp))
 
             TextButton(
@@ -3720,90 +3664,6 @@ private fun ConfirmSendScreenOverlay(
                                 color = ElectricCyan,
                                 lineHeight = 18.sp
                             )
-                        }
-                    }
-                }
-
-                // Network Fee & Mass Details Card
-                item {
-                    Surface(
-                        color = SurfaceDark,
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, SurfaceCardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = "Fee Estimate & Transaction Details",
-                                fontSize = 12.sp,
-                                color = TextSecondary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Calculated Network Fee:", fontSize = 12.sp, color = TextMuted)
-                                Text(
-                                    text = "${KaspaTransactionEngine.formatKas(breakdown.feeKas)} KAS",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AmberCentral
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Selected Fee Rate:", fontSize = 12.sp, color = TextMuted)
-                                Text(
-                                    text = "$selectedSompiPerMass sompi/gram",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextPrimary
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Estimated BlockDAG Mass:", fontSize = 12.sp, color = TextMuted)
-                                Text(
-                                    text = "${breakdown.totalMass} mass units",
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = TextSecondary
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Total Required Deduction:",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "${KaspaTransactionEngine.formatKas(breakdown.totalRequiredKas)} KAS",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = KaspaTea
-                                )
-                            }
                         }
                     }
                 }
