@@ -162,7 +162,8 @@ object KaspaTransactionEngine {
     const val MASS_PER_INPUT_COMPUTE = 100L
     const val MASS_PER_OUTPUT_COMPUTE = 100L
     const val MINIMUM_TRANSACTION_MASS = 1000L
-    const val MAXIMUM_STANDARD_TRANSACTION_MASS = 500_000L
+    // Optional client-side batching threshold only; not a Kaspa consensus or node standardness limit.
+    const val CLIENT_SOFT_TRANSACTION_MASS_LIMIT = 100_000L
     // Toccata RPC submission policy: minimum standard rate is 100 sompi per gram.
     const val DEFAULT_SOMPI_PER_MASS = 100L
     // Deprecated legacy display constants retained for source compatibility only.
