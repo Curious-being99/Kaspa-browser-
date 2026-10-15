@@ -159,9 +159,7 @@ object KaspaTransactionEngine {
     const val MASS_PER_TX_BYTE = 1L
     const val MASS_PER_SCRIPT_PUB_KEY_BYTE = 10L
     const val MASS_PER_SIG_OP = 1000L
-    const val MASS_PER_INPUT_COMPUTE = 100L
-    const val MASS_PER_OUTPUT_COMPUTE = 100L
-    const val MINIMUM_TRANSACTION_MASS = 1000L
+    // No generic fixed per-input/output compute charge or minimum transaction mass is defined here.
     // Optional client-side batching threshold only; not a Kaspa consensus or node standardness limit.
     const val CLIENT_SOFT_TRANSACTION_MASS_LIMIT = 100_000L
     // Toccata RPC submission policy: minimum standard rate is 100 sompi per gram.
@@ -687,7 +685,7 @@ object KaspaTransactionEngine {
     fun calculateFeeMass(computeMass: Long, serializedBytes: Long): Long {
         require(computeMass >= 0L) { "Compute mass cannot be negative" }
         require(serializedBytes >= 0L) { "Serialized size cannot be negative" }
-        return maxOf(computeMass, Math.multiplyExact(serializedBytes, 2L), MINIMUM_TRANSACTION_MASS)
+        return maxOf(computeMass, Math.multiplyExact(serializedBytes, 2L))
     }
 
     /**
@@ -700,11 +698,7 @@ object KaspaTransactionEngine {
         for (input in tx.inputs) {
             size += 32L // previousOutpoint transactionId
             size += 4L  // previousOutpoint index (uint32)
-            val sigScriptBytes = if (input.signatureScript.isNotBlank()) {
-                input.signatureScript.length / 2
-            } else {
-                STANDARD_SIGNATURE_SCRIPT_BYTES
-            }
+            val sigScriptBytes = input.signatureScript.length / 2
             size += 8L // signatureScript length (uint64)
             size += sigScriptBytes
             size += 8L  // sequence (uint64)
@@ -714,11 +708,7 @@ object KaspaTransactionEngine {
         for (output in tx.outputs) {
             size += 8L // amount (uint64)
             size += 2L // scriptPublicKey version (uint16)
-            val scriptBytes = if (output.scriptPublicKey.script.isNotBlank()) {
-                output.scriptPublicKey.script.length / 2
-            } else {
-                STANDARD_P2PK_SCRIPT_BYTES
-            }
+            val scriptBytes = output.scriptPublicKey.script.length / 2
             size += 8L // script length (uint64)
             size += scriptBytes
         }
@@ -813,7 +803,7 @@ object KaspaTransactionEngine {
      * mass = max(compute_mass, storage_mass)
      */
     fun calculateMass(tx: KaspaTransaction, inputAmounts: List<Long> = emptyList()): Long {
-        val totalSigOps = tx.inputs.sumOf { if (it.sigOpCount > 0) it.sigOpCount else 1 }
+        val totalSigOps = tx.inputs.sumOf { it.sigOpCount.coerceAtLeast(0) }
         val size = calculateSerializedByteSize(tx)
         val computeMassForSize = size * MASS_PER_TX_BYTE
         val scriptPubKeyMass = tx.outputs.sumOf {
@@ -825,7 +815,7 @@ object KaspaTransactionEngine {
 
         val outAmounts = tx.outputs.map { it.amount }
         val storageMass = calculateStorageMass(inputAmounts, outAmounts)
-        return maxOf(computeMass, storageMass).coerceAtLeast(MINIMUM_TRANSACTION_MASS)
+        return maxOf(computeMass, storageMass)
     }
 
     /**
@@ -904,13 +894,9 @@ object KaspaTransactionEngine {
         require(tx.inputs.isNotEmpty()) { "A standard transaction must contain at least one input" }
         require(tx.outputs.isNotEmpty()) { "A standard transaction must contain at least one output" }
         val serializedBytes = calculateSerializedByteSize(tx)
-        val sigOps = tx.inputs.sumOf { if (it.sigOpCount > 0) it.sigOpCount else 1 }
+        val sigOps = tx.inputs.sumOf { it.sigOpCount.coerceAtLeast(0) }
         val scriptPublicKeyGrams = tx.outputs.fold(0L) { total, output ->
-            val scriptBytes = if (output.scriptPublicKey.script.isNotBlank()) {
-                output.scriptPublicKey.script.length / 2
-            } else {
-                STANDARD_P2PK_SCRIPT_BYTES
-            }
+            val scriptBytes = output.scriptPublicKey.script.length / 2
             Math.addExact(total, Math.multiplyExact(2L + scriptBytes, MASS_PER_SCRIPT_PUB_KEY_BYTE))
         }
         val computeGrams = Math.addExact(
