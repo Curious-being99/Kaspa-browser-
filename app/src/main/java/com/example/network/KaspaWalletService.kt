@@ -593,6 +593,38 @@ class KaspaWalletService(
      * 5. Computes non-malleable Kaspa txId (Blake2b-256 with key "TransactionHash")
      * 6. Broadcasts to Kaspa Node REST & RPC endpoints
      */
+    data class DappBroadcastReceipt(
+        val accepted: Boolean,
+        val transactionId: String,
+        val error: String
+    )
+
+    suspend fun submitDappTransaction(
+        tx: KaspaTransactionEngine.KaspaTransaction,
+        senderAddress: String
+    ): DappBroadcastReceipt {
+        val normalizedAddress = senderAddress.trim().lowercase()
+        require(normalizedAddress.startsWith("kaspa:") || normalizedAddress.startsWith("kaspatest:")) {
+            "Unsupported Kaspa network address"
+        }
+        require(tx.inputs.isNotEmpty() && tx.outputs.isNotEmpty()) {
+            "Transaction must contain inputs and outputs"
+        }
+        require(tx.inputs.all { input ->
+            input.signatureScript.length % 2 == 0 &&
+                input.signatureScript.matches(Regex("[0-9a-fA-F]*"))
+        }) {
+            "Transaction contains malformed input scripts"
+        }
+        val mass = tx.mass.takeIf { it > 0L } ?: tx.calculateMass()
+        require(mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+            "Transaction mass exceeds the standard mempool limit"
+        }
+        val txId = KaspaTransactionEngine.calcTransactionId(tx)
+        val result = broadcastTransactionWithFailover(tx, txId, normalizedAddress)
+        return DappBroadcastReceipt(result.isConfirmed, result.txId, result.errorMessage)
+    }
+
     private data class BroadcastResult(
         val isConfirmed: Boolean,
         val txId: String,
