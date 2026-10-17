@@ -1,40 +1,47 @@
 # Kaspa Browser EVM dApp provider draft
 
-## Supported networks
+## Mainnet separation
 
 - Kasplex Mainnet: chain ID 202555, RPC `https://evmrpc.kasplex.org`.
 - Igra Mainnet: chain ID 38833, RPC `https://rpc.igralabs.com:8545`.
+- Native Kaspa Mainnet remains separate and uses its native address and transaction engine.
 
-These are built-in networks. Custom RPC endpoints and arbitrary chain IDs are not accepted by the provider. Native Kaspa Mainnet remains a separate network and does not use EVM addresses or EVM transaction signing.
+The selected EVM network controls RPC reads, dApp chain ID, transaction signing, broadcasting, and the activity view. Kasplex and Igra activity is never merged with native Kaspa history or with the other EVM chain.
 
-## Real provider and network operations
+## Real provider operations
 
 The WebView installs an EIP-1193-style `window.ethereum` provider using AndroidX WebMessageListener and document-start script injection. The native message listener accepts HTTPS main-frame messages only when the message origin matches the current page origin. It does not use `addJavascriptInterface`.
 
-The provider obtains chain data and transaction responses through real JSON-RPC requests to the selected network's configured RPC endpoint. Signing is performed locally with the derived EVM key.
+The provider obtains chain data and transaction responses through real JSON-RPC requests to the selected network endpoint. Private-key operations happen locally. No sample balances or fabricated transaction hashes/statuses are used.
 
-Implemented request groups:
-- Account connection and reads: `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, `net_version`.
-- Read-only RPC allowlist for balances, calls, blocks, code, receipts, logs, gas estimation, and fee/nonce reads.
-- User-approved network switching between the two built-in EVM networks.
-- `personal_sign` with a native approval prompt and local signing.
-- `eth_signTypedData_v4` with a native approval prompt, local signing, and a domain chain-ID check when supplied.
-- `eth_sendTransaction`: reads pending nonce and gas data from the selected RPC where needed, requests native user approval, signs locally, broadcasts the signed transaction to the selected RPC, and returns the RPC transaction hash.
+Supported methods include:
+- `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, and `net_version`.
+- Read-only RPC calls for balances, calls, blocks, code, receipts, logs, gas estimation, fees, and nonce reads.
+- User-approved `wallet_switchEthereumChain` for the two built-in EVM networks.
+- `personal_sign` using the exact decoded message bytes and the Ethereum personal-message prefix.
+- `eth_sign` using Keccak-256 of the supplied bytes without the personal-message prefix; it has a separate warning and approval.
+- `eth_signTypedData`, `eth_signTypedData_v3`, and `eth_signTypedData_v4` with native approval and a chain-ID check when the typed-data domain includes one.
+- `eth_sendTransaction`: fetches missing nonce/gas information from the selected RPC, asks for approval, signs locally, broadcasts the signed transaction, and returns the actual RPC transaction hash.
+- `eth_signTransaction`: performs the same preparation and approval, signs locally, and returns the signed raw transaction without broadcasting it.
 
-A broadcast hash is not represented as transaction confirmation. Confirmation must be determined from the selected chain's real transaction receipt/status. The current request flow does not fabricate a receipt or a confirmed status.
+A transaction hash means the RPC accepted the broadcast request; it is not proof of confirmation. Confirmation must be read from a real transaction receipt. Unsupported methods are rejected; arbitrary raw transaction submission from a page is disabled. Only standard destination-address transactions with legacy or EIP-1559 fee fields are supported by the current transaction encoder; contract creation and custom networks are rejected.
 
-Unsupported signing methods are rejected instead of being accepted. The current supported signing surface is intentionally limited to the methods listed above; it does not claim compatibility with every wallet-specific or EVM signing method. Custom networks, contract creation (empty `to`), typed-data variants other than v4, raw transaction submission from the dApp, and unrecognized RPC methods are not supported in this draft.
+## Wallet activity screen
 
-## Transaction approval
+The activity view queries the currently selected network directly over JSON-RPC. It scans the latest 100 blocks for native transactions involving the active EVM address and requests real ERC-20/ERC-721-style `Transfer` logs for that same block range. Transaction receipts are queried to display actual status where available. Transfer log amounts are shown as raw units because token decimals and metadata are not assumed.
 
-The approval dialog is the authorization step before local signing and RPC broadcast. It shows the requesting website, selected network, account, destination, native value, and gas limit, and warns that contract calls may transfer tokens or NFTs and may be irreversible. It displays transaction fields and does not claim to decode or predict arbitrary contract effects. Users should only approve calls they understand.
+This is deliberately a bounded recent-activity view, not a complete historical indexer. It reports the scanned block range and any RPC scan errors. Older activity is not claimed to be present. No mock transaction records or sample balances are inserted.
 
-## Key derivation and compatibility
+## BIP-39 passphrases and legacy phrases
 
-The EVM account uses the standard BIP-39 seed and BIP-32 path `m/44'/60'/0'/0/0`, independently of Kaspa's native key path. New mnemonic generation now uses the standard BIP-39 wordlist and checksum.
+The EVM key path is `m/44'/60'/0'/0/0`. The optional BIP-39 passphrase is encrypted using an AES-GCM key held by Android Keystore and stored separately per wallet account. If encrypted passphrase data cannot be decrypted, account access and signing fail closed until the passphrase is re-entered and saved.
 
-Legacy wallet phrases created by the older non-standard phrase generator may fail BIP-39 validation. This draft refuses EVM derivation for invalid phrases rather than deriving an undocumented key or presenting a fabricated address. It does not yet provide a verified migration path for those legacy phrases. Wallets created with a custom BIP-39 passphrase also require that passphrase to derive the same EVM account; this draft currently derives with an empty passphrase and must not claim support for passphrase-protected recovery phrases.
+New recovery phrases are generated using the standard BIP-39 generator. Legacy phrases that fail BIP-39 validation can be used in explicit compatibility mode only when they contain 12–24 alphabetic words. The exact phrase is passed to the deterministic BIP-39 seed derivation function without changing its words; this does not repair the phrase's checksum, establish that it is a standard BIP-39 phrase, or guarantee interoperability with other wallets.
 
-## Validation status
+For a non-standard legacy phrase, the wallet displays the derived EVM address and requires the user to confirm that exact address before dApp connection or signing. Confirmation is tied to the address and wallet account, so changing the passphrase produces a different address that must be confirmed again. This is an explicit compatibility path, not a claim that a pre-existing EVM address can be recovered when the legacy derivation scheme is unknown.
 
-Unit tests were added for the known BIP-39 test account, chain IDs, legacy transaction signing, EIP-712 signing, sender mismatch, and chain mismatch. They have not been executed locally in this environment. Android build, Gradle tests, CI, device tests, and end-to-end dApp tests remain required. This is an experimental draft, not production-certified wallet support.
+## Approval and limitations
+
+Transaction approval shows the requesting origin, selected network, account, destination, value, and gas limit. It does not decode or predict arbitrary smart-contract effects. Token and NFT calls can have irreversible consequences; review calldata and spender/recipient details before approving.
+
+This draft does not claim to support every EVM wallet extension method, every transaction type, or complete historical indexing. Android build, Gradle tests, CI, device tests, and end-to-end tests against both real mainnets remain required. Keep the PR in draft until those checks pass.
