@@ -1,31 +1,27 @@
-# dApp wallet request-policy foundation
+# Kaspa Browser dApp wallet bridge
 
-## Scope of this draft
+## Implemented in this draft
 
-This change adds an isolated, dependency-free policy evaluator and unit tests. It does not alter WebView creation, navigation, PWA behavior, wallet key storage, signing, network routing, or transaction submission.
+- HTTPS main-frame provider injection using AndroidX WebView messaging; no `addJavascriptInterface`.
+- Per-origin connect permission and native confirmation for wallet connection.
+- Read-only account, network and public-key methods.
+- Native message-signing approval.
+- `signPskt({ txJsonString, options: { signInputs } })`: signs only requested standard P2PK inputs controlled by the active wallet, supports Safe-JSON transactions nested under `transaction`, honors only `SIGHASH_ALL`, preserves all unselected input scripts and other JSON metadata, and recalculates mass using the declared UTXO amounts.
+- `submitTransaction(txJsonString)`: requires a separate native approval and submits through the existing Kaspa wallet service.
 
-It is not yet a working dApp provider. The policy must be connected to a trusted native permission/confirmation UI before it can authorize real wallet operations.
+## Transaction safety rules
 
-## Policy guarantees
+- Only standard version-0 P2PK locking scripts matching the active wallet public key can be signed by this signer.
+- P2SH/covenant inputs are not blindly signed. Their scriptSig is preserved exactly, including an empty scriptSig where the protocol's transaction flow requires it. The wallet signs only the explicit funding inputs listed by the dApp.
+- Duplicate outpoints, duplicate input indexes, unsupported sighash types, malformed scripts, mismatched sender, invalid UTXO metadata, insufficient wallet fee floor and excessive transaction mass are rejected.
+- Submission separately confirms the transaction and permits non-P2PK protocol-authorized input scripts to remain unchanged. The receiving node remains the final consensus/mempool gate.
 
-- Rejects non-HTTPS URLs and URLs containing user information.
-- Rejects requests from a cross-origin frame.
-- Requires a connection prompt before granting a site access.
-- Treats account reads as read-only only after a connection grant.
-- Never approves signing or transaction submission automatically.
-- Requires a transaction payload for signing/submission.
-- Rejects a transaction request that names a different active network.
-- Requires explicit approval for a network change.
-- Denies unknown methods.
+## Compatibility boundaries
 
-## Required next integration steps
+This is a generic Kaspa PSKT signing path, not a complete protocol implementation. It can participate in KRC-20 or NFT marketplace flows when their PSKT follows the supported Safe-JSON shape and uses wallet-owned P2PK funding inputs alongside pre-authorized protocol inputs. This does not independently build or validate marketplace intent, token state, P2SH redeem scripts, covenant templates, or commit/reveal sequences. Those need protocol-specific builders and transaction-review logic.
 
-1. Bind requests to the actual top-level and requesting-frame origins supplied by the browser engine; never accept origins claimed by page JavaScript.
-2. Add a trusted native permission UI and persistent per-origin grants with revoke support.
-3. Integrate native Kaspa signing with the existing wallet engine only after user approval.
-4. Add a separately reviewed EVM provider/signing path for Kasplex and Igra; do not route EVM payloads into the native Kaspa transaction signer.
-5. Add WalletConnect pairing/session validation for external dApps if required.
-6. Verify KRC-20, KRC-721 commit/reveal, Kasplex and Igra purchase flows against live test environments.
-7. Run unit tests, Android debug build, regression tests and device tests covering proxy/privacy routing, tabs, redirects and standalone PWAs.
+Kasplex and Igra EVM dApps require a separate EVM account derivation/signing implementation and EIP-1193 provider. This draft does not expose `window.ethereum` or claim EVM signing compatibility.
 
-Do not advertise wallet-connect support until those integration and validation steps pass.
+## Validation status
+
+The draft includes unit tests for selected-input signing, preserving covenant input scripts and metadata, fee-floor enforcement, submission inspection, wallet-key ownership, and duplicate outpoints. These tests have not yet been executed with Gradle in this environment. Android build, CI, device testing, testnet submission, and end-to-end KRC-20/NFT tests remain required. Do not merge until those checks pass.
