@@ -8,17 +8,12 @@ import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.example.viewmodel.DecentralViewModel
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigInteger
 import java.net.URI
 import java.util.Locale
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 internal object EvmDappBridge {
     private const val BRIDGE = "kaspaBrowserEvmBridge"
@@ -26,7 +21,6 @@ internal object EvmDappBridge {
     private const val CHAIN_PREFS = "evm_dapp_chains"
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
-    private val http = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
     private val readMethods = setOf(
         "eth_blockNumber", "eth_getBalance", "eth_getCode", "eth_call",
         "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas",
