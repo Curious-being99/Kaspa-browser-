@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fingerprint
@@ -2100,7 +2101,6 @@ private fun NetworkSwitchOverlay(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
 private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
@@ -2125,49 +2125,109 @@ private fun ManageTabContent(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("wallet_manager_account_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                border = BorderStroke(1.dp, SurfaceCardBorder)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = KaspaTea.copy(alpha = 0.14f),
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = KaspaTea,
+                                modifier = Modifier.size(25.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = activeAccountHandle.ifBlank { "Kaspa Wallet" },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (testnetAddress.isNotBlank()) {
+                                "${testnetAddress.take(10)}…${testnetAddress.takeLast(6)}"
+                            } else {
+                                "Wallet address is being prepared"
+                            },
+                            fontSize = 11.sp,
+                            color = TextSecondary,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(7.dp))
+                        Text(
+                            text = "$allAccountsCount account${if (allAccountsCount == 1) "" else "s"} available",
+                            fontSize = 11.sp,
+                            color = KaspaTea,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
             Text("NETWORK", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(7.dp))
             ManagementOptionCard(
                 icon = Icons.Default.Language,
                 iconColor = KaspaTea,
                 title = selectedNetwork,
-                subtitle = "Active network • Tap to switch",
+                subtitle = "Active wallet network · Tap to switch",
                 onClick = onOpenNetworkSwitch
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(9.dp))
             ManagementOptionCard(
                 icon = Icons.Default.Info,
                 iconColor = KaspaTea,
                 title = "Network Details",
-                subtitle = "Address prefix, API endpoint and explorer",
+                subtitle = "Address format, API endpoint and explorer",
                 onClick = { showNetworkDetailsSheet = true }
             )
         }
 
         item {
-            Text("SECURITY & RECOVERY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
-            Spacer(modifier = Modifier.height(6.dp))
+            Text("SECURITY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+            Spacer(modifier = Modifier.height(7.dp))
             ManagementOptionCard(
                 icon = Icons.Default.Lock,
                 iconColor = KaspaTea,
-                title = "Recovery",
-                subtitle = "View or back up your recovery phrase",
+                title = "Recovery Phrase",
+                subtitle = "Securely view or back up your phrase",
                 onClick = { showRecoverySheet = true }
             )
         }
 
         item {
             Text("ACCOUNT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(7.dp))
             ManagementOptionCard(
                 icon = Icons.AutoMirrored.Filled.Logout,
                 iconColor = RedTamper,
-                title = "Sign Out / Disconnect Wallet",
-                subtitle = "Securely disconnect this wallet from the session",
+                title = "Sign Out / Disconnect",
+                subtitle = "Confirm with your wallet password",
                 onClick = { showSignOutSheet = true }
             )
         }
@@ -2203,10 +2263,31 @@ private fun ManagementOptionCard(
                 }
             }
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(text = title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                Text(text = subtitle, fontSize = 11.sp, color = TextSecondary)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = TextMuted,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
