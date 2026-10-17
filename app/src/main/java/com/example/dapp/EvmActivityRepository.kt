@@ -120,7 +120,7 @@ internal object EvmActivityRepository {
                         val contract = log.optString("address")
                         val logIndex = log.optString("logIndex")
                         val key = "$hash:$logIndex"
-                        val isNft = topicsOut.length >= 4
+                        val isNft = topicsOut.length() >= 4
                         found[key] = Activity(
                             hash = hash,
                             blockNumber = blockNumber,
