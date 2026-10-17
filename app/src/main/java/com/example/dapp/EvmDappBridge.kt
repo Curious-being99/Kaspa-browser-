@@ -150,6 +150,10 @@ internal object EvmDappBridge {
                         respond(code = 4902, error = "${target.name} is built in; use wallet_switchEthereumChain")
                     }
                     "personal_sign" -> {
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
                             return@addWebMessageListener
@@ -185,6 +189,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_sign" -> {
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
                             return@addWebMessageListener
@@ -221,6 +229,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData" -> {
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
                             return@addWebMessageListener
@@ -277,6 +289,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_sendTransaction", "eth_signTransaction" -> {
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
                             return@addWebMessageListener
