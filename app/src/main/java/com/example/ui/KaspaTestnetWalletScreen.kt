@@ -174,9 +174,7 @@ fun KaspaTestnetWalletScreen(
     val isFetchingFeeCondition by viewModel.isFetchingFeeCondition.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
-    val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true) ||
-        walletState.kaspaAddress.startsWith("kaspa:") ||
-        testnetAddress.startsWith("kaspa:")
+    val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true)
 
     val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
     val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
@@ -205,6 +203,7 @@ fun KaspaTestnetWalletScreen(
     var showSendScreen by remember { mutableStateOf(false) }
     var showReceiveScreen by remember { mutableStateOf(false) }
     var showManageScreen by remember { mutableStateOf(false) }
+    var showNetworkSwitchScreen by remember { mutableStateOf(false) }
     var showResultOverlay by remember { mutableStateOf(false) }
     var lastResultIsSuccess by remember { mutableStateOf(true) }
     var lastResultTxId by remember { mutableStateOf("") }
@@ -257,6 +256,8 @@ fun KaspaTestnetWalletScreen(
             showSendScreen = false
         } else if (showReceiveScreen) {
             showReceiveScreen = false
+        } else if (showNetworkSwitchScreen) {
+            showNetworkSwitchScreen = false
         } else if (showManageScreen) {
             showManageScreen = false
         } else {
@@ -607,7 +608,22 @@ fun KaspaTestnetWalletScreen(
                 allAccountsCount = allAccounts.size,
                 onViewSeed = { showRecoveryScreen = true },
                 onSignOut = { showSignOutConfirmDialog = true },
+                onOpenNetworkSwitch = {
+                    showManageScreen = false
+                    showNetworkSwitchScreen = true
+                },
                 onClose = { showManageScreen = false }
+            )
+        }
+
+        if (showNetworkSwitchScreen) {
+            NetworkSwitchOverlay(
+                selectedNetwork = selectedNetwork,
+                onSelectNetwork = { network ->
+                    viewModel.selectNetwork(network)
+                    showNetworkSwitchScreen = false
+                },
+                onClose = { showNetworkSwitchScreen = false }
             )
         }
 
@@ -1912,21 +1928,124 @@ private fun ReceiveTabContent(
 }
 
 @Composable
+private fun NetworkSwitchOverlay(
+    selectedNetwork: String,
+    onSelectNetwork: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    val networks = listOf(
+        "Kaspa Mainnet",
+        "Kaspa Testnet 10",
+        "Kaspa Testnet 11"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .clickable(enabled = false) {}
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to wallet settings",
+                        tint = TextPrimary
+                    )
+                }
+                Text(
+                    text = "Network Switch",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+
+            Text(
+                text = "Choose which Kaspa network the wallet displays and uses. Balances and transactions are refreshed for the selected network.",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(bottom = 14.dp)
+            )
+
+            networks.forEach { name ->
+                val isSelected = selectedNetwork == name
+                Surface(
+                    onClick = { if (!isSelected) onSelectNetwork(name) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
+                    border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { if (!isSelected) onSelectNetwork(name) },
+                            colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = name,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) KaspaTea else TextPrimary
+                            )
+                            Text(
+                                text = when {
+                                    name.contains("Mainnet") -> "Production network • kaspa:"
+                                    name.contains("11") -> "Test network 11 • kaspatest:"
+                                    else -> "Test network 10 • kaspatest:"
+                                },
+                                fontSize = 11.sp,
+                                color = TextMuted
+                            )
+                        }
+                        if (isSelected) {
+                            Text("ACTIVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
     testnetAddress: String,
     allAccountsCount: Int,
     onOpenRecovery: () -> Unit,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onOpenNetworkSwitch: () -> Unit
 ) {
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
-    val networkList = listOf(
-        Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
-        Triple("Kaspa Mainnet", "kaspa:", "https://api.kaspa.org"),
-        Triple("Kaspa Testnet 11", "kaspatest:", "https://api-tn11.kaspa.org")
-    )
+    val selectedRpcEndpoint = when {
+        selectedNetwork.contains("Mainnet", ignoreCase = true) -> "https://api.kaspa.org"
+        selectedNetwork.contains("11", ignoreCase = true) -> "https://api-tn11.kaspa.org"
+        else -> "https://api-tn10.kaspa.org"
+    }
+    val selectedAddressPrefix = if (selectedNetwork.contains("Mainnet", ignoreCase = true)) "kaspa:" else "kaspatest:"
 
     LazyColumn(
         modifier = Modifier
@@ -1934,57 +2053,32 @@ private fun ManageTabContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Network Section at Top as Radio Button Card List
         item {
-            Text("Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("Active Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(6.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                networkList.forEach { (name, prefix, rpc) ->
-                    val isSelected = selectedNetwork == name
-                    Surface(
-                        onClick = { viewModel.selectNetwork(name) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
-                        border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
-                        modifier = Modifier.fillMaxWidth()
+            Surface(
+                color = SurfaceCard,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.35f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(selectedNetwork, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                    Text(
+                        text = "Wallet displays and uses this network until you switch it in Network Switch.",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                    Button(
+                        onClick = onOpenNetworkSwitch,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { viewModel.selectNetwork(name) },
-                                colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = name,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = if (isSelected) KaspaTea else TextPrimary
-                                    )
-                                    if (isSelected) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Surface(
-                                            color = KaspaTea.copy(alpha = 0.2f),
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "Connected",
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = KaspaTea,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                Text("Prefix: $prefix • RPC: $rpc", fontSize = 11.sp, color = TextMuted)
-                            }
-                        }
+                        Text("Open Network Switch", color = SurfaceDark, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -2031,8 +2125,8 @@ private fun ManageTabContent(
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
                     DetailRow(label = "Network", value = selectedNetwork)
-                    DetailRow(label = "Prefix", value = if (selectedNetwork.contains("Mainnet")) "kaspa:" else "kaspatest:")
-                    DetailRow(label = "RPC Endpoint", value = if (selectedNetwork.contains("Mainnet")) "https://api.kaspa.org" else "https://api-tn10.kaspa.org")
+                    DetailRow(label = "Prefix", value = selectedAddressPrefix)
+                    DetailRow(label = "RPC Endpoint", value = selectedRpcEndpoint)
                     DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
                     DetailRow(label = "Explorer", value = selectedExplorerUrl)
                 }
@@ -3276,6 +3370,7 @@ private fun ManageScreenOverlay(
     allAccountsCount: Int,
     onViewSeed: () -> Unit,
     onSignOut: () -> Unit,
+    onOpenNetworkSwitch: () -> Unit,
     onClose: () -> Unit
 ) {
     Box(
@@ -3308,7 +3403,8 @@ private fun ManageScreenOverlay(
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccountsCount,
                 onOpenRecovery = onViewSeed,
-                onSignOut = onSignOut
+                onSignOut = onSignOut,
+                onOpenNetworkSwitch = onOpenNetworkSwitch
             )
         }
     }
