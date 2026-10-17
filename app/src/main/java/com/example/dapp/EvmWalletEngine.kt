@@ -42,16 +42,19 @@ internal object EvmWalletEngine {
             "This wallet recovery phrase is not a valid BIP-39 phrase; EVM derivation is unavailable for this wallet"
         }
         val seed = MnemonicUtils.generateSeed(mnemonic, "")
-        val master = Bip32ECKeyPair.generateKeyPair(seed)
-        val path = intArrayOf(
-            44 or -0x80000000,
-            60 or -0x80000000,
-            0 or -0x80000000,
-            0,
-            0
-        )
-        val derived = Bip32ECKeyPair.deriveKeyPair(master, path)
-        java.util.Arrays.fill(seed, 0.toByte())
+        val derived = try {
+            val master = Bip32ECKeyPair.generateKeyPair(seed)
+            val path = intArrayOf(
+                44 or Int.MIN_VALUE,
+                60 or Int.MIN_VALUE,
+                Int.MIN_VALUE,
+                0,
+                0
+            )
+            Bip32ECKeyPair.deriveKeyPair(master, path)
+        } finally {
+            java.util.Arrays.fill(seed, 0.toByte())
+        }
         return Credentials.create(derived)
     }
 
@@ -78,6 +81,15 @@ internal object EvmWalletEngine {
         val from = tx.optString("from", "").lowercase(Locale.ROOT)
         require(from.isBlank() || from == credentials.address.lowercase(Locale.ROOT)) {
             "Transaction sender does not match the active EVM account"
+        }
+        if (tx.has("chainId")) {
+            val requestedChain = tx.optString("chainId")
+            val requestedId = if (requestedChain.startsWith("0x", true)) {
+                BigInteger(requestedChain.substring(2), 16).longValueExact()
+            } else {
+                requestedChain.toLong()
+            }
+            require(requestedId == network.chainId) { "Transaction chain ID does not match the selected network" }
         }
         val to = tx.optString("to", "")
         require(to.matches(Regex("0x[0-9a-fA-F]{40}"))) { "Only standard EVM destination addresses are supported" }
