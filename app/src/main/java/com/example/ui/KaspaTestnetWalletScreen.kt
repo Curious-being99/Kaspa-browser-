@@ -2907,18 +2907,20 @@ private fun CreateBackupSetupView(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                OutlinedButton(
-                    onClick = onCopy,
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, SurfaceCardBorder)
+            if (isMnemonicVisible) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Copy Words", color = KaspaTea, fontSize = 12.sp)
+                    OutlinedButton(
+                        onClick = onCopy,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, SurfaceCardBorder)
+                    ) {
+                        Icon(imageVector = Icons.Default.ContentCopy, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy Words", color = KaspaTea, fontSize = 12.sp)
+                    }
                 }
             }
 
