@@ -358,8 +358,22 @@ internal object EvmDappBridge {
                             return@addWebMessageListener
                         }
                         val has1559Fee = txInput.has("maxFeePerGas") || txInput.has("maxPriorityFeePerGas")
-                        if (has1559Fee && (!txInput.has("maxFeePerGas") || !txInput.has("maxPriorityFeePerGas"))) {
+                        val hasBoth1559Fees = txInput.has("maxFeePerGas") && txInput.has("maxPriorityFeePerGas")
+                        val requestedType = txInput.optString("type").lowercase(Locale.ROOT)
+                        if (requestedType.isNotBlank() && requestedType !in setOf("0x0", "0", "0x2", "2")) {
+                            respond(code = -32602, error = "Only legacy type-0 and EIP-1559 type-2 transactions are supported")
+                            return@addWebMessageListener
+                        }
+                        if (has1559Fee && !hasBoth1559Fees) {
                             respond(code = -32602, error = "EIP-1559 transactions require both maxFeePerGas and maxPriorityFeePerGas")
+                            return@addWebMessageListener
+                        }
+                        if (requestedType in setOf("0x2", "2") && !hasBoth1559Fees) {
+                            respond(code = -32602, error = "Type-2 transactions must include both EIP-1559 fee fields")
+                            return@addWebMessageListener
+                        }
+                        if (has1559Fee && requestedType in setOf("0x0", "0")) {
+                            respond(code = -32602, error = "Legacy type-0 transactions cannot include EIP-1559 fee fields")
                             return@addWebMessageListener
                         }
                         executor.execute {
