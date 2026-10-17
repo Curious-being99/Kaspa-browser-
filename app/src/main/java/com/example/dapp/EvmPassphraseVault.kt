@@ -52,21 +52,26 @@ internal object EvmPassphraseVault {
     }
 
     @Synchronized
-    fun isLegacyPhraseConfirmed(context: Context, accountId: String): Boolean {
+    fun isLegacyPhraseConfirmed(context: Context, accountId: String, derivedAddress: String): Boolean {
+        if (derivedAddress.isBlank()) return false
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(legacyConfirmationKey(accountId), false)
+            .getBoolean(legacyConfirmationKey(accountId, derivedAddress), false)
     }
 
     @Synchronized
-    fun confirmLegacyPhrase(context: Context, accountId: String) {
+    fun confirmLegacyPhrase(context: Context, accountId: String, derivedAddress: String) {
+        require(derivedAddress.matches(Regex("0x[0-9a-fA-F]{40}"))) { "A valid derived EVM address is required" }
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putBoolean(legacyConfirmationKey(accountId), true)
+            .putBoolean(legacyConfirmationKey(accountId, derivedAddress), true)
             .commit()
         require(saved) { "Unable to save legacy EVM address confirmation" }
     }
 
-    private fun legacyConfirmationKey(accountId: String): String = preferenceKey(accountId) + "_legacy_confirmed"
+    private fun legacyConfirmationKey(accountId: String, derivedAddress: String): String =
+        preferenceKey(accountId) + "_legacy_" + java.security.MessageDigest.getInstance("SHA-256")
+            .digest(derivedAddress.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     private fun preferenceKey(accountId: String): String {
         require(accountId.isNotBlank())
