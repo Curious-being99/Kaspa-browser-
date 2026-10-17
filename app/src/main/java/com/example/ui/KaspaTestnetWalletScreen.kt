@@ -2334,8 +2334,10 @@ private fun ManageTabContent(
                                             .toPlainString()
                                     }.getOrDefault(item.value)
                                     Text("Value: $amount ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).currency}", fontSize = 12.sp, color = TextPrimary)
+                                } else if (item.kind.startsWith("NFT")) {
+                                    Text("Token ID: ${item.value}", fontSize = 10.sp, color = TextSecondary)
                                 } else {
-                                    Text("Raw transfer amount: ${item.value}", fontSize = 10.sp, color = TextSecondary)
+                                    Text("Raw token amount: ${item.value}", fontSize = 10.sp, color = TextSecondary)
                                 }
                                 Text("From: ${item.from}", fontSize = 10.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("To: ${item.to}", fontSize = 10.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
