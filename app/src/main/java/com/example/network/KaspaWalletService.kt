@@ -611,13 +611,12 @@ class KaspaWalletService(
             "Transaction must contain inputs and outputs"
         }
         require(tx.inputs.all { input ->
-            input.signatureScript.isNotBlank() &&
-                input.signatureScript.length % 2 == 0 &&
-                input.signatureScript.matches(Regex("[0-9a-fA-F]+"))
+            input.signatureScript.length % 2 == 0 &&
+                input.signatureScript.matches(Regex("[0-9a-fA-F]*"))
         }) {
-            "Transaction contains unsigned or malformed input scripts"
+            "Transaction contains malformed input scripts"
         }
-        val mass = tx.calculateMass()
+        val mass = tx.mass.takeIf { it > 0L } ?: tx.calculateMass()
         require(mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
             "Transaction mass exceeds the standard mempool limit"
         }
