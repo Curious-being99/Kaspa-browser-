@@ -38,14 +38,19 @@ internal object EvmWalletEngine {
         return network(id)
     }
 
-    fun credentials(seedPhrase: String): Credentials {
+    fun credentials(seedPhrase: String, passphrase: String = ""): Credentials {
         val mnemonic = CryptoUtils.getDecryptedSeed(seedPhrase)
             .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
         require(mnemonic.isNotBlank()) { "Wallet recovery phrase is unavailable" }
-        require(MnemonicUtils.validateMnemonic(mnemonic)) {
-            "This wallet recovery phrase is not a valid BIP-39 phrase; EVM derivation is unavailable for this wallet"
+        require(passphrase.length <= 256) { "BIP-39 passphrase is too long" }
+        val words = mnemonic.split(" ").filter { it.isNotBlank() }
+        require(
+            MnemonicUtils.validateMnemonic(mnemonic) ||
+                (words.size in 12..24 && words.all { word -> word.all { it in 'a'..'z' } })
+        ) {
+            "Recovery phrase cannot be used for EVM derivation. Check the phrase and word order."
         }
-        val seed = MnemonicUtils.generateSeed(mnemonic, "")
+        val seed = MnemonicUtils.generateSeed(mnemonic, passphrase)
         val derived = try {
             val master = Bip32ECKeyPair.generateKeyPair(seed)
             val path = intArrayOf(
@@ -62,17 +67,17 @@ internal object EvmWalletEngine {
         return Credentials.create(derived)
     }
 
-    fun address(seedPhrase: String): String = credentials(seedPhrase).address.lowercase(Locale.ROOT)
+    fun address(seedPhrase: String, passphrase: String = ""): String = credentials(seedPhrase, passphrase).address.lowercase(Locale.ROOT)
 
-    fun signPersonalMessage(seedPhrase: String, message: String): String {
+    fun signPersonalMessage(seedPhrase: String, message: String, passphrase: String = ""): String {
         require(message.length <= 8192) { "Message is too long" }
-        val signed = Sign.signPrefixedMessage(message.toByteArray(Charsets.UTF_8), credentials(seedPhrase).ecKeyPair)
+        val signed = Sign.signPrefixedMessage(message.toByteArray(Charsets.UTF_8), credentials(seedPhrase, passphrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signed.r), 64) +
             Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signed.s), 64) +
             String.format(Locale.ROOT, "%02x", signed.v[0].toInt() and 0xff)
     }
 
-    fun signTypedData(seedPhrase: String, typedDataJson: String): String {
+    fun signTypedData(seedPhrase: String, typedDataJson: String, passphrase: String = ""): String {
         require(typedDataJson.length in 1..32768) { "Typed-data request is empty or too large" }
         val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
@@ -80,8 +85,8 @@ internal object EvmWalletEngine {
             String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
     }
 
-    fun signTransaction(seedPhrase: String, network: Network, tx: JSONObject): String {
-        val credentials = credentials(seedPhrase)
+    fun signTransaction(seedPhrase: String, network: Network, tx: JSONObject, passphrase: String = ""): String {
+        val credentials = credentials(seedPhrase, passphrase)
         val from = tx.optString("from", "").lowercase(Locale.ROOT)
         require(from.isBlank() || from == credentials.address.lowercase(Locale.ROOT)) {
             "Transaction sender does not match the active EVM account"
