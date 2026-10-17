@@ -354,7 +354,8 @@ object KaspaDappBridge {
                       kaspa_getPublicKey: 'getPublicKey',
                       kaspa_signMessage: 'signMessage',
                       kaspa_signPskt: 'signPskt',
-                      kaspa_submitTransaction: 'submitTransaction'
+                      kaspa_submitTransaction: 'submitTransaction',
+                      pushTx: 'submitTransaction'
                     };
                     const normalized = aliases[method] || method;
                     const value = Array.isArray(params) ? params[0] : params;
@@ -363,30 +364,42 @@ object KaspaDappBridge {
                       case 'getAccounts': return request('getAccounts');
                       case 'getNetwork': return request('getNetwork');
                       case 'getPublicKey': return request('getPublicKey');
-                      case 'signMessage': return request('signMessage', value);
-                      case 'signPskt': return request('signPskt', value);
-                      case 'submitTransaction': return request('submitTransaction', value);
+                      case 'signMessage': {
+                        const message = value && typeof value === 'object'
+                          ? (value.message !== undefined ? value.message : value.msg)
+                          : value;
+                        return request('signMessage', message);
+                      }
+                      case 'signPskt': {
+                        const payload = value && typeof value === 'object' ? value : {};
+                        if (typeof payload.txJsonString !== 'string' || !payload.options || !Array.isArray(payload.options.signInputs)) {
+                          return Promise.reject(Object.assign(new Error('signPskt requires txJsonString and options.signInputs'), { code: -32602 }));
+                        }
+                        return request('signPskt', {
+                          txJsonString: payload.txJsonString,
+                          options: payload.options,
+                          sender: payload.sender
+                        });
+                      }
+                      case 'submitTransaction': {
+                        const txJsonString = typeof value === 'string'
+                          ? value
+                          : value && typeof value === 'object'
+                            ? (value.txJsonString || value.transaction || value.signedTxJson || '')
+                            : '';
+                        if (!txJsonString) {
+                          return Promise.reject(Object.assign(new Error('A signed transaction JSON string is required'), { code: -32602 }));
+                        }
+                        return request('submitTransaction', txJsonString);
+                      }
                       default:
-                        return Promise.reject(Object.assign(new Error('Unsupported wallet method: ' + method), { code: 4200 }));
+                        return Promise.reject(Object.assign(new Error('Unsupported Kaspa Browser wallet method: ' + method), { code: 4200 }));
                     }
                   };
                   const requestProvider = Object.freeze({
                     ...browserProvider,
                     request: requestCompat
                   });
-                  const installAlias = (name, value) => {
-                    try {
-                      if (!(name in window)) {
-                        Object.defineProperty(window, name, {
-                          configurable: false, enumerable: true, writable: false, value
-                        });
-                      }
-                    } catch (_) {}
-                  };
-                  installAlias('kastle', browserProvider);
-                  installAlias('kasware', browserProvider);
-                  installAlias('kaspire', requestProvider);
-                  installAlias('kasperia', requestProvider);
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
                   });
@@ -415,7 +428,7 @@ object KaspaDappBridge {
                     rdns: 'org.kaspa.browser'
                   });
                   const announce = () => {
-                    const detail = Object.freeze({ info, provider });
+                    const detail = Object.freeze({ info, provider: requestProvider });
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
