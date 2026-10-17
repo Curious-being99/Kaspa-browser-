@@ -331,9 +331,35 @@ object KaspaDappBridge {
                     submitTransaction: txJsonString => request('submitTransaction', txJsonString),
                     disconnect: () => request('disconnect')
                   });
+                  const browserProvider = Object.freeze({
+                    ...provider,
+                    connect: async () => {
+                      const accounts = await provider.requestAccounts();
+                      return { address: accounts[0] || '', accounts };
+                    },
+                    get connected() {
+                      return false;
+                    }
+                  });
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
                   });
+                  Object.defineProperty(window, 'kaspaBrowser', {
+                    configurable: false, enumerable: true, writable: false, value: browserProvider
+                  });
+                  const walletNamespace = window.wallet && typeof window.wallet === 'object' ? window.wallet : {};
+                  if (!Object.prototype.hasOwnProperty.call(walletNamespace, 'kaspa')) {
+                    try {
+                      Object.defineProperty(walletNamespace, 'kaspa', {
+                        configurable: false, enumerable: true, writable: false, value: browserProvider
+                      });
+                      if (window.wallet !== walletNamespace) {
+                        Object.defineProperty(window, 'wallet', {
+                          configurable: true, enumerable: true, writable: false, value: walletNamespace
+                        });
+                      }
+                    } catch (_) {}
+                  }
                   const info = Object.freeze({
                     id: 'org.kaspa.browser',
                     name: 'Kaspa Browser',
