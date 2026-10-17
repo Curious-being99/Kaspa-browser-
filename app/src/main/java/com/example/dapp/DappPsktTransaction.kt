@@ -57,7 +57,7 @@ internal object DappPsktTransaction {
             }
             val script = prepared.utxoEntries[request.index].scriptPublicKey.script
                 .replace(" ", "").lowercase()
-            require(script == expectedScript) {
+            require(prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && script == expectedScript) {
                 "Selected input ${request.index} is not a standard P2PK input owned by the active wallet"
             }
         }
@@ -66,19 +66,26 @@ internal object DappPsktTransaction {
 
     fun inspectForSubmission(txJsonString: String): Prepared {
         val prepared = parseAndValidate(txJsonString, emptyList())
-        require(prepared.transaction.inputs.all { input ->
-            input.signatureScript.isNotBlank() &&
-                input.signatureScript.length % 2 == 0 &&
-                input.signatureScript.matches(Regex("[0-9a-fA-F]+"))
-        }) {
-            "Refusing to submit a transaction with unsigned or malformed inputs"
+        prepared.transaction.inputs.forEachIndexed { index, input ->
+            require(input.signatureScript.length % 2 == 0 &&
+                input.signatureScript.matches(Regex("[0-9a-fA-F]*"))) {
+                "Input $index has a malformed signature script"
+            }
+            val lockingScript = prepared.utxoEntries[index].scriptPublicKey.script
+                .replace(" ", "").lowercase()
+            if (lockingScript.matches(Regex("20[0-9a-f]{64}ac"))) {
+                require(input.signatureScript.isNotBlank()) {
+                    "Input $index is a P2PK input without a signature"
+                }
+            }
         }
         return prepared
     }
 
     fun sign(prepared: Prepared, privateKey: BigInteger): String {
         val signedRoot = JSONObject(prepared.originalJson.toString())
-        val inputArray = signedRoot.optJSONArray("inputs")
+        val txRoot = signedRoot.optJSONObject("transaction") ?: signedRoot
+        val inputArray = txRoot.optJSONArray("inputs")
             ?: throw IllegalArgumentException("Transaction inputs are missing")
         for (request in prepared.signInputs) {
             val input = prepared.transaction.inputs[request.index]
@@ -99,8 +106,10 @@ internal object DappPsktTransaction {
                 originalInput.put("signatureScript", signatureScript)
             }
         }
-        val txRoot = signedRoot.optJSONObject("transaction") ?: signedRoot
-        prepared.transaction.mass = prepared.transaction.calculateMass()
+        prepared.transaction.mass = KaspaTransactionEngine.calculateMass(
+            prepared.transaction,
+            prepared.utxoEntries.map { it.amount }
+        )
         txRoot.put("mass", prepared.transaction.mass)
         return signedRoot.toString()
     }
@@ -194,7 +203,8 @@ internal object DappPsktTransaction {
             payload = txRoot.optString("payload", ""),
             mass = txRoot.optLong("mass", 0L)
         )
-        require(tx.calculateMass() <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+        tx.mass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+        require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
             "Transaction mass exceeds the standard mempool limit"
         }
         return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee)
