@@ -14,13 +14,19 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 internal object EvmWalletEngine {
-    data class Network(val chainId: Long, val name: String, val rpcUrl: String, val currency: String) {
+    data class Network(
+        val chainId: Long,
+        val name: String,
+        val rpcUrl: String,
+        val currency: String,
+        val explorerUrl: String = ""
+    ) {
         val chainIdHex: String get() = "0x" + chainId.toString(16)
     }
 
     val networks = listOf(
-        Network(202555L, "Kasplex Mainnet", "https://evmrpc.kasplex.org", "KAS"),
-        Network(38833L, "Igra Mainnet", "https://rpc.igralabs.com:8545", "iKAS")
+        Network(202555L, "Kasplex Mainnet", "https://evmrpc.kasplex.org", "KAS", "https://explorer.kasplex.org"),
+        Network(38833L, "Igra Mainnet", "https://rpc.igralabs.com:8545", "iKAS", "https://explorer.igralabs.com")
     )
 
     const val ACCOUNT_PATH = "m/44'/60'/0'/0/0"
@@ -162,6 +168,18 @@ internal object EvmWalletEngine {
         }
         val signed = TransactionEncoder.signMessage(raw, network.chainId, credentials)
         return Numeric.toHexString(signed)
+    }
+
+    fun verifyNetwork(network: Network) {
+        val actual = rpc(network, "eth_chainId", org.json.JSONArray()).optString("result")
+        val actualId = try {
+            BigInteger(actual.removePrefix("0x").removePrefix("0X"), 16).longValueExact()
+        } catch (_: Exception) {
+            throw IllegalStateException("${network.name} RPC returned an invalid chain ID")
+        }
+        require(actualId == network.chainId) {
+            "${network.name} RPC chain ID mismatch: expected ${network.chainId}, received $actualId"
+        }
     }
 
     fun rpc(network: Network, method: String, params: org.json.JSONArray): JSONObject {
