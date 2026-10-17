@@ -63,16 +63,16 @@ internal object EvmWalletEngine {
     fun signPersonalMessage(seedPhrase: String, message: String): String {
         require(message.length <= 8192) { "Message is too long" }
         val signed = Sign.signPrefixedMessage(message.toByteArray(Charsets.UTF_8), credentials(seedPhrase).ecKeyPair)
-        return "0x" + Numeric.toHexStringNoPrefixZeroPadded(signed.r, 64) +
-            Numeric.toHexStringNoPrefixZeroPadded(signed.s, 64) +
+        return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signed.r), 64) +
+            Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signed.s), 64) +
             String.format(Locale.ROOT, "%02x", signed.v[0].toInt() and 0xff)
     }
 
     fun signTypedData(seedPhrase: String, typedDataJson: String): String {
         require(typedDataJson.length in 1..32768) { "Typed-data request is empty or too large" }
         val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase).ecKeyPair)
-        return "0x" + Numeric.toHexStringNoPrefixZeroPadded(signature.r, 64) +
-            Numeric.toHexStringNoPrefixZeroPadded(signature.s, 64) +
+        return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
+            Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.s), 64) +
             String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
     }
 
