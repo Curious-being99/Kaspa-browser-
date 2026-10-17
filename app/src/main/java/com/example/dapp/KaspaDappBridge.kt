@@ -399,8 +399,16 @@ object KaspaDappBridge {
                       emit('accountsChanged', accounts);
                       return accounts;
                     },
-                    getAccounts: () => request('getAccounts'),
-                    getNetwork: () => request('getNetwork'),
+                    getAccounts: async () => {
+                      const accounts = await request('getAccounts');
+                      emit('accountsChanged', accounts);
+                      return accounts;
+                    },
+                    getNetwork: async () => {
+                      const network = await request('getNetwork');
+                      emit('chainChanged', network);
+                      return network;
+                    },
                     getPublicKey: () => request('getPublicKey'),
                     signMessage: message => request('signMessage', message),
                     signPskt: payload => request('signPskt', payload),
