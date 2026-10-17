@@ -120,7 +120,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -2295,22 +2296,45 @@ private fun ManageTabContent(
         }
     }
     if (showEvmHistory) {
-        ModalBottomSheet(onDismissRequest = { showEvmHistory = false }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 640.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    "${runCatching { com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name }.getOrDefault("EVM Mainnet")} Transaction History",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text("Live JSON-RPC data for $evmAddress. Recent 100-block scan; older activity is not included.", fontSize = 12.sp, color = TextSecondary)
+        Dialog(
+            onDismissRequest = { showEvmHistory = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = ObsidianBg) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { showEvmHistory = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${runCatching { com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name }.getOrDefault("EVM Mainnet")} Transaction History",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text("Live JSON-RPC • Last 100 blocks", fontSize = 11.sp, color = TextSecondary)
+                        }
+                        IconButton(onClick = { evmHistoryRefreshKey++ }, enabled = !evmHistoryLoading) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh history", tint = KaspaTea)
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Network: ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name}", fontSize = 12.sp, color = TextSecondary)
+                        Text("Address: $evmAddress", fontSize = 11.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 TextButton(
                     onClick = { evmHistoryRefreshKey++ },
                     enabled = !evmHistoryLoading
@@ -2383,6 +2407,8 @@ private fun ManageTabContent(
                     }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
+                    }
+                }
             }
         }
     }
