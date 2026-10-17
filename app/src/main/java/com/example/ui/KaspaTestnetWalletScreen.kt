@@ -59,6 +59,8 @@ import com.example.ui.theme.PhotoThemeSelectorDialog
 import com.example.utils.BiometricAuthHelper
 import androidx.compose.ui.res.painterResource
 import com.example.R
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
@@ -1932,107 +1934,6 @@ private fun ReceiveTabContent(
         }
     }
 
-    if (showNetworkDetailsSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showNetworkDetailsSheet = false },
-            containerColor = SurfaceCard,
-            contentColor = TextPrimary
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 22.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Network Details", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text("Current wallet connection", fontSize = 13.sp, color = TextSecondary)
-                HorizontalDivider(color = SurfaceCardBorder)
-                DetailRow(label = "Network", value = selectedNetwork)
-                DetailRow(label = "Address Prefix", value = selectedAddressPrefix)
-                DetailRow(label = "API Endpoint", value = selectedRpcEndpoint)
-                DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
-                DetailRow(label = "Explorer", value = selectedExplorerUrl)
-                Spacer(modifier = Modifier.height(18.dp))
-            }
-        }
-    }
-
-    if (showRecoverySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showRecoverySheet = false },
-            containerColor = SurfaceCard,
-            contentColor = TextPrimary
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 22.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Default.Lock, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(28.dp))
-                Text("Wallet Recovery", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text(
-                    "Your recovery phrase controls access to your wallet. Only reveal it in a private place and never share it with anyone.",
-                    fontSize = 13.sp,
-                    color = TextSecondary
-                )
-                Button(
-                    onClick = {
-                        showRecoverySheet = false
-                        onOpenRecovery()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
-                ) {
-                    Text("Continue to Recovery", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
-    }
-
-    if (showSignOutSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showSignOutSheet = false },
-            containerColor = SurfaceCard,
-            contentColor = TextPrimary
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 22.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = RedTamper, modifier = Modifier.size(28.dp))
-                Text("Sign Out / Disconnect", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text(
-                    "Your wallet will be disconnected from this session. You must confirm with your wallet password before signing out.",
-                    fontSize = 13.sp,
-                    color = TextSecondary
-                )
-                Button(
-                    onClick = {
-                        showSignOutSheet = false
-                        onSignOut()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = RedTamper)
-                ) {
-                    Text("Continue to Password Confirmation", color = TextPrimary, fontWeight = FontWeight.Bold)
-                }
-                TextButton(
-                    onClick = { showSignOutSheet = false },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Cancel", color = TextSecondary)
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2234,6 +2135,107 @@ private fun ManageTabContent(
                 subtitle = "Confirm with your wallet password",
                 onClick = { showSignOutSheet = true }
             )
+        }
+    }
+    if (showNetworkDetailsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showNetworkDetailsSheet = false },
+            containerColor = SurfaceCard,
+            contentColor = TextPrimary
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Network Details", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text("Current wallet connection", fontSize = 13.sp, color = TextSecondary)
+                HorizontalDivider(color = SurfaceCardBorder)
+                DetailRow(label = "Network", value = selectedNetwork)
+                DetailRow(label = "Address Prefix", value = selectedAddressPrefix)
+                DetailRow(label = "API Endpoint", value = selectedRpcEndpoint)
+                DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
+                DetailRow(label = "Explorer", value = selectedExplorerUrl)
+                Spacer(modifier = Modifier.height(18.dp))
+            }
+        }
+    }
+
+    if (showRecoverySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showRecoverySheet = false },
+            containerColor = SurfaceCard,
+            contentColor = TextPrimary
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(28.dp))
+                Text("Wallet Recovery", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(
+                    "Your recovery phrase controls access to your wallet. Only reveal it in a private place and never share it with anyone.",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Button(
+                    onClick = {
+                        showRecoverySheet = false
+                        onOpenRecovery()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
+                ) {
+                    Text("Continue to Recovery", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+
+    if (showSignOutSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSignOutSheet = false },
+            containerColor = SurfaceCard,
+            contentColor = TextPrimary
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = RedTamper, modifier = Modifier.size(28.dp))
+                Text("Sign Out / Disconnect", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(
+                    "Your wallet will be disconnected from this session. You must confirm with your wallet password before signing out.",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Button(
+                    onClick = {
+                        showSignOutSheet = false
+                        onSignOut()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = RedTamper)
+                ) {
+                    Text("Continue to Password Confirmation", color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+                TextButton(
+                    onClick = { showSignOutSheet = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
         }
     }
 }
