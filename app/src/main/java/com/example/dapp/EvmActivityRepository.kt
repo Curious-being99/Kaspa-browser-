@@ -120,13 +120,19 @@ internal object EvmActivityRepository {
                         val contract = log.optString("address")
                         val logIndex = log.optString("logIndex")
                         val key = "$hash:$logIndex"
+                        val isNft = topicsOut.length >= 4
                         found[key] = Activity(
                             hash = hash,
                             blockNumber = blockNumber,
-                            kind = if (from == account) "Token / NFT sent" else "Token / NFT received",
+                            kind = when {
+                                isNft && from == account -> "NFT sent"
+                                isNft -> "NFT received"
+                                from == account -> "Token sent"
+                                else -> "Token received"
+                            },
                             from = from,
                             to = to,
-                            value = log.optString("data", "0x0"),
+                            value = if (isNft) topicsOut.optString(3) else log.optString("data", "0x0"),
                             status = "Success (transfer event)",
                             contract = contract
                         )
