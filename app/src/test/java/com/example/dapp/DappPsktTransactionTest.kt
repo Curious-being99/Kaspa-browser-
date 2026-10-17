@@ -20,7 +20,7 @@ class DappPsktTransactionTest {
     private val publicKeyHex = CryptoUtils.to32ByteArray(CryptoUtils.pointMultiply(privateKey).x)
         .joinToString("") { "%02x".format(it) }
 
-    private fun transactionJson(nested: Boolean = false): String {
+    private fun transactionJson(nested: Boolean = false, covenantSigScript: String = "51"): String {
         val userScript = "20" + publicKeyHex + "ac"
         val covenantScript = "aa20" + "11".repeat(32) + "87"
         val inputs = JSONArray()
@@ -32,7 +32,7 @@ class DappPsktTransactionTest {
                 .put("utxoEntry", JSONObject().put("amount", "10000000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)).put("blockDaaScore", "1").put("isCoinbase", false)))
             .put(JSONObject()
                 .put("previousOutpoint", JSONObject().put("transactionId", "02".repeat(32)).put("index", 1))
-                .put("signatureScript", "51")
+                .put("signatureScript", covenantSigScript)
                 .put("sequence", 0)
                 .put("sigOpCount", 0)
                 .put("utxoEntry", JSONObject().put("amount", "10000000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", covenantScript)).put("blockDaaScore", "1").put("isCoinbase", false)))
@@ -88,6 +88,19 @@ class DappPsktTransactionTest {
         val inspected = DappPsktTransaction.inspectForSubmission(signedJson)
         assertFalse(inspected.transaction.inputs[0].signatureScript.isBlank())
         assertEquals("51", inspected.transaction.inputs[1].signatureScript)
+    }
+
+    @Test
+    fun submissionAllowsEmptyProtocolInputScriptWhilePreservingP2pkSignature() {
+        val prepared = DappPsktTransaction.prepareForSigning(
+            transactionJson(covenantSigScript = ""),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        val signedJson = DappPsktTransaction.sign(prepared, privateKey)
+        val inspected = DappPsktTransaction.inspectForSubmission(signedJson)
+        assertFalse(inspected.transaction.inputs[0].signatureScript.isBlank())
+        assertEquals("", inspected.transaction.inputs[1].signatureScript)
     }
 
     @Test(expected = IllegalArgumentException::class)
