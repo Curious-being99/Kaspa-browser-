@@ -603,6 +603,7 @@ fun KaspaTestnetWalletScreen(
             ManageScreenOverlay(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
+                activeAccountSeedPhrase = activeAccount?.seedPhrase.orEmpty(),
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccounts.size,
                 onViewSeed = { showRecoveryScreen = true },
@@ -1915,6 +1916,7 @@ private fun ReceiveTabContent(
 private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
+    activeAccountSeedPhrase: String,
     testnetAddress: String,
     allAccountsCount: Int,
     onOpenRecovery: () -> Unit,
@@ -1922,6 +1924,17 @@ private fun ManageTabContent(
 ) {
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
+    val context = LocalContext.current
+    val evmNetworkPrefs = remember {
+        context.getSharedPreferences(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
+    }
+    var selectedEvmChainId by remember {
+        mutableStateOf(evmNetworkPrefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L))
+    }
+    val evmNetworks = com.example.dapp.EvmWalletEngine.networks
+    val evmAddress = remember(activeAccountSeedPhrase) {
+        runCatching { com.example.dapp.EvmWalletEngine.address(activeAccountSeedPhrase) }.getOrDefault("")
+    }
     val networkList = listOf(
         Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
         Triple("Kaspa Mainnet", "kaspa:", "https://api.kaspa.org"),
@@ -1985,6 +1998,74 @@ private fun ManageTabContent(
                                 Text("Prefix: $prefix • RPC: $rpc", fontSize = 11.sp, color = TextMuted)
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        item {
+            Text("EVM Wallet", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text(
+                "Kasplex and Igra use a separate EVM account from your native Kaspa address.",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            evmNetworks.forEach { network ->
+                val isSelected = selectedEvmChainId == network.chainId
+                Surface(
+                    onClick = {
+                        selectedEvmChainId = network.chainId
+                        evmNetworkPrefs.edit()
+                            .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, network.chainId)
+                            .apply()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
+                    border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedEvmChainId = network.chainId
+                                    evmNetworkPrefs.edit()
+                                        .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, network.chainId)
+                                        .apply()
+                                },
+                                colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(network.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isSelected) KaspaTea else TextPrimary)
+                                Text("Chain ID: ${network.chainId}", fontSize = 11.sp, color = TextSecondary)
+                            }
+                            if (isSelected) Text("ACTIVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                        }
+                        Text("EVM address path: ${com.example.dapp.EvmWalletEngine.ACCOUNT_PATH}", fontSize = 11.sp, color = TextSecondary)
+                        if (evmAddress.isNotBlank()) {
+                            Text(
+                                text = evmAddress,
+                                fontSize = 11.sp,
+                                color = TextPrimary,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            TextButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    clipboard?.setPrimaryClip(ClipData.newPlainText("EVM wallet address", evmAddress))
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Copy address", color = KaspaTea, fontSize = 12.sp)
+                            }
+                        } else {
+                            Text("EVM address unavailable for this recovery phrase", fontSize = 11.sp, color = RedTamper)
+                        }
+                        Text("RPC: ${network.rpcUrl}", fontSize = 10.sp, color = TextMuted)
                     }
                 }
             }
@@ -3272,6 +3353,7 @@ private fun TransactionResultOverlay(
 private fun ManageScreenOverlay(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
+    activeAccountSeedPhrase: String,
     testnetAddress: String,
     allAccountsCount: Int,
     onViewSeed: () -> Unit,
@@ -3305,6 +3387,7 @@ private fun ManageScreenOverlay(
             ManageTabContent(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccountHandle,
+                activeAccountSeedPhrase = activeAccountSeedPhrase,
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccountsCount,
                 onOpenRecovery = onViewSeed,
