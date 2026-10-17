@@ -184,7 +184,43 @@ internal object EvmDappBridge {
                                 .show()
                         }
                     }
-                    "eth_signTypedData_v4" -> {
+                    "eth_sign" -> {
+                        if (!connected) {
+                            respond(code = 4100, error = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val requestedAddress = params.optString(0).lowercase(Locale.ROOT)
+                        val messageHex = params.optString(1)
+                        val address = try { EvmWalletEngine.address(seedPhrase, passphrase) } catch (e: Throwable) {
+                            respond(code = 4100, error = e.message ?: "EVM account unavailable")
+                            return@addWebMessageListener
+                        }
+                        if (requestedAddress != address.lowercase(Locale.ROOT) ||
+                            !messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){1,8192}"))
+                        ) {
+                            respond(code = -32602, error = "Invalid address or eth_sign message encoding")
+                            return@addWebMessageListener
+                        }
+                        mainHandler.post {
+                            AlertDialog.Builder(context)
+                                .setTitle("Review raw-hash signature")
+                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nThis signs the Keccak-256 hash of the supplied bytes without the personal-message prefix. Only continue if you trust the requesting site.\n\nMessage bytes: $messageHex")
+                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected eth_sign") }
+                                .setPositiveButton("Sign hash") { _, _ ->
+                                    executor.execute {
+                                        try {
+                                            val signature = EvmWalletEngine.signEthMessage(seedPhrase, messageHex, passphrase)
+                                            mainHandler.post { respond(signature) }
+                                        } catch (e: Throwable) {
+                                            mainHandler.post { respond(code = -32603, error = e.message ?: "eth_sign failed") }
+                                        }
+                                    }
+                                }
+                                .setOnCancelListener { respond(code = 4001, error = "User rejected eth_sign") }
+                                .show()
+                        }
+                    }
+                    "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData" -> {
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
                             return@addWebMessageListener
@@ -240,7 +276,7 @@ internal object EvmDappBridge {
                                 .show()
                         }
                     }
-                    "eth_sendTransaction" -> {
+                    "eth_sendTransaction", "eth_signTransaction" -> {
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
                             return@addWebMessageListener
@@ -278,12 +314,16 @@ internal object EvmDappBridge {
                                         .setTitle("Review EVM transaction")
                                         .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n\nContract calls can transfer tokens or NFTs and may be irreversible.")
                                         .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected transaction") }
-                                        .setPositiveButton("Sign & send") { _, _ ->
+                                        .setPositiveButton(if (method == "eth_signTransaction") "Sign transaction" else "Sign & send") { _, _ ->
                                             executor.execute {
                                                 try {
                                                     val raw = EvmWalletEngine.signTransaction(seedPhrase, chain, tx, passphrase)
-                                                    val hash = rpc(chain, "eth_sendRawTransaction", JSONArray().put(raw))
-                                                    mainHandler.post { respond(hash) }
+                                                    if (method == "eth_signTransaction") {
+                                                        mainHandler.post { respond(raw) }
+                                                    } else {
+                                                        val hash = rpc(chain, "eth_sendRawTransaction", JSONArray().put(raw))
+                                                        mainHandler.post { respond(hash) }
+                                                    }
                                                 } catch (e: Throwable) {
                                                     mainHandler.post { respond(code = -32603, error = e.message ?: "Transaction signing or submission failed") }
                                                 }
@@ -297,8 +337,8 @@ internal object EvmDappBridge {
                             }
                         }
                     }
-                    "eth_sendRawTransaction", "eth_sign", "eth_signTransaction", "eth_signTypedData", "eth_signTypedData_v3" ->
-                        respond(code = 4200, error = "This EVM signing method is not supported")
+                    "eth_sendRawTransaction" ->
+                        respond(code = 4200, error = "Raw transaction submission is disabled; use the wallet-approved transaction flow")
                     else -> {
                         if (method !in readMethods) {
                             respond(code = -32601, error = "Unsupported EVM provider method")
