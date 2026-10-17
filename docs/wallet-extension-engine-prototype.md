@@ -10,7 +10,7 @@ Android System WebView does not implement the Chrome extension runtime. GeckoVie
 
 ## Non-negotiable safety gates
 
-- Do not inject a fake `window.kaspa` provider or expose native wallet secrets to page JavaScript.
+- Do not inject an unbacked `window.kaspa` provider or expose native wallet secrets to page JavaScript.
 - Do not claim support for all Kaspa wallets. Maintain a tested compatibility matrix per extension ID/version.
 - Do not wire this prototype into production navigation until the extension engine has its own tested session, permission prompts, popup/action handling, and lifecycle.
 - Do not silently bypass KRP/proxy routing. GeckoView networking must be evaluated separately; existing WebView ProxyController behavior does not automatically apply.
