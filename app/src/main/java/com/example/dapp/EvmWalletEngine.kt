@@ -23,6 +23,10 @@ internal object EvmWalletEngine {
         Network(38833L, "Igra Mainnet", "https://rpc.igralabs.com:8545", "iKAS")
     )
 
+    const val ACCOUNT_PATH = "m/44'/60'/0'/0/0"
+    const val WALLET_NETWORK_PREFS = "evm_wallet_network"
+    const val WALLET_NETWORK_KEY = "selected_chain_id"
+
     private val requestIds = AtomicLong(1)
 
     fun network(chainId: Long): Network = networks.firstOrNull { it.chainId == chainId }
