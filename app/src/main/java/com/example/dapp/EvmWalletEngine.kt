@@ -65,7 +65,7 @@ internal object EvmWalletEngine {
         val signed = Sign.signPrefixedMessage(message.toByteArray(Charsets.UTF_8), credentials(seedPhrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(signed.r, 64) +
             Numeric.toHexStringNoPrefixZeroPadded(signed.s, 64) +
-            String.format(Locale.ROOT, "%02x", signed.v.toInt() and 0xff)
+            String.format(Locale.ROOT, "%02x", signed.v[0].toInt() and 0xff)
     }
 
     fun signTypedData(seedPhrase: String, typedDataJson: String): String {
@@ -73,7 +73,7 @@ internal object EvmWalletEngine {
         val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(signature.r, 64) +
             Numeric.toHexStringNoPrefixZeroPadded(signature.s, 64) +
-            String.format(Locale.ROOT, "%02x", signature.v.toInt() and 0xff)
+            String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
     }
 
     fun signTransaction(seedPhrase: String, network: Network, tx: JSONObject): String {
