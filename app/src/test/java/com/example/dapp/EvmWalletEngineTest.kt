@@ -45,6 +45,30 @@ class EvmWalletEngineTest {
         assertTrue(signed.length > 100)
     }
 
+    @Test
+    fun signsEip712TypedData() {
+        val mnemonic = "test test test test test test test test test test test junk"
+        val typedData = """{"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"version","type":"string"},{"name":"chainId","type":"uint256"}],"Mail":[{"name":"contents","type":"string"}]},"primaryType":"Mail","domain":{"name":"Example","version":"1","chainId":202555},"message":{"contents":"hello"}}"""
+        val signature = EvmWalletEngine.signTypedData(mnemonic, typedData)
+        assertTrue(signature.startsWith("0x"))
+        assertEquals(132, signature.length)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsTransactionForDifferentChain() {
+        val tx = JSONObject()
+            .put("chainId", "0x1")
+            .put("to", "0x0000000000000000000000000000000000000001")
+            .put("nonce", "0x0")
+            .put("gas", "0x5208")
+            .put("gasPrice", "0x3b9aca00")
+        EvmWalletEngine.signTransaction(
+            "test test test test test test test test test test test junk",
+            EvmWalletEngine.network(202555L),
+            tx
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsSenderThatDoesNotMatchDerivedAccount() {
         val tx = JSONObject()
