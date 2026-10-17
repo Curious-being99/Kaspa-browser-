@@ -260,7 +260,12 @@ object KaspaDappBridge {
                                     .setPositiveButton("Submit transaction") { _, _ ->
                                         cryptoExecutor.execute {
                                             val receipt = try {
-                                                viewModel.walletService.submitDappTransaction(prepared.transaction, keyPair.kaspaAddress)
+                                                kotlinx.coroutines.runBlocking {
+                                                    viewModel.walletService.submitDappTransaction(
+                                                        prepared.transaction,
+                                                        keyPair.kaspaAddress
+                                                    )
+                                                }
                                             } catch (error: Throwable) {
                                                 null
                                             }
