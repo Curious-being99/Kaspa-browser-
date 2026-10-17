@@ -353,6 +353,15 @@ internal object EvmDappBridge {
                             respond(code = -32602, error = "Transaction object is required")
                             return@addWebMessageListener
                         }
+                        if (!txInput.optString("to").matches(Regex("0x[0-9a-fA-F]{40}"))) {
+                            respond(code = -32602, error = "Contract creation and invalid destination addresses are not supported")
+                            return@addWebMessageListener
+                        }
+                        val has1559Fee = txInput.has("maxFeePerGas") || txInput.has("maxPriorityFeePerGas")
+                        if (has1559Fee && (!txInput.has("maxFeePerGas") || !txInput.has("maxPriorityFeePerGas"))) {
+                            respond(code = -32602, error = "EIP-1559 transactions require both maxFeePerGas and maxPriorityFeePerGas")
+                            return@addWebMessageListener
+                        }
                         executor.execute {
                             try {
                                 val address = EvmWalletEngine.address(seedPhrase, passphrase)
@@ -372,14 +381,21 @@ internal object EvmDappBridge {
                                 if (!tx.has("nonce")) tx.put("nonce", rpc(chain, "eth_getTransactionCount", JSONArray().put(address).put("pending")).toString())
                                 if (!tx.has("gas") && !tx.has("gasLimit")) tx.put("gas", rpc(chain, "eth_estimateGas", JSONArray().put(tx).put("latest")).toString())
                                 if (!tx.has("gas") && tx.has("gasLimit")) tx.put("gas", tx.get("gasLimit"))
-                                if (!tx.has("gasPrice") && !tx.has("maxFeePerGas")) tx.put("gasPrice", rpc(chain, "eth_gasPrice", JSONArray()).toString())
+                                if (!has1559Fee && !tx.has("gasPrice")) tx.put("gasPrice", rpc(chain, "eth_gasPrice", JSONArray()).toString())
                                 val gas = tx.optString("gas", tx.optString("gasLimit", "unknown"))
                                 val value = tx.optString("value", "0x0")
                                 val to = tx.optString("to", "")
+                                val feePerGas = if (has1559Fee) tx.optString("maxFeePerGas") else tx.optString("gasPrice")
+                                val feeLabel = if (has1559Fee) "Max fee per gas (wei)" else "Gas price (wei)"
+                                val maximumFee = runCatching {
+                                    fun quantity(raw: String): BigInteger =
+                                        if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16) else BigInteger(raw)
+                                    quantity(gas) * quantity(feePerGas)
+                                }.getOrNull()?.toString() ?: "Unavailable"
                                 mainHandler.post {
                                     AlertDialog.Builder(context)
                                         .setTitle("Review EVM transaction")
-                                        .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n\nContract calls can transfer tokens or NFTs and may be irreversible.")
+                                        .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n$feeLabel: $feePerGas\nMaximum network fee (wei): $maximumFee\n\nContract calls can transfer tokens or NFTs and may be irreversible.")
                                         .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected transaction") }
                                         .setPositiveButton(if (method == "eth_signTransaction") "Sign transaction" else "Sign & send") { _, _ ->
                                             executor.execute {
