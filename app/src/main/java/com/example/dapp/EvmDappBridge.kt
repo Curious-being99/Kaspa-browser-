@@ -529,11 +529,23 @@ internal object EvmDappBridge {
                     chainId: { enumerable: true, get: () => currentChainId },
                     networkVersion: { enumerable: true, get: () => currentChainId ? String(parseInt(currentChainId, 16)) : null }
                   });
+                  Object.defineProperty(window, 'kaspaBrowser', {configurable: false, enumerable: true, writable: false, value: ethereum});
                   Object.defineProperty(window, 'ethereum', {configurable: false, enumerable: true, writable: false, value: ethereum});
+                  const providerInfo = Object.freeze({
+                    uuid: 'UUID_PLACEHOLDER',
+                    name: 'Kaspa Browser',
+                    icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='20' fill='%2370C7BA'/%3E%3Cpath d='M24 24h48v14H38v10h28v14H38v10H24z' fill='%230b1720'/%3E%3C/svg%3E",
+                    rdns: 'xyz.kaspabrowser'
+                  });
+                  const announceProvider = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', {
+                    detail: Object.freeze({info: providerInfo, provider: ethereum})
+                  }));
+                  window.addEventListener('eip6963:requestProvider', announceProvider);
+                  announceProvider();
                   request({method: 'eth_chainId'}).catch(() => {});
                   window.dispatchEvent(new Event('ethereum#initialized'));
                 })();
-            """.trimIndent()
+            """.trimIndent().replace("UUID_PLACEHOLDER", java.util.UUID.randomUUID().toString())
             WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
         } catch (_: Throwable) {
             // EVM provider stays unavailable if secure WebView messaging is unsupported.
