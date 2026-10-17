@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -1030,7 +1031,10 @@ fun KaspaTestnetWalletScreen(
                         onValueChange = { signOutPasswordInput = it },
                         label = { Text("Wallet Password") },
                         visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .widthIn(max = 420.dp)
+                            .fillMaxWidth(0.92f)
+                            .align(Alignment.CenterHorizontally),
                         isError = signOutError != null,
                         supportingText = {
                             if (signOutError != null) Text(signOutError!!, color = RedTamper)
@@ -2742,7 +2746,11 @@ private fun CreateDetailsSetupView(
                         )
                     }
                 },
-                modifier = Modifier.fillMaxWidth().testTag("setup_wallet_password_input"),
+                modifier = Modifier
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(0.92f)
+                    .align(Alignment.CenterHorizontally)
+                    .testTag("setup_wallet_password_input"),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = if (isPasswordValid) KaspaTea else SurfaceCardBorder,
                     unfocusedBorderColor = SurfaceCardBorder,
@@ -3075,7 +3083,11 @@ private fun ImportPhraseSetupView(
                         )
                     }
                 },
-                modifier = Modifier.fillMaxWidth().testTag("setup_import_password_input"),
+                modifier = Modifier
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(0.92f)
+                    .align(Alignment.CenterHorizontally)
+                    .testTag("setup_import_password_input"),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = if (isPasswordValid) KaspaTea else SurfaceCardBorder,
                     unfocusedBorderColor = SurfaceCardBorder,
@@ -4194,7 +4206,10 @@ private fun ConfirmSendScreenOverlay(
                                         unfocusedTextColor = TextPrimary
                                     ),
                                     singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier
+                                        .widthIn(max = 420.dp)
+                                        .fillMaxWidth(0.92f)
+                                        .align(Alignment.CenterHorizontally)
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Button(
