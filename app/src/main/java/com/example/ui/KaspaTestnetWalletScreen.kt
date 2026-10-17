@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Palette
 import com.example.ui.theme.PhotoThemeSelectorDialog
 import com.example.utils.BiometricAuthHelper
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Refresh
@@ -172,7 +174,9 @@ fun KaspaTestnetWalletScreen(
     val isFetchingFeeCondition by viewModel.isFetchingFeeCondition.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
-    val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true)
+    val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true) ||
+        walletState.kaspaAddress.startsWith("kaspa:") ||
+        testnetAddress.startsWith("kaspa:")
 
     val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
     val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
@@ -212,6 +216,7 @@ fun KaspaTestnetWalletScreen(
     var amountInput by remember { mutableStateOf("") }
     var selectedSompiPerMass by remember { mutableStateOf<Long>(KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS) }
     var showConfirmSendDialog by remember { mutableStateOf(false) }
+    var showCompoundDialog by remember { mutableStateOf(false) }
 
     // Observe transaction state to show result overlay
     LaunchedEffect(walletState.isSending, walletState.lastBroadcastTxId, walletState.statusNotice) {
@@ -238,6 +243,8 @@ fun KaspaTestnetWalletScreen(
         if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
+        } else if (showCompoundDialog) {
+            showCompoundDialog = false
         } else if (selectedTransactionForDetails != null) {
             selectedTransactionForDetails = null
         } else if (showConfirmSendDialog) {
@@ -476,8 +483,8 @@ fun KaspaTestnetWalletScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 32.dp),
-                horizontalArrangement = Arrangement.spacedBy(56.dp, Alignment.CenterHorizontally),
+                    .padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(36.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 QuickActionButton(
@@ -491,6 +498,23 @@ fun KaspaTestnetWalletScreen(
                     label = "Receive",
                     color = ElectricCyan,
                     onClick = { showReceiveScreen = true }
+                )
+                QuickActionButton(
+                    iconRes = R.drawable.ic_compound_utxo,
+                    label = "Compound",
+                    color = Color(0xFFF2F2F2),
+                    onClick = {
+                        if (walletState.utxosCount <= 1) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (walletState.utxosCount == 1) "Wallet already optimal (1 UTXO unspent)"
+                                    else "No unspent UTXOs to compound"
+                                )
+                            }
+                        } else {
+                            showCompoundDialog = true
+                        }
+                    }
                 )
             }
 
@@ -534,6 +558,8 @@ fun KaspaTestnetWalletScreen(
                     isLoading = walletState.isLoading,
                     onOpenTx = { tx -> selectedTransactionForDetails = tx },
                     onGetFaucetCoins = { viewModel.openTestnetFaucet(context) },
+                    onSendKaspa = { showSendScreen = true },
+                    onReceiveKaspa = { showReceiveScreen = true },
                     isMainnet = isMainnet
                 )
             }
@@ -660,6 +686,20 @@ fun KaspaTestnetWalletScreen(
                     viewModel.openTestnetTxExplorer(txId)
                 },
                 onDismiss = { selectedTransactionForDetails = null }
+            )
+        }
+
+        // Compound UTXO Confirmation Dialog
+        if (showCompoundDialog) {
+            CompoundUtxoDialog(
+                utxoCount = walletState.utxosCount,
+                balanceKas = walletState.balanceKas,
+                isCompounding = walletState.isSending,
+                onConfirm = {
+                    showCompoundDialog = false
+                    viewModel.compoundUtxos()
+                },
+                onDismiss = { showCompoundDialog = false }
             )
         }
 
@@ -1020,7 +1060,8 @@ fun KaspaTestnetWalletScreen(
 
 @Composable
 private fun QuickActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    iconRes: Int? = null,
     label: String,
     color: Color,
     modifier: Modifier = Modifier,
@@ -1037,12 +1078,21 @@ private fun QuickActionButton(
             modifier = Modifier.size(42.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = color,
-                    modifier = Modifier.size(20.dp)
-                )
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = color,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else if (iconRes != null) {
+                    Icon(
+                        painter = painterResource(id = iconRes),
+                        contentDescription = label,
+                        tint = color,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
@@ -1062,6 +1112,8 @@ private fun HistoryTabContent(
     isLoading: Boolean,
     onOpenTx: (KaspaTransactionItem) -> Unit,
     onGetFaucetCoins: () -> Unit,
+    onSendKaspa: (() -> Unit)? = null,
+    onReceiveKaspa: (() -> Unit)? = null,
     isMainnet: Boolean
 ) {
     var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Sent, 2: Received
@@ -1213,16 +1265,56 @@ private fun HistoryTabContent(
                     color = TextSecondary,
                     textAlign = TextAlign.Center
                 )
-                if (!isMainnet && (selectedFilterIndex == 0 || selectedFilterIndex == 2)) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = onGetFaucetCoins,
-                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = SurfaceDark)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Get Free Testnet KAS", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(16.dp))
+                when (selectedFilterIndex) {
+                    1 -> {
+                        if (onSendKaspa != null) {
+                            Button(
+                                onClick = onSendKaspa,
+                                colors = ButtonDefaults.buttonColors(containerColor = RedTamper.copy(alpha = 0.85f)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Send KAS", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    2 -> {
+                        if (onReceiveKaspa != null) {
+                            Button(
+                                onClick = onReceiveKaspa,
+                                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.CallReceived, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Receive KAS", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    else -> {
+                        if (!isMainnet) {
+                            Button(
+                                onClick = onGetFaucetCoins,
+                                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.WaterDrop, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Get Free Testnet KAS", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                            }
+                        } else if (onReceiveKaspa != null) {
+                            Button(
+                                onClick = onReceiveKaspa,
+                                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(imageVector = Icons.AutoMirrored.Filled.CallReceived, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Receive KAS", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
                 }
             }
@@ -1334,33 +1426,20 @@ private fun TransactionCard(
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = when {
-                            !tx.isAccepted -> "Pending"
-                            tx.confirmationCount != null -> "Accepted · ${tx.confirmationCount} blue-score progress"
-                            else -> "Accepted"
-                        },
+                            text = if (tx.isAccepted) "Accepted" else "Pending",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (tx.isAccepted) KaspaTea else AmberCentral,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
             }
 
-            if (tx.isAccepted && tx.acceptingBlueScore != null && tx.confirmationCount != null) {
-                Spacer(modifier = Modifier.height(5.dp))
-                Text(
-                    text = "Accepting blue score ${tx.acceptingBlueScore} · current progress ${tx.confirmationCount}",
-                    fontSize = 10.sp,
-                    color = TextSecondary
-                )
-            }
-
-            // Extended Details: TxID & Fee / Address
-            Spacer(modifier = Modifier.height(6.dp))
+            // Extended Details: TxID & Fee / Counterparty
+            Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = SurfaceCardBorder.copy(alpha = 0.25f), thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1368,25 +1447,17 @@ private fun TransactionCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Tx: ${tx.txId.take(12)}...${tx.txId.takeLast(6)}",
+                    text = "Tx: ${tx.txId.take(10)}...${tx.txId.takeLast(6)}",
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     color = TextMuted
                 )
-                if (tx.feeKas > 0.0) {
-                    Text(
-                        text = "Fee: ${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
-                        fontSize = 10.sp,
-                        color = AmberCentral
-                    )
-                } else if (tx.counterpartyAddress.isNotBlank()) {
-                    Text(
-                        text = "${if (isReceive) "From" else "To"}: ${tx.counterpartyAddress.take(10)}...",
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = TextSecondary
-                    )
-                }
+                Text(
+                    text = "Fee: ${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Default,
+                    color = if (isReceive) KaspaTea else AmberCentral
+                )
             }
         }
     }
@@ -3245,6 +3316,114 @@ private fun ManageScreenOverlay(
 
 
 @Composable
+private fun CompoundUtxoDialog(
+    utxoCount: Int,
+    balanceKas: Double,
+    isCompounding: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val countToCompound = minOf(utxoCount, 80)
+    AlertDialog(
+        onDismissRequest = { if (!isCompounding) onDismiss() },
+        containerColor = SurfaceCard,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF2F2F2).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFFF2F2F2).copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_compound_utxo),
+                        contentDescription = "Compound UTXOs",
+                        tint = Color(0xFFF2F2F2),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Text(
+                    text = "Compound UTXOs",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Consolidate $countToCompound fragmented UTXO(s) into 1 single unspent output. This optimizes your wallet performance and reduces future transaction mass.",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Surface(
+                    color = SurfaceDark,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Current UTXO Count", fontSize = 12.sp, color = TextMuted)
+                            Text("$utxoCount UTXOs", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Compounding Batch", fontSize = 12.sp, color = TextMuted)
+                            Text("$countToCompound -> 1 UTXO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total Balance", fontSize = 12.sp, color = TextMuted)
+                            Text("${KaspaTransactionEngine.formatKas(balanceKas)} KAS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = !isCompounding,
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isCompounding) {
+                    CircularProgressIndicator(color = SurfaceDark, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Compounding...", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                } else {
+                    Icon(painterResource(id = R.drawable.ic_compound_utxo), contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Sweep & Compound Now", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            if (!isCompounding) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        }
+    )
+}
+
+@Composable
 private fun TransactionDetailDialog(
     tx: KaspaTransactionItem,
     onCopyTxId: (String) -> Unit,
@@ -3342,33 +3521,53 @@ private fun TransactionDetailDialog(
                     )
                 }
 
-                if (tx.feeKas > 0.0) {
+                // Network Fee
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Network Fee", fontSize = 12.sp, color = TextSecondary)
+                    Text(
+                        text = "${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isReceive) KaspaTea else AmberCentral
+                    )
+                }
+
+                // Counterparty Address
+                Spacer(modifier = Modifier.height(8.dp))
+                Column {
+                    Text(if (isReceive) "Sender Address" else "Recipient Address", fontSize = 11.sp, color = TextSecondary)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (tx.counterpartyAddress.isNotBlank()) {
+                            tx.counterpartyAddress
+                        } else {
+                            if (isReceive) "Kaspa BlockDAG Network" else "Self / Change Output"
+                        },
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = ElectricCyan
+                    )
+                }
+
+                if (tx.acceptingBlueScore != null) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Network Fee", fontSize = 12.sp, color = TextSecondary)
+                        Text("Accepting Blue Score", fontSize = 12.sp, color = TextSecondary)
                         Text(
-                            text = "${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
+                            text = "${tx.acceptingBlueScore}",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AmberCentral
-                        )
-                    }
-                }
-
-                if (tx.counterpartyAddress.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Column {
-                        Text(if (isReceive) "Sender Address" else "Recipient Address", fontSize = 11.sp, color = TextSecondary)
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = tx.counterpartyAddress,
-                            fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = ElectricCyan
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
                         )
                     }
                 }

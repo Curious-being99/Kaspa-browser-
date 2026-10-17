@@ -1848,6 +1848,106 @@ class DecentralViewModel(
         }
     }
 
+    fun compoundUtxos() {
+        val senderAcc = activeAccount.value ?: return
+        viewModelScope.launch {
+            _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                isSending = true,
+                lastBroadcastTxId = null,
+                statusNotice = "Compounding UTXOs..."
+            )
+            try {
+                val senderAddress = getTestnetAddressForAccount(senderAcc)
+                val decryptedSeed = try {
+                    CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
+                } catch (e: Exception) {
+                    val errMsg = "Failed to decrypt wallet seed: ${e.message}"
+                    _statusMessage.value = errMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        statusNotice = "Error: $errMsg"
+                    )
+                    return@launch
+                }
+
+                val result = kaspaWalletService.compoundUtxos(
+                    senderAddress = senderAddress,
+                    senderSeed = decryptedSeed
+                )
+                result.onSuccess { txItem ->
+                    withContext(Dispatchers.IO) {
+                        database.transactionDao().insert(TransactionEntity(
+                            txId = txItem.txId,
+                            blockTime = txItem.blockTime,
+                            amountKas = txItem.amountKas,
+                            type = txItem.type,
+                            isAccepted = false,
+                            feeKas = txItem.feeKas,
+                            counterpartyAddress = txItem.counterpartyAddress,
+                            network = _selectedNetwork.value
+                        ))
+                    }
+                    val pendingTx = txItem.copy(isAccepted = false)
+                    val updatedTxs = listOf(pendingTx) + _kaspaWalletState.value.recentTransactions.filter { it.txId != txItem.txId }
+                    val updatedBalance = (_kaspaWalletState.value.balanceKas - txItem.feeKas).coerceAtLeast(0.0)
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        balanceKas = updatedBalance,
+                        balanceUsd = updatedBalance * _kaspaWalletState.value.priceUsd,
+                        lastBroadcastTxId = txItem.txId,
+                        recentTransactions = updatedTxs,
+                        statusNotice = "Compounded UTXOs successfully broadcasted!"
+                    )
+
+                    val networkAtBroadcast = _selectedNetwork.value
+                    viewModelScope.launch {
+                        try {
+                            val confirmation = kaspaWalletService.waitForAcceptance(
+                                txId = txItem.txId,
+                                networkName = networkAtBroadcast
+                            )
+                            if (confirmation.accepted == true) {
+                                withContext(Dispatchers.IO) {
+                                    database.transactionDao().insert(TransactionEntity(
+                                        txId = txItem.txId,
+                                        blockTime = txItem.blockTime,
+                                        amountKas = txItem.amountKas,
+                                        type = txItem.type,
+                                        isAccepted = true,
+                                        feeKas = txItem.feeKas,
+                                        counterpartyAddress = txItem.counterpartyAddress,
+                                        network = networkAtBroadcast
+                                    ))
+                                }
+                                refreshTestnetWallet()
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }.onFailure { err ->
+                    val errorMsg = err.message ?: "Failed to compound UTXOs"
+                    _statusMessage.value = errorMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = null,
+                        statusNotice = "Error: $errorMsg"
+                    )
+                }
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: "Unexpected error during compounding"
+                _statusMessage.value = errorMsg
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isSending = false,
+                    lastBroadcastTxId = null,
+                    statusNotice = "Error: $errorMsg"
+                )
+            } finally {
+                if (_kaspaWalletState.value.isSending) {
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = false)
+                }
+            }
+        }
+    }
+
     fun createNewTestnetWallet(customName: String? = null, passphrase: String = "") {
         viewModelScope.launch {
             try {
@@ -1946,6 +2046,11 @@ class DecentralViewModel(
     }
 
     fun openTestnetFaucet(context: android.content.Context? = null) {
+        val isMainnet = _selectedNetwork.value.contains("Mainnet", ignoreCase = true)
+        if (isMainnet) {
+            _statusMessage.value = "Faucet is only available on Kaspa Testnet, not Mainnet."
+            return
+        }
         val address = testnetAddress.value
         if (address.isNotBlank() && context != null) {
             val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager

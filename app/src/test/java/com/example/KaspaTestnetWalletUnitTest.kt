@@ -186,4 +186,31 @@ class KaspaTestnetWalletUnitTest {
         assertTrue(recvList.all { it.type == "RECEIVED" })
         assertEquals("tx_recv_1", recvList.first().txId)
     }
+
+    @Test
+    fun testTransactionMassLimitVsBlockMassLimit() {
+        val engine = com.example.network.kaspa.KaspaTransactionEngine
+        
+        // 100,000 grams is the standard mempool policy limit for an individual transaction
+        assertEquals(100_000L, engine.MAXIMUM_STANDARD_TRANSACTION_MASS)
+        assertEquals(100_000L, engine.CLIENT_SOFT_TRANSACTION_MASS_LIMIT)
+
+        // 500,000 grams is the consensus limit for an entire block
+        assertEquals(500_000L, engine.MAXIMUM_BLOCK_MASS)
+
+        // Standard wallet transactions are well within the 100,000 transaction mass limit
+        val singleInputTwoOutputsMass = engine.estimateTransactionMass(
+            inputsCount = 1,
+            outputsCount = 2
+        )
+        assertTrue("Single-input standard tx mass must be below 100,000", singleInputTwoOutputsMass < engine.MAXIMUM_STANDARD_TRANSACTION_MASS)
+        assertTrue("Single-input standard tx mass must be far below block mass 500,000", singleInputTwoOutputsMass < engine.MAXIMUM_BLOCK_MASS)
+
+        // Even a heavy multi-input transaction (e.g. 10 inputs, 2 outputs) stays within standard tx mass
+        val tenInputsMass = engine.estimateTransactionMass(
+            inputsCount = 10,
+            outputsCount = 2
+        )
+        assertTrue("10-input tx mass must be below 100,000 transaction limit", tenInputsMass < engine.MAXIMUM_STANDARD_TRANSACTION_MASS)
+    }
 }

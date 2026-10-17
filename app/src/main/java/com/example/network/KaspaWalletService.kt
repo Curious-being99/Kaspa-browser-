@@ -863,12 +863,7 @@ class KaspaWalletService(
                         requiredSignedFee = maxOf(
                             KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
                             KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
-                            KaspaTransactionEngine.calculateFeeForMass(signedMass, txPlan.sompiPerMass),
-                            when {
-                                txPlan.sompiPerMass >= 20L -> KaspaTransactionEngine.FAST_FEE_SOMPIS
-                                txPlan.sompiPerMass >= 5L -> KaspaTransactionEngine.MINIMUM_NETWORK_FEE_SOMPIS
-                                else -> 0L
-                            }
+                            KaspaTransactionEngine.calculateFeeForMass(signedMass, txPlan.sompiPerMass)
                         )
                         if (transactionFeeSompis >= requiredSignedFee) {
                             signedAndFeeValid = true
@@ -932,6 +927,150 @@ class KaspaWalletService(
                 Result.success(txItem)
             } catch (e: Exception) {
                 Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Compounds/consolidates multiple fragmented UTXOs into a single UTXO output
+     * sent back to the sender's own address.
+     */
+    suspend fun compoundUtxos(
+        senderAddress: String,
+        senderSeed: String,
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+    ): Result<KaspaTransactionItem> = transactionMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val cleanSender = senderAddress.trim().lowercase()
+            val isTestnet = cleanSender.startsWith("kaspatest:")
+            val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
+
+            try {
+                val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
+                val liveUtxos = fetchLiveUtxos(cleanSender)
+
+                if (liveUtxos.size <= 1) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Wallet already has ${liveUtxos.size} UTXO(s). Compounding requires at least 2 UTXOs to consolidate.")
+                    )
+                }
+
+                // Batch up to 80 UTXOs to ensure mass stays well below the 100,000 maximum standard transaction limit
+                val utxosToCompound = liveUtxos.take(80)
+                val totalInputSompis = utxosToCompound.sumOf { it.utxoEntry.amount }
+
+                val selectedInputs = utxosToCompound.map { 
+                    KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = it.outpoint) 
+                }
+                val selectedUtxoEntries = utxosToCompound.map { utxo ->
+                    if (utxo.utxoEntry.scriptPublicKey.script.isBlank()) {
+                        utxo.utxoEntry.copy(scriptPublicKey = senderScriptPubKey)
+                    } else {
+                        utxo.utxoEntry
+                    }
+                }
+
+                val plannedFee = KaspaTransactionEngine.calculatePlannedFee(
+                    inputsCount = utxosToCompound.size,
+                    outputsCount = 1,
+                    payloadByteCount = 0,
+                    sompiPerMass = sompiPerMass,
+                    inputAmounts = selectedUtxoEntries.map { it.amount },
+                    outputAmounts = listOf(totalInputSompis)
+                )
+
+                var netAmountSompis = totalInputSompis - plannedFee
+                if (netAmountSompis <= 0L) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Total UTXO balance is insufficient to cover the network compounding fee.")
+                    )
+                }
+
+                var tx = KaspaTransactionEngine.KaspaTransaction(
+                    version = 0,
+                    inputs = selectedInputs,
+                    outputs = listOf(
+                        KaspaTransactionEngine.KaspaTransactionOutput(
+                            amount = netAmountSompis,
+                            scriptPublicKey = senderScriptPubKey
+                        )
+                    ),
+                    lockTime = 0L,
+                    subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID,
+                    gas = 0L,
+                    payload = "",
+                    mass = 0L
+                )
+
+                // Sign and verify fee convergence
+                var signedMass = 0L
+                var requiredSignedFee = 0L
+                var signedAndFeeValid = false
+
+                for (attempt in 0 until 4) {
+                    KaspaTransactionEngine.signTransaction(tx, selectedUtxoEntries, keyPair.privateKey)
+                    signedMass = KaspaTransactionEngine.calculateMass(
+                        tx,
+                        selectedUtxoEntries.map { it.amount }
+                    )
+                    requiredSignedFee = maxOf(
+                        KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                        KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                        KaspaTransactionEngine.calculateFeeForMass(signedMass, sompiPerMass)
+                    )
+                    val currentFee = totalInputSompis - tx.outputs[0].amount
+                    if (currentFee >= requiredSignedFee) {
+                        signedAndFeeValid = true
+                        break
+                    }
+                    val deficit = requiredSignedFee - currentFee
+                    netAmountSompis -= deficit
+                    if (netAmountSompis <= 0L) {
+                        return@withContext Result.failure(
+                            IllegalStateException("Consolidation fee exceeds available input value.")
+                        )
+                    }
+                    tx = tx.copy(
+                        outputs = listOf(
+                            KaspaTransactionEngine.KaspaTransactionOutput(
+                                amount = netAmountSompis,
+                                scriptPublicKey = senderScriptPubKey
+                            )
+                        )
+                    )
+                }
+
+                require(signedAndFeeValid) {
+                    "Compounding fee planning did not converge. Transaction was not broadcast."
+                }
+                tx.mass = signedMass
+
+                val finalFee = totalInputSompis - tx.outputs[0].amount
+                val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
+                val broadcast = broadcastTransactionWithFailover(tx, computedTxId, senderAddress)
+
+                if (!broadcast.isConfirmed) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Kaspa node rejected compounding transaction: ${broadcast.errorMessage}")
+                    )
+                }
+
+                val txItem = KaspaTransactionItem(
+                    txId = broadcast.txId,
+                    blockTime = System.currentTimeMillis(),
+                    amountKas = KaspaTransactionEngine.sompiToKas(tx.outputs[0].amount),
+                    type = "COMPOUND",
+                    isAccepted = false,
+                    feeKas = KaspaTransactionEngine.sompiToKas(finalFee),
+                    counterpartyAddress = "Consolidated ${utxosToCompound.size} UTXOs into 1"
+                )
+
+                Result.success(txItem)
+            } catch (e: Exception) {
+                Result.failure(e)
+            } finally {
+                keyPair.wipe()
             }
         }
     }
