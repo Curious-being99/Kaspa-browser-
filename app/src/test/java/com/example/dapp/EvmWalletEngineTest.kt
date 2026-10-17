@@ -10,7 +10,7 @@ class EvmWalletEngineTest {
     fun publishesOnlyTheTwoSupportedMainnetChains() {
         assertEquals(202555L, EvmWalletEngine.network(202555L).chainId)
         assertEquals(38833L, EvmWalletEngine.network(38833L).chainId)
-        assertEquals("0x318bb", EvmWalletEngine.network(202555L).chainIdHex)
+        assertEquals("0x3173b", EvmWalletEngine.network(202555L).chainIdHex)
         assertEquals("0x97b1", EvmWalletEngine.network(38833L).chainIdHex)
     }
 
