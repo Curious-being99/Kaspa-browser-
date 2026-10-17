@@ -177,6 +177,62 @@ internal object EvmDappBridge {
                                 .show()
                         }
                     }
+                    "eth_signTypedData_v4" -> {
+                        if (!connected) {
+                            respond(code = 4100, error = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val requestedAddress = params.optString(0).lowercase(Locale.ROOT)
+                        val typedData = params.optString(1)
+                        if (typedData.isBlank() || typedData.length > 32768) {
+                            respond(code = -32602, error = "Typed-data payload is empty or too large")
+                            return@addWebMessageListener
+                        }
+                        val address = try { EvmWalletEngine.address(seedPhrase) } catch (e: Throwable) {
+                            respond(code = 4100, error = e.message ?: "EVM account unavailable")
+                            return@addWebMessageListener
+                        }
+                        if (requestedAddress != address.lowercase(Locale.ROOT)) {
+                            respond(code = -32602, error = "Requested account does not match the active EVM account")
+                            return@addWebMessageListener
+                        }
+                        val typedObject = try { JSONObject(typedData) } catch (_: Throwable) {
+                            respond(code = -32602, error = "Invalid EIP-712 JSON")
+                            return@addWebMessageListener
+                        }
+                        val domainChainId = typedObject.optJSONObject("domain")?.opt("chainId")
+                        if (domainChainId != null) {
+                            val id = try {
+                                val raw = domainChainId.toString()
+                                if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16).longValueExact() else BigInteger(raw).longValueExact()
+                            } catch (_: Throwable) {
+                                respond(code = -32602, error = "Invalid EIP-712 domain chain ID")
+                                return@addWebMessageListener
+                            }
+                            if (id != chain.chainId) {
+                                respond(code = 4901, error = "Typed-data domain chain ID does not match the selected network")
+                                return@addWebMessageListener
+                            }
+                        }
+                        mainHandler.post {
+                            AlertDialog.Builder(context)
+                                .setTitle("Review EIP-712 signature")
+                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nReview the typed-data domain and message carefully before signing:\n$typedData")
+                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected typed-data signature") }
+                                .setPositiveButton("Sign typed data") { _, _ ->
+                                    executor.execute {
+                                        try {
+                                            val signature = EvmWalletEngine.signTypedData(seedPhrase, typedData)
+                                            mainHandler.post { respond(signature) }
+                                        } catch (e: Throwable) {
+                                            mainHandler.post { respond(code = -32603, error = e.message ?: "Typed-data signing failed") }
+                                        }
+                                    }
+                                }
+                                .setOnCancelListener { respond(code = 4001, error = "User rejected typed-data signature") }
+                                .show()
+                        }
+                    }
                     "eth_sendTransaction" -> {
                         if (!connected) {
                             respond(code = 4100, error = "Connect this site first")
@@ -234,7 +290,7 @@ internal object EvmDappBridge {
                             }
                         }
                     }
-                    "eth_sendRawTransaction", "eth_sign", "eth_signTransaction", "eth_signTypedData", "eth_signTypedData_v4" ->
+                    "eth_sendRawTransaction", "eth_sign", "eth_signTransaction", "eth_signTypedData", "eth_signTypedData_v3" ->
                         respond(code = 4200, error = "This EVM signing method is not supported")
                     else -> {
                         if (method !in readMethods) {
