@@ -2,6 +2,7 @@ package com.example.dapp
 
 import com.example.network.CryptoUtils
 import org.json.JSONObject
+import okhttp3.MediaType.Companion.toMediaType
 import org.web3j.crypto.Bip32ECKeyPair
 import org.web3j.crypto.Credentials
 import org.web3j.crypto.MnemonicUtils
@@ -224,5 +225,4 @@ internal object EvmWalletEngine {
     private fun String.toRequestBody(mediaType: okhttp3.MediaType) =
         okhttp3.RequestBody.create(mediaType, this)
 
-    private fun String.toMediaType() = okhttp3.MediaType.parse(this)!!
 }
