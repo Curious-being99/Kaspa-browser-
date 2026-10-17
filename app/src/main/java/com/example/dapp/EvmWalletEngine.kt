@@ -90,8 +90,7 @@ internal object EvmWalletEngine {
                 "Only EIP-1559 type-2 transactions are supported"
             }
             RawTransaction.createTransaction(
-                network.chainId, nonce, gasLimit, to, value, data, priority, maxFee,
-                emptyList()
+                network.chainId, nonce, gasLimit, to, value, data, priority, maxFee
             )
         } else {
             require(tx.has("gasPrice")) { "Transaction must include gasPrice or EIP-1559 fee fields" }
