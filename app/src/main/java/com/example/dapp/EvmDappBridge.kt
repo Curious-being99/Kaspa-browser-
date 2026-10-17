@@ -486,7 +486,13 @@ internal object EvmDappBridge {
                         emit('accountsChanged', currentAccounts);
                       }
                       if (entry.method === 'eth_chainId') currentChainId = response.result;
-                      if (entry.method === 'eth_requestAccounts') emit('connect', { chainId: currentChainId || '0x3173b' });
+                      if (entry.method === 'eth_requestAccounts') {
+                        if (currentChainId) emit('connect', {chainId: currentChainId});
+                        else request({method: 'eth_chainId'}).then(chainId => {
+                          currentChainId = chainId;
+                          emit('connect', {chainId});
+                        }).catch(() => {});
+                      }
                       entry.resolve(response.result);
                     }
                   });
