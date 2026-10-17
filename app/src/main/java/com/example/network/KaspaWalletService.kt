@@ -611,9 +611,8 @@ class KaspaWalletService(
             require(sompi >= 0L) { "Kaspa balance cannot be negative" }
             JSONObject()
                 .put("address", normalized)
-                .put("confirmed", sompi.toString())
-                .put("unconfirmed", "0")
-                .put("total", sompi.toString())
+                .put("balance", sompi.toString())
+                .put("unit", "sompi")
         }
     }
 
