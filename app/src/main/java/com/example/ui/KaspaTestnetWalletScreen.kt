@@ -1945,6 +1945,7 @@ private fun ReceiveTabContent(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
@@ -2134,6 +2135,63 @@ private fun ManageTabContent(
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Optional BIP-39 passphrase", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+            OutlinedTextField(
+                value = evmPassphrase,
+                onValueChange = {
+                    evmPassphrase = it
+                    evmPassphraseSaved = false
+                    evmPassphraseError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Passphrase (optional)") },
+                supportingText = { Text("A different passphrase derives a different EVM account. Stored encrypted with Android Keystore on this device.") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = KaspaTea,
+                    focusedLabelColor = KaspaTea,
+                    cursorColor = KaspaTea
+                )
+            )
+            if (evmPassphraseError != null) {
+                Text(evmPassphraseError.orEmpty(), fontSize = 11.sp, color = RedTamper)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = {
+                        try {
+                            com.example.dapp.EvmPassphraseVault.save(context, activeAccountId, evmPassphrase)
+                            evmPassphraseError = null
+                            evmPassphraseSaved = true
+                        } catch (e: Exception) {
+                            evmPassphraseError = e.message ?: "Unable to save passphrase securely"
+                            evmPassphraseSaved = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                    enabled = evmPassphraseError == null
+                ) {
+                    Text("Save securely", color = SurfaceDark)
+                }
+                if (evmPassphraseSaved) Text("Saved", color = KaspaTea, fontSize = 12.sp)
+            }
+            if (!isStandardEvmMnemonic && activeAccountSeedPhrase.isNotBlank()) {
+                Text(
+                    "Legacy phrase compatibility: the exact phrase is used for deterministic EVM derivation without changing it. This does not make it a standard BIP-39 phrase or guarantee compatibility with other wallets.",
+                    fontSize = 11.sp,
+                    color = AmberCentral
+                )
+            }
+            OutlinedButton(
+                onClick = { showEvmHistory = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = evmAddress.isNotBlank() && evmPassphraseError == null
+            ) {
+                Text("View real EVM activity", color = KaspaTea)
+            }
         }
 
         // 2. Recovery Section
@@ -2182,6 +2240,90 @@ private fun ManageTabContent(
                     DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
                     DetailRow(label = "Explorer", value = selectedExplorerUrl)
                 }
+            }
+        }
+    }
+    if (showEvmHistory) {
+        ModalBottomSheet(onDismissRequest = { showEvmHistory = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 640.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    "${runCatching { com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name }.getOrDefault("EVM Mainnet")} Activity",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text("Live JSON-RPC data for $evmAddress. Recent 100-block scan; older activity is not included.", fontSize = 12.sp, color = TextSecondary)
+                if (evmHistoryLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        Text("Loading real chain activity…", fontSize = 13.sp, color = TextSecondary)
+                    }
+                }
+                evmHistoryError?.let { Text(it, fontSize = 12.sp, color = RedTamper) }
+                evmHistory?.let { history ->
+                    Text("Scanned blocks ${history.scannedFromBlock}–${history.latestBlock}", fontSize = 11.sp, color = TextMuted)
+                    history.warnings.forEach { warning ->
+                        Text(warning, fontSize = 11.sp, color = AmberCentral)
+                    }
+                    if (history.items.isEmpty()) {
+                        Text("No matching transactions or Transfer events were found in this scan window.", fontSize = 13.sp, color = TextSecondary)
+                    }
+                    history.items.forEach { item ->
+                        Surface(
+                            color = SurfaceCard,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(item.kind, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text(item.status, fontSize = 11.sp, color = if (item.status == "Failed") RedTamper else KaspaTea)
+                                Text("Block ${item.blockNumber}", fontSize = 11.sp, color = TextSecondary)
+                                if (item.contract.isNotBlank()) Text("Token/NFT contract: ${item.contract}", fontSize = 10.sp, color = TextSecondary)
+                                if (item.contract.isBlank()) {
+                                    val amount = runCatching {
+                                        java.math.BigDecimal(java.math.BigInteger(item.value.removePrefix("0x"), 16))
+                                            .divide(java.math.BigDecimal.TEN.pow(18))
+                                            .stripTrailingZeros()
+                                            .toPlainString()
+                                    }.getOrDefault(item.value)
+                                    Text("Value: $amount ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).currency}", fontSize = 12.sp, color = TextPrimary)
+                                } else {
+                                    Text("Raw transfer amount: ${item.value}", fontSize = 10.sp, color = TextSecondary)
+                                }
+                                Text("From: ${item.from}", fontSize = 10.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("To: ${item.to}", fontSize = 10.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    "Tx: ${item.hash}",
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                TextButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        clipboard?.setPrimaryClip(ClipData.newPlainText("EVM transaction hash", item.hash))
+                                    },
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Text("Copy transaction hash", color = KaspaTea, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
             }
         }
     }
