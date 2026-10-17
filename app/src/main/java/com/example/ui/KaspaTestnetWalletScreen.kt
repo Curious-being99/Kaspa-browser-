@@ -1974,6 +1974,7 @@ private fun ManageTabContent(
     var evmPassphraseSaved by remember(activeAccountId) { mutableStateOf(false) }
     var evmPassphraseDirty by remember(activeAccountId) { mutableStateOf(false) }
     var showEvmHistory by remember { mutableStateOf(false) }
+    var evmHistoryRefreshKey by remember { mutableIntStateOf(0) }
     var evmHistoryLoading by remember { mutableStateOf(false) }
     var evmHistoryError by remember { mutableStateOf<String?>(null) }
     var evmHistory by remember { mutableStateOf<com.example.dapp.EvmActivityRepository.Result?>(null) }
@@ -1995,7 +1996,7 @@ private fun ManageTabContent(
     }
     val legacyPhraseRequiresConfirmation = activeAccountSeedPhrase.isNotBlank() &&
         !isStandardEvmMnemonic && !legacyPhraseConfirmed
-    LaunchedEffect(showEvmHistory, selectedEvmChainId, evmAddress) {
+    LaunchedEffect(showEvmHistory, selectedEvmChainId, evmAddress, evmHistoryRefreshKey) {
         if (showEvmHistory) {
             if (evmAddress.isBlank()) {
                 evmHistoryError = evmPassphraseError ?: "EVM address is unavailable for this recovery phrase."
@@ -2296,6 +2297,12 @@ private fun ManageTabContent(
                     color = TextPrimary
                 )
                 Text("Live JSON-RPC data for $evmAddress. Recent 100-block scan; older activity is not included.", fontSize = 12.sp, color = TextSecondary)
+                TextButton(
+                    onClick = { evmHistoryRefreshKey++ },
+                    enabled = !evmHistoryLoading
+                ) {
+                    Text("Refresh activity", color = KaspaTea)
+                }
                 if (evmHistoryLoading) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
