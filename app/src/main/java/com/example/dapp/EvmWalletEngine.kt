@@ -28,6 +28,9 @@ internal object EvmWalletEngine {
     const val WALLET_NETWORK_KEY = "selected_chain_id"
 
     private val requestIds = AtomicLong(1)
+    private val rpcClient = okhttp3.OkHttpClient.Builder()
+        .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 
     fun network(chainId: Long): Network = networks.firstOrNull { it.chainId == chainId }
         ?: throw IllegalArgumentException("Unsupported EVM chain ID")
@@ -162,15 +165,12 @@ internal object EvmWalletEngine {
             .put("id", id)
             .put("method", method)
             .put("params", params)
-        val client = okhttp3.OkHttpClient.Builder()
-            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
         val request = okhttp3.Request.Builder()
             .url(network.rpcUrl)
             .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .header("Accept", "application/json")
             .build()
-        client.newCall(request).execute().use { response ->
+        rpcClient.newCall(request).execute().use { response ->
             require(response.isSuccessful) { "EVM RPC endpoint returned HTTP ${response.code}" }
             val body = response.body?.string().orEmpty()
             require(body.length <= 2 * 1024 * 1024) { "EVM RPC response is too large" }
