@@ -326,16 +326,47 @@ object KaspaDappBridge {
                     try { channel.postMessage(JSON.stringify({ id, method, params })); }
                     catch (error) { pending.delete(id); reject(error); }
                   });
-                  const provider = Object.freeze({
-                    requestAccounts: () => request('requestAccounts'),
+                  const listeners = new Map();
+                  const emit = (event, value) => {
+                    const group = listeners.get(event);
+                    if (group) for (const listener of [...group]) {
+                      try { listener(value); } catch (_) {}
+                    }
+                  };
+                  const on = (event, listener) => {
+                    if (typeof listener !== 'function') return provider;
+                    if (!listeners.has(event)) listeners.set(event, new Set());
+                    listeners.get(event).add(listener);
+                    return provider;
+                  };
+                  const removeListener = (event, listener) => {
+                    listeners.get(event)?.delete(listener);
+                    return provider;
+                  };
+                  const provider = {
+                    requestAccounts: async () => {
+                      const accounts = await request('requestAccounts');
+                      emit('accountsChanged', accounts);
+                      return accounts;
+                    },
                     getAccounts: () => request('getAccounts'),
                     getNetwork: () => request('getNetwork'),
                     getPublicKey: () => request('getPublicKey'),
                     signMessage: message => request('signMessage', message),
-                    signPskt: ({ txJsonString, options }) => request('signPskt', { txJsonString, options }),
+                    signPskt: payload => request('signPskt', payload),
                     submitTransaction: txJsonString => request('submitTransaction', txJsonString),
-                    disconnect: () => request('disconnect')
-                  });
+                    disconnect: async () => {
+                      const result = await request('disconnect');
+                      emit('accountsChanged', []);
+                      emit('disconnect', result);
+                      return result;
+                    },
+                    on,
+                    addListener: on,
+                    removeListener,
+                    off: removeListener
+                  };
+                  Object.freeze(provider);
                   const browserProvider = Object.freeze({
                     ...provider,
                     connect: async () => {
@@ -418,7 +449,18 @@ object KaspaDappBridge {
                       }
                     } catch (_) {}
                   };
-                  installAlias('kaspire', requestProvider);
+                  installAlias('kaspire', Object.freeze({
+                    ...requestProvider,
+                    isKaspire: true,
+                    version: '1.0.0'
+                  }));
+                  installAlias('kasware', Object.freeze({
+                    ...browserProvider,
+                    getBalance: (...args) => Promise.reject(Object.assign(new Error('getBalance is not implemented by Kaspa Browser yet'), { code: 4200 })),
+                    getKRC20Balance: (...args) => Promise.reject(Object.assign(new Error('KRC-20 balance API is not implemented by Kaspa Browser yet'), { code: 4200 })),
+                    getUtxoEntries: (...args) => Promise.reject(Object.assign(new Error('UTXO query API is not implemented by Kaspa Browser yet'), { code: 4200 }))
+                  }));
+                  installAlias('kastle', browserProvider);
                   const kasperiaProvider = {
                     ...requestProvider,
                     isKasperia: true
@@ -453,7 +495,7 @@ object KaspaDappBridge {
                     id: 'org.kaspa.browser',
                     name: 'Kaspa Browser',
                     icon: '',
-                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction'],
+                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction', 'kaspa:disconnect'],
                     uuid: 'UUID_PLACEHOLDER',
                     rdns: 'org.kaspa.browser'
                   });
