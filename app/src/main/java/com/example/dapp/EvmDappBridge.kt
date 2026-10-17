@@ -55,11 +55,11 @@ internal object EvmDappBridge {
                     if (accountId.isBlank()) "" else EvmPassphraseVault.load(context, accountId)
                 }
                 val passphrase = passphraseLoad.getOrDefault("")
-                val currentEvmAddress = runCatching {
-                    if (seedPhrase.isBlank() || passphraseLoad.isFailure) "" else EvmWalletEngine.address(seedPhrase, passphrase)
-                }.getOrDefault("")
-                val legacyPhraseUnconfirmed = seedPhrase.isNotBlank() &&
-                    !runCatching { EvmWalletEngine.isStandardMnemonic(seedPhrase) }.getOrDefault(false) &&
+                val standardMnemonic = runCatching { EvmWalletEngine.isStandardMnemonic(seedPhrase) }.getOrDefault(false)
+                val currentEvmAddress = if (seedPhrase.isNotBlank() && passphraseLoad.isSuccess && !standardMnemonic) {
+                    runCatching { EvmWalletEngine.address(seedPhrase, passphrase) }.getOrDefault("")
+                } else ""
+                val legacyPhraseUnconfirmed = seedPhrase.isNotBlank() && !standardMnemonic &&
                     !runCatching {
                         EvmPassphraseVault.isLegacyPhraseConfirmed(context, accountId, currentEvmAddress)
                     }.getOrDefault(false)
@@ -181,7 +181,7 @@ internal object EvmDappBridge {
                             respond(code = 4100, error = e.message ?: "EVM account unavailable")
                             return@addWebMessageListener
                         }
-                        if (requestedAddress != address.lowercase(Locale.ROOT) || !messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2})*"))) {
+                        if (requestedAddress != address.lowercase(Locale.ROOT) || !messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){0,8192}"))) {
                             respond(code = -32602, error = "Invalid address or message encoding")
                             return@addWebMessageListener
                         }
