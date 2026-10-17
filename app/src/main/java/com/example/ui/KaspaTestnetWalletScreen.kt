@@ -1935,6 +1935,16 @@ private fun ManageTabContent(
     val evmAddress = remember(activeAccountSeedPhrase) {
         runCatching { com.example.dapp.EvmWalletEngine.address(activeAccountSeedPhrase) }.getOrDefault("")
     }
+    fun selectEvmNetwork(chainId: Long) {
+        selectedEvmChainId = chainId
+        evmNetworkPrefs.edit()
+            .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId)
+            .apply()
+        val dappChainPrefs = context.getSharedPreferences("evm_dapp_chains", Context.MODE_PRIVATE)
+        val editor = dappChainPrefs.edit()
+        dappChainPrefs.all.forEach { (origin, _) -> editor.putLong(origin, chainId) }
+        editor.apply()
+    }
     val networkList = listOf(
         Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
         Triple("Kaspa Mainnet", "kaspa:", "https://api.kaspa.org"),
@@ -2014,12 +2024,7 @@ private fun ManageTabContent(
             evmNetworks.forEach { network ->
                 val isSelected = selectedEvmChainId == network.chainId
                 Surface(
-                    onClick = {
-                        selectedEvmChainId = network.chainId
-                        evmNetworkPrefs.edit()
-                            .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, network.chainId)
-                            .apply()
-                    },
+                    onClick = { selectEvmNetwork(network.chainId) },
                     shape = RoundedCornerShape(12.dp),
                     color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
                     border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
@@ -2029,12 +2034,7 @@ private fun ManageTabContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(
                                 selected = isSelected,
-                                onClick = {
-                                    selectedEvmChainId = network.chainId
-                                    evmNetworkPrefs.edit()
-                                        .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, network.chainId)
-                                        .apply()
-                                },
+                                onClick = { selectEvmNetwork(network.chainId) },
                                 colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
                             )
                             Column(modifier = Modifier.weight(1f)) {
