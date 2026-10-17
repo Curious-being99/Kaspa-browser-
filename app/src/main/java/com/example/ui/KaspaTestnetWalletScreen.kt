@@ -174,6 +174,22 @@ fun KaspaTestnetWalletScreen(
     val isFetchingFeeCondition by viewModel.isFetchingFeeCondition.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
+    val evmNetworkPrefs = remember {
+        context.getSharedPreferences(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
+    }
+    var selectedEvmChainId by remember {
+        mutableStateOf(evmNetworkPrefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L))
+    }
+    fun selectEvmNetwork(chainId: Long) {
+        selectedEvmChainId = chainId
+        evmNetworkPrefs.edit()
+            .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId)
+            .apply()
+        val dappChainPrefs = context.getSharedPreferences("evm_dapp_chains", Context.MODE_PRIVATE)
+        val editor = dappChainPrefs.edit()
+        dappChainPrefs.all.keys.forEach { origin -> editor.putLong(origin, chainId) }
+        editor.apply()
+    }
     val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true) ||
         walletState.kaspaAddress.startsWith("kaspa:") ||
         testnetAddress.startsWith("kaspa:")
@@ -363,7 +379,13 @@ fun KaspaTestnetWalletScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                            
+                            Text(
+                                text = "EVM: ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name}",
+                                fontSize = 10.sp,
+                                color = KaspaTea,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -604,6 +626,8 @@ fun KaspaTestnetWalletScreen(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
                 activeAccountSeedPhrase = activeAccount?.seedPhrase.orEmpty(),
+                selectedEvmChainId = selectedEvmChainId,
+                onSelectEvmNetwork = ::selectEvmNetwork,
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccounts.size,
                 onViewSeed = { showRecoveryScreen = true },
@@ -1917,6 +1941,8 @@ private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
     activeAccountSeedPhrase: String,
+    selectedEvmChainId: Long,
+    onSelectEvmNetwork: (Long) -> Unit,
     testnetAddress: String,
     allAccountsCount: Int,
     onOpenRecovery: () -> Unit,
@@ -1925,25 +1951,9 @@ private fun ManageTabContent(
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
     val context = LocalContext.current
-    val evmNetworkPrefs = remember {
-        context.getSharedPreferences(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
-    }
-    var selectedEvmChainId by remember {
-        mutableStateOf(evmNetworkPrefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L))
-    }
     val evmNetworks = com.example.dapp.EvmWalletEngine.networks
     val evmAddress = remember(activeAccountSeedPhrase) {
         runCatching { com.example.dapp.EvmWalletEngine.address(activeAccountSeedPhrase) }.getOrDefault("")
-    }
-    fun selectEvmNetwork(chainId: Long) {
-        selectedEvmChainId = chainId
-        evmNetworkPrefs.edit()
-            .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId)
-            .apply()
-        val dappChainPrefs = context.getSharedPreferences("evm_dapp_chains", Context.MODE_PRIVATE)
-        val editor = dappChainPrefs.edit()
-        dappChainPrefs.all.forEach { (origin, _) -> editor.putLong(origin, chainId) }
-        editor.apply()
     }
     val networkList = listOf(
         Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
@@ -2024,7 +2034,7 @@ private fun ManageTabContent(
             evmNetworks.forEach { network ->
                 val isSelected = selectedEvmChainId == network.chainId
                 Surface(
-                    onClick = { selectEvmNetwork(network.chainId) },
+                    onClick = { onSelectEvmNetwork(network.chainId) },
                     shape = RoundedCornerShape(12.dp),
                     color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
                     border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
@@ -2034,7 +2044,7 @@ private fun ManageTabContent(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(
                                 selected = isSelected,
-                                onClick = { selectEvmNetwork(network.chainId) },
+                                onClick = { onSelectEvmNetwork(network.chainId) },
                                 colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
                             )
                             Column(modifier = Modifier.weight(1f)) {
@@ -3354,6 +3364,8 @@ private fun ManageScreenOverlay(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
     activeAccountSeedPhrase: String,
+    selectedEvmChainId: Long,
+    onSelectEvmNetwork: (Long) -> Unit,
     testnetAddress: String,
     allAccountsCount: Int,
     onViewSeed: () -> Unit,
@@ -3388,6 +3400,8 @@ private fun ManageScreenOverlay(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccountHandle,
                 activeAccountSeedPhrase = activeAccountSeedPhrase,
+                selectedEvmChainId = selectedEvmChainId,
+                onSelectEvmNetwork = onSelectEvmNetwork,
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccountsCount,
                 onOpenRecovery = onViewSeed,
