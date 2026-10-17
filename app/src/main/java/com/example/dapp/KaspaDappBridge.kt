@@ -337,9 +337,6 @@ object KaspaDappBridge {
                       const accounts = await provider.requestAccounts();
                       return { address: accounts[0] || '', accounts };
                     },
-                    get connected() {
-                      return false;
-                    }
                   });
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
