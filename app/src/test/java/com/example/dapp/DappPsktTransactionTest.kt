@@ -91,6 +91,18 @@ class DappPsktTransactionTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun rejectsDuplicateOutpointsBeforeSigning() {
+        val json = JSONObject(transactionJson())
+        val inputs = json.getJSONArray("inputs")
+        inputs.getJSONObject(1).put("previousOutpoint", JSONObject().put("transactionId", "01".repeat(32)).put("index", 0))
+        DappPsktTransaction.prepareForSigning(
+            json.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun refusesToSignInputNotOwnedByActiveWallet() {
         val otherKey = CryptoUtils.to32ByteArray(CryptoUtils.pointMultiply(BigInteger.valueOf(2)).x)
             .joinToString("") { "%02x".format(it) }

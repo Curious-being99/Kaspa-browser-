@@ -171,6 +171,13 @@ object KaspaDappBridge {
                             return@addWebMessageListener
                         }
                         val paramsObject = params as? JSONObject
+                        val requestedSender = paramsObject?.optString("sender", "").orEmpty()
+                        if (requestedSender.isNotBlank() &&
+                            !requestedSender.equals(keyPair.kaspaAddress, ignoreCase = true)
+                        ) {
+                            respond(errorCode = 4100, errorMessage = "Requested sender does not match the active wallet")
+                            return@addWebMessageListener
+                        }
                         val txJson = paramsObject?.optString("txJsonString", "").orEmpty()
                         val options = paramsObject?.optJSONObject("options")
                         val signInputs = options?.optJSONArray("signInputs")

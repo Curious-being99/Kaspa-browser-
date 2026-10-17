@@ -31,6 +31,9 @@ internal object DappPsktTransaction {
         signInputsJson: JSONArray,
         walletPublicKeyHex: String
     ): Prepared {
+        require(walletPublicKeyHex.matches(Regex("(?i)[0-9a-f]{64}"))) {
+            "Invalid active wallet public key"
+        }
         require(signInputsJson.length() in 1..MAX_INPUTS) { "Select at least one input to sign" }
         val requests = (0 until signInputsJson.length()).map { index ->
             val item = signInputsJson.optJSONObject(index)
@@ -133,6 +136,7 @@ internal object DappPsktTransaction {
 
         val utxoEntries = ArrayList<KaspaTransactionEngine.KaspaUtxoEntry>(inputArray.length())
         val inputs = ArrayList<KaspaTransactionEngine.KaspaTransactionInput>(inputArray.length())
+        val seenOutpoints = HashSet<String>()
         var inputSum = 0L
         for (index in 0 until inputArray.length()) {
             val item = inputArray.optJSONObject(index)
@@ -143,7 +147,10 @@ internal object DappPsktTransaction {
             val txId = outpoint.optString("transactionId", outpoint.optString("transaction_id", ""))
             require(txId.matches(Regex("[0-9a-fA-F]{64}"))) { "Input $index has an invalid transaction id" }
             val outIndex = outpoint.optLong("index", -1L)
-            require(outIndex >= 0L) { "Input $index has an invalid outpoint index" }
+            require(outIndex >= 0L && outIndex <= 0xffffffffL) { "Input $index has an invalid outpoint index" }
+            require(seenOutpoints.add("${txId.lowercase()}:$outIndex")) {
+                "Transaction contains duplicate outpoints"
+            }
             val utxoJson = item.optJSONObject("utxoEntry")
                 ?: item.optJSONObject("utxo_entry")
                 ?: item.optJSONObject("utxo")
