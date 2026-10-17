@@ -1986,6 +1986,14 @@ private fun ManageTabContent(
             org.web3j.crypto.MnemonicUtils.validateMnemonic(CryptoUtils.getDecryptedSeed(activeAccountSeedPhrase))
         }.getOrDefault(false)
     }
+    var legacyPhraseConfirmed by remember(activeAccountId) {
+        mutableStateOf(
+            runCatching { com.example.dapp.EvmPassphraseVault.isLegacyPhraseConfirmed(context, activeAccountId) }
+                .getOrDefault(false)
+        )
+    }
+    val legacyPhraseRequiresConfirmation = activeAccountSeedPhrase.isNotBlank() &&
+        !isStandardEvmMnemonic && !legacyPhraseConfirmed
     LaunchedEffect(showEvmHistory, selectedEvmChainId, evmAddress) {
         if (showEvmHistory) {
             if (evmAddress.isBlank()) {
@@ -2184,11 +2192,32 @@ private fun ManageTabContent(
                     fontSize = 11.sp,
                     color = AmberCentral
                 )
+                if (legacyPhraseRequiresConfirmation) {
+                    Button(
+                        onClick = {
+                            try {
+                                com.example.dapp.EvmPassphraseVault.confirmLegacyPhrase(context, activeAccountId)
+                                legacyPhraseConfirmed = true
+                            } catch (e: Exception) {
+                                evmPassphraseError = e.message ?: "Unable to save legacy address confirmation"
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberCentral)
+                    ) {
+                        Text("Confirm this derived EVM address", color = SurfaceDark)
+                    }
+                    Text(
+                        "Confirm only after checking the displayed address. This is compatibility mode, not proof that the phrase matches another wallet's derivation.",
+                        fontSize = 11.sp,
+                        color = AmberCentral
+                    )
+                }
             }
             OutlinedButton(
                 onClick = { showEvmHistory = true },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = evmAddress.isNotBlank() && evmPassphraseError == null
+                enabled = evmAddress.isNotBlank() && evmPassphraseError == null && !legacyPhraseRequiresConfirmation
             ) {
                 Text("View real EVM activity", color = KaspaTea)
             }
