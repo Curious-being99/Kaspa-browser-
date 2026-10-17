@@ -119,6 +119,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -1925,59 +1926,136 @@ private fun ReceiveTabContent(
             }
         }
     }
+
+    if (showNetworkDetailsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showNetworkDetailsSheet = false },
+            containerColor = SurfaceCard,
+            contentColor = TextPrimary
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Network Details", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text("Current wallet connection", fontSize = 13.sp, color = TextSecondary)
+                HorizontalDivider(color = SurfaceCardBorder)
+                DetailRow(label = "Network", value = selectedNetwork)
+                DetailRow(label = "Address Prefix", value = selectedAddressPrefix)
+                DetailRow(label = "API Endpoint", value = selectedRpcEndpoint)
+                DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
+                DetailRow(label = "Explorer", value = selectedExplorerUrl)
+                Spacer(modifier = Modifier.height(18.dp))
+            }
+        }
+    }
+
+    if (showRecoverySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showRecoverySheet = false },
+            containerColor = SurfaceCard,
+            contentColor = TextPrimary
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(28.dp))
+                Text("Wallet Recovery", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(
+                    "Your recovery phrase controls access to your wallet. Only reveal it in a private place and never share it with anyone.",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Button(
+                    onClick = {
+                        showRecoverySheet = false
+                        onOpenRecovery()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
+                ) {
+                    Text("Continue to Recovery", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+
+    if (showSignOutSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSignOutSheet = false },
+            containerColor = SurfaceCard,
+            contentColor = TextPrimary
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = RedTamper, modifier = Modifier.size(28.dp))
+                Text("Sign Out / Disconnect", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                Text(
+                    "Your wallet will be disconnected from this session. You must confirm with your wallet password before signing out.",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Button(
+                    onClick = {
+                        showSignOutSheet = false
+                        onSignOut()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = RedTamper)
+                ) {
+                    Text("Continue to Password Confirmation", color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+                TextButton(
+                    onClick = { showSignOutSheet = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel", color = TextSecondary)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NetworkSwitchOverlay(
     selectedNetwork: String,
     onSelectNetwork: (String) -> Unit,
     onClose: () -> Unit
 ) {
-    val networks = listOf(
-        "Kaspa Mainnet",
-        "Kaspa Testnet 10",
-        "Kaspa Testnet 11"
-    )
+    val networks = listOf("Kaspa Mainnet", "Kaspa Testnet 10", "Kaspa Testnet 11")
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(ObsidianBg)
-            .clickable(enabled = false) {}
+    ModalBottomSheet(
+        onDismissRequest = onClose,
+        containerColor = SurfaceCard,
+        contentColor = TextPrimary
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
+                .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 22.dp, vertical = 8.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back to wallet settings",
-                        tint = TextPrimary
-                    )
-                }
-                Text(
-                    text = "Network Switch",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-            }
-
+            Text("Network Switch", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Text(
-                text = "Choose which Kaspa network the wallet displays and uses. Balances and transactions are refreshed for the selected network.",
+                "Choose the network this wallet displays and uses.",
                 fontSize = 13.sp,
                 color = TextSecondary,
-                modifier = Modifier.padding(bottom = 14.dp)
+                modifier = Modifier.padding(top = 6.dp, bottom = 16.dp)
             )
 
             networks.forEach { name ->
@@ -1987,9 +2065,7 @@ private fun NetworkSwitchOverlay(
                     shape = RoundedCornerShape(12.dp),
                     color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
                     border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp)
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(14.dp),
@@ -2002,14 +2078,9 @@ private fun NetworkSwitchOverlay(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
+                            Text(name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isSelected) KaspaTea else TextPrimary)
                             Text(
-                                text = name,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) KaspaTea else TextPrimary
-                            )
-                            Text(
-                                text = when {
+                                when {
                                     name.contains("Mainnet") -> "Production network • kaspa:"
                                     name.contains("11") -> "Test network 11 • kaspatest:"
                                     else -> "Test network 10 • kaspatest:"
@@ -2018,16 +2089,17 @@ private fun NetworkSwitchOverlay(
                                 color = TextMuted
                             )
                         }
-                        if (isSelected) {
-                            Text("ACTIVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
-                        }
+                        if (isSelected) Text("ACTIVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
 
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ManageTabContent(
     viewModel: DecentralViewModel,
@@ -2046,6 +2118,9 @@ private fun ManageTabContent(
         else -> "https://api-tn10.kaspa.org"
     }
     val selectedAddressPrefix = if (selectedNetwork.contains("Mainnet", ignoreCase = true)) "kaspa:" else "kaspatest:"
+    var showNetworkDetailsSheet by remember { mutableStateOf(false) }
+    var showRecoverySheet by remember { mutableStateOf(false) }
+    var showSignOutSheet by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -2054,83 +2129,47 @@ private fun ManageTabContent(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Text("Active Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("NETWORK", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
             Spacer(modifier = Modifier.height(6.dp))
-            Surface(
-                color = SurfaceCard,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(selectedNetwork, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
-                    Text(
-                        text = "Wallet displays and uses this network until you switch it in Network Switch.",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-                    Button(
-                        onClick = onOpenNetworkSwitch,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text("Open Network Switch", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+            ManagementOptionCard(
+                icon = Icons.Default.Language,
+                iconColor = KaspaTea,
+                title = selectedNetwork,
+                subtitle = "Active network • Tap to switch",
+                onClick = onOpenNetworkSwitch
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            ManagementOptionCard(
+                icon = Icons.Default.Info,
+                iconColor = KaspaTea,
+                title = "Network Details",
+                subtitle = "Address prefix, API endpoint and explorer",
+                onClick = { showNetworkDetailsSheet = true }
+            )
         }
 
-        // 2. Recovery Section
         item {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("Recovery", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("SECURITY & RECOVERY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
             Spacer(modifier = Modifier.height(6.dp))
             ManagementOptionCard(
                 icon = Icons.Default.Lock,
                 iconColor = KaspaTea,
                 title = "Recovery",
-                subtitle = "Backup & view your 12-word recovery mnemonic seed phrase in full page",
-                onClick = onOpenRecovery
+                subtitle = "View or back up your recovery phrase",
+                onClick = { showRecoverySheet = true }
             )
         }
 
-        // 3. Security & Sign Out
         item {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("Account", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("ACCOUNT", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextMuted)
             Spacer(modifier = Modifier.height(6.dp))
             ManagementOptionCard(
                 icon = Icons.AutoMirrored.Filled.Logout,
                 iconColor = RedTamper,
                 title = "Sign Out / Disconnect Wallet",
-                subtitle = "Sign out of active identity and return to browser",
-                onClick = onSignOut
+                subtitle = "Securely disconnect this wallet from the session",
+                onClick = { showSignOutSheet = true }
             )
-        }
-
-        // 4. Network Details Info Box
-        item {
-            Spacer(modifier = Modifier.height(2.dp))
-            Text("Network Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-            Spacer(modifier = Modifier.height(6.dp))
-            Surface(
-                color = SurfaceCard,
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, SurfaceCardBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    DetailRow(label = "Network", value = selectedNetwork)
-                    DetailRow(label = "Prefix", value = selectedAddressPrefix)
-                    DetailRow(label = "RPC Endpoint", value = selectedRpcEndpoint)
-                    DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
-                    DetailRow(label = "Explorer", value = selectedExplorerUrl)
-                }
-            }
         }
     }
 }
