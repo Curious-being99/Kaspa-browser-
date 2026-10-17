@@ -454,13 +454,6 @@ object KaspaDappBridge {
                     isKaspire: true,
                     version: '1.0.0'
                   }));
-                  installAlias('kasware', Object.freeze({
-                    ...browserProvider,
-                    getBalance: (...args) => Promise.reject(Object.assign(new Error('getBalance is not implemented by Kaspa Browser yet'), { code: 4200 })),
-                    getKRC20Balance: (...args) => Promise.reject(Object.assign(new Error('KRC-20 balance API is not implemented by Kaspa Browser yet'), { code: 4200 })),
-                    getUtxoEntries: (...args) => Promise.reject(Object.assign(new Error('UTXO query API is not implemented by Kaspa Browser yet'), { code: 4200 }))
-                  }));
-                  installAlias('kastle', browserProvider);
                   const kasperiaProvider = {
                     ...requestProvider,
                     isKasperia: true
