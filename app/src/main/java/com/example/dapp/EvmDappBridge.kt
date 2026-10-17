@@ -270,7 +270,7 @@ internal object EvmDappBridge {
                         currentChainId = entry.chainId;
                         emit('chainChanged', currentChainId);
                       }
-                      if (entry.method === 'eth_requestAccounts') emit('connect', { chainId: currentChainId || '0x318bb' });
+                      if (entry.method === 'eth_requestAccounts') emit('connect', { chainId: currentChainId || '0x3173b' });
                       entry.resolve(response.result);
                     }
                   });
