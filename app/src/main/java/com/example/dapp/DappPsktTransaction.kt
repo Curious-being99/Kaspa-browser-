@@ -99,6 +99,9 @@ internal object DappPsktTransaction {
                 originalInput.put("signatureScript", signatureScript)
             }
         }
+        val txRoot = signedRoot.optJSONObject("transaction") ?: signedRoot
+        prepared.transaction.mass = prepared.transaction.calculateMass()
+        txRoot.put("mass", prepared.transaction.mass)
         return signedRoot.toString()
     }
 
