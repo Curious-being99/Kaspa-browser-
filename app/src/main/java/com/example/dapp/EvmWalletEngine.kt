@@ -79,7 +79,17 @@ internal object EvmWalletEngine {
 
     fun signTypedData(seedPhrase: String, typedDataJson: String, passphrase: String = ""): String {
         require(typedDataJson.length in 1..32768) { "Typed-data request is empty or too large" }
-        val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase).ecKeyPair)
+        val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase, passphrase).ecKeyPair)
+        return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
+            Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.s), 64) +
+            String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
+    }
+
+    fun signEthMessage(seedPhrase: String, messageHex: String, passphrase: String = ""): String {
+        require(messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){1,8192}"))) { "Invalid eth_sign message encoding" }
+        val message = Numeric.hexStringToByteArray(messageHex)
+        val hash = org.web3j.crypto.Hash.sha3(message)
+        val signature = Sign.signMessage(hash, credentials(seedPhrase, passphrase).ecKeyPair, false)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
             Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.s), 64) +
             String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
