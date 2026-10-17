@@ -103,6 +103,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -186,6 +187,19 @@ fun KaspaTestnetWalletScreen(
                 ).chainId
             }.getOrDefault(202555L)
         )
+    }
+    DisposableEffect(evmNetworkPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key == com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY) {
+                selectedEvmChainId = runCatching {
+                    com.example.dapp.EvmWalletEngine.network(
+                        prefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
+                    ).chainId
+                }.getOrDefault(202555L)
+            }
+        }
+        evmNetworkPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { evmNetworkPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     fun selectEvmNetwork(chainId: Long) {
         selectedEvmChainId = chainId
