@@ -155,6 +155,8 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -203,14 +205,27 @@ fun KaspaTestnetWalletScreen(
         onDispose { evmNetworkPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     fun selectEvmNetwork(chainId: Long) {
-        selectedEvmChainId = chainId
-        evmNetworkPrefs.edit()
-            .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId)
-            .apply()
-        val dappChainPrefs = context.getSharedPreferences("evm_dapp_chains", Context.MODE_PRIVATE)
-        val editor = dappChainPrefs.edit()
-        dappChainPrefs.all.keys.forEach { origin -> editor.putLong(origin, chainId) }
-        editor.apply()
+        val target = runCatching { com.example.dapp.EvmWalletEngine.network(chainId) }.getOrNull() ?: return
+        scope.launch {
+            val verified = runCatching {
+                withContext(Dispatchers.IO) { com.example.dapp.EvmWalletEngine.verifyNetwork(target) }
+            }
+            if (verified.isFailure) {
+                snackbarHostState.showSnackbar(
+                    "${target.name} RPC connection failed or returned the wrong chain ID. Network was not changed."
+                )
+                return@launch
+            }
+            selectedEvmChainId = chainId
+            evmNetworkPrefs.edit()
+                .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId)
+                .apply()
+            val dappChainPrefs = context.getSharedPreferences("evm_dapp_chains", Context.MODE_PRIVATE)
+            val editor = dappChainPrefs.edit()
+            dappChainPrefs.all.keys.forEach { origin -> editor.putLong(origin, chainId) }
+            editor.apply()
+            snackbarHostState.showSnackbar("${target.name} RPC connected and chain ID verified.")
+        }
     }
     val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true) ||
         walletState.kaspaAddress.startsWith("kaspa:") ||
