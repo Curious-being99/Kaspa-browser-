@@ -280,6 +280,28 @@ internal object EvmDappBridge {
                             respond(code = -32602, error = "Invalid EIP-712 JSON")
                             return@addWebMessageListener
                         }
+                        if (method == "eth_signTypedData_v3") {
+                            val types = typedObject.optJSONObject("types")
+                            var hasArrayField = false
+                            if (types != null) {
+                                val typeNames = types.keys()
+                                while (typeNames.hasNext()) {
+                                    val fields = types.optJSONArray(typeNames.next()) ?: continue
+                                    for (fieldIndex in 0 until fields.length()) {
+                                        val fieldType = fields.optJSONObject(fieldIndex)?.optString("type").orEmpty()
+                                        if (fieldType.contains("[")) {
+                                            hasArrayField = true
+                                            break
+                                        }
+                                    }
+                                    if (hasArrayField) break
+                                }
+                            }
+                            if (hasArrayField) {
+                                respond(code = -32602, error = "EIP-712 v3 does not support array fields; use eth_signTypedData_v4")
+                                return@addWebMessageListener
+                            }
+                        }
                         val domainChainId = typedObject.optJSONObject("domain")?.opt("chainId")
                         if (domainChainId != null) {
                             val id = try {
