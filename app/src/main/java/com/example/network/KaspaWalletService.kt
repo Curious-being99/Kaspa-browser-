@@ -593,6 +593,41 @@ class KaspaWalletService(
      * 5. Computes non-malleable Kaspa txId (Blake2b-256 with key "TransactionHash")
      * 6. Broadcasts to Kaspa Node REST & RPC endpoints
      */
+    suspend fun fetchDappBalance(address: String, networkName: String): JSONObject = withContext(Dispatchers.IO) {
+        val normalized = address.trim()
+        require(normalized.startsWith("kaspa:") || normalized.startsWith("kaspatest:")) { "Unsupported Kaspa address" }
+        val apiBase = getApiBase(normalized, networkName)
+        val request = Request.Builder().url("$apiBase/addresses/$normalized/balance").get().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("Kaspa balance endpoint returned HTTP ${response.code}")
+            val body = response.body?.string().orEmpty()
+            val json = JSONObject(body)
+            val balance = json.opt("balance")
+            val sompi = when (balance) {
+                is Number -> balance.toLong()
+                is String -> balance.toLongOrNull()
+                else -> null
+            } ?: throw java.io.IOException("Kaspa balance endpoint returned an invalid balance")
+            require(sompi >= 0L) { "Kaspa balance cannot be negative" }
+            JSONObject()
+                .put("address", normalized)
+                .put("confirmed", sompi.toString())
+                .put("unconfirmed", "0")
+                .put("total", sompi.toString())
+        }
+    }
+
+    suspend fun fetchDappUtxos(address: String, networkName: String): JSONArray = withContext(Dispatchers.IO) {
+        val normalized = address.trim()
+        require(normalized.startsWith("kaspa:") || normalized.startsWith("kaspatest:")) { "Unsupported Kaspa address" }
+        val apiBase = getApiBase(normalized, networkName)
+        val request = Request.Builder().url("$apiBase/addresses/$normalized/utxos").get().build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw java.io.IOException("Kaspa UTXO endpoint returned HTTP ${response.code}")
+            JSONArray(response.body?.string().orEmpty())
+        }
+    }
+
     data class DappBroadcastReceipt(
         val accepted: Boolean,
         val transactionId: String,
