@@ -164,6 +164,12 @@ secrets {
 }
 
 dependencies {
+  implementation("org.web3j:core:4.12.3-android")
+  implementation("org.web3j:abi:4.12.3")
+  implementation("org.web3j:crypto:4.12.3-android")
+  implementation("org.web3j:utils:4.12.3-android")
+  implementation("org.web3j:rlp:4.12.3-android")
+  implementation("com.fasterxml.jackson.core:jackson-databind:2.17.1")
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)

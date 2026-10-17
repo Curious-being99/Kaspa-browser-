@@ -106,6 +106,56 @@ object KaspaDappBridge {
 
                     "getNetwork" -> respond(networkId(network))
 
+                    "getBalance" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                        } else {
+                            val keyPair = currentKeyPair()
+                            if (keyPair == null) {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            } else {
+                                cryptoExecutor.execute {
+                                    val balance = try {
+                                        kotlinx.coroutines.runBlocking {
+                                            viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                                        }
+                                    } catch (error: Throwable) {
+                                        null
+                                    }
+                                    mainHandler.post {
+                                        if (balance == null) respond(errorCode = -32000, errorMessage = "Unable to fetch live Kaspa balance")
+                                        else respond(balance)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "getUtxoEntries" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                        } else {
+                            val keyPair = currentKeyPair()
+                            if (keyPair == null) {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            } else {
+                                cryptoExecutor.execute {
+                                    val utxos = try {
+                                        kotlinx.coroutines.runBlocking {
+                                            viewModel.walletService.fetchDappUtxos(keyPair.kaspaAddress, network)
+                                        }
+                                    } catch (error: Throwable) {
+                                        null
+                                    }
+                                    mainHandler.post {
+                                        if (utxos == null) respond(errorCode = -32000, errorMessage = "Unable to fetch live Kaspa UTXOs")
+                                        else respond(utxos)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     "getPublicKey" -> {
                         val keyPair = if (isConnected) currentKeyPair() else null
                         if (keyPair == null) respond(errorCode = 4100, errorMessage = "Connect this site first")
@@ -326,33 +376,193 @@ object KaspaDappBridge {
                     try { channel.postMessage(JSON.stringify({ id, method, params })); }
                     catch (error) { pending.delete(id); reject(error); }
                   });
-                  const provider = Object.freeze({
-                    requestAccounts: () => request('requestAccounts'),
-                    getAccounts: () => request('getAccounts'),
-                    getNetwork: () => request('getNetwork'),
+                  const listeners = new Map();
+                  const emit = (event, value) => {
+                    const group = listeners.get(event);
+                    if (group) for (const listener of [...group]) {
+                      try { listener(value); } catch (_) {}
+                    }
+                  };
+                  const on = (event, listener) => {
+                    if (typeof listener !== 'function') return provider;
+                    if (!listeners.has(event)) listeners.set(event, new Set());
+                    listeners.get(event).add(listener);
+                    return provider;
+                  };
+                  const removeListener = (event, listener) => {
+                    listeners.get(event)?.delete(listener);
+                    return provider;
+                  };
+                  const provider = {
+                    requestAccounts: async () => {
+                      const accounts = await request('requestAccounts');
+                      emit('accountsChanged', accounts);
+                      return accounts;
+                    },
+                    getAccounts: async () => {
+                      const accounts = await request('getAccounts');
+                      emit('accountsChanged', accounts);
+                      return accounts;
+                    },
+                    getNetwork: async () => {
+                      const network = await request('getNetwork');
+                      emit('chainChanged', network);
+                      return network;
+                    },
                     getPublicKey: () => request('getPublicKey'),
                     signMessage: message => request('signMessage', message),
-                    signPskt: ({ txJsonString, options }) => request('signPskt', { txJsonString, options }),
+                    signPskt: payload => request('signPskt', payload),
                     submitTransaction: txJsonString => request('submitTransaction', txJsonString),
-                    disconnect: () => request('disconnect')
+                    disconnect: async () => {
+                      const result = await request('disconnect');
+                      emit('accountsChanged', []);
+                      emit('disconnect', result);
+                      return result;
+                    },
+                    on,
+                    addListener: on,
+                    removeListener,
+                    off: removeListener
+                  };
+                  Object.freeze(provider);
+                  const browserProvider = Object.freeze({
+                    ...provider,
+                    connect: async () => {
+                      const accounts = await provider.requestAccounts();
+                      return { address: accounts[0] || '', accounts };
+                    }
                   });
+                  const requestCompat = ({ method, params } = {}) => {
+                    if (typeof method !== 'string' || !method) {
+                      return Promise.reject(Object.assign(new Error('A wallet method is required'), { code: -32600 }));
+                    }
+                    const aliases = {
+                      kaspa_requestAccounts: 'requestAccounts',
+                      kaspa_getAccounts: 'getAccounts',
+                      kaspa_getNetwork: 'getNetwork',
+                      kaspa_getBalance: 'getBalance',
+                      kaspa_getUtxoEntries: 'getUtxoEntries',
+                      kaspa_getPublicKey: 'getPublicKey',
+                      kaspa_signMessage: 'signMessage',
+                      kaspa_signPskt: 'signPskt',
+                      kaspa_submitTransaction: 'submitTransaction',
+                      kasperia_requestAccounts: 'requestAccounts',
+                      kasperia_accounts: 'getAccounts',
+                      kasperia_getNetwork: 'getNetwork',
+                      kasperia_getBalance: 'getBalance',
+                      kasperia_getUtxoEntries: 'getUtxoEntries',
+                      kasperia_getPublicKey: 'getPublicKey',
+                      kasperia_signMessage: 'signMessage',
+                      kasperia_signPskt: 'signPskt',
+                      kasperia_submitTransaction: 'submitTransaction',
+                      kasperia_disconnect: 'disconnect',
+                      pushTx: 'submitTransaction'
+                    };
+                    const normalized = aliases[method] || method;
+                    const value = Array.isArray(params) ? params[0] : params;
+                    switch (normalized) {
+                      case 'requestAccounts': return request('requestAccounts');
+                      case 'getAccounts': return request('getAccounts');
+                      case 'getNetwork': return request('getNetwork');
+                      case 'getBalance': return request('getBalance');
+                      case 'getUtxoEntries': return request('getUtxoEntries');
+                      case 'getPublicKey': return request('getPublicKey');
+                      case 'signMessage': {
+                        const message = value && typeof value === 'object'
+                          ? (value.message !== undefined ? value.message : value.msg)
+                          : value;
+                        return request('signMessage', message);
+                      }
+                      case 'signPskt': {
+                        const payload = value && typeof value === 'object' ? value : {};
+                        if (typeof payload.txJsonString !== 'string' || !payload.options || !Array.isArray(payload.options.signInputs)) {
+                          return Promise.reject(Object.assign(new Error('signPskt requires txJsonString and options.signInputs'), { code: -32602 }));
+                        }
+                        return request('signPskt', {
+                          txJsonString: payload.txJsonString,
+                          options: payload.options,
+                          sender: payload.sender
+                        });
+                      }
+                      case 'disconnect': return request('disconnect');
+                      case 'submitTransaction': {
+                        const txJsonString = typeof value === 'string'
+                          ? value
+                          : value && typeof value === 'object'
+                            ? (value.txJsonString || value.transaction || value.signedTxJson || '')
+                            : '';
+                        if (!txJsonString) {
+                          return Promise.reject(Object.assign(new Error('A signed transaction JSON string is required'), { code: -32602 }));
+                        }
+                        return request('submitTransaction', txJsonString);
+                      }
+                      default:
+                        return Promise.reject(Object.assign(new Error('Unsupported Kaspa Browser wallet method: ' + method), { code: 4200 }));
+                    }
+                  };
+                  const requestProvider = Object.freeze({
+                    ...browserProvider,
+                    request: requestCompat
+                  });
+                  const installAlias = (name, value) => {
+                    try {
+                      if (!(name in window)) {
+                        Object.defineProperty(window, name, {
+                          configurable: false, enumerable: true, writable: false, value
+                        });
+                      }
+                    } catch (_) {}
+                  };
+                  installAlias('kaspire', Object.freeze({
+                    ...requestProvider,
+                    isKaspire: true,
+                    version: '1.0.0'
+                  }));
+                  const kasperiaProvider = {
+                    ...requestProvider,
+                    isKasperia: true
+                  };
+                  Object.defineProperty(kasperiaProvider, 'ethereum', {
+                    configurable: false,
+                    enumerable: true,
+                    get: () => window.ethereum
+                  });
+                  Object.freeze(kasperiaProvider);
+                  installAlias('kasperia', kasperiaProvider);
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
                   });
+                  Object.defineProperty(window, 'kaspaBrowser', {
+                    configurable: false, enumerable: true, writable: false, value: browserProvider
+                  });
+                  const walletNamespace = window.wallet && typeof window.wallet === 'object' ? window.wallet : {};
+                  if (!Object.prototype.hasOwnProperty.call(walletNamespace, 'kaspa')) {
+                    try {
+                      Object.defineProperty(walletNamespace, 'kaspa', {
+                        configurable: false, enumerable: true, writable: false, value: browserProvider
+                      });
+                      if (window.wallet !== walletNamespace) {
+                        Object.defineProperty(window, 'wallet', {
+                          configurable: true, enumerable: true, writable: false, value: walletNamespace
+                        });
+                      }
+                    } catch (_) {}
+                  }
                   const info = Object.freeze({
                     id: 'org.kaspa.browser',
                     name: 'Kaspa Browser',
                     icon: '',
-                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction'],
+                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getBalance', 'kaspa:getUtxoEntries', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction', 'kaspa:disconnect'],
                     uuid: 'UUID_PLACEHOLDER',
                     rdns: 'org.kaspa.browser'
                   });
                   const announce = () => {
-                    const detail = Object.freeze({ info, provider });
+                    const detail = Object.freeze({ info, provider: requestProvider });
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   announce();
+                  window.dispatchEvent(new Event('kasperia#initialized'));
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 

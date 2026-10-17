@@ -2130,6 +2130,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 viewModel = viewModel
                             )
 
+                            com.example.dapp.EvmDappBridge.install(
+                                context = ctx,
+                                webView = this,
+                                viewModel = viewModel
+                            )
+
                             // Long-press context menu for links and images (Chrome-style Hub trigger)
                             setOnLongClickListener { v ->
                                 val wv = v as? WebView
