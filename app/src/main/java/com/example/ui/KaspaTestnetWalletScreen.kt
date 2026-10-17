@@ -9,6 +9,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -2171,7 +2172,28 @@ private fun ManageTabContent(
                         } else {
                             Text("EVM address unavailable for this recovery phrase", fontSize = 11.sp, color = RedTamper)
                         }
-                        Text("RPC: ${network.rpcUrl}", fontSize = 10.sp, color = TextMuted)
+                        Text("RPC endpoint: ${network.rpcUrl}", fontSize = 10.sp, color = TextMuted)
+                        Text("Explorer: ${network.explorerUrl}", fontSize = 10.sp, color = TextMuted)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(network.explorerUrl))
+                                        )
+                                    }.onFailure {
+                                        scope.launch { snackbarHostState.showSnackbar("Unable to open ${network.name} explorer.") }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = KaspaTea)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Open explorer", color = KaspaTea)
+                            }
+                        }
                     }
                 }
             }
