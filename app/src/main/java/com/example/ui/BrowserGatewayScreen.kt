@@ -2123,13 +2123,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } catch (_: Throwable) {}
                             }
 
-                            com.example.dapp.EvmDappBridge.install(
+                            // Register an origin-checked, reply-only wallet channel; no Java object is exposed to page JavaScript.
+                            com.example.dapp.KaspaDappBridge.install(
                                 context = ctx,
                                 webView = this,
                                 viewModel = viewModel
                             )
 
-                            // Zero native JS bridges registered for maximum security and zero interface exposure to untrusted web content
+                            com.example.dapp.EvmDappBridge.install(
+                                context = ctx,
+                                webView = this,
+                                viewModel = viewModel
+                            )
 
                             // Long-press context menu for links and images (Chrome-style Hub trigger)
                             setOnLongClickListener { v ->
