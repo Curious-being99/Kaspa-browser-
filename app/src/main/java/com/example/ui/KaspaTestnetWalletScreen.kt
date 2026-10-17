@@ -1972,6 +1972,7 @@ private fun ManageTabContent(
         mutableStateOf(savedPassphrase.exceptionOrNull()?.message)
     }
     var evmPassphraseSaved by remember(activeAccountId) { mutableStateOf(false) }
+    var evmPassphraseDirty by remember(activeAccountId) { mutableStateOf(false) }
     var showEvmHistory by remember { mutableStateOf(false) }
     var evmHistoryLoading by remember { mutableStateOf(false) }
     var evmHistoryError by remember { mutableStateOf<String?>(null) }
@@ -2150,6 +2151,7 @@ private fun ManageTabContent(
                 onValueChange = {
                     evmPassphrase = it
                     evmPassphraseSaved = false
+                    evmPassphraseDirty = true
                     evmPassphraseError = null
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -2174,6 +2176,7 @@ private fun ManageTabContent(
                             com.example.dapp.EvmPassphraseVault.save(context, activeAccountId, evmPassphrase)
                             evmPassphraseError = null
                             evmPassphraseSaved = true
+                            evmPassphraseDirty = false
                         } catch (e: Exception) {
                             evmPassphraseError = e.message ?: "Unable to save passphrase securely"
                             evmPassphraseSaved = false
@@ -2203,6 +2206,7 @@ private fun ManageTabContent(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
+                        enabled = !evmPassphraseDirty && evmAddress.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = AmberCentral)
                     ) {
                         Text("Confirm this derived EVM address", color = SurfaceDark)
@@ -2214,10 +2218,13 @@ private fun ManageTabContent(
                     )
                 }
             }
+            if (evmPassphraseDirty) {
+                Text("Save the changed passphrase before using this derived address.", fontSize = 11.sp, color = AmberCentral)
+            }
             OutlinedButton(
                 onClick = { showEvmHistory = true },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = evmAddress.isNotBlank() && evmPassphraseError == null && !legacyPhraseRequiresConfirmation
+                enabled = evmAddress.isNotBlank() && evmPassphraseError == null && !evmPassphraseDirty && !legacyPhraseRequiresConfirmation
             ) {
                 Text("View real EVM activity", color = KaspaTea)
             }
