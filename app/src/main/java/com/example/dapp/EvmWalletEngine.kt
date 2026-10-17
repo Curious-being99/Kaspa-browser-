@@ -67,6 +67,12 @@ internal object EvmWalletEngine {
         return Credentials.create(derived)
     }
 
+    fun isStandardMnemonic(seedPhrase: String): Boolean {
+        val mnemonic = CryptoUtils.getDecryptedSeed(seedPhrase)
+            .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
+        return mnemonic.isNotBlank() && MnemonicUtils.validateMnemonic(mnemonic)
+    }
+
     fun address(seedPhrase: String, passphrase: String = ""): String = credentials(seedPhrase, passphrase).address.lowercase(Locale.ROOT)
 
     fun signPersonalMessage(seedPhrase: String, message: String, passphrase: String = ""): String {
