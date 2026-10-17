@@ -86,9 +86,12 @@ internal object EvmWalletEngine {
             val maxFee = quantity(tx, "maxFeePerGas")
             val priority = quantity(tx, "maxPriorityFeePerGas")
             require(maxFee >= priority && priority >= BigInteger.ZERO) { "Invalid EIP-1559 fee values" }
+            require(!tx.has("type") || optionalQuantity(tx, "type").toInt() == 2) {
+                "Only EIP-1559 type-2 transactions are supported"
+            }
             RawTransaction.createTransaction(
-                nonce, priority, maxFee, gasLimit, to, value, data,
-                optionalQuantity(tx, "type", BigInteger.valueOf(2)).toLong()
+                network.chainId, nonce, gasLimit, to, value, data, priority, maxFee,
+                emptyList()
             )
         } else {
             require(tx.has("gasPrice")) { "Transaction must include gasPrice or EIP-1559 fee fields" }
