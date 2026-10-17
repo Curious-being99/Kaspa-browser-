@@ -55,9 +55,14 @@ internal object EvmDappBridge {
                     if (accountId.isBlank()) "" else EvmPassphraseVault.load(context, accountId)
                 }
                 val passphrase = passphraseLoad.getOrDefault("")
+                val currentEvmAddress = runCatching {
+                    if (seedPhrase.isBlank() || passphraseLoad.isFailure) "" else EvmWalletEngine.address(seedPhrase, passphrase)
+                }.getOrDefault("")
                 val legacyPhraseUnconfirmed = seedPhrase.isNotBlank() &&
-                    !EvmWalletEngine.isStandardMnemonic(seedPhrase) &&
-                    !runCatching { EvmPassphraseVault.isLegacyPhraseConfirmed(context, accountId) }.getOrDefault(false)
+                    !runCatching { EvmWalletEngine.isStandardMnemonic(seedPhrase) }.getOrDefault(false) &&
+                    !runCatching {
+                        EvmPassphraseVault.isLegacyPhraseConfirmed(context, accountId, currentEvmAddress)
+                    }.getOrDefault(false)
                 val chainPrefs = context.getSharedPreferences(CHAIN_PREFS, Context.MODE_PRIVATE)
                 val walletNetworkPrefs = context.getSharedPreferences(EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
                 val selectedWalletChain = walletNetworkPrefs.getLong(EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
@@ -192,7 +197,7 @@ internal object EvmDappBridge {
                                 .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected message signature") }
                                 .setPositiveButton("Sign message") { _, _ ->
                                     executor.execute {
-                                        try { val sig = EvmWalletEngine.signPersonalMessage(seedPhrase, messageText, passphrase); mainHandler.post { respond(sig) } }
+                                        try { val sig = EvmWalletEngine.signPersonalMessageHex(seedPhrase, messageHex, passphrase); mainHandler.post { respond(sig) } }
                                         catch (e: Throwable) { mainHandler.post { respond(code = -32603, error = e.message ?: "Signing failed") } }
                                     }
                                 }
