@@ -1986,7 +1986,7 @@ private fun ManageTabContent(
             org.web3j.crypto.MnemonicUtils.validateMnemonic(CryptoUtils.getDecryptedSeed(activeAccountSeedPhrase))
         }.getOrDefault(false)
     }
-    var legacyPhraseConfirmed by remember(activeAccountId) {
+    var legacyPhraseConfirmed by remember(activeAccountId, evmAddress) {
         mutableStateOf(
             runCatching { com.example.dapp.EvmPassphraseVault.isLegacyPhraseConfirmed(context, activeAccountId, evmAddress) }
                 .getOrDefault(false)
