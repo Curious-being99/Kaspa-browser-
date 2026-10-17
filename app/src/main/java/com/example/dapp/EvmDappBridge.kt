@@ -310,6 +310,7 @@ internal object EvmDappBridge {
                   if (window.__kaspaBrowserEthereumInstalled) return;
                   window.__kaspaBrowserEthereumInstalled = true;
                   const pending = new Map();
+                  const listeners = new Map();
                   let nextId = 1;
                   let currentChainId = null;
                   let currentAccounts = [];
@@ -360,8 +361,24 @@ internal object EvmDappBridge {
                     enable: () => request({method: 'eth_requestAccounts'}),
                     sendAsync: (payload, callback) => request(payload).then(result => callback(null, {id: payload.id, jsonrpc: '2.0', result})).catch(error => callback(error, null)),
                     send: (methodOrPayload, params) => typeof methodOrPayload === 'string' ? request({method: methodOrPayload, params: params || []}) : request(methodOrPayload),
-                    on: (event, listener) => { window.addEventListener(event, e => listener(e.detail)); return ethereum; },
-                    removeListener: (event, listener) => { window.removeEventListener(event, listener); return ethereum; }
+                    on: (event, listener) => {
+                      if (typeof listener !== 'function') return ethereum;
+                      const wrapped = e => listener(e.detail);
+                      if (!listeners.has(event)) listeners.set(event, new Map());
+                      listeners.get(event).set(listener, wrapped);
+                      window.addEventListener(event, wrapped);
+                      return ethereum;
+                    },
+                    removeListener: (event, listener) => {
+                      const group = listeners.get(event);
+                      const wrapped = group && group.get(listener);
+                      if (wrapped) {
+                        window.removeEventListener(event, wrapped);
+                        group.delete(listener);
+                      }
+                      return ethereum;
+                    },
+                    off: (event, listener) => ethereum.removeListener(event, listener)
                   };
                   Object.defineProperties(ethereum, {
                     selectedAddress: { enumerable: true, get: () => currentAccounts[0] || null },
