@@ -1,0 +1,254 @@
+package com.example.dapp
+
+import android.app.AlertDialog
+import android.content.Context
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.webkit.WebView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import com.example.network.CryptoUtils
+import com.example.viewmodel.DecentralViewModel
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.URI
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.Executors
+
+object KaspaDappBridge {
+    private const val BRIDGE_NAME = "kaspaDappBridge"
+    private const val PREFS = "dapp_wallet_permissions"
+    private const val MAX_MESSAGE_LENGTH = 4096
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val cryptoExecutor = Executors.newSingleThreadExecutor()
+
+    fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) ||
+            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) return
+
+        try {
+            WebViewCompat.addWebMessageListener(
+                webView,
+                BRIDGE_NAME,
+                setOf("https://*")
+            ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+                val origin = normalizeOrigin(sourceOrigin.toString())
+                val currentOrigin = normalizeOrigin(view.url.orEmpty())
+                if (!isMainFrame || origin == null || origin != currentOrigin) return@addWebMessageListener
+                val request = try {
+                    JSONObject(message.data ?: return@addWebMessageListener)
+                } catch (_: Exception) {
+                    return@addWebMessageListener
+                }
+                val requestId = request.optString("id")
+                val method = request.optString("method")
+                val params = request.opt("params")
+                val account = viewModel.activeAccount.value
+                val network = viewModel.selectedNetwork.value
+                val prefix = if (network.contains("Mainnet", true)) "kaspa" else "kaspatest"
+                val isConnected = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getBoolean(origin, false)
+
+                fun respond(result: Any? = null, errorCode: Int? = null, errorMessage: String? = null) {
+                    val response = JSONObject().put("id", requestId)
+                    if (errorCode != null) {
+                        response.put("error", JSONObject().put("code", errorCode).put("message", errorMessage ?: "Request rejected"))
+                    } else {
+                        response.put("result", result ?: JSONObject.NULL)
+                    }
+                    try {
+                        replyProxy.postMessage(response.toString())
+                    } catch (_: Throwable) {}
+                }
+
+                fun currentKeyPair(): CryptoUtils.KaspaKeyPair? {
+                    val active = account ?: return null
+                    return try {
+                        CryptoUtils.deriveKaspaKeyPair(active.seedPhrase, prefix)
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
+
+                when (method) {
+                    "requestAccounts" -> {
+                        val keyPair = currentKeyPair()
+                        if (keyPair == null) {
+                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                        } else if (isConnected) {
+                            respond(JSONArray().put(keyPair.kaspaAddress))
+                        } else {
+                            AlertDialog.Builder(context)
+                                .setTitle("Connect Kaspa Browser Wallet")
+                                .setMessage("$origin wants to view your Kaspa address on $network. No transaction will be signed by connecting.")
+                                .setNegativeButton("Reject") { _, _ ->
+                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                }
+                                .setPositiveButton("Connect") { _, _ ->
+                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                        .edit().putBoolean(origin, true).apply()
+                                    respond(JSONArray().put(keyPair.kaspaAddress))
+                                }
+                                .setOnCancelListener {
+                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                }
+                                .show()
+                        }
+                    }
+
+                    "getAccounts" -> {
+                        val keyPair = if (isConnected) currentKeyPair() else null
+                        respond(if (keyPair == null) JSONArray() else JSONArray().put(keyPair.kaspaAddress))
+                    }
+
+                    "getNetwork" -> respond(networkId(network))
+
+                    "getPublicKey" -> {
+                        val keyPair = if (isConnected) currentKeyPair() else null
+                        if (keyPair == null) respond(errorCode = 4100, errorMessage = "Connect this site first")
+                        else respond(keyPair.publicKeyHex)
+                    }
+
+                    "signMessage" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val text = when (params) {
+                            is String -> params
+                            is JSONArray -> params.optString(0)
+                            is JSONObject -> params.optString("message", params.optString("msg"))
+                            else -> ""
+                        }
+                        if (text.isBlank() || text.length > MAX_MESSAGE_LENGTH) {
+                            respond(errorCode = -32602, errorMessage = "Message must contain 1-$MAX_MESSAGE_LENGTH characters")
+                            return@addWebMessageListener
+                        }
+                        val keyPair = currentKeyPair()
+                        if (keyPair == null) {
+                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            return@addWebMessageListener
+                        }
+                        AlertDialog.Builder(context)
+                            .setTitle("Sign message?")
+                            .setMessage("Website: $origin\nNetwork: $network\nAddress: ${keyPair.kaspaAddress}\n\nExact message:\n$text")
+                            .setNegativeButton("Reject") { _, _ ->
+                                respond(errorCode = 4001, errorMessage = "User rejected message signature")
+                            }
+                            .setPositiveButton("Sign") { _, _ ->
+                                cryptoExecutor.execute {
+                                    val signature = try {
+                                        CryptoUtils.signKaspaPersonalMessage(
+                                            keyPair.privateKey,
+                                            text.toByteArray(Charsets.UTF_8)
+                                        )
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                    mainHandler.post {
+                                        if (signature == null) respond(errorCode = -32603, errorMessage = "Message signing failed")
+                                        else respond(signature)
+                                    }
+                                }
+                            }
+                            .setOnCancelListener {
+                                respond(errorCode = 4001, errorMessage = "User rejected message signature")
+                            }
+                            .show()
+                    }
+
+                    "disconnect" -> {
+                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                            .edit().remove(origin).apply()
+                        respond(JSONObject().put("disconnected", true))
+                    }
+
+                    else -> respond(errorCode = -32601, errorMessage = "Unsupported Kaspa wallet method")
+                }
+            }
+
+            val script = """
+                (() => {
+                  if (window.__kaspaBrowserProviderInstalled) return;
+                  window.__kaspaBrowserProviderInstalled = true;
+                  const pending = new Map();
+                  let nextId = 1;
+                  const channel = window.$BRIDGE_NAME;
+                  if (!channel || typeof channel.postMessage !== 'function') return;
+                  channel.addEventListener('message', event => {
+                    let response;
+                    try { response = JSON.parse(event.data); } catch (_) { return; }
+                    const entry = pending.get(String(response.id));
+                    if (!entry) return;
+                    pending.delete(String(response.id));
+                    if (response.error) {
+                      const error = new Error(response.error.message || 'Wallet request failed');
+                      error.code = response.error.code;
+                      entry.reject(error);
+                    } else {
+                      entry.resolve(response.result);
+                    }
+                  });
+                  const request = (method, params) => new Promise((resolve, reject) => {
+                    const id = String(nextId++);
+                    pending.set(id, { resolve, reject });
+                    try { channel.postMessage(JSON.stringify({ id, method, params })); }
+                    catch (error) { pending.delete(id); reject(error); }
+                  });
+                  const provider = Object.freeze({
+                    requestAccounts: () => request('requestAccounts'),
+                    getAccounts: () => request('getAccounts'),
+                    getNetwork: () => request('getNetwork'),
+                    getPublicKey: () => request('getPublicKey'),
+                    signMessage: message => request('signMessage', message),
+                    disconnect: () => request('disconnect')
+                  });
+                  Object.defineProperty(window, 'kaspa', {
+                    configurable: false, enumerable: true, writable: false, value: provider
+                  });
+                  const info = Object.freeze({
+                    id: 'org.kaspa.browser',
+                    name: 'Kaspa Browser',
+                    icon: '',
+                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage'],
+                    uuid: 'UUID_PLACEHOLDER',
+                    rdns: 'org.kaspa.browser'
+                  });
+                  const announce = () => {
+                    const detail = Object.freeze({ info, provider });
+                    window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
+                  };
+                  window.addEventListener('kaspa:requestProvider', announce);
+                  announce();
+                })();
+            """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
+
+            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
+        } catch (_: Throwable) {
+            // Provider remains unavailable if the secure WebView messaging features cannot be installed.
+        }
+    }
+
+    private fun networkId(network: String): String = when {
+        network.contains("Mainnet", true) -> "mainnet"
+        network.contains("11") -> "testnet-11"
+        else -> "testnet-10"
+    }
+
+    private fun normalizeOrigin(value: String): String? {
+        val uri = try {
+            URI(value)
+        } catch (_: Exception) {
+            return null
+        }
+        if (!uri.scheme.equals("https", true) || uri.rawUserInfo != null) return null
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        val port = uri.port
+        if (port == 0 || port > 65535 || port < -1) return null
+        val normalizedHost = host.lowercase(Locale.ROOT)
+        return if (port == -1 || port == 443) "https://$normalizedHost" else "https://$normalizedHost:$port"
+    }
+}
