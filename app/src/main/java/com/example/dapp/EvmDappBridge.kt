@@ -55,6 +55,9 @@ internal object EvmDappBridge {
                     if (accountId.isBlank()) "" else EvmPassphraseVault.load(context, accountId)
                 }
                 val passphrase = passphraseLoad.getOrDefault("")
+                val legacyPhraseUnconfirmed = seedPhrase.isNotBlank() &&
+                    !EvmWalletEngine.isStandardMnemonic(seedPhrase) &&
+                    !runCatching { EvmPassphraseVault.isLegacyPhraseConfirmed(context, accountId) }.getOrDefault(false)
                 val chainPrefs = context.getSharedPreferences(CHAIN_PREFS, Context.MODE_PRIVATE)
                 val walletNetworkPrefs = context.getSharedPreferences(EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
                 val selectedWalletChain = walletNetworkPrefs.getLong(EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
@@ -77,6 +80,10 @@ internal object EvmDappBridge {
                 }
 
                 fun requestConnection() {
+                    if (legacyPhraseUnconfirmed) {
+                        respond(code = 4100, error = "Review and confirm the derived legacy EVM address in wallet settings before connecting dApps")
+                        return
+                    }
                     if (passphraseLoad.isFailure) {
                         respond(code = 4100, error = "Saved EVM passphrase is unavailable. Open wallet settings and re-enter it.")
                         return
@@ -110,7 +117,8 @@ internal object EvmDappBridge {
                 when (method) {
                     "eth_requestAccounts" -> requestConnection()
                     "eth_accounts" -> {
-                        if (passphraseLoad.isFailure) respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                        if (legacyPhraseUnconfirmed) respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before connecting dApps")
+                        else if (passphraseLoad.isFailure) respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
                         else if (!connected || seedPhrase.isBlank()) respond(JSONArray())
                         else try { respond(JSONArray().put(EvmWalletEngine.address(seedPhrase, passphrase))) }
                         catch (e: Throwable) { respond(code = 4100, error = e.message ?: "EVM account unavailable") }
@@ -150,6 +158,10 @@ internal object EvmDappBridge {
                         respond(code = 4902, error = "${target.name} is built in; use wallet_switchEthereumChain")
                     }
                     "personal_sign" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
                         if (passphraseLoad.isFailure) {
                             respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
                             return@addWebMessageListener
@@ -189,6 +201,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_sign" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
                         if (passphraseLoad.isFailure) {
                             respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
                             return@addWebMessageListener
@@ -229,6 +245,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
                         if (passphraseLoad.isFailure) {
                             respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
                             return@addWebMessageListener
@@ -289,6 +309,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_sendTransaction", "eth_signTransaction" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
                         if (passphraseLoad.isFailure) {
                             respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
                             return@addWebMessageListener
