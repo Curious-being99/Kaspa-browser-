@@ -1959,7 +1959,7 @@ private fun ManageTabContent(
     ) {
         // 1. Network Section at Top as Radio Button Card List
         item {
-            Text("Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("Native Kaspa Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(6.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 networkList.forEach { (name, prefix, rpc) ->
@@ -2102,7 +2102,7 @@ private fun ManageTabContent(
         // 4. Network Details Info Box
         item {
             Spacer(modifier = Modifier.height(2.dp))
-            Text("Network Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("Native Kaspa Network Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(6.dp))
             Surface(
                 color = SurfaceCard,
