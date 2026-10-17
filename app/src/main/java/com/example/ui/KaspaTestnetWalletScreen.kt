@@ -178,7 +178,13 @@ fun KaspaTestnetWalletScreen(
         context.getSharedPreferences(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
     }
     var selectedEvmChainId by remember {
-        mutableStateOf(evmNetworkPrefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L))
+        mutableStateOf(
+            runCatching {
+                com.example.dapp.EvmWalletEngine.network(
+                    evmNetworkPrefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
+                ).chainId
+            }.getOrDefault(202555L)
+        )
     }
     fun selectEvmNetwork(chainId: Long) {
         selectedEvmChainId = chainId
