@@ -114,7 +114,7 @@ internal object EvmWalletEngine {
             )
         } else {
             require(tx.has("gasPrice")) { "Transaction must include gasPrice or EIP-1559 fee fields" }
-            RawTransaction.createEtherTransaction(nonce, quantity(tx, "gasPrice"), gasLimit, to, value, data)
+            RawTransaction.createTransaction(nonce, quantity(tx, "gasPrice"), gasLimit, to, value, data)
         }
         val signed = TransactionEncoder.signMessage(raw, network.chainId, credentials)
         return Numeric.toHexString(signed)
