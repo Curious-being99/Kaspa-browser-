@@ -355,6 +355,14 @@ object KaspaDappBridge {
                       kaspa_signMessage: 'signMessage',
                       kaspa_signPskt: 'signPskt',
                       kaspa_submitTransaction: 'submitTransaction',
+                      kasperia_requestAccounts: 'requestAccounts',
+                      kasperia_accounts: 'getAccounts',
+                      kasperia_getNetwork: 'getNetwork',
+                      kasperia_getPublicKey: 'getPublicKey',
+                      kasperia_signMessage: 'signMessage',
+                      kasperia_signPskt: 'signPskt',
+                      kasperia_submitTransaction: 'submitTransaction',
+                      kasperia_disconnect: 'disconnect',
                       pushTx: 'submitTransaction'
                     };
                     const normalized = aliases[method] || method;
@@ -381,6 +389,7 @@ object KaspaDappBridge {
                           sender: payload.sender
                         });
                       }
+                      case 'disconnect': return request('disconnect');
                       case 'submitTransaction': {
                         const txJsonString = typeof value === 'string'
                           ? value
