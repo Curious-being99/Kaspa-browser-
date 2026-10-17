@@ -2123,6 +2123,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } catch (_: Throwable) {}
                             }
 
+                            com.example.dapp.EvmDappBridge.install(
+                                context = ctx,
+                                webView = this,
+                                viewModel = viewModel
+                            )
+
                             // Zero native JS bridges registered for maximum security and zero interface exposure to untrusted web content
 
                             // Long-press context menu for links and images (Chrome-style Hub trigger)
