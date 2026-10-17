@@ -51,10 +51,12 @@ internal object EvmDappBridge {
                 val account = viewModel.activeAccount.value
                 val seedPhrase = account?.seedPhrase.orEmpty()
                 val chainPrefs = context.getSharedPreferences(CHAIN_PREFS, Context.MODE_PRIVATE)
+                val walletNetworkPrefs = context.getSharedPreferences(EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
+                val selectedWalletChain = walletNetworkPrefs.getLong(EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
                 val chain = try {
-                    EvmWalletEngine.network(chainPrefs.getLong(origin, 202555L))
+                    EvmWalletEngine.network(chainPrefs.getLong(origin, selectedWalletChain))
                 } catch (_: Exception) {
-                    EvmWalletEngine.network(202555L)
+                    EvmWalletEngine.network(selectedWalletChain)
                 }
 
                 fun respond(result: Any? = null, code: Int? = null, error: String? = null) {
@@ -119,6 +121,7 @@ internal object EvmDappBridge {
                                 .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected network switch") }
                                 .setPositiveButton("Switch") { _, _ ->
                                     chainPrefs.edit().putLong(origin, target.chainId).apply()
+                                    walletNetworkPrefs.edit().putLong(EvmWalletEngine.WALLET_NETWORK_KEY, target.chainId).apply()
                                     respond(JSONObject.NULL)
                                     try {
                                         replyProxy.postMessage(JSONObject().put("event", "chainChanged").put("chainId", target.chainIdHex).toString())
