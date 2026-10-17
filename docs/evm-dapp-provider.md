@@ -45,3 +45,15 @@ For a non-standard legacy phrase, the wallet displays the derived EVM address an
 Transaction approval shows the requesting origin, selected network, account, destination, value, and gas limit. It does not decode or predict arbitrary smart-contract effects. Token and NFT calls can have irreversible consequences; review calldata and spender/recipient details before approving.
 
 This draft does not claim to support every EVM wallet extension method, every transaction type, or complete historical indexing. Android build, Gradle tests, CI, device tests, and end-to-end tests against both real mainnets remain required. Keep the PR in draft until those checks pass.
+
+## Native Kaspa dApp provider boundary
+
+The native Kaspa provider is separate from the EVM `window.ethereum` provider. It is injected only into HTTPS main-frame pages through the secure WebView message bridge.
+
+The current native bridge supports address connection, account reads, network reads, public-key reads, message signing, PSKT input signing, signed-transaction submission, and disconnect. Signing and submission require native user approval. PSKT signing validates the selected inputs against the active wallet's public-key locking script and validates the declared UTXO data and fee before signing.
+
+The bridge does not yet implement the full, independently documented APIs of Kastle and Kasware, nor the full request/method contract of Kaspire or Kasperia. It must not advertise itself as those wallets or install their names as aliases unless their exact documented API, return types, event semantics, network semantics, and token methods are implemented and tested. A generic provider alias is not wallet compatibility.
+
+KRC-20 and KRC-721/NFT actions require the dApp's actual transaction/PSKT shape to be supported by the signer and the corresponding marketplace/covenant effects to be reviewed. KCC-20 is an EVM-side contract flow and must use the EVM provider, selected chain, ABI encoding, transaction simulation/review, and chain-specific signing path. None of these asset flows should be described as supported solely because address connection or generic PSKT signing exists.
+
+Compatibility completion requires provider-contract tests for each supported wallet API, network/account-change event tests, native approval/rejection tests, malformed and hostile transaction tests, and real test transactions on the relevant networks. Keep unsupported methods explicit and fail closed.
