@@ -1988,7 +1988,7 @@ private fun ManageTabContent(
     }
     var legacyPhraseConfirmed by remember(activeAccountId) {
         mutableStateOf(
-            runCatching { com.example.dapp.EvmPassphraseVault.isLegacyPhraseConfirmed(context, activeAccountId) }
+            runCatching { com.example.dapp.EvmPassphraseVault.isLegacyPhraseConfirmed(context, activeAccountId, evmAddress) }
                 .getOrDefault(false)
         )
     }
@@ -2196,7 +2196,7 @@ private fun ManageTabContent(
                     Button(
                         onClick = {
                             try {
-                                com.example.dapp.EvmPassphraseVault.confirmLegacyPhrase(context, activeAccountId)
+                                com.example.dapp.EvmPassphraseVault.confirmLegacyPhrase(context, activeAccountId, evmAddress)
                                 legacyPhraseConfirmed = true
                             } catch (e: Exception) {
                                 evmPassphraseError = e.message ?: "Unable to save legacy address confirmation"
