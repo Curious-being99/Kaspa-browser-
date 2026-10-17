@@ -2241,7 +2241,7 @@ private fun ManageTabContent(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = evmAddress.isNotBlank() && evmPassphraseError == null && !evmPassphraseDirty && !legacyPhraseRequiresConfirmation
             ) {
-                Text("View real EVM activity", color = KaspaTea)
+                Text("View EVM transaction history", color = KaspaTea)
             }
         }
 
@@ -2305,7 +2305,7 @@ private fun ManageTabContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    "${runCatching { com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name }.getOrDefault("EVM Mainnet")} Activity",
+                    "${runCatching { com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name }.getOrDefault("EVM Mainnet")} Transaction History",
                     fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
