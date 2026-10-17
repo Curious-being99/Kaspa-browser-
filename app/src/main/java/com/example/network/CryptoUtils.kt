@@ -907,7 +907,11 @@ object CryptoUtils {
     fun generateMnemonic(): String {
         val entropy = ByteArray(16)
         java.security.SecureRandom().nextBytes(entropy)
-        return org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy)
+        return try {
+            org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy)
+        } finally {
+            java.util.Arrays.fill(entropy, 0.toByte())
+        }
     }
 
     fun getDecryptedSeed(seedPhrase: String): String {

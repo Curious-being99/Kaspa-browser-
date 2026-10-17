@@ -9,6 +9,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -103,6 +104,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -119,6 +121,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -152,6 +156,8 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -174,6 +180,54 @@ fun KaspaTestnetWalletScreen(
     val isFetchingFeeCondition by viewModel.isFetchingFeeCondition.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
+    val evmNetworkPrefs = remember {
+        context.getSharedPreferences(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
+    }
+    var selectedEvmChainId by remember {
+        mutableStateOf(
+            runCatching {
+                com.example.dapp.EvmWalletEngine.network(
+                    evmNetworkPrefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
+                ).chainId
+            }.getOrDefault(202555L)
+        )
+    }
+    DisposableEffect(evmNetworkPrefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key == com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY) {
+                selectedEvmChainId = runCatching {
+                    com.example.dapp.EvmWalletEngine.network(
+                        prefs.getLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
+                    ).chainId
+                }.getOrDefault(202555L)
+            }
+        }
+        evmNetworkPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { evmNetworkPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    fun selectEvmNetwork(chainId: Long) {
+        val target = runCatching { com.example.dapp.EvmWalletEngine.network(chainId) }.getOrNull() ?: return
+        scope.launch {
+            val verified = runCatching {
+                withContext(Dispatchers.IO) { com.example.dapp.EvmWalletEngine.verifyNetwork(target) }
+            }
+            if (verified.isFailure) {
+                snackbarHostState.showSnackbar(
+                    "${target.name} RPC connection failed or returned the wrong chain ID. Network was not changed."
+                )
+                return@launch
+            }
+            selectedEvmChainId = chainId
+            evmNetworkPrefs.edit()
+                .putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId)
+                .apply()
+            val dappChainPrefs = context.getSharedPreferences("evm_dapp_chains", Context.MODE_PRIVATE)
+            val editor = dappChainPrefs.edit()
+            dappChainPrefs.all.keys.forEach { origin -> editor.putLong(origin, chainId) }
+            editor.apply()
+            snackbarHostState.showSnackbar("${target.name} RPC connected and chain ID verified.")
+        }
+    }
     val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true) ||
         walletState.kaspaAddress.startsWith("kaspa:") ||
         testnetAddress.startsWith("kaspa:")
@@ -363,7 +417,13 @@ fun KaspaTestnetWalletScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
-                            
+                            Text(
+                                text = "EVM: ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name}",
+                                fontSize = 10.sp,
+                                color = KaspaTea,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -603,6 +663,10 @@ fun KaspaTestnetWalletScreen(
             ManageScreenOverlay(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
+                activeAccountSeedPhrase = activeAccount?.seedPhrase.orEmpty(),
+                activeAccountId = activeAccount?.did?.takeIf { it.isNotBlank() } ?: activeAccount?.handle ?: "active-wallet",
+                selectedEvmChainId = selectedEvmChainId,
+                onSelectEvmNetwork = ::selectEvmNetwork,
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccounts.size,
                 onViewSeed = { showRecoveryScreen = true },
@@ -1912,9 +1976,14 @@ private fun ReceiveTabContent(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
+    activeAccountSeedPhrase: String,
+    activeAccountId: String,
+    selectedEvmChainId: Long,
+    onSelectEvmNetwork: (Long) -> Unit,
     testnetAddress: String,
     allAccountsCount: Int,
     onOpenRecovery: () -> Unit,
@@ -1922,6 +1991,67 @@ private fun ManageTabContent(
 ) {
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
+    val context = LocalContext.current
+    val evmNetworks = com.example.dapp.EvmWalletEngine.networks
+    val savedPassphrase = remember(activeAccountId) {
+        runCatching { com.example.dapp.EvmPassphraseVault.load(context, activeAccountId) }
+    }
+    var evmPassphrase by remember(activeAccountId) {
+        mutableStateOf(savedPassphrase.getOrDefault(""))
+    }
+    var evmPassphraseError by remember(activeAccountId) {
+        mutableStateOf(savedPassphrase.exceptionOrNull()?.message)
+    }
+    var evmPassphraseSaved by remember(activeAccountId) { mutableStateOf(false) }
+    var evmPassphraseDirty by remember(activeAccountId) { mutableStateOf(false) }
+    var showEvmHistory by remember { mutableStateOf(false) }
+    var evmHistoryRefreshKey by remember { mutableIntStateOf(0) }
+    var evmHistoryLoading by remember { mutableStateOf(false) }
+    var evmHistoryError by remember { mutableStateOf<String?>(null) }
+    var evmHistory by remember { mutableStateOf<com.example.dapp.EvmActivityRepository.Result?>(null) }
+    val evmAddress = remember(activeAccountSeedPhrase, evmPassphrase, evmPassphraseError) {
+        if (evmPassphraseError != null) "" else runCatching {
+            com.example.dapp.EvmWalletEngine.address(activeAccountSeedPhrase, evmPassphrase)
+        }.getOrDefault("")
+    }
+    val isStandardEvmMnemonic = remember(activeAccountSeedPhrase) {
+        runCatching {
+            org.web3j.crypto.MnemonicUtils.validateMnemonic(CryptoUtils.getDecryptedSeed(activeAccountSeedPhrase))
+        }.getOrDefault(false)
+    }
+    var legacyPhraseConfirmed by remember(activeAccountId, evmAddress) {
+        mutableStateOf(
+            runCatching { com.example.dapp.EvmPassphraseVault.isLegacyPhraseConfirmed(context, activeAccountId, evmAddress) }
+                .getOrDefault(false)
+        )
+    }
+    val legacyPhraseRequiresConfirmation = activeAccountSeedPhrase.isNotBlank() &&
+        !isStandardEvmMnemonic && !legacyPhraseConfirmed
+    LaunchedEffect(showEvmHistory, selectedEvmChainId, evmAddress, evmHistoryRefreshKey) {
+        if (showEvmHistory) {
+            if (evmAddress.isBlank()) {
+                evmHistoryError = evmPassphraseError ?: "EVM address is unavailable for this recovery phrase."
+                evmHistory = null
+            } else {
+                evmHistoryLoading = true
+                evmHistoryError = null
+                try {
+                    evmHistory = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.example.dapp.EvmActivityRepository.load(
+                            com.example.dapp.EvmWalletEngine.network(selectedEvmChainId),
+                            evmAddress,
+                            100L
+                        )
+                    }
+                } catch (e: Exception) {
+                    evmHistoryError = e.message ?: "Unable to load real EVM activity from the selected RPC."
+                    evmHistory = null
+                } finally {
+                    evmHistoryLoading = false
+                }
+            }
+        }
+    }
     val networkList = listOf(
         Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
         Triple("Kaspa Mainnet", "kaspa:", "https://api.kaspa.org"),
@@ -1936,7 +2066,7 @@ private fun ManageTabContent(
     ) {
         // 1. Network Section at Top as Radio Button Card List
         item {
-            Text("Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("Native Kaspa Network", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(6.dp))
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 networkList.forEach { (name, prefix, rpc) ->
@@ -1990,6 +2120,169 @@ private fun ManageTabContent(
             }
         }
 
+        item {
+            Text("EVM Wallet", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text(
+                "Kasplex and Igra use a separate EVM account from your native Kaspa address.",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            evmNetworks.forEach { network ->
+                val isSelected = selectedEvmChainId == network.chainId
+                Surface(
+                    onClick = { onSelectEvmNetwork(network.chainId) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSelected) KaspaTea.copy(alpha = 0.12f) else SurfaceCard,
+                    border = BorderStroke(1.dp, if (isSelected) KaspaTea else SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { onSelectEvmNetwork(network.chainId) },
+                                colors = RadioButtonDefaults.colors(selectedColor = KaspaTea)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(network.name, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isSelected) KaspaTea else TextPrimary)
+                                Text("Chain ID: ${network.chainId}", fontSize = 11.sp, color = TextSecondary)
+                            }
+                            if (isSelected) Text("ACTIVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                        }
+                        Text("EVM address path: ${com.example.dapp.EvmWalletEngine.ACCOUNT_PATH}", fontSize = 11.sp, color = TextSecondary)
+                        if (evmAddress.isNotBlank()) {
+                            Text(
+                                text = evmAddress,
+                                fontSize = 11.sp,
+                                color = TextPrimary,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            TextButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                    clipboard?.setPrimaryClip(ClipData.newPlainText("EVM wallet address", evmAddress))
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Copy address", color = KaspaTea, fontSize = 12.sp)
+                            }
+                        } else {
+                            Text("EVM address unavailable for this recovery phrase", fontSize = 11.sp, color = RedTamper)
+                        }
+                        Text("RPC endpoint: ${network.rpcUrl}", fontSize = 10.sp, color = TextMuted)
+                        Text("Explorer: ${network.explorerUrl}", fontSize = 10.sp, color = TextMuted)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(network.explorerUrl))
+                                        )
+                                    }.onFailure {
+                                        scope.launch { snackbarHostState.showSnackbar("Unable to open ${network.name} explorer.") }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = KaspaTea)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Open explorer", color = KaspaTea)
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Optional BIP-39 passphrase", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+            OutlinedTextField(
+                value = evmPassphrase,
+                onValueChange = {
+                    evmPassphrase = it
+                    evmPassphraseSaved = false
+                    evmPassphraseDirty = true
+                    evmPassphraseError = null
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Passphrase (optional)") },
+                supportingText = { Text("A different passphrase derives a different EVM account. Stored encrypted with Android Keystore on this device.") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = KaspaTea,
+                    focusedLabelColor = KaspaTea,
+                    cursorColor = KaspaTea
+                )
+            )
+            if (evmPassphraseError != null) {
+                Text(evmPassphraseError.orEmpty(), fontSize = 11.sp, color = RedTamper)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = {
+                        try {
+                            com.example.dapp.EvmPassphraseVault.save(context, activeAccountId, evmPassphrase)
+                            evmPassphraseError = null
+                            evmPassphraseSaved = true
+                            evmPassphraseDirty = false
+                        } catch (e: Exception) {
+                            evmPassphraseError = e.message ?: "Unable to save passphrase securely"
+                            evmPassphraseSaved = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                    enabled = evmPassphraseError == null
+                ) {
+                    Text("Save securely", color = SurfaceDark)
+                }
+                if (evmPassphraseSaved) Text("Saved", color = KaspaTea, fontSize = 12.sp)
+            }
+            if (!isStandardEvmMnemonic && activeAccountSeedPhrase.isNotBlank()) {
+                Text(
+                    "Legacy phrase compatibility: the exact phrase is used for deterministic EVM derivation without changing it. This does not make it a standard BIP-39 phrase or guarantee compatibility with other wallets.",
+                    fontSize = 11.sp,
+                    color = AmberCentral
+                )
+                if (legacyPhraseRequiresConfirmation) {
+                    Button(
+                        onClick = {
+                            try {
+                                com.example.dapp.EvmPassphraseVault.confirmLegacyPhrase(context, activeAccountId, evmAddress)
+                                legacyPhraseConfirmed = true
+                            } catch (e: Exception) {
+                                evmPassphraseError = e.message ?: "Unable to save legacy address confirmation"
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !evmPassphraseDirty && evmAddress.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = AmberCentral)
+                    ) {
+                        Text("Confirm this derived EVM address", color = SurfaceDark)
+                    }
+                    Text(
+                        "Confirm only after checking the displayed address. This is compatibility mode, not proof that the phrase matches another wallet's derivation.",
+                        fontSize = 11.sp,
+                        color = AmberCentral
+                    )
+                }
+            }
+            if (evmPassphraseDirty) {
+                Text("Save the changed passphrase before using this derived address.", fontSize = 11.sp, color = AmberCentral)
+            }
+            OutlinedButton(
+                onClick = { showEvmHistory = true },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = evmAddress.isNotBlank() && evmPassphraseError == null && !evmPassphraseDirty && !legacyPhraseRequiresConfirmation
+            ) {
+                Text("View EVM transaction history", color = KaspaTea)
+            }
+        }
+
         // 2. Recovery Section
         item {
             Spacer(modifier = Modifier.height(2.dp))
@@ -2021,7 +2314,7 @@ private fun ManageTabContent(
         // 4. Network Details Info Box
         item {
             Spacer(modifier = Modifier.height(2.dp))
-            Text("Network Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+            Text("Native Kaspa Network Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             Spacer(modifier = Modifier.height(6.dp))
             Surface(
                 color = SurfaceCard,
@@ -2035,6 +2328,117 @@ private fun ManageTabContent(
                     DetailRow(label = "RPC Endpoint", value = if (selectedNetwork.contains("Mainnet")) "https://api.kaspa.org" else "https://api-tn10.kaspa.org")
                     DetailRow(label = "Finality", value = "Instant BlockDAG (10 BPS)")
                     DetailRow(label = "Explorer", value = selectedExplorerUrl)
+                }
+            }
+        }
+    }
+    if (showEvmHistory) {
+        Dialog(
+            onDismissRequest = { showEvmHistory = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(modifier = Modifier.fillMaxSize(), color = ObsidianBg) {
+                Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { showEvmHistory = false }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextPrimary)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${runCatching { com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name }.getOrDefault("EVM Mainnet")} Transaction History",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text("Live JSON-RPC • Last 100 blocks", fontSize = 11.sp, color = TextSecondary)
+                        }
+                        IconButton(onClick = { evmHistoryRefreshKey++ }, enabled = !evmHistoryLoading) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh history", tint = KaspaTea)
+                        }
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Network: ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name}", fontSize = 12.sp, color = TextSecondary)
+                        Text("Address: $evmAddress", fontSize = 11.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (evmHistoryLoading) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                        Text("Loading real chain activity…", fontSize = 13.sp, color = TextSecondary)
+                    }
+                }
+                evmHistoryError?.let { Text(it, fontSize = 12.sp, color = RedTamper) }
+                evmHistory?.let { history ->
+                    Text("Scanned blocks ${history.scannedFromBlock}–${history.latestBlock}", fontSize = 11.sp, color = TextMuted)
+                    history.warnings.forEach { warning ->
+                        Text(warning, fontSize = 11.sp, color = AmberCentral)
+                    }
+                    if (history.items.isEmpty()) {
+                        Text("No matching transactions or Transfer events were found in this scan window.", fontSize = 13.sp, color = TextSecondary)
+                    }
+                    history.items.forEach { item ->
+                        Surface(
+                            color = SurfaceCard,
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(item.kind, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                                Text(item.status, fontSize = 11.sp, color = if (item.status == "Failed") RedTamper else KaspaTea)
+                                Text("Block ${item.blockNumber}", fontSize = 11.sp, color = TextSecondary)
+                                if (item.contract.isNotBlank()) Text("Token/NFT contract: ${item.contract}", fontSize = 10.sp, color = TextSecondary)
+                                if (item.contract.isBlank()) {
+                                    val amount = runCatching {
+                                        java.math.BigDecimal(java.math.BigInteger(item.value.removePrefix("0x"), 16))
+                                            .divide(java.math.BigDecimal.TEN.pow(18))
+                                            .stripTrailingZeros()
+                                            .toPlainString()
+                                    }.getOrDefault(item.value)
+                                    Text("Value: $amount ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).currency}", fontSize = 12.sp, color = TextPrimary)
+                                } else if (item.kind.startsWith("NFT")) {
+                                    Text("Token ID: ${item.value}", fontSize = 10.sp, color = TextSecondary)
+                                } else {
+                                    Text("Raw token amount: ${item.value}", fontSize = 10.sp, color = TextSecondary)
+                                }
+                                Text("From: ${item.from}", fontSize = 10.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("To: ${item.to}", fontSize = 10.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    "Tx: ${item.hash}",
+                                    fontSize = 10.sp,
+                                    color = TextMuted,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                TextButton(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                        clipboard?.setPrimaryClip(ClipData.newPlainText("EVM transaction hash", item.hash))
+                                    },
+                                    modifier = Modifier.align(Alignment.End)
+                                ) {
+                                    Text("Copy transaction hash", color = KaspaTea, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                    }
                 }
             }
         }
@@ -3272,6 +3676,10 @@ private fun TransactionResultOverlay(
 private fun ManageScreenOverlay(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
+    activeAccountSeedPhrase: String,
+    activeAccountId: String,
+    selectedEvmChainId: Long,
+    onSelectEvmNetwork: (Long) -> Unit,
     testnetAddress: String,
     allAccountsCount: Int,
     onViewSeed: () -> Unit,
@@ -3305,6 +3713,10 @@ private fun ManageScreenOverlay(
             ManageTabContent(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccountHandle,
+                activeAccountSeedPhrase = activeAccountSeedPhrase,
+                activeAccountId = activeAccountId,
+                selectedEvmChainId = selectedEvmChainId,
+                onSelectEvmNetwork = onSelectEvmNetwork,
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccountsCount,
                 onOpenRecovery = onViewSeed,
