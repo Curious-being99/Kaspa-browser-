@@ -160,6 +160,122 @@ object KaspaDappBridge {
                             .show()
                     }
 
+                    "signPskt" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val keyPair = currentKeyPair()
+                        if (keyPair == null) {
+                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            return@addWebMessageListener
+                        }
+                        val paramsObject = params as? JSONObject
+                        val txJson = paramsObject?.optString("txJsonString", "").orEmpty()
+                        val options = paramsObject?.optJSONObject("options")
+                        val signInputs = options?.optJSONArray("signInputs")
+                        if (txJson.isBlank() || signInputs == null) {
+                            respond(errorCode = -32602, errorMessage = "signPskt requires txJsonString and options.signInputs")
+                            return@addWebMessageListener
+                        }
+                        cryptoExecutor.execute {
+                            val prepared = try {
+                                DappPsktTransaction.prepareForSigning(txJson, signInputs, keyPair.publicKeyHex)
+                            } catch (error: Throwable) {
+                                mainHandler.post {
+                                    respond(errorCode = -32602, errorMessage = error.message ?: "Transaction review failed")
+                                }
+                                return@execute
+                            }
+                            mainHandler.post {
+                                AlertDialog.Builder(context)
+                                    .setTitle("Review Kaspa transaction signature")
+                                    .setMessage(DappPsktTransaction.reviewText(prepared, origin, network, keyPair.kaspaAddress))
+                                    .setNegativeButton("Reject") { _, _ ->
+                                        respond(errorCode = 4001, errorMessage = "User rejected transaction signature")
+                                    }
+                                    .setPositiveButton("Sign selected inputs") { _, _ ->
+                                        cryptoExecutor.execute {
+                                            val signedJson = try {
+                                                DappPsktTransaction.sign(prepared, keyPair.privateKey)
+                                            } catch (error: Throwable) {
+                                                null
+                                            }
+                                            mainHandler.post {
+                                                if (signedJson == null) respond(errorCode = -32603, errorMessage = "Transaction signing failed")
+                                                else respond(signedJson)
+                                            }
+                                        }
+                                    }
+                                    .setOnCancelListener {
+                                        respond(errorCode = 4001, errorMessage = "User rejected transaction signature")
+                                    }
+                                    .show()
+                            }
+                        }
+                    }
+
+                    "submitTransaction" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val keyPair = currentKeyPair()
+                        if (keyPair == null) {
+                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            return@addWebMessageListener
+                        }
+                        val txJson = when (params) {
+                            is String -> params
+                            is JSONObject -> params.optString("txJsonString", params.optString("transaction", ""))
+                            else -> ""
+                        }
+                        if (txJson.isBlank()) {
+                            respond(errorCode = -32602, errorMessage = "submitTransaction requires a signed transaction JSON string")
+                            return@addWebMessageListener
+                        }
+                        cryptoExecutor.execute {
+                            val prepared = try {
+                                DappPsktTransaction.inspectForSubmission(txJson)
+                            } catch (error: Throwable) {
+                                mainHandler.post {
+                                    respond(errorCode = -32602, errorMessage = error.message ?: "Transaction validation failed")
+                                }
+                                return@execute
+                            }
+                            mainHandler.post {
+                                AlertDialog.Builder(context)
+                                    .setTitle("Submit Kaspa transaction?")
+                                    .setMessage(DappPsktTransaction.reviewText(prepared, origin, network, keyPair.kaspaAddress))
+                                    .setNegativeButton("Reject") { _, _ ->
+                                        respond(errorCode = 4001, errorMessage = "User rejected transaction submission")
+                                    }
+                                    .setPositiveButton("Submit transaction") { _, _ ->
+                                        cryptoExecutor.execute {
+                                            val receipt = try {
+                                                viewModel.walletService.submitDappTransaction(prepared.transaction, keyPair.kaspaAddress)
+                                            } catch (error: Throwable) {
+                                                null
+                                            }
+                                            mainHandler.post {
+                                                if (receipt == null) {
+                                                    respond(errorCode = -32603, errorMessage = "Transaction submission failed")
+                                                } else if (!receipt.accepted) {
+                                                    respond(errorCode = -32000, errorMessage = receipt.error)
+                                                } else {
+                                                    respond(JSONObject().put("transactionId", receipt.transactionId).put("status", "accepted"))
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .setOnCancelListener {
+                                        respond(errorCode = 4001, errorMessage = "User rejected transaction submission")
+                                    }
+                                    .show()
+                            }
+                        }
+                    }
+
                     "disconnect" -> {
                         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                             .edit().remove(origin).apply()
@@ -204,6 +320,8 @@ object KaspaDappBridge {
                     getNetwork: () => request('getNetwork'),
                     getPublicKey: () => request('getPublicKey'),
                     signMessage: message => request('signMessage', message),
+                    signPskt: ({ txJsonString, options }) => request('signPskt', { txJsonString, options }),
+                    submitTransaction: txJsonString => request('submitTransaction', txJsonString),
                     disconnect: () => request('disconnect')
                   });
                   Object.defineProperty(window, 'kaspa', {
@@ -213,7 +331,7 @@ object KaspaDappBridge {
                     id: 'org.kaspa.browser',
                     name: 'Kaspa Browser',
                     icon: '',
-                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage'],
+                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction'],
                     uuid: 'UUID_PLACEHOLDER',
                     rdns: 'org.kaspa.browser'
                   });
