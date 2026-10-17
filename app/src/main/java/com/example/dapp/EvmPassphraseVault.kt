@@ -51,6 +51,23 @@ internal object EvmPassphraseVault {
         }
     }
 
+    @Synchronized
+    fun isLegacyPhraseConfirmed(context: Context, accountId: String): Boolean {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(legacyConfirmationKey(accountId), false)
+    }
+
+    @Synchronized
+    fun confirmLegacyPhrase(context: Context, accountId: String) {
+        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(legacyConfirmationKey(accountId), true)
+            .commit()
+        require(saved) { "Unable to save legacy EVM address confirmation" }
+    }
+
+    private fun legacyConfirmationKey(accountId: String): String = preferenceKey(accountId) + "_legacy_confirmed"
+
     private fun preferenceKey(accountId: String): String {
         require(accountId.isNotBlank())
         val digest = java.security.MessageDigest.getInstance("SHA-256")
