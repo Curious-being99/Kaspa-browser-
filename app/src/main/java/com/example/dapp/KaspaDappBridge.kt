@@ -400,6 +400,27 @@ object KaspaDappBridge {
                     ...browserProvider,
                     request: requestCompat
                   });
+                  const installAlias = (name, value) => {
+                    try {
+                      if (!(name in window)) {
+                        Object.defineProperty(window, name, {
+                          configurable: false, enumerable: true, writable: false, value
+                        });
+                      }
+                    } catch (_) {}
+                  };
+                  installAlias('kaspire', requestProvider);
+                  const kasperiaProvider = {
+                    ...requestProvider,
+                    isKasperia: true
+                  };
+                  Object.defineProperty(kasperiaProvider, 'ethereum', {
+                    configurable: false,
+                    enumerable: true,
+                    get: () => window.ethereum
+                  });
+                  Object.freeze(kasperiaProvider);
+                  installAlias('kasperia', kasperiaProvider);
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
                   });
@@ -433,6 +454,7 @@ object KaspaDappBridge {
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   announce();
+                  window.dispatchEvent(new Event('kasperia#initialized'));
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
