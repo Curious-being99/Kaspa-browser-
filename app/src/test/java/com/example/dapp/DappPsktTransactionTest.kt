@@ -63,7 +63,7 @@ class DappPsktTransactionTest {
         val signedInputs = signed.getJSONObject("transaction").getJSONArray("inputs")
         assertTrue(signedInputs.getJSONObject(0).getString("signatureScript").isNotBlank())
         assertEquals(beforeCovenantInput, signedInputs.getJSONObject(1).toString())
-        assertTrue(signed.getJSONObject("meta").getJSONObject("kept").getBoolean("kept"))
+        assertTrue(signed.getJSONObject("meta").getBoolean("kept"))
     }
 
     @Test
