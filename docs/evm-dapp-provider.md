@@ -11,7 +11,7 @@ These are built-in networks. Custom RPC endpoints and arbitrary chain IDs are no
 
 The WebView installs an EIP-1193-style `window.ethereum` provider using AndroidX WebMessageListener and document-start script injection. The native message listener accepts HTTPS main-frame messages only when the message origin matches the current page origin. It does not use `addJavascriptInterface`.
 
-The provider sends real JSON-RPC requests to the selected network's configured RPC endpoint. It does not use mocked RPC responses, simulated balances, simulated signing, or fabricated transaction results.
+The provider obtains chain data and transaction responses through real JSON-RPC requests to the selected network's configured RPC endpoint. Signing is performed locally with the derived EVM key.
 
 Implemented request groups:
 - Account connection and reads: `eth_requestAccounts`, `eth_accounts`, `eth_chainId`, `net_version`.
@@ -23,11 +23,11 @@ Implemented request groups:
 
 A broadcast hash is not represented as transaction confirmation. Confirmation must be determined from the selected chain's real transaction receipt/status. The current request flow does not fabricate a receipt or a confirmed status.
 
-Unsupported signing methods are rejected instead of being simulated or silently accepted. The current supported signing surface is intentionally limited to the methods listed above; it does not claim compatibility with every wallet-specific or EVM signing method. Custom networks, contract creation (empty `to`), typed-data variants other than v4, raw transaction submission from the dApp, and unrecognized RPC methods are not supported in this draft.
+Unsupported signing methods are rejected instead of being accepted. The current supported signing surface is intentionally limited to the methods listed above; it does not claim compatibility with every wallet-specific or EVM signing method. Custom networks, contract creation (empty `to`), typed-data variants other than v4, raw transaction submission from the dApp, and unrecognized RPC methods are not supported in this draft.
 
 ## Transaction approval
 
-The approval dialog is a real authorization step before local signing and RPC broadcast. It shows the requesting website, selected network, account, destination, native value, and gas limit, and warns that contract calls may transfer tokens or NFTs and may be irreversible. It is not a contract-execution preview, and the app must not describe it as one. Users should only approve calls they understand.
+The approval dialog is the authorization step before local signing and RPC broadcast. It shows the requesting website, selected network, account, destination, native value, and gas limit, and warns that contract calls may transfer tokens or NFTs and may be irreversible. It displays transaction fields and does not claim to decode or predict arbitrary contract effects. Users should only approve calls they understand.
 
 ## Key derivation and compatibility
 
