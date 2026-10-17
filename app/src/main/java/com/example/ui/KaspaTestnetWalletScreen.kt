@@ -119,6 +119,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -632,6 +633,7 @@ fun KaspaTestnetWalletScreen(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccount?.handle ?: "Native Testnet Account",
                 activeAccountSeedPhrase = activeAccount?.seedPhrase.orEmpty(),
+                activeAccountId = activeAccount?.did?.takeIf { it.isNotBlank() } ?: activeAccount?.handle ?: "active-wallet",
                 selectedEvmChainId = selectedEvmChainId,
                 onSelectEvmNetwork = ::selectEvmNetwork,
                 testnetAddress = testnetAddress,
@@ -1947,6 +1949,7 @@ private fun ManageTabContent(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
     activeAccountSeedPhrase: String,
+    activeAccountId: String,
     selectedEvmChainId: Long,
     onSelectEvmNetwork: (Long) -> Unit,
     testnetAddress: String,
@@ -1958,8 +1961,54 @@ private fun ManageTabContent(
     val selectedExplorerUrl by viewModel.selectedExplorerUrl.collectAsState()
     val context = LocalContext.current
     val evmNetworks = com.example.dapp.EvmWalletEngine.networks
-    val evmAddress = remember(activeAccountSeedPhrase) {
-        runCatching { com.example.dapp.EvmWalletEngine.address(activeAccountSeedPhrase) }.getOrDefault("")
+    val savedPassphrase = remember(activeAccountId) {
+        runCatching { com.example.dapp.EvmPassphraseVault.load(context, activeAccountId) }
+    }
+    var evmPassphrase by remember(activeAccountId) {
+        mutableStateOf(savedPassphrase.getOrDefault(""))
+    }
+    var evmPassphraseError by remember(activeAccountId) {
+        mutableStateOf(savedPassphrase.exceptionOrNull()?.message)
+    }
+    var evmPassphraseSaved by remember(activeAccountId) { mutableStateOf(false) }
+    var showEvmHistory by remember { mutableStateOf(false) }
+    var evmHistoryLoading by remember { mutableStateOf(false) }
+    var evmHistoryError by remember { mutableStateOf<String?>(null) }
+    var evmHistory by remember { mutableStateOf<com.example.dapp.EvmActivityRepository.Result?>(null) }
+    val evmAddress = remember(activeAccountSeedPhrase, evmPassphrase, evmPassphraseError) {
+        if (evmPassphraseError != null) "" else runCatching {
+            com.example.dapp.EvmWalletEngine.address(activeAccountSeedPhrase, evmPassphrase)
+        }.getOrDefault("")
+    }
+    val isStandardEvmMnemonic = remember(activeAccountSeedPhrase) {
+        runCatching {
+            org.web3j.crypto.MnemonicUtils.validateMnemonic(CryptoUtils.getDecryptedSeed(activeAccountSeedPhrase))
+        }.getOrDefault(false)
+    }
+    LaunchedEffect(showEvmHistory, selectedEvmChainId, evmAddress) {
+        if (showEvmHistory) {
+            if (evmAddress.isBlank()) {
+                evmHistoryError = evmPassphraseError ?: "EVM address is unavailable for this recovery phrase."
+                evmHistory = null
+            } else {
+                evmHistoryLoading = true
+                evmHistoryError = null
+                try {
+                    evmHistory = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.example.dapp.EvmActivityRepository.load(
+                            com.example.dapp.EvmWalletEngine.network(selectedEvmChainId),
+                            evmAddress,
+                            100L
+                        )
+                    }
+                } catch (e: Exception) {
+                    evmHistoryError = e.message ?: "Unable to load real EVM activity from the selected RPC."
+                    evmHistory = null
+                } finally {
+                    evmHistoryLoading = false
+                }
+            }
+        }
     }
     val networkList = listOf(
         Triple("Kaspa Testnet 10", "kaspatest:", "https://api-tn10.kaspa.org"),
@@ -3370,6 +3419,7 @@ private fun ManageScreenOverlay(
     viewModel: DecentralViewModel,
     activeAccountHandle: String,
     activeAccountSeedPhrase: String,
+    activeAccountId: String,
     selectedEvmChainId: Long,
     onSelectEvmNetwork: (Long) -> Unit,
     testnetAddress: String,
@@ -3406,6 +3456,7 @@ private fun ManageScreenOverlay(
                 viewModel = viewModel,
                 activeAccountHandle = activeAccountHandle,
                 activeAccountSeedPhrase = activeAccountSeedPhrase,
+                activeAccountId = activeAccountId,
                 selectedEvmChainId = selectedEvmChainId,
                 onSelectEvmNetwork = onSelectEvmNetwork,
                 testnetAddress = testnetAddress,
