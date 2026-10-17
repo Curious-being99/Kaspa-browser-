@@ -65,6 +65,14 @@ internal object EvmWalletEngine {
             String.format(Locale.ROOT, "%02x", signed.v.toInt() and 0xff)
     }
 
+    fun signTypedData(seedPhrase: String, typedDataJson: String): String {
+        require(typedDataJson.length in 1..32768) { "Typed-data request is empty or too large" }
+        val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase).ecKeyPair)
+        return "0x" + Numeric.toHexStringNoPrefixZeroPadded(signature.r, 64) +
+            Numeric.toHexStringNoPrefixZeroPadded(signature.s, 64) +
+            String.format(Locale.ROOT, "%02x", signature.v.toInt() and 0xff)
+    }
+
     fun signTransaction(seedPhrase: String, network: Network, tx: JSONObject): String {
         val credentials = credentials(seedPhrase)
         val from = tx.optString("from", "").lowercase(Locale.ROOT)
