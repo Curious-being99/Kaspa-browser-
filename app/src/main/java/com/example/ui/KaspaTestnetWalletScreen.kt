@@ -2301,7 +2301,7 @@ private fun ManageTabContent(
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Surface(modifier = Modifier.fillMaxSize(), color = ObsidianBg) {
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2335,12 +2335,6 @@ private fun ManageTabContent(
                     ) {
                         Text("Network: ${com.example.dapp.EvmWalletEngine.network(selectedEvmChainId).name}", fontSize = 12.sp, color = TextSecondary)
                         Text("Address: $evmAddress", fontSize = 11.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                TextButton(
-                    onClick = { evmHistoryRefreshKey++ },
-                    enabled = !evmHistoryLoading
-                ) {
-                    Text("Refresh activity", color = KaspaTea)
-                }
                 if (evmHistoryLoading) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
