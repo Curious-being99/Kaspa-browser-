@@ -106,6 +106,56 @@ object KaspaDappBridge {
 
                     "getNetwork" -> respond(networkId(network))
 
+                    "getBalance" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                        } else {
+                            val keyPair = currentKeyPair()
+                            if (keyPair == null) {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            } else {
+                                cryptoExecutor.execute {
+                                    val balance = try {
+                                        kotlinx.coroutines.runBlocking {
+                                            viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                                        }
+                                    } catch (error: Throwable) {
+                                        null
+                                    }
+                                    mainHandler.post {
+                                        if (balance == null) respond(errorCode = -32000, errorMessage = "Unable to fetch live Kaspa balance")
+                                        else respond(balance)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "getUtxoEntries" -> {
+                        if (!isConnected) {
+                            respond(errorCode = 4100, errorMessage = "Connect this site first")
+                        } else {
+                            val keyPair = currentKeyPair()
+                            if (keyPair == null) {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            } else {
+                                cryptoExecutor.execute {
+                                    val utxos = try {
+                                        kotlinx.coroutines.runBlocking {
+                                            viewModel.walletService.fetchDappUtxos(keyPair.kaspaAddress, network)
+                                        }
+                                    } catch (error: Throwable) {
+                                        null
+                                    }
+                                    mainHandler.post {
+                                        if (utxos == null) respond(errorCode = -32000, errorMessage = "Unable to fetch live Kaspa UTXOs")
+                                        else respond(utxos)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     "getPublicKey" -> {
                         val keyPair = if (isConnected) currentKeyPair() else null
                         if (keyPair == null) respond(errorCode = 4100, errorMessage = "Connect this site first")
@@ -382,6 +432,8 @@ object KaspaDappBridge {
                       kaspa_requestAccounts: 'requestAccounts',
                       kaspa_getAccounts: 'getAccounts',
                       kaspa_getNetwork: 'getNetwork',
+                      kaspa_getBalance: 'getBalance',
+                      kaspa_getUtxoEntries: 'getUtxoEntries',
                       kaspa_getPublicKey: 'getPublicKey',
                       kaspa_signMessage: 'signMessage',
                       kaspa_signPskt: 'signPskt',
@@ -389,6 +441,8 @@ object KaspaDappBridge {
                       kasperia_requestAccounts: 'requestAccounts',
                       kasperia_accounts: 'getAccounts',
                       kasperia_getNetwork: 'getNetwork',
+                      kasperia_getBalance: 'getBalance',
+                      kasperia_getUtxoEntries: 'getUtxoEntries',
                       kasperia_getPublicKey: 'getPublicKey',
                       kasperia_signMessage: 'signMessage',
                       kasperia_signPskt: 'signPskt',
@@ -402,6 +456,8 @@ object KaspaDappBridge {
                       case 'requestAccounts': return request('requestAccounts');
                       case 'getAccounts': return request('getAccounts');
                       case 'getNetwork': return request('getNetwork');
+                      case 'getBalance': return request('getBalance');
+                      case 'getUtxoEntries': return request('getUtxoEntries');
                       case 'getPublicKey': return request('getPublicKey');
                       case 'signMessage': {
                         const message = value && typeof value === 'object'
@@ -488,7 +544,7 @@ object KaspaDappBridge {
                     id: 'org.kaspa.browser',
                     name: 'Kaspa Browser',
                     icon: '',
-                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction', 'kaspa:disconnect'],
+                    methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getBalance', 'kaspa:getUtxoEntries', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction', 'kaspa:disconnect'],
                     uuid: 'UUID_PLACEHOLDER',
                     rdns: 'org.kaspa.browser'
                   });
