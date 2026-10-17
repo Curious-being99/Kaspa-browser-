@@ -20,6 +20,12 @@ class EvmWalletEngineTest {
     }
 
     @Test
+    fun newlyGeneratedRecoveryPhrasesAreValidBip39() {
+        val phrase = com.example.network.CryptoUtils.generateMnemonic()
+        assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(phrase))
+    }
+
+    @Test
     fun derivesStandardBip39EthereumAccountAtLedgerCompatiblePath() {
         val mnemonic = "test test test test test test test test test test test junk"
         assertEquals("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266", EvmWalletEngine.address(mnemonic))
