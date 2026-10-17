@@ -136,7 +136,14 @@ internal object EvmWalletEngine {
         val data = tx.optString("data", tx.optString("input", "0x"))
         require(data.matches(Regex("0x(?:[0-9a-fA-F]{2})*"))) { "Invalid transaction data" }
         require(gasLimit > BigInteger.ZERO) { "Transaction gas limit must be positive" }
-        val raw = if (tx.has("maxFeePerGas") || tx.has("maxPriorityFeePerGas")) {
+        val hasEip1559Fees = tx.has("maxFeePerGas") || tx.has("maxPriorityFeePerGas")
+        if (tx.has("type")) {
+            val transactionType = optionalQuantity(tx, "type").intValueExact()
+            require(
+                if (hasEip1559Fees) transactionType == 2 else transactionType == 0
+            ) { "Only legacy type-0 and EIP-1559 type-2 transactions are supported" }
+        }
+        val raw = if (hasEip1559Fees) {
             require(tx.has("maxFeePerGas") && tx.has("maxPriorityFeePerGas")) {
                 "Both EIP-1559 fee fields are required"
             }
