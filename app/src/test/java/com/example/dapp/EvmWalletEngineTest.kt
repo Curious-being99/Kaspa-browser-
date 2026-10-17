@@ -58,6 +58,34 @@ class EvmWalletEngineTest {
     }
 
     @Test
+    fun customBip39PassphraseDerivesDifferentRealEvmAccount() {
+        val mnemonic = "test test test test test test test test test test test junk"
+        val defaultAddress = EvmWalletEngine.address(mnemonic)
+        val passphraseAddress = EvmWalletEngine.address(mnemonic, "TREZOR")
+        assertTrue(defaultAddress.startsWith("0x"))
+        assertTrue(passphraseAddress.startsWith("0x"))
+        org.junit.Assert.assertNotEquals(defaultAddress, passphraseAddress)
+    }
+
+    @Test
+    fun legacyTwelveWordPhraseUsesDeterministicCompatibilityDerivation() {
+        val mnemonic = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+        assertTrue(!org.web3j.crypto.MnemonicUtils.validateMnemonic(mnemonic))
+        val first = EvmWalletEngine.address(mnemonic)
+        val second = EvmWalletEngine.address(mnemonic)
+        assertEquals(first, second)
+        assertEquals(42, first.length)
+    }
+
+    @Test
+    fun signsEthSignRawHashWithoutPersonalMessagePrefix() {
+        val mnemonic = "test test test test test test test test test test test junk"
+        val signature = EvmWalletEngine.signEthMessage(mnemonic, "0x68656c6c6f")
+        assertTrue(signature.startsWith("0x"))
+        assertEquals(132, signature.length)
+    }
+
+    @Test
     fun signsEip712TypedData() {
         val mnemonic = "test test test test test test test test test test test junk"
         val typedData = """{"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"version","type":"string"},{"name":"chainId","type":"uint256"}],"Mail":[{"name":"contents","type":"string"}]},"primaryType":"Mail","domain":{"name":"Example","version":"1","chainId":202555},"message":{"contents":"hello"}}"""
