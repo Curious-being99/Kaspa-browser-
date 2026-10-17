@@ -164,6 +164,7 @@ secrets {
 }
 
 dependencies {
+  implementation("org.web3j:core:4.12.3-android")
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)
