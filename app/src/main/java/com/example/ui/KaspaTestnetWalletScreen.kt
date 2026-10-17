@@ -2685,9 +2685,9 @@ private fun CreateDetailsSetupView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Column {
             Row(
@@ -2800,12 +2800,14 @@ private fun CreateBackupSetupView(
     onCopy: () -> Unit
 ) {
     val words = remember(mnemonic) { mnemonic.trim().split("\\s+".toRegex()) }
+    var isMnemonicVisible by remember(mnemonic) { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Column {
             Row(
@@ -2847,7 +2849,24 @@ private fun CreateBackupSetupView(
                 border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.3f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Recovery phrase", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        IconButton(
+                            onClick = { isMnemonicVisible = !isMnemonicVisible },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isMnemonicVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (isMnemonicVisible) "Hide recovery phrase" else "Reveal recovery phrase",
+                                tint = KaspaTea
+                            )
+                        }
+                    }
                     for (row in 0 until 4) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             for (col in 0 until 3) {
@@ -2871,11 +2890,12 @@ private fun CreateBackupSetupView(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = word,
+                                            text = if (isMnemonicVisible) word else "••••••",
                                             fontSize = 12.sp,
-                                            color = TextPrimary,
+                                            color = if (isMnemonicVisible) TextPrimary else TextMuted,
                                             fontWeight = FontWeight.Bold,
-                                            maxLines = 1
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Clip
                                         )
                                     }
                                 }
@@ -2951,7 +2971,7 @@ private fun ImportPhraseSetupView(
     onImport: () -> Unit
 ) {
     var isPasswordVisible by remember { mutableStateOf(false) }
-    var isMnemonicVisible by remember { mutableStateOf(true) }
+    var isMnemonicVisible by remember { mutableStateOf(false) }
     val wordCount = remember(mnemonicInput) {
         mnemonicInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }.size
     }
