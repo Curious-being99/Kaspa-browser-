@@ -193,6 +193,15 @@ internal object EvmDappBridge {
                                 val tx = JSONObject(txInput.toString())
                                 val from = tx.optString("from", address).lowercase(Locale.ROOT)
                                 require(from == address.lowercase(Locale.ROOT)) { "Transaction sender does not match the active EVM account" }
+                                if (tx.has("chainId")) {
+                                    val requestedChain = tx.optString("chainId")
+                                    val txChain = if (requestedChain.startsWith("0x", true)) {
+                                        BigInteger(requestedChain.substring(2), 16).longValueExact()
+                                    } else {
+                                        requestedChain.toLong()
+                                    }
+                                    require(txChain == chain.chainId) { "Transaction chain ID does not match the selected network" }
+                                }
                                 tx.put("from", address)
                                 if (!tx.has("nonce")) tx.put("nonce", rpc(chain, "eth_getTransactionCount", JSONArray().put(address).put("pending")).toString())
                                 if (!tx.has("gas") && !tx.has("gasLimit")) tx.put("gas", rpc(chain, "eth_estimateGas", JSONArray().put(tx).put("latest")).toString())
@@ -247,6 +256,7 @@ internal object EvmDappBridge {
                   const pending = new Map();
                   let nextId = 1;
                   let currentChainId = null;
+                  let currentAccounts = [];
                   const channel = window.$BRIDGE;
                   if (!channel || typeof channel.postMessage !== 'function') return;
                   const emit = (name, value) => window.dispatchEvent(new CustomEvent(name, { detail: value }));
@@ -270,6 +280,11 @@ internal object EvmDappBridge {
                         currentChainId = entry.chainId;
                         emit('chainChanged', currentChainId);
                       }
+                      if (entry.method === 'eth_requestAccounts' || entry.method === 'eth_accounts') {
+                        currentAccounts = Array.isArray(response.result) ? response.result : [];
+                        emit('accountsChanged', currentAccounts);
+                      }
+                      if (entry.method === 'eth_chainId') currentChainId = response.result;
                       if (entry.method === 'eth_requestAccounts') emit('connect', { chainId: currentChainId || '0x3173b' });
                       entry.resolve(response.result);
                     }
@@ -285,9 +300,6 @@ internal object EvmDappBridge {
                   const ethereum = {
                     isKaspaBrowser: true,
                     isMetaMask: false,
-                    selectedAddress: null,
-                    chainId: null,
-                    networkVersion: null,
                     request,
                     enable: () => request({method: 'eth_requestAccounts'}),
                     sendAsync: (payload, callback) => request(payload).then(result => callback(null, {id: payload.id, jsonrpc: '2.0', result})).catch(error => callback(error, null)),
@@ -295,7 +307,13 @@ internal object EvmDappBridge {
                     on: (event, listener) => { window.addEventListener(event, e => listener(e.detail)); return ethereum; },
                     removeListener: (event, listener) => { window.removeEventListener(event, listener); return ethereum; }
                   };
+                  Object.defineProperties(ethereum, {
+                    selectedAddress: { enumerable: true, get: () => currentAccounts[0] || null },
+                    chainId: { enumerable: true, get: () => currentChainId },
+                    networkVersion: { enumerable: true, get: () => currentChainId ? String(parseInt(currentChainId, 16)) : null }
+                  });
                   Object.defineProperty(window, 'ethereum', {configurable: false, enumerable: true, writable: false, value: ethereum});
+                  request({method: 'eth_chainId'}).catch(() => {});
                   window.dispatchEvent(new Event('ethereum#initialized'));
                 })();
             """.trimIndent()
