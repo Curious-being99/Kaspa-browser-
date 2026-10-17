@@ -342,7 +342,68 @@ object KaspaDappBridge {
                       const accounts = await provider.requestAccounts();
                       return { address: accounts[0] || '', accounts };
                     },
+                    get connected() { return false; }
                   });
+                  const requestCompat = ({ method, params } = {}) => {
+                    if (typeof method !== 'string' || !method) {
+                      return Promise.reject(Object.assign(new Error('A wallet method is required'), { code: -32600 }));
+                    }
+                    const aliases = {
+                      'kaspa_requestAccounts': 'requestAccounts',
+                      'kaspa_getAccounts': 'getAccounts',
+                      'kaspa_getNetwork': 'getNetwork',
+                      'kaspa_getPublicKey': 'getPublicKey',
+                      'kaspa_signMessage': 'signMessage',
+                      'kaspa_signPskt': 'signPskt',
+                      'kaspa_submitTransaction': 'submitTransaction'
+                    };
+                    const normalized = aliases[method] || method;
+                    switch (normalized) {
+                      case 'requestAccounts': return request('requestAccounts', params);
+                      case 'getAccounts': return request('getAccounts', params);
+                      case 'getNetwork': return request('getNetwork', params);
+                      case 'getPublicKey': return request('getPublicKey', params);
+                      case 'signMessage': return request('signMessage', Array.isArray(params) ? params[0] : params);
+                      case 'signPskt': {
+                        const value = Array.isArray(params) ? params[0] : params;
+                        return request('signPskt', value);
+                      }
+                      case 'submitTransaction': {
+                        const value = Array.isArray(params) ? params[0] : params;
+                        return request('submitTransaction', value);
+                      }
+                      default:
+                        return Promise.reject(Object.assign(new Error('Unsupported Kaspa Browser wallet method: ' + method), { code: 4200 }));
+                    }
+                  };
+                  const kaspireProvider = Object.freeze({
+                    isKaspire: false,
+                    isKaspaBrowser: true,
+                    version: '1.0.0',
+                    request: requestCompat,
+                    on: () => kaspireProvider,
+                    removeListener: () => kaspireProvider,
+                    ...browserProvider
+                  });
+                  const kasperiaProvider = Object.freeze({
+                    isKasperia: false,
+                    isKaspaBrowser: true,
+                    request: requestCompat,
+                    ...browserProvider
+                  });
+                  const installAlias = (name, value) => {
+                    try {
+                      if (!(name in window)) {
+                        Object.defineProperty(window, name, {
+                          configurable: false, enumerable: true, writable: false, value
+                        });
+                      }
+                    } catch (_) {}
+                  };
+                  installAlias('kastle', browserProvider);
+                  installAlias('kasware', browserProvider);
+                  installAlias('kaspire', kaspireProvider);
+                  installAlias('kasperia', kasperiaProvider);
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
                   });
