@@ -17,6 +17,7 @@ on:
 permissions:
   actions: read
   contents: read
+  security-events: read
 
 concurrency:
   group: security-audit-${{ github.workflow }}-${{ github.ref }}
