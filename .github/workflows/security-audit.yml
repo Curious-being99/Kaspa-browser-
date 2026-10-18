@@ -65,9 +65,15 @@ jobs:
         if: matrix.language == 'java-kotlin'
         run: yes | sdkmanager --licenses || true
 
+      - name: Set up Gradle for Kotlin and Java analysis
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '9.3.1'
+
       - name: Build Android app for CodeQL tracing
         if: matrix.language == 'java-kotlin'
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Set up Android SDK and NDK
         if: matrix.language == 'cpp'
