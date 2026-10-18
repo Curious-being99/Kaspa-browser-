@@ -102,10 +102,14 @@ jobs:
             -DANDROID_PLATFORM=android-24
           cmake --build "${RUNNER_TEMP}/native-mmap-cache-build" --parallel 2
 
+      - name: Prepare SARIF output directory
+        run: mkdir -p "${GITHUB_WORKSPACE}/results"
+
       - name: Analyze source without uploading to conflicting default Code Scanning setup
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
+          output: "${{ github.workspace }}/results"
           upload: false
 
       - name: Upload CodeQL SARIF reports as workflow artifact
