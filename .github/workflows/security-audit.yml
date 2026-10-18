@@ -113,8 +113,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: codeql-sarif-${{ matrix.language }}
-          path: results/${{ matrix.language }}.sarif
-          if-no-files-found: warn
+          path: results/*.sarif
+          if-no-files-found: error
           retention-days: 14
 
   rust-source:
