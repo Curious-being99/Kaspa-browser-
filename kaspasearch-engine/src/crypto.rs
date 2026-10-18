@@ -230,20 +230,9 @@ pub fn fill_csprng_bytes(buf: &mut [u8]) {
 /// The output is left uninitialized until the OS CSPRNG fills every byte, avoiding
 /// a zero-valued nonce ever being treated as valid cryptographic output.
 pub fn generate_nonce_96() -> [u8; 12] {
-    let mut nonce = std::mem::MaybeUninit::<[u8; 12]>::uninit();
-    let nonce_bytes = unsafe {
-        std::slice::from_raw_parts_mut(
-            nonce.as_mut_ptr().cast::<u8>(),
-            std::mem::size_of::<[u8; 12]>(),
-        )
-    };
-
-    // getrandom returns Ok only after filling the entire supplied buffer.
-    getrandom::getrandom(nonce_bytes)
-        .expect("operating-system CSPRNG unavailable; refusing insecure nonce");
-
-    // SAFETY: the successful getrandom call above initialized all 12 bytes.
-    unsafe { nonce.assume_init() }
+    let mut nonce = [0u8; 12];
+    fill_csprng_bytes(&mut nonce);
+    nonce
 }
 
 // ============================================================================
