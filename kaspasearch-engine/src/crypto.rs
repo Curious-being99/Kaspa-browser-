@@ -226,13 +226,12 @@ pub fn fill_csprng_bytes(buf: &mut [u8]) {
 }
 
 /// Generates a fresh 96-bit AEAD nonce directly from the operating-system CSPRNG.
-///
-/// The output is left uninitialized until the OS CSPRNG fills every byte, avoiding
-/// a zero-valued nonce ever being treated as valid cryptographic output.
 pub fn generate_nonce_96() -> [u8; 12] {
-    let mut nonce = [0u8; 12];
-    fill_csprng_bytes(&mut nonce);
-    nonce
+    let mut random_bytes = vec![0u8; 12];
+    fill_csprng_bytes(&mut random_bytes);
+    random_bytes
+        .try_into()
+        .expect("CSPRNG nonce buffer must contain exactly 12 bytes")
 }
 
 // ============================================================================
