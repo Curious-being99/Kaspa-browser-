@@ -52,6 +52,12 @@ val resolvedVersionName: String = run {
   "1.0.$gitCount"
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+  }
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -110,8 +116,8 @@ android {
     debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
   buildFeatures {
     compose = true
@@ -164,6 +170,16 @@ secrets {
 }
 
 dependencies {
+  implementation("org.web3j:core:4.12.3-android")
+  implementation("org.web3j:abi:4.12.3") {
+    exclude(group = "org.web3j", module = "utils")
+  }
+  implementation("org.web3j:crypto:4.12.3-android") {
+    exclude(group = "org.web3j", module = "utils")
+  }
+  implementation("org.web3j:utils:4.12.3-android")
+  implementation("org.web3j:rlp:4.12.3-android")
+  implementation("com.fasterxml.jackson.core:jackson-databind:2.17.1")
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.compose.material.icons.core)

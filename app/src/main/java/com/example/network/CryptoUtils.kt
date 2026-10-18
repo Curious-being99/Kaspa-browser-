@@ -905,12 +905,13 @@ object CryptoUtils {
     )
 
     fun generateMnemonic(): String {
-        val entropy = ByteArray(16) // 128 bits = 12 words
+        val entropy = ByteArray(16)
         java.security.SecureRandom().nextBytes(entropy)
-        return (0 until 12).map { i ->
-            val idx = ((entropy[i].toInt() and 0xff) + (entropy[(i + 1) % 16].toInt() and 0xff)) % MNEMONIC_WORDS.size
-            MNEMONIC_WORDS[idx]
-        }.joinToString(" ")
+        return try {
+            org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy)
+        } finally {
+            java.util.Arrays.fill(entropy, 0.toByte())
+        }
     }
 
     fun getDecryptedSeed(seedPhrase: String): String {

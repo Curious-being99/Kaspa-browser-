@@ -1,0 +1,591 @@
+package com.example.dapp
+
+import android.app.AlertDialog
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.webkit.WebView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import com.example.viewmodel.DecentralViewModel
+import org.json.JSONArray
+import org.json.JSONObject
+import java.math.BigInteger
+import java.net.URI
+import java.util.Locale
+import java.util.concurrent.Executors
+
+internal object EvmDappBridge {
+    private const val BRIDGE = "kaspaBrowserEvmBridge"
+    private const val PREFS = "evm_dapp_permissions"
+    private const val CHAIN_PREFS = "evm_dapp_chains"
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val executor = Executors.newSingleThreadExecutor()
+    private val readMethods = setOf(
+        "eth_blockNumber", "eth_getBalance", "eth_getCode", "eth_call",
+        "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas",
+        "eth_getTransactionCount", "eth_getBlockByNumber", "eth_getBlockByHash",
+        "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+        "eth_feeHistory", "eth_getStorageAt", "eth_chainId", "net_version",
+        "web3_clientVersion"
+    )
+
+    fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) ||
+            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) return
+        try {
+            WebViewCompat.addWebMessageListener(webView, BRIDGE, setOf("https://*")) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+                val origin = normalizeOrigin(sourceOrigin.toString())
+                if (!isMainFrame || origin == null || origin != normalizeOrigin(view.url.orEmpty())) return@addWebMessageListener
+                val request = try {
+                    val data = message.data ?: return@addWebMessageListener
+                    if (data.length > 512 * 1024) return@addWebMessageListener
+                    JSONObject(data)
+                } catch (_: Exception) { return@addWebMessageListener }
+                val requestId = request.opt("id") ?: JSONObject.NULL
+                val method = request.optString("method")
+                val params = request.optJSONArray("params") ?: JSONArray()
+                val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                val connected = prefs.getBoolean(origin, false)
+                val account = viewModel.activeAccount.value
+                val seedPhrase = account?.seedPhrase.orEmpty()
+                val accountId = account?.did?.takeIf { it.isNotBlank() } ?: account?.handle.orEmpty()
+                val passphraseLoad = runCatching {
+                    if (accountId.isBlank()) "" else EvmPassphraseVault.load(context, accountId)
+                }
+                val passphrase = passphraseLoad.getOrDefault("")
+                val standardMnemonic = runCatching { EvmWalletEngine.isStandardMnemonic(seedPhrase) }.getOrDefault(false)
+                val currentEvmAddress = if (seedPhrase.isNotBlank() && passphraseLoad.isSuccess && !standardMnemonic) {
+                    runCatching { EvmWalletEngine.address(seedPhrase, passphrase) }.getOrDefault("")
+                } else ""
+                val legacyPhraseUnconfirmed = seedPhrase.isNotBlank() && !standardMnemonic &&
+                    !runCatching {
+                        EvmPassphraseVault.isLegacyPhraseConfirmed(context, accountId, currentEvmAddress)
+                    }.getOrDefault(false)
+                val chainPrefs = context.getSharedPreferences(CHAIN_PREFS, Context.MODE_PRIVATE)
+                val walletNetworkPrefs = context.getSharedPreferences(EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
+                val selectedWalletChain = walletNetworkPrefs.getLong(EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
+                val chain = try {
+                    EvmWalletEngine.network(chainPrefs.getLong(origin, selectedWalletChain))
+                } catch (_: Exception) {
+                    EvmWalletEngine.network(selectedWalletChain)
+                }
+
+                fun respond(result: Any? = null, code: Int? = null, error: String? = null) {
+                    val envelope = JSONObject().put("id", requestId)
+                    if (code != null) envelope.put("error", JSONObject().put("code", code).put("message", error ?: "Request rejected"))
+                    else envelope.put("result", result ?: JSONObject.NULL)
+                    try { replyProxy.postMessage(envelope.toString()) } catch (_: Throwable) {}
+                }
+
+                fun rpc(network: EvmWalletEngine.Network, rpcMethod: String, rpcParams: JSONArray): Any? {
+                    val response = EvmWalletEngine.rpc(network, rpcMethod, rpcParams)
+                    return response.opt("result")
+                }
+
+                fun requestConnection() {
+                    if (legacyPhraseUnconfirmed) {
+                        respond(code = 4100, error = "Review and confirm the derived legacy EVM address in wallet settings before connecting dApps")
+                        return
+                    }
+                    if (passphraseLoad.isFailure) {
+                        respond(code = 4100, error = "Saved EVM passphrase is unavailable. Open wallet settings and re-enter it.")
+                        return
+                    }
+                    if (seedPhrase.isBlank()) {
+                        respond(code = 4100, error = "No active wallet is available")
+                        return
+                    }
+                    val evmAddress = try { EvmWalletEngine.address(seedPhrase, passphrase) } catch (e: Throwable) {
+                        respond(code = 4100, error = e.message ?: "EVM account derivation failed")
+                        return
+                    }
+                    if (connected) {
+                        respond(JSONArray().put(evmAddress))
+                        return
+                    }
+                    mainHandler.post {
+                        AlertDialog.Builder(context)
+                            .setTitle("Connect EVM wallet?")
+                            .setMessage("$origin wants to view your EVM address on ${chain.name}. Connecting does not authorize signing or spending.")
+                            .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected wallet connection") }
+                            .setPositiveButton("Connect") { _, _ ->
+                                prefs.edit().putBoolean(origin, true).apply()
+                                respond(JSONArray().put(evmAddress))
+                            }
+                            .setOnCancelListener { respond(code = 4001, error = "User rejected wallet connection") }
+                            .show()
+                    }
+                }
+
+                when (method) {
+                    "eth_requestAccounts" -> requestConnection()
+                    "eth_accounts" -> {
+                        if (legacyPhraseUnconfirmed) respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before connecting dApps")
+                        else if (passphraseLoad.isFailure) respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                        else if (!connected || seedPhrase.isBlank()) respond(JSONArray())
+                        else try { respond(JSONArray().put(EvmWalletEngine.address(seedPhrase, passphrase))) }
+                        catch (e: Throwable) { respond(code = 4100, error = e.message ?: "EVM account unavailable") }
+                    }
+                    "eth_chainId" -> respond(chain.chainIdHex)
+                    "net_version" -> respond(chain.chainId.toString())
+                    "wallet_switchEthereumChain" -> {
+                        val first = params.optJSONObject(0)
+                        val requested = first?.optString("chainId").orEmpty()
+                        val target = try { EvmWalletEngine.networkFromHex(requested) } catch (_: Throwable) {
+                            respond(code = 4902, error = "Only Kasplex Mainnet and Igra Mainnet are supported")
+                            return@addWebMessageListener
+                        }
+                        mainHandler.post {
+                            AlertDialog.Builder(context)
+                                .setTitle("Switch EVM network?")
+                                .setMessage("Allow $origin to switch to ${target.name} (chain ID ${target.chainId})?")
+                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected network switch") }
+                                .setPositiveButton("Switch") { _, _ ->
+                                    chainPrefs.edit().putLong(origin, target.chainId).apply()
+                                    walletNetworkPrefs.edit().putLong(EvmWalletEngine.WALLET_NETWORK_KEY, target.chainId).apply()
+                                    respond(JSONObject.NULL)
+                                    try {
+                                        replyProxy.postMessage(JSONObject().put("event", "chainChanged").put("chainId", target.chainIdHex).toString())
+                                    } catch (_: Throwable) {}
+                                }
+                                .setOnCancelListener { respond(code = 4001, error = "User rejected network switch") }
+                                .show()
+                        }
+                    }
+                    "wallet_addEthereumChain" -> {
+                        val requested = params.optJSONObject(0)?.optString("chainId").orEmpty()
+                        val target = try { EvmWalletEngine.networkFromHex(requested) } catch (_: Throwable) {
+                            respond(code = 4902, error = "Custom EVM networks are disabled")
+                            return@addWebMessageListener
+                        }
+                        respond(code = 4902, error = "${target.name} is built in; use wallet_switchEthereumChain")
+                    }
+                    "personal_sign" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
+                        if (!connected) {
+                            respond(code = 4100, error = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val messageHex = params.optString(0)
+                        val requestedAddress = params.optString(1).lowercase(Locale.ROOT)
+                        val address = try { EvmWalletEngine.address(seedPhrase, passphrase) } catch (e: Throwable) {
+                            respond(code = 4100, error = e.message ?: "EVM account unavailable")
+                            return@addWebMessageListener
+                        }
+                        if (requestedAddress != address.lowercase(Locale.ROOT) || !messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){0,8192}"))) {
+                            respond(code = -32602, error = "Invalid address or message encoding")
+                            return@addWebMessageListener
+                        }
+                        val messageBytes = try { org.web3j.utils.Numeric.hexStringToByteArray(messageHex) } catch (_: Throwable) {
+                            respond(code = -32602, error = "Invalid message encoding")
+                            return@addWebMessageListener
+                        }
+                        val messageText = String(messageBytes, Charsets.UTF_8)
+                        mainHandler.post {
+                            AlertDialog.Builder(context)
+                                .setTitle("Sign EVM message?")
+                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nMessage:\n$messageText")
+                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected message signature") }
+                                .setPositiveButton("Sign message") { _, _ ->
+                                    executor.execute {
+                                        try { val sig = EvmWalletEngine.signPersonalMessageHex(seedPhrase, messageHex, passphrase); mainHandler.post { respond(sig) } }
+                                        catch (e: Throwable) { mainHandler.post { respond(code = -32603, error = e.message ?: "Signing failed") } }
+                                    }
+                                }
+                                .setOnCancelListener { respond(code = 4001, error = "User rejected message signature") }
+                                .show()
+                        }
+                    }
+                    "eth_sign" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
+                        if (!connected) {
+                            respond(code = 4100, error = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val requestedAddress = params.optString(0).lowercase(Locale.ROOT)
+                        val messageHex = params.optString(1)
+                        val address = try { EvmWalletEngine.address(seedPhrase, passphrase) } catch (e: Throwable) {
+                            respond(code = 4100, error = e.message ?: "EVM account unavailable")
+                            return@addWebMessageListener
+                        }
+                        if (requestedAddress != address.lowercase(Locale.ROOT) ||
+                            !messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){1,8192}"))
+                        ) {
+                            respond(code = -32602, error = "Invalid address or eth_sign message encoding")
+                            return@addWebMessageListener
+                        }
+                        mainHandler.post {
+                            AlertDialog.Builder(context)
+                                .setTitle("Review raw-hash signature")
+                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nThis signs the Keccak-256 hash of the supplied bytes without the personal-message prefix. Only continue if you trust the requesting site.\n\nMessage bytes: $messageHex")
+                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected eth_sign") }
+                                .setPositiveButton("Sign hash") { _, _ ->
+                                    executor.execute {
+                                        try {
+                                            val signature = EvmWalletEngine.signEthMessage(seedPhrase, messageHex, passphrase)
+                                            mainHandler.post { respond(signature) }
+                                        } catch (e: Throwable) {
+                                            mainHandler.post { respond(code = -32603, error = e.message ?: "eth_sign failed") }
+                                        }
+                                    }
+                                }
+                                .setOnCancelListener { respond(code = 4001, error = "User rejected eth_sign") }
+                                .show()
+                        }
+                    }
+                    "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
+                        if (!connected) {
+                            respond(code = 4100, error = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val requestedAddress = params.optString(0).lowercase(Locale.ROOT)
+                        val typedData = params.optString(1)
+                        if (typedData.isBlank() || typedData.length > 32768) {
+                            respond(code = -32602, error = "Typed-data payload is empty or too large")
+                            return@addWebMessageListener
+                        }
+                        val address = try { EvmWalletEngine.address(seedPhrase, passphrase) } catch (e: Throwable) {
+                            respond(code = 4100, error = e.message ?: "EVM account unavailable")
+                            return@addWebMessageListener
+                        }
+                        if (requestedAddress != address.lowercase(Locale.ROOT)) {
+                            respond(code = -32602, error = "Requested account does not match the active EVM account")
+                            return@addWebMessageListener
+                        }
+                        val typedObject = try { JSONObject(typedData) } catch (_: Throwable) {
+                            respond(code = -32602, error = "Invalid EIP-712 JSON")
+                            return@addWebMessageListener
+                        }
+                        if (method == "eth_signTypedData_v3") {
+                            val types = typedObject.optJSONObject("types")
+                            var hasArrayField = false
+                            if (types != null) {
+                                val typeNames = types.keys()
+                                while (typeNames.hasNext()) {
+                                    val fields = types.optJSONArray(typeNames.next()) ?: continue
+                                    for (fieldIndex in 0 until fields.length()) {
+                                        val fieldType = fields.optJSONObject(fieldIndex)?.optString("type").orEmpty()
+                                        if (fieldType.contains("[")) {
+                                            hasArrayField = true
+                                            break
+                                        }
+                                    }
+                                    if (hasArrayField) break
+                                }
+                            }
+                            if (hasArrayField) {
+                                respond(code = -32602, error = "EIP-712 v3 does not support array fields; use eth_signTypedData_v4")
+                                return@addWebMessageListener
+                            }
+                        }
+                        val domainChainId = typedObject.optJSONObject("domain")?.opt("chainId")
+                        if (domainChainId != null) {
+                            val id = try {
+                                val raw = domainChainId.toString()
+                                if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16).longValueExact() else BigInteger(raw).longValueExact()
+                            } catch (_: Throwable) {
+                                respond(code = -32602, error = "Invalid EIP-712 domain chain ID")
+                                return@addWebMessageListener
+                            }
+                            if (id != chain.chainId) {
+                                respond(code = 4901, error = "Typed-data domain chain ID does not match the selected network")
+                                return@addWebMessageListener
+                            }
+                        }
+                        mainHandler.post {
+                            AlertDialog.Builder(context)
+                                .setTitle("Review EIP-712 signature")
+                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nReview the typed-data domain and message carefully before signing:\n$typedData")
+                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected typed-data signature") }
+                                .setPositiveButton("Sign typed data") { _, _ ->
+                                    executor.execute {
+                                        try {
+                                            val signature = EvmWalletEngine.signTypedData(seedPhrase, typedData, passphrase)
+                                            mainHandler.post { respond(signature) }
+                                        } catch (e: Throwable) {
+                                            mainHandler.post { respond(code = -32603, error = e.message ?: "Typed-data signing failed") }
+                                        }
+                                    }
+                                }
+                                .setOnCancelListener { respond(code = 4001, error = "User rejected typed-data signature") }
+                                .show()
+                        }
+                    }
+                    "eth_sendTransaction", "eth_signTransaction" -> {
+                        if (legacyPhraseUnconfirmed) {
+                            respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
+                            return@addWebMessageListener
+                        }
+                        if (passphraseLoad.isFailure) {
+                            respond(code = 4100, error = "Saved EVM passphrase is unavailable. Re-enter it in wallet settings.")
+                            return@addWebMessageListener
+                        }
+                        if (!connected) {
+                            respond(code = 4100, error = "Connect this site first")
+                            return@addWebMessageListener
+                        }
+                        val txInput = params.optJSONObject(0)
+                        if (txInput == null) {
+                            respond(code = -32602, error = "Transaction object is required")
+                            return@addWebMessageListener
+                        }
+                        if (!txInput.optString("to").matches(Regex("0x[0-9a-fA-F]{40}"))) {
+                            respond(code = -32602, error = "Contract creation and invalid destination addresses are not supported")
+                            return@addWebMessageListener
+                        }
+                        val has1559Fee = txInput.has("maxFeePerGas") || txInput.has("maxPriorityFeePerGas")
+                        val hasBoth1559Fees = txInput.has("maxFeePerGas") && txInput.has("maxPriorityFeePerGas")
+                        val requestedType = txInput.optString("type").lowercase(Locale.ROOT)
+                        if (requestedType.isNotBlank() && requestedType !in setOf("0x0", "0", "0x2", "2")) {
+                            respond(code = -32602, error = "Only legacy type-0 and EIP-1559 type-2 transactions are supported")
+                            return@addWebMessageListener
+                        }
+                        if (has1559Fee && !hasBoth1559Fees) {
+                            respond(code = -32602, error = "EIP-1559 transactions require both maxFeePerGas and maxPriorityFeePerGas")
+                            return@addWebMessageListener
+                        }
+                        if (requestedType in setOf("0x2", "2") && !hasBoth1559Fees) {
+                            respond(code = -32602, error = "Type-2 transactions must include both EIP-1559 fee fields")
+                            return@addWebMessageListener
+                        }
+                        if (has1559Fee && requestedType in setOf("0x0", "0")) {
+                            respond(code = -32602, error = "Legacy type-0 transactions cannot include EIP-1559 fee fields")
+                            return@addWebMessageListener
+                        }
+                        executor.execute {
+                            try {
+                                val address = EvmWalletEngine.address(seedPhrase, passphrase)
+                                val tx = JSONObject(txInput.toString())
+                                val from = tx.optString("from", address).lowercase(Locale.ROOT)
+                                require(from == address.lowercase(Locale.ROOT)) { "Transaction sender does not match the active EVM account" }
+                                if (tx.has("chainId")) {
+                                    val requestedChain = tx.optString("chainId")
+                                    val txChain = if (requestedChain.startsWith("0x", true)) {
+                                        BigInteger(requestedChain.substring(2), 16).longValueExact()
+                                    } else {
+                                        requestedChain.toLong()
+                                    }
+                                    require(txChain == chain.chainId) { "Transaction chain ID does not match the selected network" }
+                                }
+                                tx.put("from", address)
+                                if (!tx.has("nonce")) tx.put("nonce", rpc(chain, "eth_getTransactionCount", JSONArray().put(address).put("pending")).toString())
+                                if (!tx.has("gas") && !tx.has("gasLimit")) tx.put("gas", rpc(chain, "eth_estimateGas", JSONArray().put(tx).put("latest")).toString())
+                                if (!tx.has("gas") && tx.has("gasLimit")) tx.put("gas", tx.get("gasLimit"))
+                                if (!has1559Fee && !tx.has("gasPrice")) tx.put("gasPrice", rpc(chain, "eth_gasPrice", JSONArray()).toString())
+                                val gas = tx.optString("gas", tx.optString("gasLimit", "unknown"))
+                                val value = tx.optString("value", "0x0")
+                                val to = tx.optString("to", "")
+                                val feePerGas = if (has1559Fee) tx.optString("maxFeePerGas") else tx.optString("gasPrice")
+                                val feeLabel = if (has1559Fee) "Max fee per gas (wei)" else "Gas price (wei)"
+                                fun quantity(raw: String): BigInteger =
+                                    if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16) else BigInteger(raw)
+                                val maximumFeeAmount = runCatching { quantity(gas) * quantity(feePerGas) }.getOrNull()
+                                val maximumFee = maximumFeeAmount?.toString() ?: "Unavailable"
+                                val txValue = runCatching { quantity(value) }.getOrElse {
+                                    mainHandler.post { respond(code = -32602, error = "Invalid transaction value") }
+                                    return@execute
+                                }
+                                val nativeBalance = try {
+                                    quantity(rpc(chain, "eth_getBalance", JSONArray().put(address).put("pending")).toString())
+                                } catch (e: Throwable) {
+                                    mainHandler.post { respond(code = -32603, error = "Could not verify ${chain.currency} balance for network fees: ${e.message ?: "RPC request failed"}") }
+                                    return@execute
+                                }
+                                val requiredMaximum = maximumFeeAmount?.add(txValue)
+                                if (requiredMaximum == null) {
+                                    mainHandler.post { respond(code = -32602, error = "Unable to calculate the maximum transaction cost") }
+                                    return@execute
+                                }
+                                if (nativeBalance < requiredMaximum) {
+                                    val balanceNative = java.math.BigDecimal(nativeBalance).movePointLeft(18).stripTrailingZeros().toPlainString()
+                                    val requiredNative = java.math.BigDecimal(requiredMaximum).movePointLeft(18).stripTrailingZeros().toPlainString()
+                                    mainHandler.post {
+                                        respond(code = -32000, error = "Insufficient ${chain.currency} on ${chain.name}. Balance: $balanceNative ${chain.currency}; maximum required including value and network fee: $requiredNative ${chain.currency}. Fund this network's native gas token before retrying.")
+                                    }
+                                    return@execute
+                                }
+                                mainHandler.post {
+                                    AlertDialog.Builder(context)
+                                        .setTitle("Review EVM transaction")
+                                        .setMessage("Website: $origin\nNetwork: ${chain.name}\nGas token: ${chain.currency}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n$feeLabel: $feePerGas\nMaximum network fee (wei): $maximumFee\n\nYou need enough ${chain.currency} in this EVM account to cover the network fee and transaction value. Token/NFT holdings alone do not pay gas. Contract calls can transfer tokens or NFTs and may be irreversible.")
+                                        .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected transaction") }
+                                        .setPositiveButton(if (method == "eth_signTransaction") "Sign transaction" else "Sign & send") { _, _ ->
+                                            executor.execute {
+                                                try {
+                                                    val raw = EvmWalletEngine.signTransaction(seedPhrase, chain, tx, passphrase)
+                                                    if (method == "eth_signTransaction") {
+                                                        mainHandler.post { respond(raw) }
+                                                    } else {
+                                                        val hash = rpc(chain, "eth_sendRawTransaction", JSONArray().put(raw))
+                                                        mainHandler.post { respond(hash) }
+                                                    }
+                                                } catch (e: Throwable) {
+                                                    mainHandler.post { respond(code = -32603, error = e.message ?: "Transaction signing or submission failed") }
+                                                }
+                                            }
+                                        }
+                                        .setOnCancelListener { respond(code = 4001, error = "User rejected transaction") }
+                                        .show()
+                                }
+                            } catch (e: Throwable) {
+                                mainHandler.post { respond(code = -32602, error = e.message ?: "Transaction preparation failed") }
+                            }
+                        }
+                    }
+                    "eth_sendRawTransaction" ->
+                        respond(code = 4200, error = "Raw transaction submission is disabled; use the wallet-approved transaction flow")
+                    else -> {
+                        if (method !in readMethods) {
+                            respond(code = -32601, error = "Unsupported EVM provider method")
+                            return@addWebMessageListener
+                        }
+                        executor.execute {
+                            try { val result = rpc(chain, method, params); mainHandler.post { respond(result) } }
+                            catch (e: Throwable) { mainHandler.post { respond(code = -32603, error = e.message ?: "EVM RPC request failed") } }
+                        }
+                    }
+                }
+            }
+
+            val script = """
+                (() => {
+                  if (window.__kaspaBrowserEthereumInstalled) return;
+                  window.__kaspaBrowserEthereumInstalled = true;
+                  const pending = new Map();
+                  const listeners = new Map();
+                  let nextId = 1;
+                  let currentChainId = null;
+                  let currentAccounts = [];
+                  const channel = window.$BRIDGE;
+                  if (!channel || typeof channel.postMessage !== 'function') return;
+                  const emit = (name, value) => window.dispatchEvent(new CustomEvent(name, { detail: value }));
+                  channel.addEventListener('message', event => {
+                    let response;
+                    try { response = JSON.parse(event.data); } catch (_) { return; }
+                    if (response.event === 'chainChanged') {
+                      currentChainId = response.chainId;
+                      emit('chainChanged', currentChainId);
+                      return;
+                    }
+                    const entry = pending.get(String(response.id));
+                    if (!entry) return;
+                    pending.delete(String(response.id));
+                    if (response.error) {
+                      const error = new Error(response.error.message || 'Wallet request failed');
+                      error.code = response.error.code;
+                      entry.reject(error);
+                    } else {
+                      if (entry.method === 'wallet_switchEthereumChain') {
+                        currentChainId = entry.chainId;
+                        emit('chainChanged', currentChainId);
+                      }
+                      if (entry.method === 'eth_requestAccounts' || entry.method === 'eth_accounts') {
+                        currentAccounts = Array.isArray(response.result) ? response.result : [];
+                        emit('accountsChanged', currentAccounts);
+                      }
+                      if (entry.method === 'eth_chainId') currentChainId = response.result;
+                      if (entry.method === 'eth_requestAccounts') {
+                        if (currentChainId) emit('connect', {chainId: currentChainId});
+                        else request({method: 'eth_chainId'}).then(chainId => {
+                          currentChainId = chainId;
+                          emit('connect', {chainId});
+                        }).catch(() => {});
+                      }
+                      entry.resolve(response.result);
+                    }
+                  });
+                  const request = ({method, params = []}) => new Promise((resolve, reject) => {
+                    const id = String(nextId++);
+                    const entry = {resolve, reject, method};
+                    if (method === 'wallet_switchEthereumChain' && params[0]) entry.chainId = params[0].chainId;
+                    pending.set(id, entry);
+                    try { channel.postMessage(JSON.stringify({id, method, params})); }
+                    catch (error) { pending.delete(id); reject(error); }
+                  });
+                  const ethereum = {
+                    isKaspaBrowser: true,
+                    isMetaMask: false,
+                    request,
+                    enable: () => request({method: 'eth_requestAccounts'}),
+                    sendAsync: (payload, callback) => request(payload).then(result => callback(null, {id: payload.id, jsonrpc: '2.0', result})).catch(error => callback(error, null)),
+                    send: (methodOrPayload, params) => typeof methodOrPayload === 'string' ? request({method: methodOrPayload, params: params || []}) : request(methodOrPayload),
+                    on: (event, listener) => {
+                      if (typeof listener !== 'function') return ethereum;
+                      const wrapped = e => listener(e.detail);
+                      if (!listeners.has(event)) listeners.set(event, new Map());
+                      listeners.get(event).set(listener, wrapped);
+                      window.addEventListener(event, wrapped);
+                      return ethereum;
+                    },
+                    removeListener: (event, listener) => {
+                      const group = listeners.get(event);
+                      const wrapped = group && group.get(listener);
+                      if (wrapped) {
+                        window.removeEventListener(event, wrapped);
+                        group.delete(listener);
+                      }
+                      return ethereum;
+                    },
+                    off: (event, listener) => ethereum.removeListener(event, listener)
+                  };
+                  Object.defineProperties(ethereum, {
+                    selectedAddress: { enumerable: true, get: () => currentAccounts[0] || null },
+                    chainId: { enumerable: true, get: () => currentChainId },
+                    networkVersion: { enumerable: true, get: () => currentChainId ? String(parseInt(currentChainId, 16)) : null }
+                  });
+                  Object.defineProperty(window, 'kaspaBrowser', {configurable: false, enumerable: true, writable: false, value: ethereum});
+                  Object.defineProperty(window, 'ethereum', {configurable: false, enumerable: true, writable: false, value: ethereum});
+                  const providerInfo = Object.freeze({
+                    uuid: 'UUID_PLACEHOLDER',
+                    name: 'Kaspa Browser',
+                    icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='20' fill='%2370C7BA'/%3E%3Cpath d='M24 24h48v14H38v10h28v14H38v10H24z' fill='%230b1720'/%3E%3C/svg%3E",
+                    rdns: 'xyz.kaspabrowser'
+                  });
+                  const announceProvider = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', {
+                    detail: Object.freeze({info: providerInfo, provider: ethereum})
+                  }));
+                  window.addEventListener('eip6963:requestProvider', announceProvider);
+                  announceProvider();
+                  request({method: 'eth_chainId'}).catch(() => {});
+                  window.dispatchEvent(new Event('ethereum#initialized'));
+                })();
+            """.trimIndent().replace("UUID_PLACEHOLDER", java.util.UUID.randomUUID().toString())
+            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
+        } catch (_: Throwable) {
+            // EVM provider stays unavailable if secure WebView messaging is unsupported.
+        }
+    }
+
+    private fun normalizeOrigin(value: String): String? {
+        val uri = try { URI(value) } catch (_: Exception) { return null }
+        if (!uri.scheme.equals("https", true) || uri.rawUserInfo != null) return null
+        val host = uri.host?.takeIf { it.isNotBlank() } ?: return null
+        if (uri.port == 0 || uri.port > 65535 || uri.port < -1) return null
+        return if (uri.port == -1 || uri.port == 443) "https://${host.lowercase(Locale.ROOT)}"
+        else "https://${host.lowercase(Locale.ROOT)}:${uri.port}"
+    }
+}

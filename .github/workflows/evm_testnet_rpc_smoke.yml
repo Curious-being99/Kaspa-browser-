@@ -1,0 +1,61 @@
+name: EVM Testnet RPC Smoke Checks
+
+on:
+  push:
+    branches:
+      - draft/evm-kasplex-igra-provider-clean
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testnet-rpc:
+    name: Verify ${{ matrix.network }} Testnet RPC
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - network: Kasplex Testnet
+            rpc_url: https://rpc.kasplextest.xyz
+            expected_chain_id: "0x28c64"
+          - network: Igra Galleon Testnet
+            rpc_url: https://galleon-testnet.igralabs.com:8545
+            expected_chain_id: "0x97b4"
+    steps:
+      - name: Verify chain ID, block height, and read-only account query
+        env:
+          RPC_URL: ${{ matrix.rpc_url }}
+          EXPECTED_CHAIN_ID: ${{ matrix.expected_chain_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rpc() {
+            local method="$1"
+            local params="$2"
+            curl --fail --silent --show-error --max-time 20 \
+              -H 'content-type: application/json' \
+              --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
+              "$RPC_URL"
+          }
+          chain_response="$(rpc eth_chainId '[]')"
+          actual_chain_id="$(jq -er '.result | strings' <<< "$chain_response")"
+          if [[ "${actual_chain_id,,}" != "${EXPECTED_CHAIN_ID,,}" ]]; then
+            echo "Chain ID mismatch: expected $EXPECTED_CHAIN_ID, got $actual_chain_id"
+            exit 1
+          fi
+          block_response="$(rpc eth_blockNumber '[]')"
+          block_number="$(jq -er '.result | strings' <<< "$block_response")"
+          if [[ ! "$block_number" =~ ^0x[0-9a-fA-F]+$ ]] || (( 16#${block_number#0x} < 1 )); then
+            echo "Invalid or unavailable block height: $block_number"
+            exit 1
+          fi
+          balance_response="$(rpc eth_getBalance '["0x0000000000000000000000000000000000000000","latest"]')"
+          jq -e '.result | strings | test("^0x[0-9a-fA-F]+$")' <<< "$balance_response" >/dev/null
+          echo "Verified chain ID $actual_chain_id, block height $block_number, and eth_getBalance response."
