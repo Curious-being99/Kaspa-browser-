@@ -34,7 +34,7 @@ jobs:
           - language: java-kotlin
             build-mode: autobuild
           - language: cpp
-            build-mode: autobuild
+            build-mode: manual
           - language: python
             build-mode: none
           - language: actions
@@ -42,6 +42,13 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Set up Java for Android build
+        if: matrix.language == 'cpp' || matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -53,6 +60,14 @@ jobs:
       - name: Autobuild compiled source
         if: matrix.build-mode == 'autobuild'
         uses: github/codeql-action/autobuild@v4
+
+      - name: Build Android project while tracing C++ compilation
+        if: matrix.language == 'cpp'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --no-daemon :app:assembleDebug
 
       - name: Analyze source without uploading to conflicting default Code Scanning setup
         uses: github/codeql-action/analyze@v4
