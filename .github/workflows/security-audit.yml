@@ -32,7 +32,7 @@ jobs:
       matrix:
         include:
           - language: java-kotlin
-            build-mode: autobuild
+            build-mode: manual
           - language: cpp
             build-mode: manual
           - language: actions
@@ -55,9 +55,19 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
 
-      - name: Autobuild compiled source
-        if: matrix.build-mode == 'autobuild'
-        uses: github/codeql-action/autobuild@v4
+      - name: Set up Android SDK for Kotlin and Java analysis
+        if: matrix.language == 'java-kotlin'
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Accept Android SDK licenses
+        if: matrix.language == 'java-kotlin'
+        run: yes | sdkmanager --licenses || true
+
+      - name: Build Android app for CodeQL tracing
+        if: matrix.language == 'java-kotlin'
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Set up Android SDK and NDK
         if: matrix.language == 'cpp'
