@@ -27,7 +27,9 @@ internal object EvmWalletEngine {
 
     val networks = listOf(
         Network(202555L, "Kasplex Mainnet", "https://evmrpc.kasplex.org", "KAS", "https://explorer.kasplex.org"),
-        Network(38833L, "Igra Mainnet", "https://rpc.igralabs.com:8545", "iKAS", "https://tidx.igralabs.com/explore")
+        Network(38833L, "Igra Mainnet", "https://rpc.igralabs.com:8545", "iKAS", "https://tidx.igralabs.com/explore"),
+        Network(167012L, "Kasplex Testnet", "https://rpc.kasplextest.xyz", "tKAS"),
+        Network(38836L, "Igra Galleon Testnet", "https://galleon-testnet.igralabs.com:8545", "iKAS")
     )
 
     const val ACCOUNT_PATH = "m/44'/60'/0'/0/0"
