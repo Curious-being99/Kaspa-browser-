@@ -59,12 +59,19 @@ jobs:
         if: matrix.build-mode == 'autobuild'
         uses: github/codeql-action/autobuild@v4
 
+      - name: Set up Android SDK and NDK
+        if: matrix.language == 'cpp'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK and CMake
+        if: matrix.language == 'cpp'
+        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
+
       - name: Build native C++ library with Android NDK
         if: matrix.language == 'cpp'
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
           ndk_dir="${ANDROID_SDK_ROOT}/ndk/27.2.12479018"
           cmake -S app/src/main/cpp -B "${RUNNER_TEMP}/native-mmap-cache-build" \
             -DCMAKE_TOOLCHAIN_FILE="${ndk_dir}/build/cmake/android.toolchain.cmake" \
