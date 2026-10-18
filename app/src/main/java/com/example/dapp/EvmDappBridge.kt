@@ -401,15 +401,37 @@ internal object EvmDappBridge {
                                 val to = tx.optString("to", "")
                                 val feePerGas = if (has1559Fee) tx.optString("maxFeePerGas") else tx.optString("gasPrice")
                                 val feeLabel = if (has1559Fee) "Max fee per gas (wei)" else "Gas price (wei)"
-                                val maximumFee = runCatching {
-                                    fun quantity(raw: String): BigInteger =
-                                        if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16) else BigInteger(raw)
-                                    quantity(gas) * quantity(feePerGas)
-                                }.getOrNull()?.toString() ?: "Unavailable"
+                                fun quantity(raw: String): BigInteger =
+                                    if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16) else BigInteger(raw)
+                                val maximumFeeAmount = runCatching { quantity(gas) * quantity(feePerGas) }.getOrNull()
+                                val maximumFee = maximumFeeAmount?.toString() ?: "Unavailable"
+                                val txValue = runCatching { quantity(value) }.getOrElse {
+                                    mainHandler.post { respond(code = -32602, error = "Invalid transaction value") }
+                                    return@execute
+                                }
+                                val nativeBalance = try {
+                                    quantity(rpc(chain, "eth_getBalance", JSONArray().put(address).put("pending")).toString())
+                                } catch (e: Throwable) {
+                                    mainHandler.post { respond(code = -32603, error = "Could not verify ${chain.currency} balance for network fees: ${e.message ?: "RPC request failed"}") }
+                                    return@execute
+                                }
+                                val requiredMaximum = maximumFeeAmount?.add(txValue)
+                                if (requiredMaximum == null) {
+                                    mainHandler.post { respond(code = -32602, error = "Unable to calculate the maximum transaction cost") }
+                                    return@execute
+                                }
+                                if (nativeBalance < requiredMaximum) {
+                                    val balanceNative = java.math.BigDecimal(nativeBalance).movePointLeft(18).stripTrailingZeros().toPlainString()
+                                    val requiredNative = java.math.BigDecimal(requiredMaximum).movePointLeft(18).stripTrailingZeros().toPlainString()
+                                    mainHandler.post {
+                                        respond(code = -32000, error = "Insufficient ${chain.currency} on ${chain.name}. Balance: $balanceNative ${chain.currency}; maximum required including value and network fee: $requiredNative ${chain.currency}. Fund this network's native gas token before retrying.")
+                                    }
+                                    return@execute
+                                }
                                 mainHandler.post {
                                     AlertDialog.Builder(context)
                                         .setTitle("Review EVM transaction")
-                                        .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n$feeLabel: $feePerGas\nMaximum network fee (wei): $maximumFee\n\nContract calls can transfer tokens or NFTs and may be irreversible.")
+                                        .setMessage("Website: $origin\nNetwork: ${chain.name}\nGas token: ${chain.currency}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n$feeLabel: $feePerGas\nMaximum network fee (wei): $maximumFee\n\nYou need enough ${chain.currency} in this EVM account to cover the network fee and transaction value. Token/NFT holdings alone do not pay gas. Contract calls can transfer tokens or NFTs and may be irreversible.")
                                         .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected transaction") }
                                         .setPositiveButton(if (method == "eth_signTransaction") "Sign transaction" else "Sign & send") { _, _ ->
                                             executor.execute {
