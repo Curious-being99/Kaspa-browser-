@@ -227,9 +227,11 @@ pub fn fill_csprng_bytes(buf: &mut [u8]) {
 
 /// Generates a fresh 96-bit AEAD nonce directly from the operating-system CSPRNG.
 pub fn generate_nonce_96() -> [u8; 12] {
-    let mut nonce = [0u8; 12];
+    let mut nonce = vec![0u8; 12];
     fill_csprng_bytes(&mut nonce);
     nonce
+        .try_into()
+        .expect("nonce length invariant violated: expected 12 bytes")
 }
 
 // ============================================================================
