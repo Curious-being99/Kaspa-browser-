@@ -69,6 +69,24 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  rust-source:
+    name: Rust source security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Scan Rust and shared source with Semgrep
+        run: |
+          python -m pip install --disable-pip-version-check semgrep
+          semgrep scan --config p/rust --config p/security-audit --metrics=off --error .
+
   rust-dependencies:
     name: Rust dependency vulnerability audit
     runs-on: ubuntu-latest
@@ -91,7 +109,6 @@ jobs:
           fi
           cargo install cargo-audit --locked
           for lockfile in "${lockfiles[@]}"; do
-            manifest_dir="$(dirname "$lockfile")"
-            echo "Auditing Rust dependencies in $manifest_dir"
+            echo "Auditing Rust dependencies in $(dirname "$lockfile")"
             cargo audit --file "$lockfile"
           done
