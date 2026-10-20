@@ -816,101 +816,56 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     fun executeInPageTranslation(targetLang: String) {
-        val targetWebView = webViewInstance ?: return
-        isTranslating = true
-        selectedTargetLanguage = targetLang
-        viewModel.setStatusMessage("Translating page into ${SupportedLanguage.fromCode(targetLang).name}...")
-
-        val cleanLang = targetLang.replace("'", "").replace("\"", "").trim()
-        val script = """
-            (function() {
-                var target = '$cleanLang';
-                var combo = document.querySelector('.goog-te-combo');
-                if (combo) {
-                    combo.value = target;
-                    combo.dispatchEvent(new Event('change'));
-                    return true;
-                }
-                if (!document.getElementById('kaspa-translate-script')) {
-                    var s = document.createElement('script');
-                    s.id = 'kaspa-translate-script';
-                    s.type = 'text/javascript';
-                    s.src = 'https://translate.google.com/translate_a/element.js?cb=kaspaTranslateInitCallback';
-                    window.kaspaTranslateInitCallback = function() {
-                        try {
-                            new google.translate.TranslateElement({
-                                pageLanguage: 'auto',
-                                layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                                autoDisplay: false
-                            }, 'kaspa_translate_element');
-                            setTimeout(function() {
-                                var c = document.querySelector('.goog-te-combo');
-                                if (c) {
-                                    c.value = target;
-                                    c.dispatchEvent(new Event('change'));
-                                }
-                            }, 400);
-                        } catch (e) {}
-                    };
-                    var d = document.createElement('div');
-                    d.id = 'kaspa_translate_element';
-                    d.style.position = 'fixed';
-                    d.style.top = '-9999px';
-                    d.style.left = '-9999px';
-                    d.style.opacity = '0';
-                    d.style.pointerEvents = 'none';
-                    document.body.appendChild(d);
-                    document.body.appendChild(s);
-                }
-                return true;
-            })();
-        """.trimIndent()
-
-        targetWebView.evaluateJavascript(script) {
-            isTranslating = false
-            isPageTranslated = true
-            viewModel.setStatusMessage("Page translated into ${SupportedLanguage.fromCode(targetLang).name}")
-        }
+        openWebTranslateGateway(targetLang)
     }
 
     fun revertPageTranslation() {
-        val targetWebView = webViewInstance ?: return
-        isTranslating = true
-        viewModel.setStatusMessage("Reverting page translation...")
-        val script = """
-            (function() {
-                try {
-                    var iframe = document.querySelector('.goog-te-banner-frame');
-                    if (iframe) {
-                        var innerDoc = iframe.contentDocument || iframe.contentWindow.document;
-                        var restoreBtn = innerDoc.getElementById(':1.restore') || innerDoc.querySelector('button');
-                        if (restoreBtn) restoreBtn.click();
-                    }
-                } catch(e) {}
-                document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=." + location.hostname + "; path=/;";
-            })();
-        """.trimIndent()
-        targetWebView.evaluateJavascript(script) {
-            targetWebView.reload()
-            isTranslating = false
-            isPageTranslated = false
-            viewModel.setStatusMessage("Restored original language")
+        val restoreUrl = originalPageUrl
+            .takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?: urlInput.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+
+        showTranslateBar = false
+        isTranslating = false
+        isPageTranslated = false
+        isReaderMode = false
+        isExtractingOrLoadingReaderMode = false
+
+        if (restoreUrl != null) {
+            originalPageUrl = restoreUrl
+            viewModel.onUserSubmitUrl(restoreUrl)
+            viewModel.setStatusMessage("Restoring original page...")
+        } else {
+            viewModel.setStatusMessage("Cannot restore the original page URL")
         }
     }
 
     fun openWebTranslateGateway(targetLang: String) {
-        val currentUrl = originalPageUrl.ifBlank { urlInput }
-        if (currentUrl.isNotBlank() && (currentUrl.startsWith("http://") || currentUrl.startsWith("https://"))) {
-            val encoded = java.net.URLEncoder.encode(currentUrl, "UTF-8")
-            val gatewayUrl = "https://translate.google.com/translate?sl=auto&tl=$targetLang&u=$encoded"
-            isPageTranslated = true
-            showTranslateBar = true
-            viewModel.onUserSubmitUrl(gatewayUrl)
-            viewModel.setStatusMessage("Loading translated page via Web Gateway...")
-        } else {
-            viewModel.setStatusMessage("Cannot translate internal browser pages")
+        val currentUrl = originalPageUrl
+            .takeIf { it.startsWith("https://") || it.startsWith("http://") }
+            ?: (webViewInstance?.url ?: urlInput).takeIf {
+                it.startsWith("https://") || it.startsWith("http://")
+            }
+
+        if (currentUrl == null) {
+            viewModel.setStatusMessage("Translate Page requires an open HTTP or HTTPS website")
+            return
         }
+
+        val encodedUrl = java.net.URLEncoder.encode(currentUrl, "UTF-8")
+        val safeLanguage = targetLang.takeIf { code ->
+            SupportedLanguage.ALL.any { it.code.equals(code, ignoreCase = true) }
+        } ?: "en"
+
+        originalPageUrl = currentUrl
+        isReaderMode = false
+        isExtractingOrLoadingReaderMode = false
+        isTranslating = true
+        selectedTargetLanguage = safeLanguage
+        showTranslateBar = true
+
+        val gatewayUrl = "https://translate.google.com/translate?sl=auto&tl=$safeLanguage&u=$encodedUrl"
+        viewModel.onUserSubmitUrl(gatewayUrl)
+        viewModel.setStatusMessage("Opening translated page in ${SupportedLanguage.fromCode(safeLanguage).name}...")
     }
 
     LaunchedEffect(currentResource) {
@@ -2046,17 +2001,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 }
 
                 // Page Translator Bar
-                /* PageTranslatorBar(
+                PageTranslatorBar(
                     isVisible = showTranslateBar,
                     selectedTargetLanguage = selectedTargetLanguage,
                     isTranslated = isPageTranslated,
                     isTranslating = isTranslating,
                     onSelectLanguage = { selectedTargetLanguage = it },
-                    onTranslate = { lang -> executeInPageTranslation(lang) },
+                    onTranslate = { lang -> openWebTranslateGateway(lang) },
                     onRevert = { revertPageTranslation() },
                     onWebGatewayTranslate = { lang -> openWebTranslateGateway(lang) },
-                    onClose = { showTranslateBar = false }
-                ) */
+                    onClose = {
+                        showTranslateBar = false
+                        isTranslating = false
+                    }
+                )
 
                 // Reader Mode Active Header Controls
                 AnimatedVisibility(
