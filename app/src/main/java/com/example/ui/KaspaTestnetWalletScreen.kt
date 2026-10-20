@@ -2312,8 +2312,11 @@ private fun NetworkSwitchOverlay(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = net.name,
+                                        modifier = Modifier.weight(1f),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
                                         color = if (isSelected) themeColor else TextPrimary
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -2325,8 +2328,10 @@ private fun NetworkSwitchOverlay(
                                             text = if (net.isMainnet) "MAINNET" else "TESTNET",
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false,
                                             color = if (net.isMainnet) KaspaTea else Color(0xFF00B0FF),
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                         )
                                     }
                                 }
@@ -2344,12 +2349,20 @@ private fun NetworkSwitchOverlay(
                                 )
                             }
                             if (isSelected) {
-                                Text(
-                                    text = "ACTIVE",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = themeColor
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = themeColor.copy(alpha = 0.14f)
+                                ) {
+                                    Text(
+                                        text = "ACTIVE",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        color = themeColor,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -5054,7 +5067,7 @@ fun WalletSetupFlow(
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(50.dp)
                         ) {
-                            Text("Import Existing BIP39 Seed Phrase", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("Import Existing Wallet", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, softWrap = false)
                         }
                         Spacer(modifier = Modifier.height(48.dp))
                     }
@@ -5244,6 +5257,14 @@ fun WalletSetupFlow(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = walletName,
+                            onValueChange = { walletName = it },
+                            label = { Text("Wallet Name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedTextField(
                             value = importMnemonic,
