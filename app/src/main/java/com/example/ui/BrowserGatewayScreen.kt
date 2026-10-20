@@ -815,10 +815,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    fun executeInPageTranslation(targetLang: String) {
-        openWebTranslateGateway(targetLang)
-    }
-
     fun revertPageTranslation() {
         val restoreUrl = originalPageUrl
             .takeIf { it.startsWith("https://") || it.startsWith("http://") }
