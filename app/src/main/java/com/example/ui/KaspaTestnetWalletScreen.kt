@@ -1655,6 +1655,99 @@ private fun KaspaFeeCalculatorSection(
                     Icon(
 
 @Composable
+}
+
+
+@Composable
+private fun CompoundUtxoDialog(
+    utxoCount: Int,
+    balanceKas: Double,
+    isCompounding: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val countToCompound = minOf(utxoCount, 80)
+    AlertDialog(
+        onDismissRequest = { if (!isCompounding) onDismiss() },
+        containerColor = SurfaceCard,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF2F2F2).copy(alpha = 0.15f))
+                        .border(1.dp, Color(0xFFF2F2F2).copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_compound_utxo),
+                        contentDescription = "Compound UTXOs",
+                        tint = Color(0xFFF2F2F2),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Text(
+                    text = "Compound UTXOs",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Consolidate $countToCompound fragmented UTXO(s) into 1 single unspent output. This optimizes your wallet performance and reduces future transaction mass.",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Surface(
+                    color = SurfaceDark,
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Current UTXO Count", fontSize = 12.sp, color = TextMuted)
+                            Text("$utxoCount UTXOs", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Compounding Batch", fontSize = 12.sp, color = TextMuted)
+                            Text("$countToCompound -> 1 UTXO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total Balance", fontSize = 12.sp, color = TextMuted)
+                            Text("${KaspaTransactionEngine.formatKas(balanceKas)} KAS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = !isCompounding,
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isCompounding) {
+                    CircularProgressIndicator(color = SurfaceDark, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Compounding...", color = SurfaceDark, fontWeight = FontWeight.Bold)
+
+@Composable
 private fun TransactionDetailDialog(
     tx: KaspaTransactionItem,
     selectedNetwork: String = "",
