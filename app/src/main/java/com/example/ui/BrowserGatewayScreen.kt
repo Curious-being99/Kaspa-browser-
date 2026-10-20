@@ -816,26 +816,64 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     fun executeInPageTranslation(targetLang: String) {
-        val targetWebView = webViewInstance ?: return
-        isTranslating = true
-        selectedTargetLanguage = targetLang
-        viewModel.setStatusMessage("Translating page into ${SupportedLanguage.fromCode(targetLang).name}...")
+        val targetWebView = webViewInstance
+        if (targetWebView == null) {
+            isTranslating = false
+            viewModel.setStatusMessage("Translation unavailable: no active webpage")
+            return
+        }
 
-        val cleanLang = targetLang.replace("'", "").replace("\"", "").trim()
+        val pageUrl = targetWebView.url.orEmpty()
+        if (!pageUrl.startsWith("https://", ignoreCase = true) &&
+            !pageUrl.startsWith("http://", ignoreCase = true)
+        ) {
+            isTranslating = false
+            viewModel.setStatusMessage("Translate Page works only on HTTP or HTTPS websites")
+            return
+        }
+
+        val language = SupportedLanguage.ALL.firstOrNull {
+            it.code.equals(targetLang, ignoreCase = true)
+        }
+        if (language == null) {
+            isTranslating = false
+            viewModel.setStatusMessage("Unsupported translation language")
+            return
+        }
+
+        val safeLang = language.code.filter { it.isLetter() || it == '-' }
+        if (safeLang.isBlank()) {
+            isTranslating = false
+            viewModel.setStatusMessage("Unsupported translation language")
+            return
+        }
+
+        isTranslating = true
+        selectedTargetLanguage = language.code
+        viewModel.setStatusMessage("Requesting in-page translation to ${language.name}...")
+
         val script = """
             (function() {
-                var target = '$cleanLang';
-                var combo = document.querySelector('.goog-te-combo');
-                if (combo) {
-                    combo.value = target;
-                    combo.dispatchEvent(new Event('change'));
-                    return true;
-                }
-                if (!document.getElementById('kaspa-translate-script')) {
-                    var s = document.createElement('script');
-                    s.id = 'kaspa-translate-script';
-                    s.type = 'text/javascript';
-                    s.src = 'https://translate.google.com/translate_a/element.js?cb=kaspaTranslateInitCallback';
+                try {
+                    if (!document.body) return 'no-document';
+                    var target = '$safeLang';
+                    var applyTarget = function() {
+                        var combo = document.querySelector('.goog-te-combo');
+                        if (!combo) return false;
+                        combo.value = target;
+                        combo.dispatchEvent(new Event('change', { bubbles: true }));
+                        return true;
+                    };
+                    if (applyTarget()) return 'requested';
+                    if (window.__kaspaTranslateLoading) {
+                        window.__kaspaTranslateTarget = target;
+                        return 'loading';
+                    }
+                    if (document.getElementById('kaspa-translate-script')) {
+                        return 'unavailable';
+                    }
+                    window.__kaspaTranslateTarget = target;
+                    window.__kaspaTranslateLoading = true;
                     window.kaspaTranslateInitCallback = function() {
                         try {
                             new google.translate.TranslateElement({
@@ -843,59 +881,76 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
                                 autoDisplay: false
                             }, 'kaspa_translate_element');
-                            setTimeout(function() {
-                                var c = document.querySelector('.goog-te-combo');
-                                if (c) {
-                                    c.value = target;
-                                    c.dispatchEvent(new Event('change'));
+                            var attempts = 0;
+                            var applyWhenReady = function() {
+                                var combo = document.querySelector('.goog-te-combo');
+                                if (combo) {
+                                    combo.value = window.__kaspaTranslateTarget || target;
+                                    combo.dispatchEvent(new Event('change', { bubbles: true }));
+                                    window.__kaspaTranslateLoading = false;
+                                    return;
                                 }
-                            }, 400);
-                        } catch (e) {}
+                                if (++attempts < 20) {
+                                    window.setTimeout(applyWhenReady, 250);
+                                } else {
+                                    window.__kaspaTranslateLoading = false;
+                                    window.__kaspaTranslateFailed = true;
+                                }
+                            };
+                            applyWhenReady();
+                        } catch (e) {
+                            window.__kaspaTranslateLoading = false;
+                            window.__kaspaTranslateFailed = true;
+                        }
                     };
-                    var d = document.createElement('div');
-                    d.id = 'kaspa_translate_element';
-                    d.style.position = 'fixed';
-                    d.style.top = '-9999px';
-                    d.style.left = '-9999px';
-                    d.style.opacity = '0';
-                    d.style.pointerEvents = 'none';
-                    document.body.appendChild(d);
-                    document.body.appendChild(s);
+                    var holder = document.createElement('div');
+                    holder.id = 'kaspa_translate_element';
+                    holder.style.position = 'fixed';
+                    holder.style.left = '-10000px';
+                    holder.style.top = '0';
+                    holder.style.width = '1px';
+                    holder.style.height = '1px';
+                    holder.style.overflow = 'hidden';
+                    holder.setAttribute('aria-hidden', 'true');
+                    document.body.appendChild(holder);
+                    var script = document.createElement('script');
+                    script.id = 'kaspa-translate-script';
+                    script.type = 'text/javascript';
+                    script.src = 'https://translate.google.com/translate_a/element.js?cb=kaspaTranslateInitCallback';
+                    script.onerror = function() {
+                        window.__kaspaTranslateLoading = false;
+                        window.__kaspaTranslateFailed = true;
+                    };
+                    document.body.appendChild(script);
+                    return 'loading';
+                } catch (e) {
+                    return 'error';
                 }
-                return true;
             })();
         """.trimIndent()
 
-        targetWebView.evaluateJavascript(script) {
+        targetWebView.evaluateJavascript(script) { rawResult ->
             isTranslating = false
-            isPageTranslated = true
-            viewModel.setStatusMessage("Page translated into ${SupportedLanguage.fromCode(targetLang).name}")
-        }
-    }
-
-    fun revertPageTranslation() {
-        val targetWebView = webViewInstance ?: return
-        isTranslating = true
-        viewModel.setStatusMessage("Reverting page translation...")
-        val script = """
-            (function() {
-                try {
-                    var iframe = document.querySelector('.goog-te-banner-frame');
-                    if (iframe) {
-                        var innerDoc = iframe.contentDocument || iframe.contentWindow.document;
-                        var restoreBtn = innerDoc.getElementById(':1.restore') || innerDoc.querySelector('button');
-                        if (restoreBtn) restoreBtn.click();
-                    }
-                } catch(e) {}
-                document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=." + location.hostname + "; path=/;";
-            })();
-        """.trimIndent()
-        targetWebView.evaluateJavascript(script) {
-            targetWebView.reload()
-            isTranslating = false
-            isPageTranslated = false
-            viewModel.setStatusMessage("Restored original language")
+            when (rawResult?.trim('"')) {
+                "requested", "loading" -> {
+                    isPageTranslated = true
+                    viewModel.setStatusMessage(
+                        "Translation requested for ${language.name}. If the page text does not change, the translation service may be blocked or unavailable."
+                    )
+                }
+                "no-document" -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage("Translation unavailable: page is not ready")
+                }
+                "unavailable", "error", "null" -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage("Translation could not start. The page was not redirected.")
+                }
+                else -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage("Translation status could not be confirmed. The page was not redirected.")
+                }
+            }
         }
     }
 
