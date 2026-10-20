@@ -1560,6 +1560,8 @@ private fun TransactionCard(
                     Column {
                         Text(
                             text = if (isReceive) "Received $currencySymbol" else "Sent $currencySymbol",
+                            maxLines = 1,
+                            softWrap = false,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isReceive) KaspaTea else RedTamper
@@ -3976,7 +3978,7 @@ private fun WalletAccountsDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 260.dp),
+                        .heightIn(max = minOf(260.dp, (allAccounts.size.coerceAtLeast(1) * 76).dp)),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(allAccounts) { account ->
