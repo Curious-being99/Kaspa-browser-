@@ -840,11 +840,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
 
     fun openWebTranslateGateway(targetLang: String) {
-        val currentUrl = originalPageUrl
-            .takeIf { it.startsWith("https://") || it.startsWith("http://") }
-            ?: (webViewInstance?.url ?: urlInput).takeIf {
-                it.startsWith("https://") || it.startsWith("http://")
-            }
+        val visibleUrl = webViewInstance?.url.orEmpty()
+        val currentUrl = when {
+            isReaderMode && originalPageUrl.startsWith("http") -> originalPageUrl
+            visibleUrl.contains("translate.google.com/translate", ignoreCase = true) &&
+                originalPageUrl.startsWith("http") -> originalPageUrl
+            visibleUrl.startsWith("https://") || visibleUrl.startsWith("http://") -> visibleUrl
+            urlInput.startsWith("https://") || urlInput.startsWith("http://") -> urlInput
+            else -> null
+        }
 
         if (currentUrl == null) {
             viewModel.setStatusMessage("Translate Page requires an open HTTP or HTTPS website")
@@ -859,7 +863,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         originalPageUrl = currentUrl
         isReaderMode = false
         isExtractingOrLoadingReaderMode = false
-        isTranslating = true
+        isTranslating = false
+        isPageTranslated = true
         selectedTargetLanguage = safeLanguage
         showTranslateBar = true
 
