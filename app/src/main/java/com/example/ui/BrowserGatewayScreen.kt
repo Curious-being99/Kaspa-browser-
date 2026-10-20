@@ -815,6 +815,46 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
+    fun revertPageTranslation() {
+        val targetWebView = webViewInstance
+        if (targetWebView == null) {
+            isPageTranslated = false
+            isTranslating = false
+            viewModel.setStatusMessage("Cannot restore translation: no active webpage")
+            return
+        }
+
+        isTranslating = true
+        targetWebView.evaluateJavascript(
+            """
+            (function() {
+                try {
+                    var combo = document.querySelector('.goog-te-combo');
+                    if (combo) {
+                        combo.value = '';
+                        combo.dispatchEvent(new Event('change', { bubbles: true }));
+                        return 'restore-requested';
+                    }
+                    return 'not-translated';
+                } catch (e) {
+                    return 'restore-failed';
+                }
+            })();
+            """.trimIndent()
+        ) { result ->
+            isTranslating = false
+            when (result?.trim('"')) {
+                "restore-requested", "not-translated" -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage("Original language restore requested")
+                }
+                else -> {
+                    viewModel.setStatusMessage("Could not restore the original language; the page was not redirected")
+                }
+            }
+        }
+    }
+
     fun executeInPageTranslation(targetLang: String) {
         val targetWebView = webViewInstance
         if (targetWebView == null) {
