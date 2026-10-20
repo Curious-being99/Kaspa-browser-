@@ -67,6 +67,19 @@ class BrowserTabWebViewManager {
         return Pair(newWebView, true)
     }
 
+
+    fun pauseTab(tabId: String) {
+        webViewMap[tabId]?.onPause()
+    }
+
+    fun resumeTab(tabId: String) {
+        webViewMap[tabId]?.onResume()
+    }
+
+    fun activateTab(tabId: String) {
+        resumeTab(tabId)
+    }
+
     fun saveTabScroll(tabId: String, scrollX: Int, scrollY: Int) {
         tabScrollMap[tabId] = Pair(scrollX, scrollY)
     }

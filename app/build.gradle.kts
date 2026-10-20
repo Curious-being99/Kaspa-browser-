@@ -177,6 +177,7 @@ dependencies {
   implementation("org.web3j:crypto:4.12.3-android") {
     exclude(group = "org.web3j", module = "utils")
   }
+  implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
   implementation("org.web3j:utils:4.12.3-android")
   implementation("org.web3j:rlp:4.12.3-android")
   implementation("com.fasterxml.jackson.core:jackson-databind:2.17.1")

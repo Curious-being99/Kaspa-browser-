@@ -639,10 +639,8 @@ class NetworkAuditUnitTest {
             baseUa = "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36"
         )
 
-        assertTrue(script.contains("window.__kaspa_viewport_mode === mode"))
-        assertTrue(script.contains("window.__kaspa_viewport_observer"))
-        assertTrue(script.contains("observer.observe(document.head, { childList: true })"))
-        assertFalse(script.contains("n.getElementsByTagName('meta')"))
+        assertTrue(script.contains("HTMLMetaElement.prototype.setAttribute"))
+        assertTrue(script.contains("DESKTOP_VIEWPORT"))
         assertFalse(script.contains("observer.observe(targetNode, { childList: true, subtree: true })"))
     }
 

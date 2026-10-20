@@ -64,6 +64,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -120,6 +125,7 @@ import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
@@ -560,6 +566,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var showFindInPage by remember { mutableStateOf(false) }
     var findInPageQuery by remember { mutableStateOf("") }
 
+    var showTranslateBar by remember { mutableStateOf(false) }
+    var selectedTargetLanguage by remember { mutableStateOf("en") }
+    var isPageTranslated by remember { mutableStateOf(false) }
+    var isTranslating by remember { mutableStateOf(false) }
+
     var jsAlertMessage by remember { mutableStateOf<String?>(null) }
     var jsAlertResult by remember { mutableStateOf<android.webkit.JsResult?>(null) }
 
@@ -725,6 +736,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
+    LaunchedEffect(activeTabId) {
+        val tabId = activeTabId ?: return@LaunchedEffect
+        viewModel.webViewTabManager.activateTab(tabId)
+    }
+
     LaunchedEffect(activeTabId, urlInput, currentResource?.title) {
         val curId = activeTabId ?: return@LaunchedEffect
         val currentTab = tabs.find { it.id == curId }
@@ -796,6 +812,104 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     viewModel.setStatusMessage("Unable to format page into Reader Mode")
                 }
             }
+        }
+    }
+
+    fun executeInPageTranslation(targetLang: String) {
+        val targetWebView = webViewInstance ?: return
+        isTranslating = true
+        selectedTargetLanguage = targetLang
+        viewModel.setStatusMessage("Translating page into ${SupportedLanguage.fromCode(targetLang).name}...")
+
+        val cleanLang = targetLang.replace("'", "").replace("\"", "").trim()
+        val script = """
+            (function() {
+                var target = '$cleanLang';
+                var combo = document.querySelector('.goog-te-combo');
+                if (combo) {
+                    combo.value = target;
+                    combo.dispatchEvent(new Event('change'));
+                    return true;
+                }
+                if (!document.getElementById('kaspa-translate-script')) {
+                    var s = document.createElement('script');
+                    s.id = 'kaspa-translate-script';
+                    s.type = 'text/javascript';
+                    s.src = 'https://translate.google.com/translate_a/element.js?cb=kaspaTranslateInitCallback';
+                    window.kaspaTranslateInitCallback = function() {
+                        try {
+                            new google.translate.TranslateElement({
+                                pageLanguage: 'auto',
+                                layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+                                autoDisplay: false
+                            }, 'kaspa_translate_element');
+                            setTimeout(function() {
+                                var c = document.querySelector('.goog-te-combo');
+                                if (c) {
+                                    c.value = target;
+                                    c.dispatchEvent(new Event('change'));
+                                }
+                            }, 400);
+                        } catch (e) {}
+                    };
+                    var d = document.createElement('div');
+                    d.id = 'kaspa_translate_element';
+                    d.style.position = 'fixed';
+                    d.style.top = '-9999px';
+                    d.style.left = '-9999px';
+                    d.style.opacity = '0';
+                    d.style.pointerEvents = 'none';
+                    document.body.appendChild(d);
+                    document.body.appendChild(s);
+                }
+                return true;
+            })();
+        """.trimIndent()
+
+        targetWebView.evaluateJavascript(script) {
+            isTranslating = false
+            isPageTranslated = true
+            viewModel.setStatusMessage("Page translated into ${SupportedLanguage.fromCode(targetLang).name}")
+        }
+    }
+
+    fun revertPageTranslation() {
+        val targetWebView = webViewInstance ?: return
+        isTranslating = true
+        viewModel.setStatusMessage("Reverting page translation...")
+        val script = """
+            (function() {
+                try {
+                    var iframe = document.querySelector('.goog-te-banner-frame');
+                    if (iframe) {
+                        var innerDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        var restoreBtn = innerDoc.getElementById(':1.restore') || innerDoc.querySelector('button');
+                        if (restoreBtn) restoreBtn.click();
+                    }
+                } catch(e) {}
+                document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                document.cookie = "googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=." + location.hostname + "; path=/;";
+            })();
+        """.trimIndent()
+        targetWebView.evaluateJavascript(script) {
+            targetWebView.reload()
+            isTranslating = false
+            isPageTranslated = false
+            viewModel.setStatusMessage("Restored original language")
+        }
+    }
+
+    fun openWebTranslateGateway(targetLang: String) {
+        val currentUrl = originalPageUrl.ifBlank { urlInput }
+        if (currentUrl.isNotBlank() && (currentUrl.startsWith("http://") || currentUrl.startsWith("https://"))) {
+            val encoded = java.net.URLEncoder.encode(currentUrl, "UTF-8")
+            val gatewayUrl = "https://translate.google.com/translate?sl=auto&tl=$targetLang&u=$encoded"
+            isPageTranslated = true
+            showTranslateBar = true
+            viewModel.onUserSubmitUrl(gatewayUrl)
+            viewModel.setStatusMessage("Loading translated page via Web Gateway...")
+        } else {
+            viewModel.setStatusMessage("Cannot translate internal browser pages")
         }
     }
 
@@ -960,7 +1074,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 res.url.startsWith("kns://", ignoreCase = true)
     }
 
-    androidx.activity.compose.BackHandler(enabled = isInputFocused || showTabSwitcher || isReaderMode || showFindInPage || (currentResource != null && (canGoBack || webViewInstance?.canGoBack() == true)) || currentResource != null || (tabs.size > 1 && activeTabId != null)) {
+    androidx.activity.compose.BackHandler(enabled = isInputFocused || showTabSwitcher || isReaderMode || showFindInPage || showTranslateBar || (currentResource != null && (canGoBack || webViewInstance?.canGoBack() == true)) || currentResource != null || (tabs.size > 1 && activeTabId != null)) {
         if (isInputFocused) {
             isInputFocused = false
             focusManager.clearFocus()
@@ -972,6 +1086,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             showFindInPage = false
             findInPageQuery = ""
             webViewInstance?.clearMatches()
+        } else if (showTranslateBar) {
+            showTranslateBar = false
         } else if (isReaderMode) {
             toggleReaderMode()
         } else if (showTabSwitcher) {
@@ -1173,20 +1289,66 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                     isInputFocused = true
                                                 }
                                             }
+                                            .onKeyEvent { keyEvent ->
+                                                if ((keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter) &&
+                                                    keyEvent.type == KeyEventType.KeyUp) {
+                                                    android.util.Log.d("BrowserGateway", "Search-submit handler invoked via Enter key: input='${textFieldValue.text}'")
+                                                    isInputFocused = false
+                                                    focusManager.clearFocus()
+                                                    viewSourceMode = false
+                                                    val input = textFieldValue.text.trim()
+                                                    if (input.isNotBlank()) {
+                                                        webViewInstance?.tag = null
+                                                        viewModel.onUserSubmitUrl(input)
+                                                    }
+                                                    android.util.Log.d("BrowserGateway", "Search-submit handler finished via Enter key")
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            }
                                             .testTag("url_input_field"),
                                         singleLine = true,
                                         cursorBrush = SolidColor(if (isKaspaAddress) KaspaTea else ElectricCyan),
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                                        keyboardActions = KeyboardActions(onGo = {
-                                            isInputFocused = false
-                                            focusManager.clearFocus()
-                                            viewSourceMode = false
-                                            val input = textFieldValue.text.trim()
-                                            if (input.isNotBlank()) {
-                                                webViewInstance?.tag = null
-                                                viewModel.onUserSubmitUrl(input)
+                                        keyboardActions = KeyboardActions(
+                                            onGo = {
+                                                android.util.Log.d("BrowserGateway", "Search-submit handler invoked via onGo: input='${textFieldValue.text}'")
+                                                isInputFocused = false
+                                                focusManager.clearFocus()
+                                                viewSourceMode = false
+                                                val input = textFieldValue.text.trim()
+                                                if (input.isNotBlank()) {
+                                                    webViewInstance?.tag = null
+                                                    viewModel.onUserSubmitUrl(input)
+                                                }
+                                                android.util.Log.d("BrowserGateway", "Search-submit handler finished via onGo")
+                                            },
+                                            onSearch = {
+                                                android.util.Log.d("BrowserGateway", "Search-submit handler invoked via onSearch: input='${textFieldValue.text}'")
+                                                isInputFocused = false
+                                                focusManager.clearFocus()
+                                                viewSourceMode = false
+                                                val input = textFieldValue.text.trim()
+                                                if (input.isNotBlank()) {
+                                                    webViewInstance?.tag = null
+                                                    viewModel.onUserSubmitUrl(input)
+                                                }
+                                                android.util.Log.d("BrowserGateway", "Search-submit handler finished via onSearch")
+                                            },
+                                            onDone = {
+                                                android.util.Log.d("BrowserGateway", "Search-submit handler invoked via onDone: input='${textFieldValue.text}'")
+                                                isInputFocused = false
+                                                focusManager.clearFocus()
+                                                viewSourceMode = false
+                                                val input = textFieldValue.text.trim()
+                                                if (input.isNotBlank()) {
+                                                    webViewInstance?.tag = null
+                                                    viewModel.onUserSubmitUrl(input)
+                                                }
+                                                android.util.Log.d("BrowserGateway", "Search-submit handler finished via onDone")
                                             }
-                                        }),
+                                        ),
                                         textStyle = TextStyle(
                                             fontFamily = FontFamily.SansSerif,
                                             fontSize = 14.sp,
@@ -1220,10 +1382,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         Spacer(modifier = Modifier.width(4.dp))
                         IconButton(
                             onClick = {
+                                android.util.Log.d("BrowserGateway", "New-tab '+' handler invoked")
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 isInputFocused = false
                                 focusManager.clearFocus()
                                 viewModel.createNewTab()
+                                android.util.Log.d("BrowserGateway", "New-tab '+' handler finished")
                             },
                             modifier = Modifier
                                 .size(32.dp)
@@ -1648,7 +1812,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                                 modifier = Modifier
                                     .widthIn(min = 240.dp, max = 290.dp)
-                                    .background(SurfaceDark, RoundedCornerShape(16.dp))
                             ) {
                                 if (urlInput.isNotEmpty()) {
                                     val isBookmarked = remember(urlInput, bookmarks) {
@@ -1668,6 +1831,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     text = { Text("New Tab", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
+                                        android.util.Log.d("BrowserMenu", "New Tab clicked")
                                         showBrowserMenu = false
                                         viewModel.createNewTab()
                                     }
@@ -1773,6 +1937,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text(if (isPageTranslated) "Page Translator (Active)" else "Translate Page", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Translate, contentDescription = "Translate Page", tint = if (isPageTranslated) KaspaTea else ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        showTranslateBar = true
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Customize Background", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Palette, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
@@ -1837,6 +2009,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         )
                                     },
                                     onClick = {
+                                        android.util.Log.d("BrowserMenu", "Update Zone clicked")
                                         showBrowserMenu = false
                                         viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT)
                                     }
@@ -1871,6 +2044,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
                     )
                 }
+
+                // Page Translator Bar
+                /* PageTranslatorBar(
+                    isVisible = showTranslateBar,
+                    selectedTargetLanguage = selectedTargetLanguage,
+                    isTranslated = isPageTranslated,
+                    isTranslating = isTranslating,
+                    onSelectLanguage = { selectedTargetLanguage = it },
+                    onTranslate = { lang -> executeInPageTranslation(lang) },
+                    onRevert = { revertPageTranslation() },
+                    onWebGatewayTranslate = { lang -> openWebTranslateGateway(lang) },
+                    onClose = { showTranslateBar = false }
+                ) */
 
                 // Reader Mode Active Header Controls
                 AnimatedVisibility(
@@ -2645,9 +2831,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
                                 }
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                     if (view != null && url != null) {
-                                         com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
-                                     }
+                                    if (view != null) {
+                                        val isDesktop = viewModel.desktopModeEnabled.value
+                                        if (view.settings.useWideViewPort != isDesktop) {
+                                            view.settings.useWideViewPort = isDesktop
+                                        }
+                                        if (view.settings.loadWithOverviewMode != isDesktop) {
+                                            view.settings.loadWithOverviewMode = isDesktop
+                                        }
+                                    }
+                                    if (view != null && url != null) {
+                                        com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
+                                    }
                                     if (!isReaderMode && !isExtractingOrLoadingReaderMode) {
                                         // normal page load
                                     } else if (url != null && !url.startsWith("data:") && url != originalPageUrl) {
@@ -3034,6 +3229,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return true
                                     }
 
+                                    val effectiveUrl = if (viewModel.desktopModeEnabled.value) {
+                                        KaspaPrivacyEngine.convertMobileUrlToDesktop(targetUrl)
+                                    } else {
+                                        targetUrl
+                                    }
+                                    if (effectiveUrl != targetUrl) {
+                                        val isWebStore = effectiveUrl.contains("chromewebstore.google.com") || effectiveUrl.contains("chrome.google.com/webstore")
+                                        val headers = KaspaPrivacyEngine.getDesktopHeaders(true, defaultDeviceUa)
+                                        view?.tag = Pair(effectiveUrl, System.currentTimeMillis().toInt())
+                                        view?.loadUrl(effectiveUrl, headers)
+                                        return true
+                                    }
+
                                     val handled = handleDeepLinkOrNavigate(view, targetUrl, hasGesture)
                                     if (handled) {
                                         return true
@@ -3077,6 +3285,17 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         val httpsUrl = targetUrl.replaceFirst("http://", "https://", ignoreCase = true)
                                         view?.loadUrl(httpsUrl)
                                         return true
+                                    }
+
+                                    if (viewModel.desktopModeEnabled.value) {
+                                        val converted = KaspaPrivacyEngine.convertMobileUrlToDesktop(targetUrl)
+                                        if (converted != targetUrl) {
+                                            val isWebStore = converted.contains("chromewebstore.google.com") || converted.contains("chrome.google.com/webstore")
+                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(true, defaultDeviceUa)
+                                            view?.tag = Pair(converted, System.currentTimeMillis().toInt())
+                                            view?.loadUrl(converted, headers)
+                                            return true
+                                        }
                                     }
 
                                     val handled = handleDeepLinkOrNavigate(view, targetUrl, false)
@@ -3297,6 +3516,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         val currentUrl = resource.url
                         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
+
+                        val defaultDeviceUa = try {
+                            WebSettings.getDefaultUserAgent(context)
+                        } catch (_: Throwable) {
+                            null
+                        }
+                        val targetUa = if (desktopModeEnabled) {
+                            KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
+                        } else {
+                            KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
+                        }
+                        if (webView.settings.userAgentString != targetUa) {
+                            webView.settings.userAgentString = targetUa
+                        }
+                        if (webView.settings.useWideViewPort != desktopModeEnabled) {
+                            webView.settings.useWideViewPort = desktopModeEnabled
+                        }
+                        if (webView.settings.loadWithOverviewMode != desktopModeEnabled) {
+                            webView.settings.loadWithOverviewMode = desktopModeEnabled
+                        }
 
                         // Sync WebAuthn support state with settings safely
                         if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {

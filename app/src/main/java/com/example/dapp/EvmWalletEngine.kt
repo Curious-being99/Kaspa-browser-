@@ -28,8 +28,8 @@ internal object EvmWalletEngine {
     val networks = listOf(
         Network(202555L, "Kasplex Mainnet", "https://evmrpc.kasplex.org", "KAS", "https://explorer.kasplex.org"),
         Network(38833L, "Igra Mainnet", "https://rpc.igralabs.com:8545", "iKAS", "https://tidx.igralabs.com/explore"),
-        Network(167012L, "Kasplex Testnet", "https://rpc.kasplextest.xyz", "KAS"),
-        Network(38836L, "Igra Galleon Testnet", "https://galleon-testnet.igralabs.com:8545", "iKAS")
+        Network(167012L, "Kasplex Testnet", "https://rpc.kasplextest.xyz", "KAS", "https://testnet.kasplex.org"),
+        Network(38836L, "Igra Galleon Testnet", "https://galleon-testnet.igralabs.com:8545", "iKAS", "https://galleon.igralabs.com")
     )
 
     const val ACCOUNT_PATH = "m/44'/60'/0'/0/0"
@@ -55,14 +55,7 @@ internal object EvmWalletEngine {
             .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
         require(mnemonic.isNotBlank()) { "Wallet recovery phrase is unavailable" }
         require(passphrase.length <= 256) { "BIP-39 passphrase is too long" }
-        val words = mnemonic.split(" ").filter { it.isNotBlank() }
-        require(
-            MnemonicUtils.validateMnemonic(mnemonic) ||
-                (words.size in 12..24 && words.all { word -> word.all { it in 'a'..'z' } })
-        ) {
-            "Recovery phrase cannot be used for EVM derivation. Check the phrase and word order."
-        }
-        val seed = MnemonicUtils.generateSeed(mnemonic, passphrase)
+        val seed = CryptoUtils.mnemonicToSeed(mnemonic, passphrase)
         val derived = try {
             val master = Bip32ECKeyPair.generateKeyPair(seed)
             val path = intArrayOf(
@@ -82,7 +75,13 @@ internal object EvmWalletEngine {
     fun isStandardMnemonic(seedPhrase: String): Boolean {
         val mnemonic = CryptoUtils.getDecryptedSeed(seedPhrase)
             .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
-        return mnemonic.isNotBlank() && MnemonicUtils.validateMnemonic(mnemonic)
+        if (mnemonic.isBlank()) return false
+        return try {
+            MnemonicUtils.validateMnemonic(mnemonic)
+        } catch (_: Throwable) {
+            val words = mnemonic.split(" ")
+            words.size in listOf(12, 15, 18, 21, 24)
+        }
     }
 
     fun address(seedPhrase: String, passphrase: String = ""): String = credentials(seedPhrase, passphrase).address.lowercase(Locale.ROOT)
@@ -171,6 +170,56 @@ internal object EvmWalletEngine {
         }
         val signed = TransactionEncoder.signMessage(raw, network.chainId, credentials)
         return Numeric.toHexString(signed)
+    }
+
+    fun sendEtherTransaction(
+        seedPhrase: String,
+        network: Network,
+        toAddress: String,
+        amountTokens: Double,
+        passphrase: String = ""
+    ): String {
+        val targetTo = toAddress.trim()
+        require(targetTo.matches(Regex("0x[0-9a-fA-F]{40}"))) { "Invalid recipient EVM address" }
+        require(amountTokens > 0) { "Amount must be greater than 0" }
+        val credentials = credentials(seedPhrase, passphrase)
+
+        // 1. Fetch current transaction count (nonce)
+        val nonceResp = rpc(network, "eth_getTransactionCount", org.json.JSONArray().put(credentials.address).put("pending"))
+        val nonceHex = nonceResp.optString("result", "0x0").removePrefix("0x")
+        val nonce = if (nonceHex.isBlank()) BigInteger.ZERO else BigInteger(nonceHex, 16)
+
+        // 2. Fetch network gas price
+        val gasPrice = try {
+            val gasResp = rpc(network, "eth_gasPrice", org.json.JSONArray())
+            val gasHex = gasResp.optString("result", "0x4a817c800").removePrefix("0x")
+            BigInteger(gasHex.ifBlank { "4a817c800" }, 16)
+        } catch (_: Exception) {
+            BigInteger.valueOf(20_000_000_000L) // 20 Gwei fallback
+        }
+
+        val gasLimit = BigInteger.valueOf(21_000L)
+        val valueWei = java.math.BigDecimal(amountTokens.toString())
+            .multiply(java.math.BigDecimal.TEN.pow(18))
+            .toBigInteger()
+
+        val rawTx = RawTransaction.createEtherTransaction(
+            nonce,
+            gasPrice,
+            gasLimit,
+            targetTo,
+            valueWei
+        )
+        val signedMessage = TransactionEncoder.signMessage(rawTx, network.chainId, credentials)
+        val hexValue = Numeric.toHexString(signedMessage)
+
+        // 3. Broadcast to network RPC
+        val broadcastResp = rpc(network, "eth_sendRawTransaction", org.json.JSONArray().put(hexValue))
+        val txHash = broadcastResp.optString("result", "")
+        if (txHash.isBlank()) {
+            throw IllegalStateException("Failed to broadcast transaction to ${network.name}")
+        }
+        return txHash
     }
 
     fun verifyNetwork(network: Network) {

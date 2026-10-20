@@ -539,6 +539,8 @@ class DecentralViewModel(
     fun setActiveTab(id: String?) {
         if (id == null || id == _activeTabId.value) return
         val prevId = _activeTabId.value
+        if (prevId != null) webViewTabManager.pauseTab(prevId)
+        if (id != null) webViewTabManager.resumeTab(id)
         BrowserStateLog.tabSwitch("Switching active tab from $prevId to $id")
         _activeTabId.value = id
         savedStateHandle["active_tab_id"] = id
@@ -603,29 +605,39 @@ class DecentralViewModel(
     }
 
     fun createNewTab(url: String = "", title: String = if (url.isBlank()) "Home" else "New Tab", isExternal: Boolean = false) {
+        android.util.Log.d("BrowserGateway", "createNewTab: start - url='$url', title='$title', isExternal=$isExternal")
         viewModelScope.launch {
-            val tabs = database.browserTabDao().getAllTabsList()
-            val maxOrder = tabs.maxOfOrNull { it.tabOrder } ?: 0
-            val newId = java.util.UUID.randomUUID().toString()
-            val newTab = BrowserTabEntity(
-                id = newId,
-                url = url,
-                title = title,
-                tabOrder = maxOrder + 1,
-                lastAccessed = System.currentTimeMillis(),
-                isExternal = isExternal
-            )
-            database.browserTabDao().insert(newTab)
-            _activeTabId.value = newId
-            savedStateHandle["active_tab_id"] = newId
-            BrowserStateLog.save("Created new tab $newId ($title)")
-            if (url.isBlank()) {
-                resetToHome()
-            } else {
-                _urlInput.value = url
-                resolveUrl(url)
+            try {
+                val tabs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    database.browserTabDao().getAllTabsList()
+                }
+                val maxOrder = tabs.maxOfOrNull { it.tabOrder } ?: 0
+                val newId = java.util.UUID.randomUUID().toString()
+                val newTab = BrowserTabEntity(
+                    id = newId,
+                    url = url,
+                    title = title,
+                    tabOrder = maxOrder + 1,
+                    lastAccessed = System.currentTimeMillis(),
+                    isExternal = isExternal
+                )
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    database.browserTabDao().insert(newTab)
+                }
+                _activeTabId.value = newId
+                savedStateHandle["active_tab_id"] = newId
+                BrowserStateLog.save("Created new tab $newId ($title)")
+                if (url.isBlank()) {
+                    resetToHome()
+                } else {
+                    _urlInput.value = url
+                    resolveUrl(url)
+                }
+                scheduleSaveDebounced("new tab created: $newId")
+                android.util.Log.d("BrowserGateway", "createNewTab: finish - created newId=$newId, totalTabs=${tabs.size + 1}")
+            } catch (e: Throwable) {
+                android.util.Log.e("BrowserGateway", "createNewTab: error creating tab", e)
             }
-            scheduleSaveDebounced("new tab created: $newId")
         }
     }
 
@@ -824,15 +836,44 @@ class DecentralViewModel(
     )
     val selectedNetwork: StateFlow<String> = _selectedNetwork.asStateFlow()
 
+    fun isEvmNetwork(networkName: String = _selectedNetwork.value): Boolean {
+        return networkName.contains("Kasplex", ignoreCase = true) ||
+               networkName.contains("Igra", ignoreCase = true) ||
+               networkName.contains("EVM", ignoreCase = true)
+    }
+
+    fun getEvmChainIdForNetwork(networkName: String = _selectedNetwork.value): Long {
+        return when {
+            networkName.contains("Kasplex Testnet", ignoreCase = true) -> 167012L
+            networkName.contains("Kasplex", ignoreCase = true) -> 202555L
+            networkName.contains("Galleon", ignoreCase = true) -> 38836L
+            networkName.contains("Igra", ignoreCase = true) -> 38833L
+            else -> 202555L
+        }
+    }
+
     fun selectNetwork(networkName: String) {
         _selectedNetwork.value = networkName
         appPrefs.edit().putString("selected_kaspa_network", networkName).apply()
 
-        val prefix = if (networkName.contains("Mainnet", ignoreCase = true)) "kaspa" else "kaspatest"
+        val isEvm = isEvmNetwork(networkName)
+        if (isEvm) {
+            val chainId = getEvmChainIdForNetwork(networkName)
+            appPrefs.edit().putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId).apply()
+            try {
+                getApplication<Application>().getSharedPreferences(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
+                    .edit().putLong(com.example.dapp.EvmWalletEngine.WALLET_NETWORK_KEY, chainId).apply()
+            } catch (_: Exception) {}
+        }
+
         val explorer = when {
+            networkName.contains("Kasplex Mainnet", ignoreCase = true) -> "https://explorer.kasplex.org"
+            networkName.contains("Igra Mainnet", ignoreCase = true) -> "https://tidx.igralabs.com/explore"
+            networkName.contains("Kasplex Testnet", ignoreCase = true) -> "https://testnet.kasplex.org"
+            networkName.contains("Galleon", ignoreCase = true) -> "https://galleon.igralabs.com"
             networkName.contains("Mainnet", ignoreCase = true) -> "https://kaspa.stream"
             networkName.contains("Testnet 11", ignoreCase = true) -> "https://tn11.kaspa.stream"
-            else -> "https://t10-kaspa.stream"
+            else -> "https://tn10.kaspa.stream"
         }
         _selectedExplorerUrl.value = explorer
         appPrefs.edit().putString("selected_testnet_explorer", explorer).apply()
@@ -841,15 +882,17 @@ class DecentralViewModel(
         if (currentAcc != null) {
             viewModelScope.launch {
                 try {
-                    val seed = CryptoUtils.getDecryptedSeed(currentAcc.seedPhrase)
-                    val newKp = CryptoUtils.deriveKaspaKeyPair(seed, prefix = prefix)
-                    val isMainnet = networkName.contains("Mainnet", ignoreCase = true)
-                    val isTn11 = networkName.contains("11")
-                    val updatedHandle = currentAcc.handle
-                    val updatedAcc = currentAcc.copy(kaspaAddress = newKp.kaspaAddress, handle = updatedHandle)
+                    val newAddress = if (isEvm) {
+                        com.example.dapp.EvmWalletEngine.address(currentAcc.seedPhrase)
+                    } else {
+                        val prefix = if (networkName.contains("Mainnet", ignoreCase = true)) "kaspa" else "kaspatest"
+                        val seed = CryptoUtils.getDecryptedSeed(currentAcc.seedPhrase)
+                        CryptoUtils.deriveKaspaKeyPair(seed, prefix = prefix).kaspaAddress
+                    }
+                    val updatedAcc = currentAcc.copy(kaspaAddress = newAddress)
                     database.accountDao().insertAccount(updatedAcc)
                     refreshTestnetWallet()
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     _statusMessage.value = "Failed to switch network: ${e.message}"
                 }
             }
@@ -863,7 +906,15 @@ class DecentralViewModel(
 
     fun getTestnetAddressForAccount(account: AccountEntity?): String {
         if (account == null) return ""
-        val isMainnet = _selectedNetwork.value.contains("Mainnet", ignoreCase = true)
+        val currentNet = _selectedNetwork.value
+        if (isEvmNetwork(currentNet)) {
+            return try {
+                com.example.dapp.EvmWalletEngine.address(account.seedPhrase)
+            } catch (_: Throwable) {
+                if (account.kaspaAddress.startsWith("0x")) account.kaspaAddress else ""
+            }
+        }
+        val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
         val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
         if (account.kaspaAddress.startsWith("$expectedPrefix:")) return account.kaspaAddress
         return try {
@@ -1573,8 +1624,55 @@ class DecentralViewModel(
     fun refreshKaspaWallet(address: String? = null) {
         val targetAddress = address ?: testnetAddress.value.ifBlank { activeAccount.value?.let { getTestnetAddressForAccount(it) } } ?: return
         if (targetAddress.isBlank()) return
+        val currentNet = _selectedNetwork.value
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isLoading = true)
+            if (isEvmNetwork(currentNet)) {
+                val localEntities = try {
+                    database.transactionDao().getTransactionsForNetwork(currentNet)
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                val localTxItems = localEntities.map { entity ->
+                    KaspaTransactionItem(
+                        txId = entity.txId,
+                        blockTime = entity.blockTime,
+                        amountKas = entity.amountKas,
+                        type = entity.type,
+                        isAccepted = entity.isAccepted,
+                        feeKas = entity.feeKas,
+                        counterpartyAddress = entity.counterpartyAddress
+                    )
+                }
+                try {
+                    val chainId = getEvmChainIdForNetwork(currentNet)
+                    val net = com.example.dapp.EvmWalletEngine.network(chainId)
+                    val params = org.json.JSONArray().put(targetAddress).put("latest")
+                    val resp = withContext(Dispatchers.IO) { com.example.dapp.EvmWalletEngine.rpc(net, "eth_getBalance", params) }
+                    val resultHex = if (resp is org.json.JSONObject) resp.optString("result", "0x0") else "0x0"
+                    val cleanHex = resultHex.removePrefix("0x").ifBlank { "0" }
+                    val balanceWei = java.math.BigInteger(cleanHex, 16)
+                    val balanceTokens = balanceWei.toDouble() / 1e18
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isLoading = false,
+                        kaspaAddress = targetAddress,
+                        balanceKas = balanceTokens,
+                        balanceSompis = (balanceTokens * 100_000_000).toLong(),
+                        networkStatus = currentNet,
+                        recentTransactions = localTxItems,
+                        statusNotice = null
+                    )
+                } catch (_: Exception) {
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isLoading = false,
+                        kaspaAddress = targetAddress,
+                        networkStatus = currentNet,
+                        recentTransactions = localTxItems
+                    )
+                }
+                return@launch
+            }
+
             val updated = try {
                 kaspaWalletService.fetchWalletState(targetAddress, _selectedNetwork.value)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -1703,8 +1801,85 @@ class DecentralViewModel(
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ) {
         val senderAcc = activeAccount.value ?: return
+        val currentNet = _selectedNetwork.value
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
+            if (isEvmNetwork(currentNet)) {
+                val cleanRecipient = recipientAddress.trim()
+                if (!cleanRecipient.matches(Regex("^0x[0-9a-fA-F]{40}$"))) {
+                    val errMsg = "Invalid EVM address. Please enter a valid 0x recipient address for $currentNet."
+                    _statusMessage.value = errMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        statusNotice = "Error: $errMsg"
+                    )
+                    return@launch
+                }
+                val decryptedSeed = try {
+                    CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
+                } catch (e: Exception) {
+                    val errMsg = "Failed to decrypt wallet seed: ${e.message}"
+                    _statusMessage.value = errMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = null,
+                        statusNotice = "Error: $errMsg"
+                    )
+                    return@launch
+                }
+                val chainId = getEvmChainIdForNetwork(currentNet)
+                val net = com.example.dapp.EvmWalletEngine.network(chainId)
+                try {
+                    val txHash = withContext(Dispatchers.IO) {
+                        com.example.dapp.EvmWalletEngine.sendEtherTransaction(
+                            seedPhrase = decryptedSeed,
+                            network = net,
+                            toAddress = cleanRecipient,
+                            amountTokens = amountKas,
+                            passphrase = ""
+                        )
+                    }
+                    val estFee = 0.00042
+                    val txItem = KaspaTransactionItem(
+                        txId = txHash,
+                        blockTime = System.currentTimeMillis(),
+                        amountKas = amountKas,
+                        type = "SENT",
+                        isAccepted = true,
+                        feeKas = estFee,
+                        counterpartyAddress = cleanRecipient
+                    )
+                    withContext(Dispatchers.IO) {
+                        database.transactionDao().insert(TransactionEntity(
+                            txId = txItem.txId,
+                            blockTime = txItem.blockTime,
+                            amountKas = txItem.amountKas,
+                            type = txItem.type,
+                            isAccepted = true,
+                            feeKas = txItem.feeKas,
+                            counterpartyAddress = cleanRecipient,
+                            network = currentNet
+                        ))
+                    }
+                    val updatedTxs = listOf(txItem) + _kaspaWalletState.value.recentTransactions.filter { it.txId != txHash }
+                    val updatedBalance = (_kaspaWalletState.value.balanceKas - amountKas - estFee).coerceAtLeast(0.0)
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        balanceKas = updatedBalance,
+                        lastBroadcastTxId = txHash,
+                        recentTransactions = updatedTxs,
+                        statusNotice = "Transaction successfully broadcast to $currentNet"
+                    )
+                } catch (e: Exception) {
+                    val errMsg = e.message ?: "Failed to broadcast transaction to $currentNet"
+                    _statusMessage.value = errMsg
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        statusNotice = "Error: $errMsg"
+                    )
+                }
+                return@launch
+            }
             try {
                 val senderTestnetAddress = getTestnetAddressForAccount(senderAcc)
                 val isTestnet = senderTestnetAddress.startsWith("kaspatest:")
@@ -2068,6 +2243,8 @@ class DecentralViewModel(
                 "$base/addresses/$target"
             } else if (base.contains("katnip")) {
                 "$base/addr/$target"
+            } else if (base.contains("igralabs.com") || base.contains("kasplex.org")) {
+                "$base/address/$target"
             } else {
                 "$base/addresses/$target"
             }
@@ -2083,7 +2260,7 @@ class DecentralViewModel(
         val finalBase = cleanBase.trimEnd('/')
         val url = if (finalBase.contains("kaspa.stream")) {
             "$finalBase/transactions/$txId"
-        } else if (finalBase.contains("katnip")) {
+        } else if (finalBase.contains("katnip") || finalBase.contains("igralabs.com") || finalBase.contains("kasplex.org")) {
             "$finalBase/tx/$txId"
         } else {
             "$finalBase/transactions/$txId"
@@ -2214,60 +2391,82 @@ class DecentralViewModel(
     }
 
     fun onUserSubmitUrl(rawUrl: String? = null) {
+        val input = (rawUrl ?: _urlInput.value).trim()
+        android.util.Log.d("BrowserGateway", "onUserSubmitUrl: start - input='$input'")
         viewModelScope.launch {
-            val input = (rawUrl ?: _urlInput.value).trim()
-            if (input.equals("wallet", ignoreCase = true) ||
-                input.equals("kaspa wallet", ignoreCase = true) ||
-                input.equals("testnet wallet", ignoreCase = true) ||
-                input.equals("tn10", ignoreCase = true) ||
-                input.equals("kaspa testnet wallet", ignoreCase = true)
-            ) {
-                setTab(AppTab.KASPA_WALLET)
-                return@launch
-            }
-            if (input.equals("update", ignoreCase = true) ||
-                input.equals("updates", ignoreCase = true) ||
-                input.equals("update zone", ignoreCase = true) ||
-                input.equals("check update", ignoreCase = true) ||
-                input.equals("check updates", ignoreCase = true) ||
-                input.equals("sideload", ignoreCase = true)
-            ) {
-                setTab(AppTab.TRAFFIC_AUDIT)
-                checkForUpdates(isUserInitiated = true)
-                return@launch
-            }
-            val target = normalizeUrlOrQuery(input)
-            if (target.isBlank()) return@launch
+            try {
+                if (input.equals("wallet", ignoreCase = true) ||
+                    input.equals("kaspa wallet", ignoreCase = true) ||
+                    input.equals("testnet wallet", ignoreCase = true) ||
+                    input.equals("tn10", ignoreCase = true) ||
+                    input.equals("kaspa testnet wallet", ignoreCase = true)
+                ) {
+                    setTab(AppTab.KASPA_WALLET)
+                    android.util.Log.d("BrowserGateway", "onUserSubmitUrl: redirected to KASPA_WALLET tab")
+                    return@launch
+                }
+                if (input.equals("update", ignoreCase = true) ||
+                    input.equals("updates", ignoreCase = true) ||
+                    input.equals("update zone", ignoreCase = true) ||
+                    input.equals("check update", ignoreCase = true) ||
+                    input.equals("check updates", ignoreCase = true) ||
+                    input.equals("sideload", ignoreCase = true)
+                ) {
+                    setTab(AppTab.TRAFFIC_AUDIT)
+                    checkForUpdates(isUserInitiated = true)
+                    android.util.Log.d("BrowserGateway", "onUserSubmitUrl: redirected to TRAFFIC_AUDIT tab")
+                    return@launch
+                }
+                val normalized = normalizeUrlOrQuery(input)
+                val target = if (_desktopModeEnabled.value) {
+                    com.example.network.KaspaPrivacyEngine.convertMobileUrlToDesktop(normalized)
+                } else {
+                    normalized
+                }
+                if (target.isBlank()) {
+                    android.util.Log.d("BrowserGateway", "onUserSubmitUrl: target is blank, skipping")
+                    return@launch
+                }
 
-            val extractedQuery = extractSearchQuery(target)
-            val displayInput = if (!extractedQuery.isNullOrBlank()) {
-                extractedQuery
-            } else if (!input.startsWith("http://", true) && !input.startsWith("https://", true) && !input.contains(".")) {
-                input
-            } else {
-                target
-            }
-            _urlInput.value = displayInput
+                val extractedQuery = extractSearchQuery(target)
+                val displayInput = if (!extractedQuery.isNullOrBlank()) {
+                    extractedQuery
+                } else if (!input.startsWith("http://", true) && !input.startsWith("https://", true) && !input.contains(".")) {
+                    input
+                } else {
+                    target
+                }
+                _urlInput.value = displayInput
 
-            val activeId = _activeTabId.value
-            val activeTab = if (activeId != null) database.browserTabDao().getTabById(activeId) else null
+                val activeId = _activeTabId.value
+                val activeTab = if (activeId != null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        database.browserTabDao().getTabById(activeId)
+                    }
+                } else null
 
-            if (activeTab != null && activeTab.isExternal) {
-                // When open link from another platforms it opens in our browser, not to persist when typing another link it moves to a new tab
-                val host = try { java.net.URI(target).host ?: target } catch (_: Exception) { target }
-                val newId = java.util.UUID.randomUUID().toString()
-                val newTab = BrowserTabEntity(
-                    id = newId,
-                    url = target,
-                    title = if (!host.isNullOrBlank()) host else "New Tab",
-                    lastAccessed = System.currentTimeMillis(),
-                    isExternal = false
-                )
-                database.browserTabDao().insert(newTab)
-                _activeTabId.value = newId
-                resolveUrl(target, overrideDisplayInput = displayInput)
-            } else {
-                resolveUrl(target, overrideDisplayInput = displayInput)
+                if (activeTab != null && activeTab.isExternal) {
+                    // When open link from another platforms it opens in our browser, not to persist when typing another link it moves to a new tab
+                    val host = try { java.net.URI(target).host ?: target } catch (_: Exception) { target }
+                    val newId = java.util.UUID.randomUUID().toString()
+                    val newTab = BrowserTabEntity(
+                        id = newId,
+                        url = target,
+                        title = if (!host.isNullOrBlank()) host else "New Tab",
+                        lastAccessed = System.currentTimeMillis(),
+                        isExternal = false
+                    )
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        database.browserTabDao().insert(newTab)
+                    }
+                    _activeTabId.value = newId
+                    resolveUrl(target, overrideDisplayInput = displayInput)
+                } else {
+                    resolveUrl(target, overrideDisplayInput = displayInput)
+                }
+                android.util.Log.d("BrowserGateway", "onUserSubmitUrl: finish - target='$target', displayInput='$displayInput'")
+            } catch (e: Throwable) {
+                android.util.Log.e("BrowserGateway", "onUserSubmitUrl: error submitting url", e)
             }
         }
     }
@@ -2565,7 +2764,12 @@ class DecentralViewModel(
             return
         }
 
-        val target = normalizeUrlOrQuery(raw)
+        val normalized = normalizeUrlOrQuery(raw)
+        val target = if (_desktopModeEnabled.value) {
+            com.example.network.KaspaPrivacyEngine.convertMobileUrlToDesktop(normalized)
+        } else {
+            normalized
+        }
         val extractedQuery = extractSearchQuery(target)
         val displayInput = overrideDisplayInput ?: if (!extractedQuery.isNullOrBlank()) {
             extractedQuery
@@ -2579,6 +2783,7 @@ class DecentralViewModel(
 
         val isHttp = target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)
         val currentSessionId = _navigationSessionId.value
+        android.util.Log.d("BrowserGateway", "resolveUrl: start - raw='$raw', target='$target', isHttp=$isHttp, sessionId=$currentSessionId")
 
         // Instantly set resource so the WebView renders the website directly
         val httpHost = try { java.net.URI(target).host ?: target } catch (_: Exception) { target }
@@ -2614,17 +2819,19 @@ class DecentralViewModel(
                     val bytesTransferred = 420 * 1024L
                     nodeManager.recordBrowserTraffic(bytesTransferred, target)
                     try {
-                        database.trafficAuditDao().insertAudit(
-                            com.example.data.TrafficAuditEntity(
-                                timestamp = System.currentTimeMillis(),
-                                url = target,
-                                protocol = NetworkProtocol.CENTRALIZED_HTTP.name,
-                                routeTaken = "Direct High-Speed Web Stack: $httpHost",
-                                latencyMs = 10L,
-                                isTamperProof = true,
-                                verificationSummary = "Status: VERIFIED_TAMPER_PROOF | Hash: ${com.example.network.CryptoUtils.sha256(target).take(12)}..."
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            database.trafficAuditDao().insertAudit(
+                                com.example.data.TrafficAuditEntity(
+                                    timestamp = System.currentTimeMillis(),
+                                    url = target,
+                                    protocol = NetworkProtocol.CENTRALIZED_HTTP.name,
+                                    routeTaken = "Direct High-Speed Web Stack: $httpHost",
+                                    latencyMs = 10L,
+                                    isTamperProof = true,
+                                    verificationSummary = "Status: VERIFIED_TAMPER_PROOF | Hash: ${com.example.network.CryptoUtils.sha256(target).take(12)}..."
+                                )
                             )
-                        )
+                        }
                     } catch (_: Exception) {}
                 } else {
                     val result = resolver.resolve(target, _selectedProtocol.value, _desktopModeEnabled.value, _searchEngine.value.baseUrl)
@@ -2644,7 +2851,9 @@ class DecentralViewModel(
                         }
                     }
                 }
+                android.util.Log.d("BrowserGateway", "resolveUrl: finish - target='$target', sessionId=$currentSessionId")
             } catch (e: Exception) {
+                android.util.Log.e("BrowserGateway", "resolveUrl: error resolving url", e)
                 if (_navigationSessionId.value == currentSessionId) {
                     _statusMessage.value = "Failed to resolve: ${e.localizedMessage}"
                 }

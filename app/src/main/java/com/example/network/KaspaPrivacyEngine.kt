@@ -590,8 +590,133 @@ object KaspaPrivacyEngine {
         (function() {
             try {
                 var ua = navigator.userAgent || '';
-                var isDesktopMode = (!ua.includes('Android') && !ua.includes('Mobile'));
+                var isDesktopMode = $isDesktop || (!ua.includes('Android') && !ua.includes('Mobile'));
 
+                if (!isDesktopMode) {
+                    try {
+                        var metas = document.querySelectorAll('meta[name="viewport"]');
+                        for (var i = 0; i < metas.length; i++) {
+                            var content = metas[i].getAttribute('content') || '';
+                            if (content.indexOf('width=980') !== -1) {
+                                metas[i].setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
+                            }
+                        }
+                        var styleEl = document.getElementById('__kaspa_desktop_css');
+                        if (styleEl && styleEl.parentNode) {
+                            styleEl.parentNode.removeChild(styleEl);
+                        }
+                    } catch (_) {}
+                    return;
+                }
+
+                var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
+
+                // 1. Intercept meta element content attribute and setAttribute synchronously
+                try {
+                    var origSetAttribute = HTMLMetaElement.prototype.setAttribute;
+                    HTMLMetaElement.prototype.setAttribute = function(name, value) {
+                        if (name && name.toLowerCase() === 'content' && this.name && this.name.toLowerCase() === 'viewport') {
+                            return origSetAttribute.call(this, name, DESKTOP_VIEWPORT);
+                        }
+                        return origSetAttribute.apply(this, arguments);
+                    };
+
+                    var origContentDesc = Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype, 'content');
+                    if (origContentDesc && origContentDesc.set) {
+                        Object.defineProperty(HTMLMetaElement.prototype, 'content', {
+                            get: function() {
+                                return (this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : origContentDesc.get.call(this);
+                            },
+                            set: function(val) {
+                                var finalVal = (this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : val;
+                                origContentDesc.set.call(this, finalVal);
+                            },
+                            configurable: true
+                        });
+                    }
+                } catch (_) {}
+
+                // 2. Synchronous sanitizer for meta elements
+                function sanitizeMeta(el) {
+                    try {
+                        if (!el || el.nodeType !== 1 || el.nodeName !== 'META') return;
+                        var n = (el.getAttribute('name') || el.name || '').toLowerCase();
+                        if (n === 'viewport') {
+                            if (el.getAttribute('content') !== DESKTOP_VIEWPORT) {
+                                el.setAttribute('content', DESKTOP_VIEWPORT);
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                // 3. Apply immediately to any existing meta tags in the document
+                try {
+                    var existing = document.getElementsByTagName('meta');
+                    for (var i = 0; i < existing.length; i++) {
+                        sanitizeMeta(existing[i]);
+                    }
+                } catch (_) {}
+
+                // 4. Ensure desktop viewport meta and layout CSS exist immediately
+                function enforceDesktopLayout() {
+                    try {
+                        var target = document.head || document.documentElement || document.body;
+                        if (!target) return;
+
+                        var metas = target.querySelectorAll('meta[name="viewport"]');
+                        if (metas.length === 0) {
+                            var meta = document.createElement('meta');
+                            meta.name = 'viewport';
+                            meta.content = DESKTOP_VIEWPORT;
+                            target.insertBefore(meta, target.firstChild);
+                        } else {
+                            for (var j = 0; j < metas.length; j++) {
+                                sanitizeMeta(metas[j]);
+                            }
+                        }
+
+                        if (!document.getElementById('__kaspa_desktop_css')) {
+                            var style = document.createElement('style');
+                            style.id = '__kaspa_desktop_css';
+                            style.textContent = 'html, body { min-width: 980px !important; }';
+                            target.insertBefore(style, target.firstChild);
+                        }
+                    } catch (_) {}
+                }
+
+                enforceDesktopLayout();
+
+                // 5. Observe DOM mutations from root immediately to prevent any mobile flash during parsing
+                try {
+                    if (!window.__kaspa_desktop_observer) {
+                        var rootTarget = document.documentElement || document;
+                        var observer = new MutationObserver(function(mutations) {
+                            for (var m = 0; m < mutations.length; m++) {
+                                var added = mutations[m].addedNodes;
+                                if (!added) continue;
+                                for (var k = 0; k < added.length; k++) {
+                                    var node = added[k];
+                                    if (node.nodeType === 1) {
+                                        if (node.nodeName === 'META') {
+                                            sanitizeMeta(node);
+                                        } else if (node.getElementsByTagName) {
+                                            var childMetas = node.getElementsByTagName('meta');
+                                            for (var c = 0; c < childMetas.length; c++) {
+                                                sanitizeMeta(childMetas[c]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        observer.observe(rootTarget, { childList: true, subtree: true });
+                        window.__kaspa_desktop_observer = observer;
+                    }
+                } catch (_) {}
+
+                document.addEventListener('DOMContentLoaded', enforceDesktopLayout, { once: true });
+
+                // 6. Provide desktop navigator.userAgentData and platform
                 if (navigator.userAgentData) {
                     try {
                         var origUaData = navigator.userAgentData;
@@ -603,20 +728,20 @@ object KaspaPrivacyEngine {
                                         { brand: 'Google Chrome', version: '$majorVer' },
                                         { brand: 'Not?A_Brand', version: '99' }
                                     ],
-                                    mobile: !isDesktopMode,
-                                    platform: isDesktopMode ? 'Windows' : 'Android',
+                                    mobile: false,
+                                    platform: 'Windows',
                                     getHighEntropyValues: function(hints) {
                                         if (origUaData && origUaData.getHighEntropyValues) {
                                             return origUaData.getHighEntropyValues(hints).then(function(v) {
                                                 return Object.assign({}, v, {
-                                                    mobile: !isDesktopMode,
-                                                    platform: isDesktopMode ? 'Windows' : 'Android'
+                                                    mobile: false,
+                                                    platform: 'Windows'
                                                 });
                                             });
                                         }
                                         return Promise.resolve({
-                                            mobile: !isDesktopMode,
-                                            platform: isDesktopMode ? 'Windows' : 'Android',
+                                            mobile: false,
+                                            platform: 'Windows',
                                             uaFullVersion: '$fullVer'
                                         });
                                     }
@@ -630,88 +755,11 @@ object KaspaPrivacyEngine {
 
                 try {
                     Object.defineProperty(navigator, 'platform', {
-                        get: function() { return isDesktopMode ? 'Win32' : 'Linux armv81'; },
+                        get: function() { return 'Win32'; },
                         configurable: true
                     });
                 } catch (_) {}
 
-                var mode = isDesktopMode ? 'desktop' : 'mobile';
-                // onPageStarted and onPageFinished both inject this script. Do not install
-                // multiple observers or repeat viewport work for the same document/mode.
-                if (window.__kaspa_viewport_mode === mode) return;
-                window.__kaspa_viewport_mode = mode;
-
-                if (isDesktopMode) {
-                    var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
-
-                    function enforceDesktopViewport() {
-                        try {
-                            var head = document.head;
-                            if (!head) return;
-                            var metas = head.querySelectorAll('meta[name="viewport"]');
-                            if (metas.length) {
-                                for (var i = 0; i < metas.length; i++) {
-                                    if (metas[i].getAttribute('content') !== DESKTOP_VIEWPORT) {
-                                        metas[i].setAttribute('content', DESKTOP_VIEWPORT);
-                                    }
-                                }
-                            } else {
-                                var meta = document.createElement('meta');
-                                meta.name = 'viewport';
-                                meta.content = DESKTOP_VIEWPORT;
-                                head.insertBefore(meta, head.firstChild);
-                            }
-                        } catch (_) {}
-                    }
-
-                    // Watch only direct additions to <head>. Avoid walking every inserted
-                    // subtree across the whole document on dynamic, script-heavy websites.
-                    function observeHead() {
-                        try {
-                            if (!document.head) return false;
-                            var observer = new MutationObserver(function(mutations) {
-                                for (var i = 0; i < mutations.length; i++) {
-                                    var nodes = mutations[i].addedNodes;
-                                    for (var j = 0; j < nodes.length; j++) {
-                                        var node = nodes[j];
-                                        if (node.nodeType === 1 && node.nodeName === 'META' &&
-                                            (node.getAttribute('name') || '').toLowerCase() === 'viewport' &&
-                                            node.getAttribute('content') !== DESKTOP_VIEWPORT) {
-                                            node.setAttribute('content', DESKTOP_VIEWPORT);
-                                        }
-                                    }
-                                }
-                            });
-                            observer.observe(document.head, { childList: true });
-                            window.__kaspa_viewport_observer = observer;
-                            return true;
-                        } catch (_) {
-                            return false;
-                        }
-                    }
-
-                    enforceDesktopViewport();
-                    if (!observeHead()) {
-                        // At early document start <head> may not exist yet. Wait once,
-                        // then observe only its direct children.
-                        document.addEventListener('DOMContentLoaded', function() {
-                            enforceDesktopViewport();
-                            observeHead();
-                        }, { once: true });
-                    }
-                } else {
-                    // Retain compatibility with pages whose viewport was already forced
-                    // by an earlier version of the script in the same document.
-                    try {
-                        var metas = document.querySelectorAll('meta[name="viewport"]');
-                        for (var i = 0; i < metas.length; i++) {
-                            var content = metas[i].getAttribute('content') || '';
-                            if (content.indexOf('width=980') !== -1) {
-                                metas[i].setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
-                            }
-                        }
-                    } catch (_) {}
-                }
             } catch (_) {}
         })();
         """.trimIndent()
