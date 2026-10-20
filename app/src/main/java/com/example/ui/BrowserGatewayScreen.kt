@@ -932,10 +932,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         targetWebView.evaluateJavascript(script) { rawResult ->
             isTranslating = false
             when (rawResult?.trim('"')) {
-                "requested", "loading" -> {
-                    isPageTranslated = true
+                "requested" -> {
+                    isPageTranslated = false
                     viewModel.setStatusMessage(
-                        "Translation requested for ${language.name}. If the page text does not change, the translation service may be blocked or unavailable."
+                        "Translation request sent for ${language.name}. The page may take time to update; success is not confirmed yet."
+                    )
+                }
+                "loading" -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage(
+                        "Loading the translation service. The original page remains open; translation is not confirmed yet."
                     )
                 }
                 "no-document" -> {
