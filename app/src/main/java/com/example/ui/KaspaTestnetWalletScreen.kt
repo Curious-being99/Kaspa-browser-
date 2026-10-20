@@ -1537,129 +1537,122 @@ private fun TransactionCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(if (isReceive) KaspaTea.copy(alpha = 0.15f) else RedTamper.copy(alpha = 0.15f)),
+                            .background(if (isReceive) KaspaTea.copy(alpha = 0.12f) else RedTamper.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
-                            contentDescription = null,
+                            contentDescription = tx.type,
                             tint = if (isReceive) KaspaTea else RedTamper,
                             modifier = Modifier.size(18.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
                         Text(
-                            text = if (isReceive) "Received Transaction" else "Sent Transaction",
+                            text = if (isReceive) "Received $currencySymbol" else "Sent $currencySymbol",
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = TextPrimary,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
+                            color = if (isReceive) KaspaTea else RedTamper
                         )
                         Text(
-                            text = if (isReceive) "Incoming funds transfer" else "Outgoing broadcast",
+                            text = dateStr,
                             fontSize = 11.sp,
-                            color = TextSecondary,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
+                            color = TextMuted
                         )
                     }
                 }
-                Surface(
-                    color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.12f) else AmberCentral.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
+
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = if (tx.isAccepted) "Accepted" else "Pending",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (tx.isAccepted) KaspaTea else AmberCentral,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        text = "${if (isReceive) "+" else "-"}%.4f $currencySymbol".format(tx.amountKas),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isReceive) KaspaTea else RedTamper
                     )
-                }
-            }
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Consolidate $countToCompound fragmented UTXO(s) into 1 single unspent output. This optimizes your wallet performance and reduces future transaction mass.",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                    lineHeight = 18.sp
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                Surface(
-                    color = SurfaceDark,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, SurfaceCardBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.12f) else AmberCentral.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(4.dp)
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Current UTXO Count", fontSize = 12.sp, color = TextMuted)
-                            Text("$utxoCount UTXOs", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Compounding Batch", fontSize = 12.sp, color = TextMuted)
-                            Text("$countToCompound -> 1 UTXO", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Total Balance", fontSize = 12.sp, color = TextMuted)
-                            Text("${KaspaTransactionEngine.formatKas(balanceKas)} KAS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
-                        }
+                        Text(
+                            text = if (tx.isAccepted) "Accepted" else "Pending",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (tx.isAccepted) KaspaTea else AmberCentral,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = !isCompounding,
-                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()
+
+            // Extended Details: TxID & Fee / Counterparty
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = SurfaceCardBorder.copy(alpha = 0.25f), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (isCompounding) {
-                    CircularProgressIndicator(color = SurfaceDark, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Compounding...", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                } else {
-                    Icon(painterResource(id = R.drawable.ic_compound_utxo), contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Sweep & Compound Now", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                }
-            }
-        },
-        dismissButton = {
-            if (!isCompounding) {
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Cancel", color = TextSecondary)
-                }
+                Text(
+                    text = "Tx: ${tx.txId.take(10)}...${tx.txId.takeLast(6)}",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextMuted
+                )
+                Text(
+                    text = "Fee: ${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Default,
+                    color = if (isReceive) KaspaTea else AmberCentral
+                )
             }
         }
-    )
+    }
 }
+
+@Composable
+private fun KaspaFeeCalculatorSection(
+    amountKas: Double,
+    balanceKas: Double,
+    selectedSompiPerMass: Long,
+    onFeerateChange: (Long) -> Unit,
+    breakdown: KaspaTransactionEngine.FeeCalculationBreakdown,
+    networkCondition: KaspaTransactionEngine.KaspaNetworkFeeCondition,
+    isFetchingFeeCondition: Boolean,
+    onRefreshFeeCondition: () -> Unit,
+    selectedNetwork: String = "",
+    currencySymbol: String = "KAS"
+) {
+    val isEvm = selectedNetwork.contains("Kasplex", ignoreCase = true) || selectedNetwork.contains("Igra", ignoreCase = true)
+    Surface(
+        color = SurfaceDark,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, SurfaceCardBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("kaspa_fee_calculator")
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
 
 @Composable
 private fun TransactionDetailDialog(
