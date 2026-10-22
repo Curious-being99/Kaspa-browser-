@@ -40,6 +40,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -1309,33 +1311,42 @@ private fun HistoryTabContent(
                     shape = RoundedCornerShape(10.dp),
                     color = if (isSelected) tabBorderColor.copy(alpha = 0.15f) else SurfaceCard,
                     border = BorderStroke(1.dp, tabBorderColor),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = title,
-                            fontSize = 12.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = tabTextColor
+                            color = tabTextColor,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(5.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(5.dp),
                             color = badgeColor
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             ) {
                                 Text(
                                     text = "$count",
-                                    fontSize = 10.sp,
+                                    fontSize = 9.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = badgeTextColor
+                                    color = badgeTextColor,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -1493,7 +1504,7 @@ private fun HistoryTabContent(
                         )
                     }
                     items(txs, key = { it.txId }) { tx ->
-                        Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) {
                             TransactionCard(tx = tx, selectedNetwork = selectedNetwork, onClick = { onOpenTx(tx) })
                         }
                     }
@@ -1532,7 +1543,7 @@ private fun TransactionCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1542,7 +1553,7 @@ private fun TransactionCard(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(32.dp)
                             .clip(CircleShape)
                             .background(if (isReceive) KaspaTea.copy(alpha = 0.12f) else RedTamper.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
@@ -1551,33 +1562,42 @@ private fun TransactionCard(
                             imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
                             contentDescription = tx.type,
                             tint = if (isReceive) KaspaTea else RedTamper,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = if (isReceive) "Received $currencySymbol" else "Sent $currencySymbol",
-                            fontSize = 14.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isReceive) KaspaTea else RedTamper
+                            color = if (isReceive) KaspaTea else RedTamper,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = dateStr,
                             fontSize = 11.sp,
-                            color = TextMuted
+                            color = TextMuted,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
+
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = "${if (isReceive) "+" else "-"}%.4f $currencySymbol".format(tx.amountKas),
-                        fontSize = 14.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        color = if (isReceive) KaspaTea else RedTamper
+                        color = if (isReceive) KaspaTea else RedTamper,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Surface(
@@ -1589,6 +1609,8 @@ private fun TransactionCard(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (tx.isAccepted) KaspaTea else AmberCentral,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -1596,9 +1618,9 @@ private fun TransactionCard(
             }
 
             // Extended Details: TxID & Fee / Counterparty
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             HorizontalDivider(color = SurfaceCardBorder.copy(alpha = 0.25f), thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1609,7 +1631,9 @@ private fun TransactionCard(
                     text = "Tx: ${tx.txId.take(10)}...${tx.txId.takeLast(6)}",
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = TextMuted
+                    color = TextMuted,
+                    maxLines = 1,
+                    softWrap = false
                 )
                 Text(
                     text = "Fee: ${KaspaTransactionEngine.formatKas(tx.feeKas)} KAS",
@@ -3177,10 +3201,13 @@ private fun TransactionDetailDialog(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(32.dp)
                             .clip(CircleShape)
                             .background(if (isReceive) KaspaTea.copy(alpha = 0.15f) else RedTamper.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
@@ -3189,34 +3216,42 @@ private fun TransactionDetailDialog(
                             imageVector = if (isReceive) Icons.AutoMirrored.Filled.CallReceived else Icons.AutoMirrored.Filled.CallMade,
                             contentDescription = null,
                             tint = if (isReceive) KaspaTea else RedTamper,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = if (isReceive) "Received Transaction" else "Sent Transaction",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = TextPrimary
+                            fontSize = 14.5.sp,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = if (isReceive) "Incoming funds transfer" else "Outgoing broadcast",
-                            fontSize = 11.sp,
-                            color = TextSecondary
+                            fontSize = 10.5.sp,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
+                Spacer(modifier = Modifier.width(6.dp))
                 Surface(
-                    color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.12f) else AmberCentral.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(6.dp)
+                    color = if (tx.isAccepted) KaspaTea.copy(alpha = 0.14f) else AmberCentral.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.wrapContentSize()
                 ) {
                     Text(
                         text = if (tx.isAccepted) "Accepted" else "Pending",
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (tx.isAccepted) KaspaTea else AmberCentral,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
             }
@@ -3328,17 +3363,17 @@ private fun TransactionDetailDialog(
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Execution & Broadcast Details", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.height(2.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Network:", fontSize = 11.5.sp, color = TextMuted)
-                            Text(networkProtocolName, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                            Text(networkProtocolName, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Sign Derivation Path:", fontSize = 11.5.sp, color = TextMuted)
-                            Text(signDerivationPath, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = KaspaTea)
+                            Text(signDerivationPath, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = KaspaTea, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Broadcast RPC:", fontSize = 11.5.sp, color = TextMuted)
-                            Text(broadcastEndpoint, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = ElectricCyan)
+                            Text(broadcastEndpoint, fontSize = 10.5.sp, fontFamily = FontFamily.Monospace, color = ElectricCyan, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         if (tx.acceptingBlueScore != null) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -3897,7 +3932,7 @@ private fun WalletAccountsDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 550.dp)
+                .wrapContentHeight()
                 .clickable(enabled = false) {},
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             color = SurfaceCard,
@@ -3906,23 +3941,32 @@ private fun WalletAccountsDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
-                        .width(40.dp)
+                        .width(36.dp)
                         .height(4.dp)
                         .background(TextMuted.copy(alpha = 0.4f), RoundedCornerShape(2.dp))
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Wallets & Accounts", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+                    Text(
+                        text = "Wallets & Accounts",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.5.sp,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -3936,13 +3980,14 @@ private fun WalletAccountsDialog(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                                 ) {
                                     Text(
                                         text = selectedNetwork,
-                                        fontSize = 11.sp,
+                                        fontSize = 10.5.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = TextSecondary
+                                        color = TextSecondary,
+                                        maxLines = 1
                                     )
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
@@ -3960,23 +4005,24 @@ private fun WalletAccountsDialog(
                         ) {
                             Text(
                                 "${allAccounts.size} Wallets",
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = KaspaTea,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                maxLines = 1,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                Text("Select an active wallet or add a new identity:", fontSize = 12.sp, color = TextSecondary)
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+                Text("Select an active wallet or add a new identity:", fontSize = 11.5.sp, color = TextSecondary)
+                Spacer(modifier = Modifier.height(10.dp))
 
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 260.dp),
+                        .heightIn(max = 240.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(allAccounts) { account ->
@@ -3992,7 +4038,7 @@ private fun WalletAccountsDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
-                                modifier = Modifier.padding(12.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -4004,13 +4050,21 @@ private fun WalletAccountsDialog(
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(account.handle, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isActive) KaspaTea else TextPrimary)
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            account.kaspaAddress.take(12) + "..." + account.kaspaAddress.takeLast(6),
+                                            text = account.handle,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = if (isActive) KaspaTea else TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = account.kaspaAddress.take(12) + "..." + account.kaspaAddress.takeLast(6),
                                             fontSize = 10.sp,
                                             fontFamily = FontFamily.Monospace,
-                                            color = TextMuted
+                                            color = TextMuted,
+                                            maxLines = 1
                                         )
                                     }
                                 }
@@ -4022,9 +4076,9 @@ private fun WalletAccountsDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(color = SurfaceCardBorder, thickness = 0.5.dp)
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -4038,7 +4092,7 @@ private fun WalletAccountsDialog(
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, KaspaTea),
                         colors = ButtonDefaults.outlinedButtonColors(containerColor = SurfaceDark),
-                        modifier = Modifier.weight(1f).height(46.dp)
+                        modifier = Modifier.weight(1f).height(44.dp)
                     ) {
                         Icon(Icons.Default.Add, null, tint = KaspaTea, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -4052,14 +4106,14 @@ private fun WalletAccountsDialog(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f).height(46.dp)
+                        modifier = Modifier.weight(1f).height(44.dp)
                     ) {
                         Icon(Icons.Default.Download, null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Import", color = SurfaceDark, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
