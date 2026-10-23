@@ -3480,6 +3480,11 @@ class DecentralViewModel(
         _statusMessage.value = "Removed PWA from library"
     }
 
+    fun refreshInstalledPwas() {
+        _installedPwas.value = loadInstalledPwas()
+        _statusMessage.value = "Updated installed PWAs"
+    }
+
     fun installApkFile(context: android.content.Context, downloadId: Long, fileName: String): Pair<Boolean, String> {
         val result = com.example.network.PwaShortcutHelper.installApk(context, downloadId, fileName)
         _statusMessage.value = result.second

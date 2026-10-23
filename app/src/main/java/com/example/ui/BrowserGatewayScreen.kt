@@ -6889,8 +6889,25 @@ fun InstallSheetContent(
                 )
             }
 
-            IconButton(onClick = onClose) {
-                Icon(Icons.Default.Clear, contentDescription = "Close", tint = TextSecondary)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = {
+                        viewModel.refreshInstalledPwas()
+                        android.widget.Toast.makeText(context, "PWA list refreshed", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refresh installed PWAs",
+                        tint = ElectricCyan,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Clear, contentDescription = "Close", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                }
             }
         }
 

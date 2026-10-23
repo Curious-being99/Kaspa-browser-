@@ -398,6 +398,165 @@ fun PwaStandaloneScreen(
             .navigationBarsPadding()
             .imePadding()
     ) {
+        // Standalone PWA Native Header with Custom Refresh (Non-blocking, does not obstruct PWA viewport or lists)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            color = Color(0xFF0F1523),
+            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (canGoBack || webViewRef?.canGoBack() == true) {
+                        IconButton(
+                            onClick = { webViewRef?.goBack() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(EmeraldMesh)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = pageTitle.ifBlank { initialTitle.ifBlank { "Web Application" } },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Custom Refresh Button: manual on-demand reload, removing accidental auto-refresh gestures
+                    IconButton(
+                        onClick = {
+                            if (!isLoading) {
+                                isLoading = true
+                                isRefreshing = true
+                                webProgress = 0.15f
+                                webViewRef?.reload()
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Custom Refresh",
+                            tint = if (isLoading) EmeraldMesh else ElectricCyan,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Options",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            modifier = Modifier.background(SurfaceDark)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Refresh Page", color = TextPrimary) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = ElectricCyan)
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    isLoading = true
+                                    isRefreshing = true
+                                    webProgress = 0.15f
+                                    webViewRef?.reload()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (isDesktopMode) "Request Mobile Site" else "Request Desktop Site",
+                                        color = TextPrimary
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        if (isDesktopMode) Icons.Default.PhoneAndroid else Icons.Default.DesktopMac,
+                                        contentDescription = null,
+                                        tint = ElectricCyan
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    isDesktopMode = !isDesktopMode
+                                    webViewRef?.let { wv ->
+                                        applyDesktopModeToggle(wv, isDesktopMode)
+                                    }
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Open in Browser", color = TextPrimary) },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = ElectricCyan)
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenInBrowser(webViewRef?.url ?: currentUrl)
+                                }
+                            )
+
+                            HorizontalDivider(color = SurfaceCardBorder)
+
+                            DropdownMenuItem(
+                                text = { Text("Close App", color = RedTamper) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Close, contentDescription = null, tint = RedTamper)
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onCloseApp()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // Standalone PWA Native Layout - 2dp Chromium progress indicator during page navigation
         AnimatedVisibility(
             visible = isProgressBarVisible,
@@ -414,27 +573,16 @@ fun PwaStandaloneScreen(
             )
         }
 
-        // Standalone Web Viewport
+        // Standalone Web Viewport - native direct touch dispatch with zero gesture interception
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
         ) {
             androidx.compose.runtime.key(pwaRecreateKey) {
                 AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
-                    val swipeLayout = BrowserSwipeRefreshLayout(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        setColorSchemeColors(
-                            android.graphics.Color.parseColor("#00E5FF"),
-                            android.graphics.Color.parseColor("#10B981")
-                        )
-                        setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
-                    }
-
                     val wv = com.example.ui.NestedWebView(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -485,7 +633,6 @@ fun PwaStandaloneScreen(
                                 super.onPageFinished(view, url)
                                 isLoading = false
                                 isRefreshing = false
-                                swipeLayout.isRefreshing = false
                                 canGoBack = view?.canGoBack() == true
                                 url?.let {
                                     currentUrl = it
@@ -583,7 +730,6 @@ fun PwaStandaloneScreen(
                                 if (request == null || request.isForMainFrame) {
                                     isLoading = false
                                     isRefreshing = false
-                                    swipeLayout.isRefreshing = false
                                     Log.e("PWA", "[PWA] resource error: ${error?.description}")
                                     val failingUrl = request?.url?.toString() ?: view?.url ?: currentUrl
                                     val errorHtml = KaspaWebViewConfigurator.generateErrorHtml(failingUrl, error?.description?.toString())
@@ -600,7 +746,6 @@ fun PwaStandaloneScreen(
                                 handler?.cancel()
                                 isLoading = false
                                 isRefreshing = false
-                                swipeLayout.isRefreshing = false
                                 val failingUrl = error?.url ?: currentUrl
                                 val sslReason = when (error?.primaryError) {
                                     android.net.http.SslError.SSL_EXPIRED -> "The SSL certificate for this site has expired."
@@ -632,7 +777,6 @@ fun PwaStandaloneScreen(
                                     webProgress = 1.0f
                                     isLoading = false
                                     isRefreshing = false
-                                    swipeLayout.isRefreshing = false
                                 } else if (isLoading) {
                                     val progressFraction = (newProgress / 100f).coerceIn(0.15f, 0.98f)
                                     if (progressFraction >= webProgress) {
@@ -818,22 +962,9 @@ fun PwaStandaloneScreen(
                         }
                     }
 
-                    swipeLayout.setOnRefreshListener {
-                        if (isLoading || isRefreshing) {
-                            swipeLayout.isRefreshing = false
-                            return@setOnRefreshListener
-                        }
-                        isRefreshing = true
-                        isLoading = true
-                        webProgress = 0.15f
-                        wv.reload()
-                    }
-
-                    swipeLayout.addView(wv)
-                    swipeLayout.targetWebView = wv
                     webViewRef = wv
                     onWebViewCreated(wv)
-                    swipeLayout
+                    wv
                 }
             )
             }
