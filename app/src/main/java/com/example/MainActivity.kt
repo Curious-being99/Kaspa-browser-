@@ -168,6 +168,7 @@ class MainActivity : FragmentActivity() {
     super.onPause()
     com.example.util.BrowserStateLog.save("MainActivity onPause - saving tabs state")
     viewModel.saveAllTabsState("onPause")
+    viewModel.lockWallet()
   }
 
   override fun onStop() {

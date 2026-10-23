@@ -415,6 +415,9 @@ class DecentralViewModel(
     fun unlockWalletWithPassword(password: String): Boolean {
         val storedHash = securityPrefs.getString("wallet_pwd_hash", "") ?: ""
         if (storedHash.isBlank()) {
+            if (password.length >= 6) {
+                setWalletPassword(password)
+            }
             _isWalletLocked.value = false
             return true
         }
@@ -431,7 +434,7 @@ class DecentralViewModel(
     }
 
     fun lockWallet() {
-        if (_hasWalletPassword.value) {
+        if (_hasWalletPassword.value || activeAccount.value != null) {
             _isWalletLocked.value = true
         }
     }
@@ -2472,7 +2475,11 @@ class DecentralViewModel(
     }
 
     fun setTab(tab: AppTab) {
+        val previousTab = _activeTab.value
         _activeTab.value = tab
+        if (previousTab == AppTab.KASPA_WALLET && tab != AppTab.KASPA_WALLET) {
+            lockWallet()
+        }
         if (_isAutoRotatePhotoTheme.value) {
             cyclePhotoTheme()
         }

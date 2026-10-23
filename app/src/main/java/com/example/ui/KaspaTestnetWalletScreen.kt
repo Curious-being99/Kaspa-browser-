@@ -231,8 +231,18 @@ fun KaspaTestnetWalletScreen(
     val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
     var showThemeSelectorDialog by remember { mutableStateOf(false) }
 
+    // Auto-lock wallet whenever leaving the wallet screen
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.lockWallet()
+        }
+    }
+
     val isLocked by viewModel.isWalletLocked.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
+    var showUnlockBeforeSeedSheet by remember { mutableStateOf(false) }
+    var isSeedPhrasePreUnlocked by remember { mutableStateOf(false) }
 
     var showSeedPhraseDialog by remember { mutableStateOf(false) }
     var seedPhrasePasswordInput by remember { mutableStateOf("") }
@@ -294,6 +304,8 @@ fun KaspaTestnetWalletScreen(
         if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
+        } else if (showUnlockBeforeSeedSheet) {
+            showUnlockBeforeSeedSheet = false
         } else if (showCompoundDialog) {
             showCompoundDialog = false
         } else if (selectedTransactionForDetails != null) {
@@ -302,6 +314,7 @@ fun KaspaTestnetWalletScreen(
             showConfirmSendDialog = false
         } else if (showRecoveryScreen) {
             showRecoveryScreen = false
+            isSeedPhrasePreUnlocked = false
         } else if (showFullWalletSetup) {
             showFullWalletSetup = false
         } else if (showSendScreen) {
@@ -315,6 +328,7 @@ fun KaspaTestnetWalletScreen(
         } else if (showManageScreen) {
             showManageScreen = false
         } else {
+            viewModel.lockWallet()
             viewModel.setTab(AppTab.BROWSER_GATEWAY)
         }
     }
@@ -696,7 +710,7 @@ fun KaspaTestnetWalletScreen(
                 testnetAddress = testnetAddress,
                 allAccountsCount = allAccounts.size,
                 selectedNetwork = selectedNetwork,
-                onViewSeed = { showRecoveryScreen = true },
+                onViewSeed = { showUnlockBeforeSeedSheet = true },
                 onSignOut = { showSignOutConfirmDialog = true },
                 onOpenNetworkSwitch = {
                     showManageScreen = false
@@ -706,6 +720,21 @@ fun KaspaTestnetWalletScreen(
                     showNetworkDetailsScreen = true
                 },
                 onClose = { showManageScreen = false }
+            )
+        }
+
+        // Security Verification BottomSheet Before Viewing Recovery Seed Phrase (Pops up from below)
+        if (showUnlockBeforeSeedSheet) {
+            UnlockRecoveryBottomSheet(
+                viewModel = viewModel,
+                onSuccess = {
+                    showUnlockBeforeSeedSheet = false
+                    isSeedPhrasePreUnlocked = true
+                    showRecoveryScreen = true
+                },
+                onDismiss = {
+                    showUnlockBeforeSeedSheet = false
+                }
             )
         }
 
@@ -737,7 +766,11 @@ fun KaspaTestnetWalletScreen(
             RecoveryScreenOverlay(
                 seedPhrase = viewModel.getActiveSeedPhrase() ?: "",
                 viewModel = viewModel,
-                onClose = { showRecoveryScreen = false }
+                isPreUnlocked = isSeedPhrasePreUnlocked,
+                onClose = {
+                    showRecoveryScreen = false
+                    isSeedPhrasePreUnlocked = false
+                }
             )
         }
 
@@ -4119,10 +4152,195 @@ private fun WalletAccountsDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UnlockRecoveryBottomSheet(
+    viewModel: DecentralViewModel,
+    onSuccess: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val hasPassword by viewModel.hasWalletPassword.collectAsState()
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+
+    var passwordInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val isBiometricAvailable = remember { BiometricAuthHelper.isDeviceLockAvailable(context) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceCard,
+        contentColor = TextPrimary,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = KaspaTea.copy(alpha = 0.15f),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = KaspaTea,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Security Verification",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = "Confirm with your wallet password",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+
+            Text(
+                text = "Your 12-word seed phrase grants master access to all wallet funds. Confirm your password or device authentication to proceed.",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                lineHeight = 18.sp
+            )
+
+            if (hasPassword) {
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = {
+                        passwordInput = it
+                        errorMessage = null
+                    },
+                    label = { Text("Wallet Password") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    isError = errorMessage != null,
+                    supportingText = {
+                        if (errorMessage != null) {
+                            Text(errorMessage ?: "", color = RedTamper, fontSize = 11.sp)
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = KaspaTea,
+                        unfocusedBorderColor = SurfaceCardBorder,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        errorBorderColor = RedTamper
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("seed_unlock_password_input")
+                )
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = AmberCentral.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, AmberCentral.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Your wallet is currently protected by device credentials. Authorize to reveal your recovery seed phrase.",
+                        fontSize = 12.5.sp,
+                        color = AmberCentral,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
+            Button(
+                onClick = {
+                    if (hasPassword) {
+                        if (passwordInput.isBlank()) {
+                            errorMessage = "Please enter your wallet password"
+                            return@Button
+                        }
+                        if (viewModel.unlockWalletWithPassword(passwordInput)) {
+                            onSuccess()
+                        } else {
+                            errorMessage = "Incorrect wallet password"
+                        }
+                    } else if (biometricsEnabled && isBiometricAvailable) {
+                        BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                            context = context,
+                            title = "Unlock Recovery Phrase",
+                            subtitle = "Authenticate to view seed phrase",
+                            onSuccess = { onSuccess() },
+                            onError = { err -> errorMessage = err }
+                        )
+                    } else {
+                        onSuccess()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("seed_unlock_confirm_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (hasPassword) "Unlock & View Phrase" else "Authenticate & View",
+                    color = SurfaceDark,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+            }
+
+            if (biometricsEnabled && isBiometricAvailable) {
+                OutlinedButton(
+                    onClick = {
+                        BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                            context = context,
+                            title = "Unlock Recovery Phrase",
+                            subtitle = "Authenticate to view seed phrase",
+                            onSuccess = { onSuccess() },
+                            onError = { err -> errorMessage = err }
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("seed_unlock_biometric_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, SurfaceCardBorder)
+                ) {
+                    Icon(Icons.Default.Fingerprint, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Authorize with Biometrics", color = TextPrimary)
+                }
+            }
+
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    }
+}
+
 @Composable
 private fun RecoveryScreenOverlay(
     seedPhrase: String,
     viewModel: DecentralViewModel,
+    isPreUnlocked: Boolean = false,
     onClose: () -> Unit
 ) {
     val context = LocalContext.current
@@ -4130,7 +4348,7 @@ private fun RecoveryScreenOverlay(
     val hasPassword by viewModel.hasWalletPassword.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
 
-    var isRevealed by remember { mutableStateOf(!hasPassword) }
+    var isRevealed by remember { mutableStateOf(isPreUnlocked) }
     var passwordInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var copyNotice by remember { mutableStateOf(false) }
@@ -5391,6 +5609,9 @@ fun WalletSetupFlow(
                                     errorMessage = "Password must be at least 6 characters"
                                     return@Button
                                 }
+                                if (walletPassword.isNotBlank()) {
+                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true)
+                                }
                                 viewModel.selectNetwork(selectedSetupNetwork)
                                 viewModel.importTestnetWallet(
                                     mnemonic = importMnemonic.trim(),
@@ -5580,6 +5801,9 @@ fun WalletSetupFlow(
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(
                             onClick = {
+                                if (walletPassword.isNotBlank()) {
+                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true)
+                                }
                                 viewModel.selectNetwork(selectedSetupNetwork)
                                 viewModel.importTestnetWallet(
                                     mnemonic = generatedMnemonic,
