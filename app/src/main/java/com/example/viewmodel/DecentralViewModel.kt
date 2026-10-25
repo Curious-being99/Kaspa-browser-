@@ -404,12 +404,144 @@ class DecentralViewModel(
     private val _biometricsEnabled = MutableStateFlow(securityPrefs.getBoolean("biometrics_enabled", true))
     val biometricsEnabled = _biometricsEnabled.asStateFlow()
 
-    private companion object {
+    companion object {
         const val WALLET_PASSWORD_KDF = "pbkdf2_hmac_sha256"
         const val WALLET_PASSWORD_ITERATIONS = 600_000
         const val WALLET_PASSWORD_SALT_BYTES = 16
         const val WALLET_PASSWORD_KEY_BYTES = 32
         const val LEGACY_WALLET_PASSWORD_SALT = "_kaspa_salt_v1"
+        /**
+         * Regular expression matching standard Kaspa network address format:
+         * (kaspa|kaspatest|kaspadev|kaspasim):<61-63 chars in CashAddr charset>
+         * Also tolerates optional browser scheme prefix "kaspa://".
+         */
+        val KASPA_ADDRESS_REGEX = Regex(
+            "^(?:kaspa://)?(kaspa|kaspatest|kaspadev|kaspasim):([qpzry9x8gf2tvdw0s3jn54khce6mua7l]{61,63})$",
+            RegexOption.IGNORE_CASE
+        )
+
+        /**
+         * Matches standalone CashAddr base-32 payload without network prefix.
+         */
+        val KASPA_PAYLOAD_ONLY_REGEX = Regex(
+            "^[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{61,63}$",
+            RegexOption.IGNORE_CASE
+        )
+
+        fun isValidKaspaAddress(input: String): Boolean = validateKaspaAddress(input).isValid
+
+        fun validateKaspaAddress(input: String): KaspaAddressValidationResult {
+            val trimmed = input.trim()
+            if (trimmed.isBlank()) {
+                return KaspaAddressValidationResult(isValid = false, rawInput = input)
+            }
+
+            // Clean trailing slashes or URL query artifacts
+            val sanitized = trimmed.removeSuffix("/").trim()
+
+            // 1. Direct match with standard prefix (e.g., kaspa:q..., kaspatest:q...)
+            val match = KASPA_ADDRESS_REGEX.matchEntire(sanitized)
+            if (match != null) {
+                val prefix = match.groupValues[1].lowercase()
+                val payload = match.groupValues[2].lowercase()
+                return buildValidationResult(input, "$prefix:$payload", prefix, payload)
+            }
+
+            // 2. Strip protocol prefix if entered as browser URL like kaspa://
+            val stripped = if (sanitized.startsWith("kaspa://", ignoreCase = true)) {
+                sanitized.substring(8).trim()
+            } else {
+                sanitized
+            }
+
+            val matchStripped = KASPA_ADDRESS_REGEX.matchEntire(stripped)
+            if (matchStripped != null) {
+                val prefix = matchStripped.groupValues[1].lowercase()
+                val payload = matchStripped.groupValues[2].lowercase()
+                return buildValidationResult(input, "$prefix:$payload", prefix, payload)
+            }
+
+            // 3. Fallback for prefix-less 61 or 63 character CashAddr payload
+            if (KASPA_PAYLOAD_ONLY_REGEX.matches(stripped)) {
+                val payload = stripped.lowercase()
+                val testnetRes = buildValidationResult(input, "kaspatest:$payload", "kaspatest", payload)
+                if (testnetRes.checksumValid) return testnetRes
+                val mainnetRes = buildValidationResult(input, "kaspa:$payload", "kaspa", payload)
+                if (mainnetRes.checksumValid || payload.startsWith("q") || payload.startsWith("p") || payload.startsWith("s")) {
+                    return mainnetRes
+                }
+            }
+
+            return KaspaAddressValidationResult(isValid = false, rawInput = input)
+        }
+
+        private fun buildValidationResult(
+            rawInput: String,
+            cleanAddress: String,
+            prefix: String,
+            payload: String
+        ): KaspaAddressValidationResult {
+            val networkName = when (prefix) {
+                "kaspa" -> "Kaspa Mainnet"
+                "kaspatest" -> "Kaspa Testnet"
+                "kaspadev" -> "Kaspa Devnet"
+                "kaspasim" -> "Kaspa Simnet"
+                else -> "Kaspa Network"
+            }
+
+            val addressType = when {
+                payload.startsWith("q") -> "P2PK Schnorr"
+                payload.startsWith("p") -> "P2SH Script"
+                payload.startsWith("s") -> "P2PK ECDSA"
+                else -> "CashAddr"
+            }
+
+            // Validate polymod checksum
+            var checksumPassed = false
+            try {
+                val charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+                val data5Bit = ByteArray(payload.length)
+                var allValid = true
+                for (i in payload.indices) {
+                    val idx = charset.indexOf(payload[i])
+                    if (idx < 0) {
+                        allValid = false
+                        break
+                    }
+                    data5Bit[i] = idx.toByte()
+                }
+                if (allValid) {
+                    checksumPassed = CryptoUtils.kaspaPolymod(prefix, data5Bit) == 0L
+                }
+            } catch (_: Exception) {
+                checksumPassed = false
+            }
+
+            val truncated = if (cleanAddress.length > 22) {
+                "${cleanAddress.take(12)}...${cleanAddress.takeLast(6)}"
+            } else {
+                cleanAddress
+            }
+
+            val explorerUrl = when (prefix) {
+                "kaspatest" -> "https://tn10.kaspa.stream/addresses/$cleanAddress"
+                "kaspadev" -> "https://explorer-devnet.kaspa.org/addresses/$cleanAddress"
+                else -> "https://kaspa.stream/addresses/$cleanAddress"
+            }
+
+            return KaspaAddressValidationResult(
+                isValid = true,
+                rawInput = rawInput,
+                cleanAddress = cleanAddress,
+                networkPrefix = prefix,
+                networkName = networkName,
+                addressType = addressType,
+                payload = payload,
+                checksumValid = checksumPassed,
+                truncatedAddress = truncated,
+                explorerUrl = explorerUrl
+            )
+        }
     }
 
     private fun deriveWalletPasswordHash(password: String, salt: ByteArray, iterations: Int): ByteArray? {
@@ -2436,7 +2568,6 @@ class DecentralViewModel(
         }
     }
 
-
     fun openUrlInBrowser(url: String, isExternal: Boolean = true, isStandalonePwa: Boolean = false) {
         if (isExternal) {
             explicitIntentUrlHandled = true
@@ -3620,138 +3751,4 @@ class DecentralViewModel(
     fun isValidKaspaAddress(input: String): Boolean =
         Companion.isValidKaspaAddress(input)
 
-    companion object {
-        /**
-         * Regular expression matching standard Kaspa network address format:
-         * (kaspa|kaspatest|kaspadev|kaspasim):<61-63 chars in CashAddr charset>
-         * Also tolerates optional browser scheme prefix "kaspa://".
-         */
-        val KASPA_ADDRESS_REGEX = Regex(
-            "^(?:kaspa://)?(kaspa|kaspatest|kaspadev|kaspasim):([qpzry9x8gf2tvdw0s3jn54khce6mua7l]{61,63})$",
-            RegexOption.IGNORE_CASE
-        )
-
-        /**
-         * Matches standalone CashAddr base-32 payload without network prefix.
-         */
-        val KASPA_PAYLOAD_ONLY_REGEX = Regex(
-            "^[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{61,63}$",
-            RegexOption.IGNORE_CASE
-        )
-
-        fun isValidKaspaAddress(input: String): Boolean = validateKaspaAddress(input).isValid
-
-        fun validateKaspaAddress(input: String): KaspaAddressValidationResult {
-            val trimmed = input.trim()
-            if (trimmed.isBlank()) {
-                return KaspaAddressValidationResult(isValid = false, rawInput = input)
-            }
-
-            // Clean trailing slashes or URL query artifacts
-            val sanitized = trimmed.removeSuffix("/").trim()
-
-            // 1. Direct match with standard prefix (e.g., kaspa:q..., kaspatest:q...)
-            val match = KASPA_ADDRESS_REGEX.matchEntire(sanitized)
-            if (match != null) {
-                val prefix = match.groupValues[1].lowercase()
-                val payload = match.groupValues[2].lowercase()
-                return buildValidationResult(input, "$prefix:$payload", prefix, payload)
-            }
-
-            // 2. Strip protocol prefix if entered as browser URL like kaspa://
-            val stripped = if (sanitized.startsWith("kaspa://", ignoreCase = true)) {
-                sanitized.substring(8).trim()
-            } else {
-                sanitized
-            }
-
-            val matchStripped = KASPA_ADDRESS_REGEX.matchEntire(stripped)
-            if (matchStripped != null) {
-                val prefix = matchStripped.groupValues[1].lowercase()
-                val payload = matchStripped.groupValues[2].lowercase()
-                return buildValidationResult(input, "$prefix:$payload", prefix, payload)
-            }
-
-            // 3. Fallback for prefix-less 61 or 63 character CashAddr payload
-            if (KASPA_PAYLOAD_ONLY_REGEX.matches(stripped)) {
-                val payload = stripped.lowercase()
-                val testnetRes = buildValidationResult(input, "kaspatest:$payload", "kaspatest", payload)
-                if (testnetRes.checksumValid) return testnetRes
-                val mainnetRes = buildValidationResult(input, "kaspa:$payload", "kaspa", payload)
-                if (mainnetRes.checksumValid || payload.startsWith("q") || payload.startsWith("p") || payload.startsWith("s")) {
-                    return mainnetRes
-                }
-            }
-
-            return KaspaAddressValidationResult(isValid = false, rawInput = input)
-        }
-
-        private fun buildValidationResult(
-            rawInput: String,
-            cleanAddress: String,
-            prefix: String,
-            payload: String
-        ): KaspaAddressValidationResult {
-            val networkName = when (prefix) {
-                "kaspa" -> "Kaspa Mainnet"
-                "kaspatest" -> "Kaspa Testnet"
-                "kaspadev" -> "Kaspa Devnet"
-                "kaspasim" -> "Kaspa Simnet"
-                else -> "Kaspa Network"
-            }
-
-            val addressType = when {
-                payload.startsWith("q") -> "P2PK Schnorr"
-                payload.startsWith("p") -> "P2SH Script"
-                payload.startsWith("s") -> "P2PK ECDSA"
-                else -> "CashAddr"
-            }
-
-            // Validate polymod checksum
-            var checksumPassed = false
-            try {
-                val charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-                val data5Bit = ByteArray(payload.length)
-                var allValid = true
-                for (i in payload.indices) {
-                    val idx = charset.indexOf(payload[i])
-                    if (idx < 0) {
-                        allValid = false
-                        break
-                    }
-                    data5Bit[i] = idx.toByte()
-                }
-                if (allValid) {
-                    checksumPassed = CryptoUtils.kaspaPolymod(prefix, data5Bit) == 0L
-                }
-            } catch (_: Exception) {
-                checksumPassed = false
-            }
-
-            val truncated = if (cleanAddress.length > 22) {
-                "${cleanAddress.take(12)}...${cleanAddress.takeLast(6)}"
-            } else {
-                cleanAddress
-            }
-
-            val explorerUrl = when (prefix) {
-                "kaspatest" -> "https://tn10.kaspa.stream/addresses/$cleanAddress"
-                "kaspadev" -> "https://explorer-devnet.kaspa.org/addresses/$cleanAddress"
-                else -> "https://kaspa.stream/addresses/$cleanAddress"
-            }
-
-            return KaspaAddressValidationResult(
-                isValid = true,
-                rawInput = rawInput,
-                cleanAddress = cleanAddress,
-                networkPrefix = prefix,
-                networkName = networkName,
-                addressType = addressType,
-                payload = payload,
-                checksumValid = checksumPassed,
-                truncatedAddress = truncated,
-                explorerUrl = explorerUrl
-            )
-        }
-    }
 }
