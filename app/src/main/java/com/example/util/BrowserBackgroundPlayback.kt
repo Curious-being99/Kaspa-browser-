@@ -33,10 +33,11 @@ object BrowserBackgroundPlayback {
                             val playing = state.optBoolean("playing", false)
                             val title = state.optString("title").take(180)
                             val url = state.optString("url").take(2048)
-                            val changed = playing != lastPlaying || title != lastTitle || url != lastUrl
+                            val normalizedTitle = title.ifBlank { url }
+                            val changed = playing != lastPlaying || normalizedTitle != lastTitle || url != lastUrl
                             val wasPlaying = lastPlaying
                             lastPlaying = playing
-                            lastTitle = title.ifBlank { url }
+                            lastTitle = normalizedTitle
                             lastUrl = url
                             if (changed && (playing || wasPlaying)) {
                                 val context = appContext ?: return@runCatching
