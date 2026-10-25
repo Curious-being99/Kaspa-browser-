@@ -128,6 +128,10 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         AppTab.TRAFFIC_AUDIT -> TrafficAuditScreen(viewModel = viewModel)
                         AppTab.LIBRARY -> LibraryScreen(viewModel = viewModel)
                         AppTab.KASPA_WALLET -> KaspaTestnetWalletScreen(viewModel = viewModel)
+                        AppTab.SI_AGENT -> SiAgentScreen(
+                            viewModel = viewModel,
+                            onClose = { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
+                        )
                     }
                 }
             }

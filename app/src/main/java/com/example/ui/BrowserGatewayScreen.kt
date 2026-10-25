@@ -78,6 +78,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -601,6 +602,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     viewModel.saveActiveTabState("Lifecycle ON_PAUSE")
                     if (!backgroundPlaybackEnabled) {
                         webViewInstance?.onPause()
+                    } else {
+                        webViewInstance?.resumeTimers()
                     }
                 } catch (_: Exception) {}
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
@@ -609,6 +612,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     viewModel.saveActiveTabState("Lifecycle ON_STOP")
                     // Auto-lock the wallet when app moves to background
                     viewModel.lockWallet()
+                    if (backgroundPlaybackEnabled) {
+                        webViewInstance?.resumeTimers()
+                    }
                 } catch (_: Exception) {}
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 try {
@@ -635,6 +641,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 viewModel.saveActiveTabState("DisposableEffect onDispose")
                 if (!viewModel.backgroundPlaybackEnabled.value) {
                     webViewInstance?.onPause()
+                } else {
+                    webViewInstance?.resumeTimers()
                 }
             } catch (_: Exception) {}
         }
@@ -1418,7 +1426,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 focusManager.clearFocus()
                                                 viewSourceMode = false
                                                 val input = textFieldValue.text.trim()
-                                                if (input.isNotBlank()) {
+                                                if (input == "/" || input.equals("/agent", ignoreCase = true) || input.equals("/ai", ignoreCase = true) || input.startsWith("/si", ignoreCase = true) || input.equals("agent", ignoreCase = true)) {
+                                                    viewModel.setTab(com.example.viewmodel.AppTab.SI_AGENT)
+                                                } else if (input.isNotBlank()) {
                                                     webViewInstance?.tag = null
                                                     viewModel.onUserSubmitUrl(input)
                                                 }
@@ -1430,7 +1440,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 focusManager.clearFocus()
                                                 viewSourceMode = false
                                                 val input = textFieldValue.text.trim()
-                                                if (input.isNotBlank()) {
+                                                if (input == "/" || input.equals("/agent", ignoreCase = true) || input.equals("/ai", ignoreCase = true) || input.startsWith("/si", ignoreCase = true) || input.equals("agent", ignoreCase = true)) {
+                                                    viewModel.setTab(com.example.viewmodel.AppTab.SI_AGENT)
+                                                } else if (input.isNotBlank()) {
                                                     webViewInstance?.tag = null
                                                     viewModel.onUserSubmitUrl(input)
                                                 }
@@ -1442,7 +1454,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 focusManager.clearFocus()
                                                 viewSourceMode = false
                                                 val input = textFieldValue.text.trim()
-                                                if (input.isNotBlank()) {
+                                                if (input == "/" || input.equals("/agent", ignoreCase = true) || input.equals("/ai", ignoreCase = true) || input.startsWith("/si", ignoreCase = true) || input.equals("agent", ignoreCase = true)) {
+                                                    viewModel.setTab(com.example.viewmodel.AppTab.SI_AGENT)
+                                                } else if (input.isNotBlank()) {
                                                     webViewInstance?.tag = null
                                                     viewModel.onUserSubmitUrl(input)
                                                 }
@@ -2042,6 +2056,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     onClick = {
                                         showBrowserMenu = false
                                         showTranslateBar = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Si Agent", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.AutoAwesome, contentDescription = "Si Agent", tint = KaspaTea) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setTab(com.example.viewmodel.AppTab.SI_AGENT)
                                     }
                                 )
                                 DropdownMenuItem(
@@ -2996,6 +3018,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
+                                    if (backgroundPlaybackEnabled) {
+                                        view?.evaluateJavascript(
+                                            com.example.util.BrowserBackgroundPlayback.getBackgroundPlaybackScript(),
+                                            null
+                                        )
+                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
@@ -3069,6 +3097,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (blockTrackers) {
                                         view?.evaluateJavascript(
                                             com.example.network.UBlockEngine.getCosmeticHidingCss(),
+                                            null
+                                        )
+                                    }
+
+                                    if (backgroundPlaybackEnabled) {
+                                        view?.evaluateJavascript(
+                                            com.example.util.BrowserBackgroundPlayback.getBackgroundPlaybackScript(),
                                             null
                                         )
                                     }
@@ -7245,7 +7280,7 @@ fun KaspaNewsSection(
                     .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val categories = listOf("All", "X", "YouTube", "News", "Reddit", "GitHub")
+                val categories = listOf("All", "News", "YouTube", "Reddit", "GitHub")
                 categories.forEach { cat ->
                     val isSelected = selectedFilter == cat
                     Surface(
@@ -7273,15 +7308,6 @@ fun KaspaNewsSection(
                                 "GitHub" -> {
                                     Icon(
                                         painter = painterResource(R.drawable.ic_github_logo),
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.Black else TextSecondary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                }
-                                "X" -> {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_x_logo),
                                         contentDescription = null,
                                         tint = if (isSelected) Color.Black else TextSecondary,
                                         modifier = Modifier.size(13.dp)
@@ -7316,13 +7342,6 @@ fun KaspaNewsSection(
             val deduplicated = newsItems.distinctBy { getKaspaNewsDeduplicationKey(it) }
             when (selectedFilter) {
                 "All" -> deduplicated.sortedByDescending { it.epochMillis }
-                "X" -> deduplicated.filter {
-                    it.category.contains("X", ignoreCase = true) ||
-                    it.url.contains("x.com") ||
-                    it.url.contains("twitter") ||
-                    it.url.contains("nitter") ||
-                    it.author.startsWith("@")
-                }.sortedByDescending { it.epochMillis }
                 "YouTube" -> deduplicated.filter {
                     it.category.equals("YouTube", ignoreCase = true) ||
                     it.videoId != null ||
@@ -7333,7 +7352,10 @@ fun KaspaNewsSection(
                     it.category.contains("News", ignoreCase = true) ||
                     it.url.contains("kaspanews") ||
                     it.url.contains("kaspa.org") ||
-                    it.url.contains("medium.com")
+                    it.url.contains("medium.com") ||
+                    it.url.contains("cointelegraph") ||
+                    it.url.contains("crypto-news") ||
+                    it.url.contains("captainaltcoin")
                 }.sortedByDescending { it.epochMillis }
                 "Reddit" -> deduplicated.filter {
                     it.category.equals("Reddit", ignoreCase = true) ||
@@ -7553,7 +7575,13 @@ fun YouTubeVideoCard(
     } ?: extractYouTubeVideoId(item.url)
     val effectiveVideoId = rawId?.takeIf {
         it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
-    } ?: "By_Zw58PN6o"
+    }
+
+    if (effectiveVideoId == null) {
+        NewsFeedCard(item = item, onNavigate = onNavigate)
+        return
+    }
+
     var isPlaying by remember { mutableStateOf(false) }
 
     val brandColor = Color(0xFFEF4444)

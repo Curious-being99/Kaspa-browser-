@@ -179,6 +179,9 @@ interface NewsArticleDao {
     @Query("SELECT COUNT(*) FROM news_articles")
     suspend fun getCount(): Int
 
+    @Query("DELETE FROM news_articles WHERE category = 'X' OR url LIKE '%x.com%' OR url LIKE '%twitter.com%' OR ((category = 'YouTube' OR videoId IS NOT NULL OR url LIKE '%youtube%' OR url LIKE '%youtu.be%') AND (author LIKE '%Kaspa Currency%' OR author LIKE '%KaspaCurrency%' OR title LIKE '%Kaspa Currency%' OR title LIKE '%KaspaCurrency%' OR desc LIKE '%Kaspa Currency%' OR desc LIKE '%KaspaCurrency%')) OR author LIKE '%Kaspa Community%' OR author LIKE '%Kaspa Video%' OR title LIKE '%Kaspa Community%' OR desc LIKE '%Kaspa Community%' OR title LIKE '%airdrop claim%' OR title LIKE '%free kaspa%'")
+    suspend fun purgeStaleArticles()
+
     @Query("DELETE FROM news_articles")
     suspend fun clearAll()
 }

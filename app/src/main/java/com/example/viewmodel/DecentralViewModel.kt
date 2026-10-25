@@ -65,7 +65,8 @@ enum class AppTab {
     MESH_RADAR,
     TRAFFIC_AUDIT,
     LIBRARY,
-    KASPA_WALLET
+    KASPA_WALLET,
+    SI_AGENT
 }
 
 enum class SearchEngine(val baseUrl: String, val displayName: String) {
@@ -229,6 +230,14 @@ class DecentralViewModel(
     val webViewTabManager = BrowserTabWebViewManager()
     private val appPrefs = application.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
 
+    init {
+        com.example.util.BrowserBackgroundPlayback.onMediaStateChanged = { playing, title, url ->
+            _isMediaPlaying.value = playing
+            _mediaTitle.value = title
+            _mediaUrl.value = url
+        }
+    }
+
     @Volatile
     private var explicitIntentUrlHandled: Boolean = false
 
@@ -254,6 +263,13 @@ class DecentralViewModel(
     }
 
     private val database = AppDatabase.getDatabase(application)
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                database.newsArticleDao().purgeStaleArticles()
+            } catch (_: Exception) {}
+        }
+    }
     private val kaspaWalletService = KaspaWalletService()
     val walletService: KaspaWalletService get() = kaspaWalletService
     private val resolver = DualStackResolver(database, kaspaWalletService)
@@ -310,13 +326,53 @@ class DecentralViewModel(
         _isStandalonePwaMode.value = enabled
     }
 
+    private val _isMediaPlaying = MutableStateFlow(false)
+    val isMediaPlaying: StateFlow<Boolean> = _isMediaPlaying.asStateFlow()
+
+    private val _mediaTitle = MutableStateFlow("")
+    val mediaTitle: StateFlow<String> = _mediaTitle.asStateFlow()
+
+    private val _mediaUrl = MutableStateFlow("")
+    val mediaUrl: StateFlow<String> = _mediaUrl.asStateFlow()
+
+    fun toggleMediaPlayback() {
+        com.example.util.BrowserBackgroundPlayback.control(!_isMediaPlaying.value)
+    }
+
     val newsFeedItems: StateFlow<List<KaspaNewsItem>> = database.newsArticleDao()
         .getAllNews()
         .map { list ->
             list.map { it.toKaspaNewsItem() }
-                .filter { 
-                    !it.title.contains("ecosystem", ignoreCase = true) && !it.author.contains("ecosystem", ignoreCase = true) && !it.url.contains("ecosystem", ignoreCase = true) &&
-                    !it.title.contains("kaspacurrency", ignoreCase = true) && !it.author.contains("kaspacurrency", ignoreCase = true) && !it.url.contains("kaspacurrency", ignoreCase = true)
+                .filter { item ->
+                    val isUnavailable = item.title.contains("private video", ignoreCase = true) ||
+                            item.title.contains("deleted video", ignoreCase = true) ||
+                            item.title.contains("video unavailable", ignoreCase = true) ||
+                            item.desc.contains("this video is unavailable", ignoreCase = true)
+
+                    val isFakeOrCommunity = item.author.contains("Kaspa Community", ignoreCase = true) ||
+                            item.author.contains("Kaspa Video", ignoreCase = true) ||
+                            item.title.contains("Kaspa Community", ignoreCase = true) ||
+                            item.desc.contains("Kaspa Community", ignoreCase = true) ||
+                            item.title.contains("airdrop claim", ignoreCase = true) ||
+                            item.title.contains("free kaspa", ignoreCase = true)
+
+                    val isKaspaCurrencyYoutube = (item.category == "YouTube" || !item.videoId.isNullOrBlank() || item.url.contains("youtube.com") || item.url.contains("youtu.be")) &&
+                            (item.author.contains("Kaspa Currency", ignoreCase = true) ||
+                             item.author.contains("KaspaCurrency", ignoreCase = true) ||
+                             item.title.contains("Kaspa Currency", ignoreCase = true) ||
+                             item.title.contains("KaspaCurrency", ignoreCase = true) ||
+                             item.desc.contains("Kaspa Currency", ignoreCase = true) ||
+                             item.desc.contains("KaspaCurrency", ignoreCase = true))
+
+                    val isFakeXFeed = item.category.equals("X", ignoreCase = true) ||
+                            item.url.contains("x.com") ||
+                            item.url.contains("twitter.com") ||
+                            item.url.contains("nitter")
+
+                    val isInvalidYoutube = item.category == "YouTube" && (item.videoId.isNullOrBlank() || item.videoId.length != 11)
+
+                    !isUnavailable && !isFakeOrCommunity && !isFakeXFeed && !isKaspaCurrencyYoutube && !isInvalidYoutube &&
+                    !item.title.contains("ecosystem", ignoreCase = true) && !item.url.contains("ecosystem", ignoreCase = true)
                 }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -329,6 +385,9 @@ class DecentralViewModel(
         _isNewsRefreshing.value = true
         viewModelScope.launch {
             try {
+                // Delete stale articles containing outdated author tags
+                database.newsArticleDao().purgeStaleArticles()
+
                 val oldNews = database.newsArticleDao().getAllNewsList()
                 val fetched = fetchLatestKaspaFeeds()
                 if (fetched.isNotEmpty()) {
@@ -792,7 +851,7 @@ class DecentralViewModel(
     fun setActiveTab(id: String?) {
         if (id == null || id == _activeTabId.value) return
         val prevId = _activeTabId.value
-        if (prevId != null) webViewTabManager.pauseTab(prevId)
+        if (prevId != null && !_backgroundPlaybackEnabled.value) webViewTabManager.pauseTab(prevId)
         if (id != null) webViewTabManager.resumeTab(id)
         BrowserStateLog.tabSwitch("Switching active tab from $prevId to $id")
         _activeTabId.value = id
@@ -1282,7 +1341,7 @@ class DecentralViewModel(
     val enablePullToRefresh: StateFlow<Boolean> = _enablePullToRefresh.asStateFlow()
 
     private val _backgroundPlaybackEnabled = MutableStateFlow(
-        browserSettingsPrefs.getBoolean("background_playback_enabled", false)
+        browserSettingsPrefs.getBoolean("background_playback_enabled", true)
     )
     val backgroundPlaybackEnabled: StateFlow<Boolean> = _backgroundPlaybackEnabled.asStateFlow()
 
@@ -1769,9 +1828,9 @@ class DecentralViewModel(
             }
         }
 
-        // Initial news feed refresh on startup to populate new categories like Discord
+        // Initial news feed refresh on startup to populate feeds immediately
         viewModelScope.launch {
-            delay(5000)
+            delay(300)
             refreshNewsFeeds()
         }
 

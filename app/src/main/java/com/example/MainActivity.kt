@@ -37,6 +37,8 @@ class MainActivity : FragmentActivity() {
           thread.name.contains("DefaultDispatcher", ignoreCase = true) ||
           msg.contains("rendernode") ||
           msg.contains("render_node") ||
+          msg.contains("variations") ||
+          msg.contains("seed") ||
           msg.contains("mesa") ||
           msg.contains("gallium") ||
           msg.contains("dri") ||
