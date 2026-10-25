@@ -30,10 +30,8 @@ object BrowserBackgroundPlayback {
             }
 
             runCatching {
-                webView.evaluateJavascript(
-                    "(function(){var m=Array.from(document.querySelectorAll('audio,video'));var e=m.find(function(x){return !x.paused&&!x.ended;});var current=e||m.find(function(x){return !x.ended;});return JSON.stringify({playing:!!e,title:(current&&(current.getAttribute('title')||document.title))||document.title||'',url:location.href});})()"
-                ) { raw ->
-                    if (!enabled) return@evaluateJavascript
+                webView.evaluateJavascript(MEDIA_STATE_SCRIPT) { raw ->
+                    if (!enabled || webViewRef?.get() !== webView) return@evaluateJavascript
                     runCatching {
                         val decoded = JSONArray("[$raw]").optString(0)
                         val state = JSONObject(decoded)
@@ -89,15 +87,95 @@ object BrowserBackgroundPlayback {
 
     fun control(play: Boolean) {
         val webView = webViewRef?.get() ?: return
-        val js = if (play) {
-            "(function(){var m=Array.from(document.querySelectorAll('audio,video'));var e=m.find(function(x){return !x.ended;});if(e){var p=e.play();if(p&&p.catch)p.catch(function(){});}})()"
-        } else {
-            "(function(){document.querySelectorAll('audio,video').forEach(function(e){if(!e.paused)e.pause();});})()"
-        }
+        val js = if (play) MEDIA_PLAY_SCRIPT else MEDIA_PAUSE_SCRIPT
         webView.post {
             if (enabled && webViewRef?.get() === webView) {
                 webView.evaluateJavascript(js, null)
             }
         }
     }
+
+    private const val MEDIA_STATE_SCRIPT = """
+        (function() {
+            var result = {playing:false, title:document.title || '', url:location.href};
+            var visited = [];
+            function scan(win) {
+                try {
+                    if (!win || visited.indexOf(win) !== -1) return;
+                    visited.push(win);
+                    var doc = win.document;
+                    var media = Array.from(doc.querySelectorAll('audio,video'));
+                    var active = media.find(function(el) { return !el.paused && !el.ended; });
+                    var current = active || media.find(function(el) { return !el.ended; });
+                    var session = win.navigator && win.navigator.mediaSession;
+                    var sessionPlaying = !!(session && session.playbackState === 'playing');
+                    if (active || sessionPlaying) {
+                        result.playing = true;
+                        if (session && session.metadata && session.metadata.title) {
+                            result.title = session.metadata.title;
+                        } else if (current && current.getAttribute('title')) {
+                            result.title = current.getAttribute('title');
+                        } else if (doc.title) {
+                            result.title = doc.title;
+                        }
+                        result.url = win.location.href || result.url;
+                        return;
+                    }
+                    var frames = doc.querySelectorAll('iframe,frame');
+                    for (var i = 0; i < frames.length; i++) {
+                        try {
+                            scan(frames[i].contentWindow);
+                            if (result.playing) return;
+                        } catch (_) {}
+                    }
+                } catch (_) {}
+            }
+            scan(window);
+            return JSON.stringify(result);
+        })()
+    """
+
+    private const val MEDIA_PLAY_SCRIPT = """
+        (function() {
+            var visited = [];
+            function scan(win) {
+                try {
+                    if (!win || visited.indexOf(win) !== -1) return;
+                    visited.push(win);
+                    var doc = win.document;
+                    var media = Array.from(doc.querySelectorAll('audio,video'));
+                    var target = media.find(function(el) { return !el.ended; });
+                    if (target) {
+                        var promise = target.play();
+                        if (promise && promise.catch) promise.catch(function() {});
+                    }
+                    var frames = doc.querySelectorAll('iframe,frame');
+                    for (var i = 0; i < frames.length; i++) {
+                        try { scan(frames[i].contentWindow); } catch (_) {}
+                    }
+                } catch (_) {}
+            }
+            scan(window);
+        })()
+    """
+
+    private const val MEDIA_PAUSE_SCRIPT = """
+        (function() {
+            var visited = [];
+            function scan(win) {
+                try {
+                    if (!win || visited.indexOf(win) !== -1) return;
+                    visited.push(win);
+                    win.document.querySelectorAll('audio,video').forEach(function(el) {
+                        if (!el.paused) el.pause();
+                    });
+                    var frames = win.document.querySelectorAll('iframe,frame');
+                    for (var i = 0; i < frames.length; i++) {
+                        try { scan(frames[i].contentWindow); } catch (_) {}
+                    }
+                } catch (_) {}
+            }
+            scan(window);
+        })()
+    """
 }
