@@ -6,17 +6,19 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.media.MediaMetadataCompat
 import androidx.media.app.NotificationCompat.MediaStyle
+import androidx.media.session.MediaButtonReceiver
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import com.example.MainActivity
 import com.example.R
 
 class BrowserMediaPlaybackService : Service() {
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaSessionCompat? = null
     private var playing = false
     private var title = "Web media"
     private var pageUrl = ""
@@ -24,13 +26,16 @@ class BrowserMediaPlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        mediaSession = MediaSession(this, "KaspaBrowserWebMedia").apply {
-            setCallback(object : MediaSession.Callback() {
+        mediaSession = MediaSessionCompat(this, "KaspaBrowserWebMedia").apply {
+            setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() = BrowserBackgroundPlayback.control(true)
                 override fun onPause() = BrowserBackgroundPlayback.control(false)
                 override fun onStop() = BrowserBackgroundPlayback.control(false)
             })
-            setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            setFlags(
+                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
         }
     }
 
@@ -45,9 +50,17 @@ class BrowserMediaPlaybackService : Service() {
                     startForeground(NOTIFICATION_ID, buildNotification())
                 } else {
                     mediaSession?.setPlaybackState(
-                        PlaybackState.Builder()
-                            .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE)
-                            .setState(PlaybackState.STATE_PAUSED, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 0f)
+                        PlaybackStateCompat.Builder()
+                            .setActions(
+                                PlaybackStateCompat.ACTION_PLAY or
+                                    PlaybackStateCompat.ACTION_PAUSE or
+                                    PlaybackStateCompat.ACTION_PLAY_PAUSE
+                            )
+                            .setState(
+                                PlaybackStateCompat.STATE_PAUSED,
+                                PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
+                                0f
+                            )
                             .build()
                     )
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -63,18 +76,27 @@ class BrowserMediaPlaybackService : Service() {
     private fun updateSession() {
         mediaSession?.apply {
             setMetadata(
-                android.media.MediaMetadata.Builder()
-                    .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, title)
-                    .putString(android.media.MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
-                    .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, runCatching {
-                        android.net.Uri.parse(pageUrl).host.orEmpty()
-                    }.getOrDefault(""))
+                MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
+                    .putString(
+                        MediaMetadataCompat.METADATA_KEY_ARTIST,
+                        runCatching { android.net.Uri.parse(pageUrl).host.orEmpty() }.getOrDefault("")
+                    )
                     .build()
             )
             setPlaybackState(
-                PlaybackState.Builder()
-                    .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE)
-                    .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
+                PlaybackStateCompat.Builder()
+                    .setActions(
+                        PlaybackStateCompat.ACTION_PLAY or
+                            PlaybackStateCompat.ACTION_PAUSE or
+                            PlaybackStateCompat.ACTION_PLAY_PAUSE
+                    )
+                    .setState(
+                        PlaybackStateCompat.STATE_PLAYING,
+                        PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
+                        1f
+                    )
                     .build()
             )
             isActive = true
@@ -102,7 +124,11 @@ class BrowserMediaPlaybackService : Service() {
             .setOnlyAlertOnce(true)
             .setOngoing(playing)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setStyle(MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0))
+            .setStyle(
+                MediaStyle()
+                    .setMediaSession(mediaSession?.sessionToken)
+                    .setShowActionsInCompactView(0)
+            )
         if (playing) {
             builder.addAction(android.R.drawable.ic_media_pause, "Pause", pauseIntent)
         } else {
