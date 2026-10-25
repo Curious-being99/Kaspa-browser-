@@ -1046,11 +1046,13 @@ fun KaspaTestnetWalletScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             Button(
                                 onClick = { 
-                                    if (viewModel.unlockWalletWithPassword(passwordInput)) {
-                                        isSeedRevealed = true
-                                        errorText = null
-                                    } else {
-                                        errorText = "Incorrect password"
+                                    viewModel.unlockWalletWithPassword(passwordInput) { matches ->
+                                        if (matches) {
+                                            isSeedRevealed = true
+                                            errorText = null
+                                        } else {
+                                            errorText = "Incorrect password"
+                                        }
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
@@ -2673,10 +2675,8 @@ private fun WalletLockOverlay(
 
             Button(
                 onClick = {
-                    if (viewModel.unlockWalletWithPassword(passwordInput)) {
-                        onUnlock()
-                    } else {
-                        errorText = "Incorrect password"
+                    viewModel.unlockWalletWithPassword(passwordInput) { matches ->
+                        if (matches) onUnlock() else errorText = "Incorrect password"
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
@@ -3565,11 +3565,12 @@ private fun ConfirmSendScreenOverlay(
             authErrorMessage = "Please enter your wallet password to authorize broadcast."
             return
         }
-        val isValid = viewModel.unlockWalletWithPassword(passwordInput)
-        if (isValid) {
-            proceedToBroadcast()
-        } else {
-            authErrorMessage = "Incorrect wallet password. Please try again."
+        viewModel.unlockWalletWithPassword(passwordInput) { isValid ->
+            if (isValid) {
+                proceedToBroadcast()
+            } else {
+                authErrorMessage = "Incorrect wallet password. Please try again."
+            }
         }
     }
 
@@ -4268,10 +4269,8 @@ private fun UnlockRecoveryBottomSheet(
                             errorMessage = "Please enter your wallet password"
                             return@Button
                         }
-                        if (viewModel.unlockWalletWithPassword(passwordInput)) {
-                            onSuccess()
-                        } else {
-                            errorMessage = "Incorrect wallet password"
+                        viewModel.unlockWalletWithPassword(passwordInput) { matches ->
+                            if (matches) onSuccess() else errorMessage = "Incorrect wallet password"
                         }
                     } else if (biometricsEnabled && isBiometricAvailable) {
                         BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
@@ -4282,7 +4281,9 @@ private fun UnlockRecoveryBottomSheet(
                             onError = { err -> errorMessage = err }
                         )
                     } else {
-                        onSuccess()
+                        errorMessage =
+                            "No wallet password or device authentication is configured. " +
+                            "Set up wallet security before revealing your recovery phrase."
                     }
                 },
                 modifier = Modifier
@@ -4499,11 +4500,13 @@ private fun RecoveryScreenOverlay(
 
                                 Button(
                                     onClick = {
-                                        if (viewModel.unlockWalletWithPassword(passwordInput)) {
-                                            isRevealed = true
-                                            errorMessage = null
-                                        } else {
-                                            errorMessage = "Incorrect password. Please try again."
+                                        viewModel.unlockWalletWithPassword(passwordInput) { matches ->
+                                            if (matches) {
+                                                isRevealed = true
+                                                errorMessage = null
+                                            } else {
+                                                errorMessage = "Incorrect password. Please try again."
+                                            }
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
@@ -4805,12 +4808,14 @@ private fun SignOutBottomSheet(
                         errorMessage = "Please enter your wallet password"
                         return@Button
                     }
-                    if (viewModel.unlockWalletWithPassword(passwordInput)) {
-                        viewModel.signOutActiveAccount()
-                        viewModel.setTab(AppTab.BROWSER_GATEWAY)
-                        onDismiss()
-                    } else {
-                        errorMessage = "Incorrect wallet password"
+                    viewModel.unlockWalletWithPassword(passwordInput) { matches ->
+                        if (matches) {
+                            viewModel.signOutActiveAccount()
+                            viewModel.setTab(AppTab.BROWSER_GATEWAY)
+                            onDismiss()
+                        } else {
+                            errorMessage = "Incorrect wallet password"
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp).testTag("sign_out_confirm_button"),
@@ -5609,17 +5614,19 @@ fun WalletSetupFlow(
                                     errorMessage = "Password must be at least 6 characters"
                                     return@Button
                                 }
-                                if (walletPassword.isNotBlank()) {
-                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true)
+                                val finishImport = {
+                                    viewModel.selectNetwork(selectedSetupNetwork)
+                                    viewModel.importTestnetWallet(
+                                        mnemonic = importMnemonic.trim(),
+                                        customName = if (walletName.isBlank()) "Imported Wallet" else walletName,
+                                        passphrase = bip39Passphrase.trim()
+                                    )
+                                    viewModel.refreshTestnetWallet()
+                                    onWalletReady()
                                 }
-                                viewModel.selectNetwork(selectedSetupNetwork)
-                                viewModel.importTestnetWallet(
-                                    mnemonic = importMnemonic.trim(),
-                                    customName = if (walletName.isBlank()) "Imported Wallet" else walletName,
-                                    passphrase = bip39Passphrase.trim()
-                                )
-                                viewModel.refreshTestnetWallet()
-                                onWalletReady()
+                                viewModel.setWalletPassword(walletPassword, enableBiometrics = true) { saved ->
+                                    if (saved) finishImport() else errorMessage = "Could not save wallet password. Please try again."
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                             shape = RoundedCornerShape(14.dp),
@@ -5801,17 +5808,23 @@ fun WalletSetupFlow(
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(
                             onClick = {
-                                if (walletPassword.isNotBlank()) {
-                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true)
+                                val finishSetup = {
+                                    viewModel.selectNetwork(selectedSetupNetwork)
+                                    viewModel.importTestnetWallet(
+                                        mnemonic = generatedMnemonic,
+                                        customName = if (walletName.isBlank()) "My Wallet" else walletName,
+                                        passphrase = bip39Passphrase.trim()
+                                    )
+                                    viewModel.refreshTestnetWallet()
+                                    onWalletReady()
                                 }
-                                viewModel.selectNetwork(selectedSetupNetwork)
-                                viewModel.importTestnetWallet(
-                                    mnemonic = generatedMnemonic,
-                                    customName = if (walletName.isBlank()) "My Wallet" else walletName,
-                                    passphrase = bip39Passphrase.trim()
-                                )
-                                viewModel.refreshTestnetWallet()
-                                onWalletReady()
+                                if (walletPassword.isBlank()) {
+                                    finishSetup()
+                                } else {
+                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true) { saved ->
+                                        if (saved) finishSetup() else errorMessage = "Could not save wallet password. Please try again."
+                                    }
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                             shape = RoundedCornerShape(14.dp),

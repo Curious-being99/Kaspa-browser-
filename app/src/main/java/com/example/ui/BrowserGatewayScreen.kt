@@ -4324,7 +4324,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             onDismiss = { showAccountDialog = false },
             hasAccountPassword = hasWalletPassword,
             biometricEnabled = biometricsEnabled,
-            onVerifyPassword = { password -> viewModel.unlockWalletWithPassword(password) },
+            onVerifyPassword = { password, onResult -> viewModel.unlockWalletWithPassword(password, onResult) },
             onLinkGoogle = { email, displayName ->
                 viewModel.linkGoogleDecentralizedAccount(email, displayName)
             },
