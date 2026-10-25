@@ -148,8 +148,8 @@ jobs:
               -keyalg RSA \
               -keysize 2048 \
               -validity 1 \
-              -storepass temp1234 \
-              -keypass temp1234 \
+              -storepass \
+              -keypass  \
               -dname "CN=Temporary, OU=Temp, O=Temp, L=Temp, S=Temp, C=US"
 
             export STORE_PASSWORD=temp1234

@@ -85,6 +85,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -267,6 +268,7 @@ fun KaspaTestnetWalletScreen(
     var showNetworkDetailsScreen by remember { mutableStateOf(false) }
     var showNetworkSwitchScreen by remember { mutableStateOf(false) }
     var showResultOverlay by remember { mutableStateOf(false) }
+    var showSwapScreen by remember { mutableStateOf(false) }
     var lastResultIsSuccess by remember { mutableStateOf(true) }
     var lastResultTxId by remember { mutableStateOf("") }
     var lastResultError by remember { mutableStateOf("") }
@@ -597,6 +599,12 @@ fun KaspaTestnetWalletScreen(
                     onClick = { showReceiveScreen = true }
                 )
                 QuickActionButton(
+                    icon = Icons.Default.SwapHoriz,
+                    label = "Swap",
+                    color = KaspaTea,
+                    onClick = { showSwapScreen = true }
+                )
+                QuickActionButton(
                     iconRes = R.drawable.ic_compound_utxo,
                     label = "Compound",
                     color = Color(0xFFF2F2F2),
@@ -721,6 +729,10 @@ fun KaspaTestnetWalletScreen(
                 },
                 onClose = { showManageScreen = false }
             )
+        }
+
+        if (showSwapScreen) {
+            SwapScreenOverlay(onClose = { showSwapScreen = false })
         }
 
         // Security Verification BottomSheet Before Viewing Recovery Seed Phrase (Pops up from below)

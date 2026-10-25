@@ -69,6 +69,8 @@ android {
 
     versionCode = resolvedVersionCode
     versionName = resolvedVersionName
+    
+    buildConfigField("String", "GROQ_API_KEY", "\"\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

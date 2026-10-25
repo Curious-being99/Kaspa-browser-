@@ -2,6 +2,13 @@ package com.example.ui
 
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -100,6 +107,7 @@ import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.example.BuildConfig
 
 data class SiAgentMessage(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -118,6 +126,8 @@ data class SiCommandItem(
     val description: String,
     val icon: ImageVector
 )
+
+private const val KASCOV_URL = "https://kascov.io/data/price.json"
 
 private val SI_AGENT_COMMANDS = listOf(
     SiCommandItem(
@@ -267,7 +277,7 @@ fun SiAgentScreen(
         val isCmd = trimmed.startsWith("/")
         messages.add(
             SiAgentMessage(
-                text = trimmed.ifBlank { "[Attached File: $attachedName]" },
+                text = trimmed.replace(KASCOV_URL, "[Analyzing Price Data...]").ifBlank { "[Attached File: $attachedName]" },
                 isUser = true,
                 attachedFileName = attachedName,
                 attachedFileUri = attachedUriStr,
@@ -289,46 +299,60 @@ fun SiAgentScreen(
 
         isAgentGenerating = true
         scope.launch {
-            delay(650L)
+            delay(400L)
             val responseText = executeSiAgentCommand(
                 input = trimmed,
                 activeUrl = activeUrl,
                 activeTitle = activeTitle,
                 attachedFileName = attachedName
             )
-            val actionType = if (trimmed.startsWith("/wallet", ignoreCase = true)) "OPEN_WALLET" else null
-            messages.add(
-                SiAgentMessage(
-                    text = responseText,
-                    isUser = false,
-                    isCommand = isCmd,
-                    actionType = actionType
-                )
+            val isJsonProposal = responseText.trim().startsWith("{")
+            val actionType = when {
+                isJsonProposal -> "WALLET_TRANSACTION"
+                trimmed.startsWith("/wallet", ignoreCase = true) -> "OPEN_WALLET"
+                else -> null
+            }
+            val newMsg = SiAgentMessage(
+                text = if (isJsonProposal) "Transaction Proposal Generated: Please confirm in the wallet." else "",
+                isUser = false,
+                isCommand = isCmd,
+                actionType = actionType
             )
+            messages.add(newMsg)
+            val addedIndex = messages.size - 1
             isAgentGenerating = false
+
+            for (i in 0..responseText.length) {
+                if (addedIndex < messages.size) {
+                    messages[addedIndex] = messages[addedIndex].copy(text = responseText.take(i))
+                }
+                delay(5L)
+            }
         }
     }
 
-    // Full page standalone layout
+    // Full page standalone layout (edge-to-edge)
     Surface(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .imePadding(),
         color = ObsidianBg
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // TOP HEADER BAR
-            Row(
+            // TOP HEADER BAR (edge-to-edge background blending seamlessly with status bar)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(SurfaceDark)
-                    .border(width = 1.dp, color = SurfaceCardBorder)
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier
@@ -421,52 +445,9 @@ fun SiAgentScreen(
                     )
                 }
             }
-
-            // ACTIVE WEBPAGE CONTEXT BAR
-            if (activeUrl.isNotBlank() && activeUrl != "about:blank") {
-                Surface(
-                    color = SurfaceCard,
-                    modifier = Modifier.fillMaxWidth(),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Article,
-                            contentDescription = null,
-                            tint = KaspaTea,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Active Page:",
-                            fontSize = 11.sp,
-                            color = KaspaTea,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (activeTitle.isNotBlank()) activeTitle else activeUrl,
-                            fontSize = 11.sp,
-                            color = TextSecondary,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Use /summarize",
-                            fontSize = 10.sp,
-                            color = ElectricCyan,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .clickable { executeMessage("/summarize") }
-                                .padding(2.dp)
-                        )
-                    }
-                }
             }
+
+
 
             // CHAT MESSAGES
             LazyColumn(
@@ -485,26 +466,7 @@ fun SiAgentScreen(
                     )
                 }
 
-                if (isAgentGenerating) {
-                    item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(start = 8.dp, top = 4.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = KaspaTea
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Si Agent is executing command...",
-                                fontSize = 12.sp,
-                                color = TextMuted
-                            )
-                        }
-                    }
-                }
+
             }
 
             // ATTACHED FILE PREVIEW CHIP (if selected)
@@ -656,40 +618,7 @@ fun SiAgentScreen(
                 }
             }
 
-            // BOTTOM QUICK PROMPT CHIPS (when not in slash mode)
-            if (!isSlashMode && messages.size <= 4 && !isAgentGenerating) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(
-                        "/summarize" to "Summarize Page",
-                        "/security" to "Security Audit",
-                        "/blockdag" to "BlockDAG",
-                        "/help" to "Commands"
-                    ).forEach { (cmd, label) ->
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = SurfaceCard,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                            modifier = Modifier.clickable {
-                                executeMessage(cmd)
-                            }
-                        ) {
-                            Text(
-                                text = label,
-                                fontSize = 11.sp,
-                                color = ElectricCyan,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // BOTTOM INPUT & CHAT BAR (LIFTED OUT OF PHONE BOTTOM EDGE)
+            // BOTTOM FOOTER CONTAINER (Quick Prompt Chips + Input Bar)
             Surface(
                 color = SurfaceDark,
                 border = androidx.compose.foundation.BorderStroke(width = 1.dp, color = SurfaceCardBorder),
@@ -697,12 +626,16 @@ fun SiAgentScreen(
                     .fillMaxWidth()
                     .navigationBarsPadding() // CRITICAL: Moves input bar up out of phone bottom gesture edge
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp), // Extra 14dp bottom padding for safe clearance
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
+                    // BOTTOM INPUT & CHAT BAR
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     // COMMAND / TOGGLE BUTTON
                     Surface(
                         shape = CircleShape,
@@ -823,9 +756,10 @@ fun SiAgentScreen(
         }
     }
 }
+}
 
 @Composable
-private fun ChatBubble(
+fun ChatBubble(
     message: SiAgentMessage,
     onOpenWallet: () -> Unit
 ) {
@@ -860,13 +794,9 @@ private fun ChatBubble(
                 bottomEnd = if (isUser) 4.dp else 16.dp
             ),
             color = if (isUser) SurfaceDark else SurfaceCard,
-            border = androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                color = if (isUser) ElectricCyan.copy(alpha = 0.35f) else KaspaTea.copy(alpha = 0.3f)
-            ),
-            modifier = Modifier.widthIn(max = 300.dp)
+            modifier = Modifier.widthIn(max = 220.dp)
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(10.dp)) {
                 if (message.attachedFileName != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -893,9 +823,10 @@ private fun ChatBubble(
 
                 Text(
                     text = message.text,
-                    fontSize = 13.5.sp,
+                    fontSize = 12.5.sp,
                     color = TextPrimary,
-                    lineHeight = 19.sp
+                    lineHeight = 17.5.sp,
+                    fontFamily = if (!isUser) FontFamily.Monospace else FontFamily.Default
                 )
 
                 if (message.actionType == "OPEN_WALLET") {
@@ -928,27 +859,154 @@ private fun ChatBubble(
                             )
                         }
                     }
+                } else if (message.actionType == "WALLET_TRANSACTION") {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = ElectricCyan.copy(alpha = 0.2f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { /* TRIGGER WALLET TRANSACTION OVERLAY HERE */ }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = null,
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Review Transaction",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ElectricCyan
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-private fun executeSiAgentCommand(
+private fun callGroqApi(prompt: String, activeUrl: String, activeTitle: String): String? {
+    return try {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        val apiKey = BuildConfig.GROQ_API_KEY
+        if (apiKey.isNullOrBlank()) {
+            Log.e("SiAgent", "Groq API Key is missing or blank!")
+            return null
+        }
+        val endpoint = "https://api.groq.com/openai/v1/chat/completions"
+
+        val jsonBody = JSONObject().apply {
+            put("model", "llama-3.3-70b-versatile")
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", "You are Si Agent, an autonomous web and crypto intelligence copilot. When provided with JSON data from the web, parse it, filter out irrelevant information, and provide a clear, concise, and human-readable answer. Active webpage context: $activeTitle ($activeUrl).")
+                })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", prompt)
+                })
+            })
+            put("temperature", 0.7)
+            put("max_tokens", 1024)
+        }
+
+        val body = jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = Request.Builder()
+            .url(endpoint)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(body)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                val respString = response.body?.string() ?: return@use null
+                val root = JSONObject(respString)
+                val choices = root.getJSONArray("choices")
+                if (choices.length() > 0) {
+                    val firstChoice = choices.getJSONObject(0)
+                    val message = firstChoice.getJSONObject("message")
+                    return message.getString("content").trim()
+                }
+            } else {
+                Log.e("SiAgent", "Groq API Request failed: ${response.code} ${response.message} ${response.body?.string()}")
+            }
+        }
+        null
+    } catch (e: Exception) {
+        Log.e("SiAgent", "Groq API Exception: ${e.message}", e)
+        null
+    }
+}
+
+
+private fun fetchUrlContent(url: String): String? {
+    return try {
+        val client = OkHttpClient()
+        val request = Request.Builder().url(url).build()
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) response.body?.string() else null
+        }
+    } catch (e: Exception) {
+        null
+    }
+}
+
+suspend fun executeSiAgentCommand(
     input: String,
     activeUrl: String,
     activeTitle: String,
     attachedFileName: String?
 ): String {
     val trimmed = input.trim()
-    val lower = trimmed.lowercase().removePrefix("/")
+    val kascovUrl = KASCOV_URL
+    var finalPrompt = trimmed
 
-    // 1. Attached file handling
-    if (attachedFileName != null) {
-        return "📄 Attached File Analysis: '$attachedFileName'\n\n• File received and staged for analysis.\n• Checksum / MIME type: Verified\n• Readiness: Primed for direct AI / Gemini API execution hook for deep document parsing, smart contract bytecode verification, or translation."
+    // 1. Fetch JSON data if URL is provided
+    if (trimmed.contains(kascovUrl)) {
+        val jsonData = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            fetchUrlContent(kascovUrl)
+        }
+        if (jsonData != null) {
+            finalPrompt = "Using this JSON data: $jsonData. User request: $trimmed"
+        }
     }
 
-    // 2. Intelligent keyword & intent matching (understands commands with or without '/' and natural language phrasing)
+    // 2. Try calling custom Groq API endpoint first via IO dispatcher
+    val groqResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        callGroqApi(
+            prompt = if (attachedFileName != null) "Analyze attached file '$attachedFileName': $finalPrompt" else finalPrompt,
+            activeUrl = activeUrl,
+            activeTitle = activeTitle
+        )
+    }
+
+    if (!groqResult.isNullOrBlank()) {
+        return groqResult
+    }
+
+    // 3. Fallback to intelligent local keyword & intent matching if offline or API error
+    val lower = trimmed.lowercase().removePrefix("/")
+
+    if (attachedFileName != null) {
+        return "📄 Attached File Analysis: '$attachedFileName'\n\n• File received and staged for analysis.\n• Checksum / MIME type: Verified\n• Readiness: Primed for direct AI execution hook for deep document parsing, smart contract bytecode verification, or translation."
+    }
+
     return when {
         lower.contains("summarize") || lower.contains("summary") || lower.contains("overview") || lower.contains("sum") -> {
             val target = if (activeTitle.isNotBlank()) activeTitle else if (activeUrl.isNotBlank()) activeUrl else "Active Browsing Session"
