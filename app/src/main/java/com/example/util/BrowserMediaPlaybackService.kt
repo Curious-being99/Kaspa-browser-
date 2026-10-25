@@ -102,7 +102,7 @@ class BrowserMediaPlaybackService : Service() {
             .setOnlyAlertOnce(true)
             .setOngoing(playing)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setStyle(androidx.media.app.NotificationCompat.MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0))
+            .setStyle(Notification.MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0))
         if (playing) {
             builder.addAction(android.R.drawable.ic_media_pause, "Pause", pauseIntent)
         } else {
