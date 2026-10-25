@@ -48,7 +48,7 @@ class BrowserMediaPlaybackService : Service() {
                     stopSelf()
                 }
             })
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                 @Suppress("DEPRECATION")
                 setFlags(
                     MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
