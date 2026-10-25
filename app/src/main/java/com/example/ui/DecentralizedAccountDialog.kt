@@ -126,7 +126,7 @@ fun DecentralizedAccountDialog(
     initialTab: Int = 0,
     hasAccountPassword: Boolean = false,
     biometricEnabled: Boolean = true,
-    onVerifyPassword: (password: String) -> Boolean = { false }
+    onVerifyPassword: (password: String, onResult: (Boolean) -> Unit) -> Unit = { _, result -> result(false) }
 ) {
     val clipboardManager = LocalClipboardManager.current
     var selectedTab by remember { mutableIntStateOf(initialTab) }
@@ -325,7 +325,7 @@ private fun ActiveProfileTab(
     onNavigateToGoogle: () -> Unit,
     hasAccountPassword: Boolean,
     biometricEnabled: Boolean,
-    onVerifyPassword: (password: String) -> Boolean
+    onVerifyPassword: (password: String, onResult: (Boolean) -> Unit) -> Unit
 ) {
     if (account == null) {
         Column(
@@ -811,11 +811,13 @@ private fun ActiveProfileTab(
 
                             Button(
                                 onClick = {
-                                    if (onVerifyPassword(seedVerifyPasswordInput)) {
-                                        showSeedVerify = false
-                                        showMnemonic = true
-                                    } else {
-                                        seedVerifyError = "Incorrect account password"
+                                    onVerifyPassword(seedVerifyPasswordInput) { verified ->
+                                        if (verified) {
+                                            showSeedVerify = false
+                                            showMnemonic = true
+                                        } else {
+                                            seedVerifyError = "Incorrect account password"
+                                        }
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -1089,7 +1091,7 @@ private fun AllAccountsTab(
     activeAccount: AccountEntity?,
     onSwitch: (did: String) -> Unit,
     onDelete: (account: AccountEntity) -> Unit,
-    onVerifyPassword: (String) -> Boolean,
+    onVerifyPassword: (String, (Boolean) -> Unit) -> Unit,
     onAddNew: () -> Unit
 ) {
     var accountToDelete by remember { mutableStateOf<AccountEntity?>(null) }
@@ -1360,14 +1362,19 @@ private fun AllAccountsTab(
 
                         Button(
                             onClick = {
-                                if (onVerifyPassword(deleteVerifyPasswordInput)) {
-                                    onDelete(accountToDelete!!)
-                                    showDeleteVerify = false
-                                    accountToDelete = null
-                                    deleteVerifyPasswordInput = ""
-                                    deleteVerifyError = null
-                                } else {
-                                    deleteVerifyError = "Incorrect account password"
+                                val account = accountToDelete
+                                if (account != null) {
+                                    onVerifyPassword(deleteVerifyPasswordInput) { verified ->
+                                        if (verified) {
+                                            onDelete(account)
+                                            showDeleteVerify = false
+                                            accountToDelete = null
+                                            deleteVerifyPasswordInput = ""
+                                            deleteVerifyError = null
+                                        } else {
+                                            deleteVerifyError = "Incorrect account password"
+                                        }
+                                    }
                                 }
                             },
                             modifier = Modifier.weight(1f),
