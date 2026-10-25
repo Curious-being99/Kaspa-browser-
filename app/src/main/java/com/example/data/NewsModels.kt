@@ -106,8 +106,8 @@ fun isRelevantKaspaNews(item: KaspaNewsItem): Boolean {
     if (item.category == "YouTube" || item.category == "Reddit" || item.category == "GitHub") return true
     val haystack = item.title + " " + item.desc + " " + item.author
     return Regex(
-        """(?i)\\b(kaspa|ghostdag|blockdag|krc[\\s-]?20|krc[\\s-]?721|kasplex|toccata|kaspium|kasware|kaspire|kaspad|rusty-kaspa)\\b"""
-    ).containsMatchIn(haystack) || Regex("""\\bKAS\\b""").containsMatchIn(haystack)
+        """(?i)\b(kaspa|ghostdag|blockdag|krc[\s-]?20|krc[\s-]?721|kasplex|toccata|kaspium|kasware|kaspire|kaspad|rusty-kaspa)\b"""
+    ).containsMatchIn(haystack) || Regex("""\bKAS\b""").containsMatchIn(haystack)
 }
 
 fun extractImageUrl(xml: String): String? {
