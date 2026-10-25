@@ -370,6 +370,7 @@ class DecentralViewModel(
 
     private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
     private val walletPasswordOperationMutex = Mutex()
+    private val walletLockGeneration = java.util.concurrent.atomic.AtomicLong(0L)
 
     private val themePrefs = com.example.ui.theme.PhotoThemePreferences(application)
     private val _currentPhotoTheme = MutableStateFlow(themePrefs.getSavedTheme())
@@ -553,9 +554,12 @@ class DecentralViewModel(
                 iterations,
                 WALLET_PASSWORD_KEY_BYTES * 8
             )
-            javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-                .generateSecret(spec)
-                .encoded
+            // Use the bundled Bouncy Castle provider so API 24–25 do not
+            // depend on Android's API-26+ PBKDF2WithHmacSHA256 provider.
+            javax.crypto.SecretKeyFactory.getInstance(
+                "PBKDF2WITHHMACSHA256",
+                org.bouncycastle.jce.provider.BouncyCastleProvider()
+            ).generateSecret(spec).encoded
         } catch (_: java.security.GeneralSecurityException) {
             null
         } finally {
@@ -610,14 +614,21 @@ class DecentralViewModel(
             onResult(false)
             return
         }
+        // Capture the current lock generation before starting expensive KDF work.
+        // If the app backgrounds while verification runs, lockWallet() increments
+        // this value and the delayed result must not unlock the wallet afterward.
+        val requestLockGeneration = walletLockGeneration.get()
         viewModelScope.launch {
             val matches = walletPasswordOperationMutex.withLock {
                 withContext(Dispatchers.Default) {
                     verifyWalletPassword(password)
                 }
             }
-            if (matches) _isWalletLocked.value = false
-            onResult(matches)
+            val requestStillCurrent = requestLockGeneration == walletLockGeneration.get()
+            if (matches && requestStillCurrent) {
+                _isWalletLocked.value = false
+            }
+            onResult(matches && requestStillCurrent)
         }
     }
 
@@ -668,6 +679,8 @@ class DecentralViewModel(
     }
 
     fun lockWallet() {
+        // Invalidate password checks already in flight before changing lock state.
+        walletLockGeneration.incrementAndGet()
         // Do not lock an account that has no configured wallet password:
         // the lock screen cannot authenticate it or enroll a password safely.
         // Once a password is configured, normal auto-lock behavior applies.
