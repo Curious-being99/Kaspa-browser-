@@ -35,6 +35,7 @@ class BrowserMediaPlaybackService : Service() {
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
                     MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
             )
+            isActive = true
         }
     }
 
@@ -44,27 +45,8 @@ class BrowserMediaPlaybackService : Service() {
                 playing = intent.getBooleanExtra(EXTRA_PLAYING, false)
                 title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { "Web media" }
                 pageUrl = intent.getStringExtra(EXTRA_URL).orEmpty()
-                if (playing) {
-                    updateSession()
-                    startForeground(NOTIFICATION_ID, buildNotification())
-                } else {
-                    mediaSession?.setPlaybackState(
-                        PlaybackStateCompat.Builder()
-                            .setActions(
-                                PlaybackStateCompat.ACTION_PLAY or
-                                    PlaybackStateCompat.ACTION_PAUSE or
-                                    PlaybackStateCompat.ACTION_PLAY_PAUSE
-                            )
-                            .setState(
-                                PlaybackStateCompat.STATE_PAUSED,
-                                PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
-                                0f
-                            )
-                            .build()
-                    )
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                }
+                updateSession()
+                startForeground(NOTIFICATION_ID, buildNotification())
             }
             ACTION_PLAY -> BrowserBackgroundPlayback.control(true)
             ACTION_PAUSE -> BrowserBackgroundPlayback.control(false)
@@ -82,6 +64,7 @@ class BrowserMediaPlaybackService : Service() {
                         MediaMetadataCompat.METADATA_KEY_ARTIST,
                         runCatching { android.net.Uri.parse(pageUrl).host.orEmpty() }.getOrDefault("")
                     )
+                    .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, pageUrl)
                     .build()
             )
             setPlaybackState(
@@ -89,12 +72,13 @@ class BrowserMediaPlaybackService : Service() {
                     .setActions(
                         PlaybackStateCompat.ACTION_PLAY or
                             PlaybackStateCompat.ACTION_PAUSE or
-                            PlaybackStateCompat.ACTION_PLAY_PAUSE
+                            PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                            PlaybackStateCompat.ACTION_STOP
                     )
                     .setState(
-                        PlaybackStateCompat.STATE_PLAYING,
+                        if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED,
                         PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
-                        1f
+                        if (playing) 1f else 0f
                     )
                     .build()
             )
