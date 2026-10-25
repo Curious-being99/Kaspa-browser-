@@ -104,7 +104,14 @@ fun isRelevantKaspaNews(item: KaspaNewsItem): Boolean {
     if (item.url.isBlank() || !(item.url.startsWith("https://") || item.url.startsWith("http://"))) return false
     if (isFeedEndpoint(item.url)) return false
     if (item.category == "YouTube" || item.category == "Reddit" || item.category == "GitHub") return true
-    val haystack = item.title + " " + item.desc + " " + item.author
+    // The parser supplies "Kaspa News" as a fallback author for generic feeds;
+    // do not let that synthetic value make unrelated headlines appear relevant.
+    val meaningfulAuthor = item.author.takeUnless {
+        it.equals("Kaspa News", ignoreCase = true) ||
+            it.equals("Kaspa Channel", ignoreCase = true) ||
+            it.equals("@KaspaCurrency", ignoreCase = true)
+    }.orEmpty()
+    val haystack = item.title + " " + item.desc + " " + meaningfulAuthor
     return Regex(
         """(?i)\b(kaspa|ghostdag|blockdag|krc[\s-]?20|krc[\s-]?721|kasplex|toccata|kaspium|kasware|kaspire|kaspad|rusty-kaspa)\b"""
     ).containsMatchIn(haystack) || Regex("""\bKAS\b""").containsMatchIn(haystack)
