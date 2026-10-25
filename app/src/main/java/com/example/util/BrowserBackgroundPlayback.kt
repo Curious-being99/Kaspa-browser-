@@ -22,8 +22,7 @@ object BrowserBackgroundPlayback {
         override fun run() {
             val webView = webViewRef?.get()
             if (!enabled || webView == null) return
-            if (webView.isAttachedToWindow || webView.visibility == android.view.View.VISIBLE) {
-                runCatching {
+            runCatching {
                     webView.evaluateJavascript(
                         "(function(){var e=Array.from(document.querySelectorAll('audio,video')).find(function(m){return !m.paused&&!m.ended;});return JSON.stringify({playing:!!e,title:(e&&((e.getAttribute('title'))||(document.title)))||document.title||'',url:location.href});})()"
                     ) { raw ->
@@ -57,7 +56,6 @@ object BrowserBackgroundPlayback {
                         }
                     }
                 }
-            }
             handler.postDelayed(this, 1000L)
         }
     }
