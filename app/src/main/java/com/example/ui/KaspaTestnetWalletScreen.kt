@@ -4282,7 +4282,9 @@ private fun UnlockRecoveryBottomSheet(
                             onError = { err -> errorMessage = err }
                         )
                     } else {
-                        onSuccess()
+                        errorMessage =
+                            "No wallet password or device authentication is configured. " +
+                            "Set up wallet security before revealing your recovery phrase."
                     }
                 },
                 modifier = Modifier
