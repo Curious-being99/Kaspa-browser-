@@ -128,6 +128,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val proxyPrefs = remember { context.getSharedPreferences("kaspa_proxy_prefs", android.content.Context.MODE_PRIVATE) }
     val audits by viewModel.trafficAudits.collectAsState()
     val metrics by viewModel.metrics.collectAsState()
+    val backgroundPlaybackEnabled by viewModel.backgroundPlaybackEnabled.collectAsState()
 
     val isBluetoothMeshRunning by viewModel.isBluetoothMeshRunning.collectAsState()
     val isBluetoothEnabled by viewModel.isBluetoothEnabled.collectAsState()
@@ -817,6 +818,16 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         icon = Icons.Default.Refresh,
                         checked = enablePullToRefresh,
                         onCheckedChange = { viewModel.togglePullToRefresh(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Background Playback",
+                        desc = "Allow supported website audio to continue when Kaspa Browser is in the background",
+                        icon = Icons.Default.MusicNote,
+                        checked = backgroundPlaybackEnabled,
+                        onCheckedChange = { viewModel.toggleBackgroundPlayback(it) }
                     )
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
