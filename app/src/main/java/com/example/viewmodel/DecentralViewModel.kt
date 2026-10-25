@@ -437,7 +437,10 @@ class DecentralViewModel(
     }
 
     fun lockWallet() {
-        if (_hasWalletPassword.value || activeAccount.value != null) {
+        // Do not lock an account that has no configured wallet password:
+        // the lock screen cannot authenticate it or enroll a password safely.
+        // Once a password is configured, normal auto-lock behavior applies.
+        if (_hasWalletPassword.value) {
             _isWalletLocked.value = true
         }
     }
