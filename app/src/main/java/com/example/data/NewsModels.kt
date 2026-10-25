@@ -409,13 +409,21 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
                         .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) KaspaBrowser/1.0")
                         .build()
                     client.newCall(request).execute().use { response ->
+                        val bodyStr = response.body?.string().orEmpty()
                         if (response.isSuccessful) {
-                            val bodyStr = response.body?.string() ?: ""
                             feedItems.addAll(parseRssXml(bodyStr, cat))
                         }
+                        val feedHost = request.url.host
+                        android.util.Log.d(
+                            "KaspaNews",
+                            "Feed result category=$cat host=$feedHost status=${response.code} bytes=${bodyStr.length} parsed=${feedItems.size}"
+                        )
                     }
                 } catch (e: Exception) {
-                    android.util.Log.d("KaspaNews", "Feed update notice for $url: ${e.message}")
+                    android.util.Log.w(
+                        "KaspaNews",
+                        "Feed failure category=$cat type=${e.javaClass.simpleName} message=${e.message}"
+                    )
                 }
                 feedItems
             }
