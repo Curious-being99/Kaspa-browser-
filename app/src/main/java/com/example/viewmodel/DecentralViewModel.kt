@@ -1281,6 +1281,11 @@ class DecentralViewModel(
     private val _enablePullToRefresh = MutableStateFlow(browserSettingsPrefs.getBoolean("pull_to_refresh_enabled", false))
     val enablePullToRefresh: StateFlow<Boolean> = _enablePullToRefresh.asStateFlow()
 
+    private val _backgroundPlaybackEnabled = MutableStateFlow(
+        browserSettingsPrefs.getBoolean("background_playback_enabled", false)
+    )
+    val backgroundPlaybackEnabled: StateFlow<Boolean> = _backgroundPlaybackEnabled.asStateFlow()
+
     private val _httpsOnlyMode = MutableStateFlow(true)
     val httpsOnlyMode: StateFlow<Boolean> = _httpsOnlyMode.asStateFlow()
 
@@ -1499,6 +1504,11 @@ class DecentralViewModel(
     fun togglePullToRefresh(enabled: Boolean) {
         _enablePullToRefresh.value = enabled
         browserSettingsPrefs.edit().putBoolean("pull_to_refresh_enabled", enabled).apply()
+    }
+
+    fun toggleBackgroundPlayback(enabled: Boolean) {
+        _backgroundPlaybackEnabled.value = enabled
+        browserSettingsPrefs.edit().putBoolean("background_playback_enabled", enabled).apply()
     }
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
     fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }

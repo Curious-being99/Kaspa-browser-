@@ -598,7 +598,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 try {
                     com.example.util.BrowserStateLog.save("Lifecycle ON_PAUSE: saving active tab state")
                     viewModel.saveActiveTabState("Lifecycle ON_PAUSE")
-                    webViewInstance?.onPause()
+                    if (!viewModel.backgroundPlaybackEnabled.value) {
+                        webViewInstance?.onPause()
+                    }
                 } catch (_: Exception) {}
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
                 try {
@@ -630,7 +632,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             } catch (_: Exception) {}
             try {
                 viewModel.saveActiveTabState("DisposableEffect onDispose")
-                webViewInstance?.onPause()
+                if (!viewModel.backgroundPlaybackEnabled.value) {
+                    webViewInstance?.onPause()
+                }
             } catch (_: Exception) {}
         }
     }
