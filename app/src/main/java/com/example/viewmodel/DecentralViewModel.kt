@@ -401,13 +401,54 @@ class DecentralViewModel(
     private val _biometricsEnabled = MutableStateFlow(securityPrefs.getBoolean("biometrics_enabled", true))
     val biometricsEnabled = _biometricsEnabled.asStateFlow()
 
+    private companion object {
+        const val WALLET_PASSWORD_KDF = "pbkdf2_hmac_sha256"
+        const val WALLET_PASSWORD_ITERATIONS = 600_000
+        const val WALLET_PASSWORD_SALT_BYTES = 16
+        const val WALLET_PASSWORD_KEY_BYTES = 32
+        const val LEGACY_WALLET_PASSWORD_SALT = "_kaspa_salt_v1"
+    }
+
+    private fun deriveWalletPasswordHash(password: String, salt: ByteArray, iterations: Int): ByteArray? {
+        var spec: javax.crypto.spec.PBEKeySpec? = null
+        return try {
+            spec = javax.crypto.spec.PBEKeySpec(
+                password.toCharArray(),
+                salt,
+                iterations,
+                WALLET_PASSWORD_KEY_BYTES * 8
+            )
+            javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                .generateSecret(spec)
+                .encoded
+        } catch (_: java.security.GeneralSecurityException) {
+            null
+        } finally {
+            spec?.clearPassword()
+        }
+    }
+
+    private fun saveDerivedWalletPassword(password: String, enableBiometrics: Boolean): Boolean {
+        val salt = ByteArray(WALLET_PASSWORD_SALT_BYTES)
+        return try {
+            java.security.SecureRandom().nextBytes(salt)
+            val derivedHash = deriveWalletPasswordHash(password, salt, WALLET_PASSWORD_ITERATIONS)
+                ?: return false
+            securityPrefs.edit()
+                .putString("wallet_pwd_hash", android.util.Base64.encodeToString(derivedHash, android.util.Base64.NO_WRAP))
+                .putString("wallet_pwd_salt", android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP))
+                .putString("wallet_pwd_kdf", WALLET_PASSWORD_KDF)
+                .putInt("wallet_pwd_iterations", WALLET_PASSWORD_ITERATIONS)
+                .putBoolean("biometrics_enabled", enableBiometrics)
+                .commit()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun setWalletPassword(password: String, enableBiometrics: Boolean = true) {
         if (password.isBlank()) return
-        val pwdHash = CryptoUtils.sha256(password + "_kaspa_salt_v1")
-        securityPrefs.edit()
-            .putString("wallet_pwd_hash", pwdHash)
-            .putBoolean("biometrics_enabled", enableBiometrics)
-            .apply()
+        if (!saveDerivedWalletPassword(password, enableBiometrics)) return
 
         _hasWalletPassword.value = true
         _biometricsEnabled.value = enableBiometrics
@@ -421,13 +462,44 @@ class DecentralViewModel(
             ?.takeIf { it.isNotBlank() }
             ?: return false
 
-        val inputHash = CryptoUtils.sha256(password + "_kaspa_salt_v1")
-        val matches = java.security.MessageDigest.isEqual(
-            inputHash.toByteArray(Charsets.UTF_8),
-            storedHash.toByteArray(Charsets.UTF_8)
-        )
-        if (!matches) return false
+        val kdf = securityPrefs.getString("wallet_pwd_kdf", null)
+        val matches = if (kdf == WALLET_PASSWORD_KDF) {
+            val saltEncoded = securityPrefs.getString("wallet_pwd_salt", null) ?: return false
+            val iterations = securityPrefs.getInt("wallet_pwd_iterations", -1)
+            if (iterations != WALLET_PASSWORD_ITERATIONS) return false
 
+            val expectedHash = try {
+                android.util.Base64.decode(storedHash, android.util.Base64.NO_WRAP)
+            } catch (_: IllegalArgumentException) {
+                return false
+            }
+            val salt = try {
+                android.util.Base64.decode(saltEncoded, android.util.Base64.NO_WRAP)
+            } catch (_: IllegalArgumentException) {
+                return false
+            }
+            if (salt.size != WALLET_PASSWORD_SALT_BYTES || expectedHash.size != WALLET_PASSWORD_KEY_BYTES) {
+                return false
+            }
+            val derivedHash = deriveWalletPasswordHash(password, salt, iterations) ?: return false
+            java.security.MessageDigest.isEqual(derivedHash, expectedHash)
+        } else if (kdf.isNullOrBlank()) {
+            // Legacy format: retain compatibility, then upgrade after a valid password.
+            val legacyHash = CryptoUtils.sha256(password + LEGACY_WALLET_PASSWORD_SALT)
+            val legacyMatches = java.security.MessageDigest.isEqual(
+                legacyHash.toByteArray(Charsets.UTF_8),
+                storedHash.toByteArray(Charsets.UTF_8)
+            )
+            if (legacyMatches) {
+                // Never block access to existing funds if the local KDF upgrade itself fails.
+                saveDerivedWalletPassword(password, securityPrefs.getBoolean("biometrics_enabled", true))
+            }
+            legacyMatches
+        } else {
+            false
+        }
+
+        if (!matches) return false
         _isWalletLocked.value = false
         return true
     }
