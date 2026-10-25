@@ -1,21 +1,18 @@
 package com.example.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,6 +23,7 @@ import com.example.ui.theme.*
 fun SwapScreenOverlay(onClose: () -> Unit) {
     var isKasToKB by remember { mutableStateOf(true) }
     var amountFrom by remember { mutableStateOf("") }
+    var unavailableAction by remember { mutableStateOf<String?>(null) }
     
     val KB = "\$KB"
     
@@ -90,7 +88,7 @@ fun SwapScreenOverlay(onClose: () -> Unit) {
                 }
 
                 Button(
-                    onClick = { /* TODO: Execute Swap */ },
+                    onClick = { unavailableAction = "Swap" },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                 ) {
@@ -104,11 +102,9 @@ fun SwapScreenOverlay(onClose: () -> Unit) {
                 // Professional Action Buttons
                 Text("Manage $KB", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    var showBuySheet by remember { mutableStateOf(false) }
-                    var showSendSheet by remember { mutableStateOf(false) }
 
                     Button(
-                        onClick = { showBuySheet = true },
+                        onClick = { unavailableAction = "Buy $KB" },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan)
                     ) {
@@ -117,7 +113,7 @@ fun SwapScreenOverlay(onClose: () -> Unit) {
                         Text("Buy $KB")
                     }
                     Button(
-                        onClick = { showSendSheet = true },
+                        onClick = { unavailableAction = "Send $KB" },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = RedTamper)
                     ) {
@@ -126,29 +122,30 @@ fun SwapScreenOverlay(onClose: () -> Unit) {
                         Text("Send $KB")
                     }
 
-                    if (showBuySheet) {
-                        TransactionConfirmationBottomSheet(
-                            title = "Buy $KB",
-                            amount = "...", // TODO: Get amount from state
-                            asset = "$KB",
-                            recipient = "KaspaRocket Contract",
-                            onConfirm = { /* Broadcast buy transaction */ },
-                            onDismiss = { showBuySheet = false }
-                        )
-                    }
 
-                    if (showSendSheet) {
-                        TransactionConfirmationBottomSheet(
-                            title = "Send $KB",
-                            amount = "...", // TODO: Get amount from state
-                            asset = "$KB",
-                            recipient = "...", // TODO: Get recipient from UI
-                            onConfirm = { /* Broadcast send transaction */ },
-                            onDismiss = { showSendSheet = false }
-                        )
-                    }
                 }
             }
         }
+    }
+
+    unavailableAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { unavailableAction = null },
+            title = { Text("$action unavailable") },
+            text = {
+                Text(
+                    "No transaction was sent. KaspaRocket's live pool state, KCC20 covenant execution, " +
+                        "and wallet signing are not connected to this screen yet."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { unavailableAction = null }) {
+                    Text("OK")
+                }
+            },
+            containerColor = SurfaceCard,
+            titleContentColor = TextPrimary,
+            textContentColor = TextPrimary
+        )
     }
 }
