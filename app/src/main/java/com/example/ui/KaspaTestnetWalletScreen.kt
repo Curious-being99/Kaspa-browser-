@@ -5614,17 +5614,19 @@ fun WalletSetupFlow(
                                     errorMessage = "Password must be at least 6 characters"
                                     return@Button
                                 }
-                                if (walletPassword.isNotBlank()) {
-                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true)
+                                val finishImport = {
+                                    viewModel.selectNetwork(selectedSetupNetwork)
+                                    viewModel.importTestnetWallet(
+                                        mnemonic = importMnemonic.trim(),
+                                        customName = if (walletName.isBlank()) "Imported Wallet" else walletName,
+                                        passphrase = bip39Passphrase.trim()
+                                    )
+                                    viewModel.refreshTestnetWallet()
+                                    onWalletReady()
                                 }
-                                viewModel.selectNetwork(selectedSetupNetwork)
-                                viewModel.importTestnetWallet(
-                                    mnemonic = importMnemonic.trim(),
-                                    customName = if (walletName.isBlank()) "Imported Wallet" else walletName,
-                                    passphrase = bip39Passphrase.trim()
-                                )
-                                viewModel.refreshTestnetWallet()
-                                onWalletReady()
+                                viewModel.setWalletPassword(walletPassword, enableBiometrics = true) { saved ->
+                                    if (saved) finishImport() else errorMessage = "Could not save wallet password. Please try again."
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                             shape = RoundedCornerShape(14.dp),
@@ -5806,17 +5808,23 @@ fun WalletSetupFlow(
                         Spacer(modifier = Modifier.height(32.dp))
                         Button(
                             onClick = {
-                                if (walletPassword.isNotBlank()) {
-                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true)
+                                val finishSetup = {
+                                    viewModel.selectNetwork(selectedSetupNetwork)
+                                    viewModel.importTestnetWallet(
+                                        mnemonic = generatedMnemonic,
+                                        customName = if (walletName.isBlank()) "My Wallet" else walletName,
+                                        passphrase = bip39Passphrase.trim()
+                                    )
+                                    viewModel.refreshTestnetWallet()
+                                    onWalletReady()
                                 }
-                                viewModel.selectNetwork(selectedSetupNetwork)
-                                viewModel.importTestnetWallet(
-                                    mnemonic = generatedMnemonic,
-                                    customName = if (walletName.isBlank()) "My Wallet" else walletName,
-                                    passphrase = bip39Passphrase.trim()
-                                )
-                                viewModel.refreshTestnetWallet()
-                                onWalletReady()
+                                if (walletPassword.isBlank()) {
+                                    finishSetup()
+                                } else {
+                                    viewModel.setWalletPassword(walletPassword, enableBiometrics = true) { saved ->
+                                        if (saved) finishSetup() else errorMessage = "Could not save wallet password. Please try again."
+                                    }
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                             shape = RoundedCornerShape(14.dp),
