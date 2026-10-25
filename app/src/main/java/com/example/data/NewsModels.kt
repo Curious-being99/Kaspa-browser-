@@ -55,8 +55,13 @@ fun extractTagContent(xml: String, tagName: String): String {
 }
 
 fun extractLinkUrl(xml: String): String {
-    // Atom defaults a missing rel attribute to "alternate"; prefer that article URL
-    // over rel="self" (the feed URL) or enclosure links.
+    // RSS item links are direct text nodes; read them before Atom metadata links.
+    // Atom rel="self" points to a feed representation, not the article.
+    val rssLink = Regex(
+        "<link(?:\\s[^>]*)?>(.*?)</link>",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+    ).find(xml)?.groupValues?.get(1)?.let(::cleanXmlText)?.trim().orEmpty()
+
     val linkTags = Regex("<(?:[A-Za-z_][A-Za-z0-9_.-]*:)?link[^>]*>", RegexOption.IGNORE_CASE).findAll(xml).toList()
     val hrefRegex = Regex("""\bhref\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
     val relRegex = Regex("""\brel\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
@@ -65,20 +70,44 @@ fun extractLinkUrl(xml: String): String {
         (rel == null || rel.equals("alternate", ignoreCase = true)) &&
             hrefRegex.containsMatchIn(tag.value)
     }
-    val selectedTag = alternateTag ?: linkTags.firstOrNull { hrefRegex.containsMatchIn(it.value) }
-
-    var url = selectedTag?.let {
-        hrefRegex.find(it.value)?.groupValues?.get(1)?.let(::cleanXmlText)?.trim()
-    } ?: ""
-    if (url.isEmpty()) {
-        val content = extractTagContent(xml, "link")
-        if (content.isNotEmpty()) url = content.trim()
+    var url = rssLink
+    if (url.isBlank()) {
+        url = alternateTag?.let {
+            hrefRegex.find(it.value)?.groupValues?.get(1)?.let(::cleanXmlText)?.trim()
+        }.orEmpty()
     }
     if (url.contains("nitter.") || url.contains("xcancel.com") || url.contains("twitter.com")) {
         val path = url.substringAfter("://").substringAfter("/")
         if (path.isNotBlank()) return "https://x.com/$path"
     }
     return url
+}
+
+private fun isFeedEndpoint(url: String): Boolean {
+    return try {
+        val uri = java.net.URI(url)
+        val host = uri.host.orEmpty().lowercase()
+        val path = uri.path.orEmpty().lowercase()
+        if (host == "news.google.com" && path.startsWith("/rss/articles/")) {
+            false
+        } else {
+            path.endsWith(".rss") || path.endsWith(".atom") || path.endsWith(".xml") ||
+                path == "/rss" || path.startsWith("/rss/") || path.endsWith("/feed") ||
+                path.endsWith("/feed/")
+        }
+    } catch (_: Exception) {
+        true
+    }
+}
+
+fun isRelevantKaspaNews(item: KaspaNewsItem): Boolean {
+    if (item.url.isBlank() || !(item.url.startsWith("https://") || item.url.startsWith("http://"))) return false
+    if (isFeedEndpoint(item.url)) return false
+    if (item.category == "YouTube" || item.category == "Reddit" || item.category == "GitHub") return true
+    val haystack = item.title + " " + item.desc + " " + item.author
+    return Regex(
+        """(?i)\\b(kaspa|ghostdag|blockdag|krc[\\s-]?20|krc[\\s-]?721|kasplex|toccata|kaspium|kasware|kaspire|kaspad|rusty-kaspa)\\b"""
+    ).containsMatchIn(haystack) || Regex("""\\bKAS\\b""").containsMatchIn(haystack)
 }
 
 fun extractImageUrl(xml: String): String? {
@@ -316,19 +345,20 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
                 else -> "News"
             }
 
-            if (title.isNotBlank()) {
+            val parsedItem = KaspaNewsItem(
+                title = title,
+                desc = desc.ifBlank { "Click to view full blockDAG update." },
+                url = link,
+                category = finalCategory,
+                timestamp = displayDate,
+                author = author,
+                videoId = videoId,
+                imageUrl = imageUrl,
+                epochMillis = epochMillis
+            )
+            if (title.isNotBlank() && isRelevantKaspaNews(parsedItem)) {
                 items.add(
-                    KaspaNewsItem(
-                        title = title,
-                        desc = desc.ifBlank { "Click to view full blockDAG update." },
-                        url = link.ifBlank { "https://kaspa.org" },
-                        category = finalCategory,
-                        timestamp = displayDate,
-                        author = author,
-                        videoId = videoId,
-                        imageUrl = imageUrl,
-                        epochMillis = epochMillis
-                    )
+                    parsedItem
                 )
             }
         }
