@@ -422,7 +422,7 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
                 } catch (e: Exception) {
                     android.util.Log.w(
                         "KaspaNews",
-                        "Feed failure category=$cat host=${runCatching { okhttp3.HttpUrl.get(url).host }.getOrDefault("unknown")} type=${e.javaClass.simpleName} message=${e.message}"
+                        "Feed failure category=$cat type=${e.javaClass.simpleName} message=${e.message}"
                     )
                 }
                 feedItems
