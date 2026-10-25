@@ -382,122 +382,10 @@ fun getKaspaNewsDeduplicationKey(item: KaspaNewsItem): String {
     if (!vid.isNullOrBlank()) {
         return "video_${vid.lowercase()}"
     }
-
-    val normalizedUrl = runCatching {
-        val uri = java.net.URI(item.url.trim())
-        val host = uri.host?.lowercase() ?: ""
-        val path = (uri.path ?: "").trimEnd('/')
-        val query = uri.rawQuery
-            ?.split('&')
-            ?.filterNot {
-                val key = it.substringBefore('=').lowercase()
-                key.startsWith("utm_") || key in setOf("fbclid", "gclid", "mc_cid", "mc_eid")
-            }
-            ?.sorted()
-            ?.joinToString("&")
-            .orEmpty()
-        if (host.isBlank()) "" else "$host$path" + if (query.isBlank()) "" else "?$query"
-    }.getOrDefault("")
-
-    if (normalizedUrl.isNotBlank()) {
-        return "url_$normalizedUrl"
-    }
-
     val normTitle = item.title.lowercase()
         .replace(Regex("-\\s*(youtube|twitter|x|reddit|kaspa news|cointelegraph|google news).*", RegexOption.IGNORE_CASE), "")
         .replace(Regex("[^a-z0-9]"), "")
-    return "title_$normTitle"
-}
-
-fun getDefaultKaspaNewsItems(): List<KaspaNewsItem> {
-    val now = System.currentTimeMillis()
-    return listOf(
-        KaspaNewsItem(
-            title = "Toccata animation in the Making",
-            desc = "Behind the scenes at parts of the journey. Concept doodles, 3D work, compositing, and music for the Kaspa Toccata release.",
-            url = "https://www.youtube.com/watch?v=RUcLIMTsSo8",
-            category = "YouTube",
-            timestamp = "Recently",
-            author = "Kaspa",
-            videoId = "RUcLIMTsSo8",
-            imageUrl = "https://i3.ytimg.com/vi/RUcLIMTsSo8/hqdefault.jpg",
-            epochMillis = now - 1800_000L
-        ),
-        KaspaNewsItem(
-            title = "KaChat Aiming To Be The Best Social Wallet App On The Kaspa Network",
-            desc = "Kaspa Silver walkthrough of decentralized wallet messaging, P2P communication, and network utility.",
-            url = "https://www.youtube.com/watch?v=D89961YQiX8",
-            category = "YouTube",
-            timestamp = "Recently",
-            author = "Kaspa Silver",
-            videoId = "D89961YQiX8",
-            imageUrl = "https://i1.ytimg.com/vi/D89961YQiX8/hqdefault.jpg",
-            epochMillis = now - 3600_000L
-        ),
-        KaspaNewsItem(
-            title = "Kaspa Development Accelerates: Smart Contracts and DAG Knight Progression",
-            desc = "Kaspa research initiatives advance on sub-second consensus, protocol scalability, and smart contract enablement.",
-            url = "https://www.crypto-news-flash.com/tag/kaspa/",
-            category = "News",
-            timestamp = "Recently",
-            author = "Crypto News Flash",
-            epochMillis = now - 2400_000L
-        ),
-        KaspaNewsItem(
-            title = "Kaspa Network Hashrate Crosses New All-Time Highs on Proof-of-Work Growth",
-            desc = "Mining metrics show rapid decentralization and sustained global hardware distribution across the blockDAG network.",
-            url = "https://cointelegraph.com/rss/tag/kaspa",
-            category = "News",
-            timestamp = "Recently",
-            author = "CoinTelegraph",
-            epochMillis = now - 4200_000L
-        ),
-        KaspaNewsItem(
-            title = "Quantum Hardening & Schnorr Cryptographic Enhancements for Kaspa",
-            desc = "Research team explores post-quantum cryptographic primitives and enhanced UTXO signature security.",
-            url = "https://captainaltcoin.com/tag/kaspa/feed/",
-            category = "News",
-            timestamp = "Recently",
-            author = "CaptainAltcoin",
-            epochMillis = now - 6000_000L
-        ),
-        KaspaNewsItem(
-            title = "Kaspa (KAS) Hashrate and Active Addresses Reach Fresh Milestones",
-            desc = "BlockDAG network activity expands with increased transaction throughput, DEX trading, and mining decentralization.",
-            url = "https://cointelegraph.com/rss/tag/kaspa",
-            category = "News",
-            timestamp = "Recently",
-            author = "CoinTelegraph",
-            epochMillis = now - 5000_000L
-        ),
-        KaspaNewsItem(
-            title = "Kaspa Ecosystem Expands with High-Speed P2P Decentralized Node Stack",
-            desc = "Developers introduce modern Web3 browser, wallet, and distributed networking tools built for high-throughput Kaspa users.",
-            url = "https://news.google.com/rss/search?q=Kaspa+cryptocurrency",
-            category = "News",
-            timestamp = "Recently",
-            author = "Kaspa News",
-            epochMillis = now - 8000_000L
-        ),
-        KaspaNewsItem(
-            title = "Daily Discussion on Kaspa BlockDAG, Mining, and Nodes",
-            desc = "Community updates on ASIC efficiency, Rusty-Kaspa sync performance, and KRC20 developments.",
-            url = "https://www.reddit.com/r/kaspa/",
-            category = "Reddit",
-            timestamp = "Recently",
-            author = "r/kaspa",
-            epochMillis = now - 9000_000L
-        ),
-        KaspaNewsItem(
-            title = "rusty-kaspa: High-performance Rust node release with optimized peer routing",
-            desc = "Optimizations to RocksDB indexing, memory allocation, and P2P gossip latency across the global network.",
-            url = "https://github.com/kaspanet/rusty-kaspa/releases",
-            category = "GitHub",
-            timestamp = "Recently",
-            author = "kaspanet",
-            epochMillis = now - 10000_000L
-        )
-    )
+    return if (normTitle.length > 8) "title_$normTitle" else "url_${item.url.lowercase().trim()}"
 }
 
 suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatchers.IO) {
@@ -605,7 +493,7 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
             !item.url.contains("ecosystem", ignoreCase = true)
         }
 
-        (filtered + getDefaultKaspaNewsItems())
+        filtered
             .distinctBy { getKaspaNewsDeduplicationKey(it) }
             .sortedByDescending { it.epochMillis }
             .take(250)
