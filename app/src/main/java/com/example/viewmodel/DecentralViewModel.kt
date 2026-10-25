@@ -390,10 +390,12 @@ class DecentralViewModel(
         selectPhotoTheme(next)
     }
 
-    private val _hasWalletPassword = MutableStateFlow(securityPrefs.contains("wallet_pwd_hash"))
+    private val _hasWalletPassword = MutableStateFlow(
+        !securityPrefs.getString("wallet_pwd_hash", null).isNullOrBlank()
+    )
     val hasWalletPassword = _hasWalletPassword.asStateFlow()
 
-    private val _isWalletLocked = MutableStateFlow(securityPrefs.contains("wallet_pwd_hash"))
+    private val _isWalletLocked = MutableStateFlow(_hasWalletPassword.value)
     val isWalletLocked = _isWalletLocked.asStateFlow()
 
     private val _biometricsEnabled = MutableStateFlow(securityPrefs.getBoolean("biometrics_enabled", true))
@@ -413,20 +415,21 @@ class DecentralViewModel(
     }
 
     fun unlockWalletWithPassword(password: String): Boolean {
-        val storedHash = securityPrefs.getString("wallet_pwd_hash", "") ?: ""
-        if (storedHash.isBlank()) {
-            if (password.length >= 6) {
-                setWalletPassword(password)
-            }
-            _isWalletLocked.value = false
-            return true
-        }
+        if (password.isBlank()) return false
+
+        val storedHash = securityPrefs.getString("wallet_pwd_hash", null)
+            ?.takeIf { it.isNotBlank() }
+            ?: return false
+
         val inputHash = CryptoUtils.sha256(password + "_kaspa_salt_v1")
-        if (inputHash == storedHash) {
-            _isWalletLocked.value = false
-            return true
-        }
-        return false
+        val matches = java.security.MessageDigest.isEqual(
+            inputHash.toByteArray(Charsets.UTF_8),
+            storedHash.toByteArray(Charsets.UTF_8)
+        )
+        if (!matches) return false
+
+        _isWalletLocked.value = false
+        return true
     }
 
     fun unlockWalletWithBiometric() {
