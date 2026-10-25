@@ -305,10 +305,6 @@ fun parseRssXml(xml: String, defaultCategory: String): List<KaspaNewsItem> {
                 imageUrl = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
             }
 
-            if (link.contains("x.com") || link.contains("twitter.com") || link.contains("nitter") || defaultCategory == "X") {
-                continue
-            }
-
             val finalCategory = when {
                 !videoId.isNullOrBlank() || defaultCategory == "YouTube" || title.endsWith(" - YouTube", ignoreCase = true) || link.contains("youtube.com") || link.contains("youtu.be") -> "YouTube"
                 defaultCategory == "Reddit" || link.contains("reddit.com") -> "Reddit"
@@ -506,6 +502,8 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCv8-2oyrfqDigJAKjZ_RCzQ", "YouTube"),
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UCZ-FjVIxrICs_FmJUGL3R-Q", "YouTube"),
         Pair("https://www.youtube.com/feeds/videos.xml?channel_id=UC4Y7sxOP3dG5z-G6zJX94Kw", "YouTube"),
+        Pair("https://xcancel.com/KaspaCurrency/rss", "X"),
+        Pair("https://xcancel.com/Kaspa_Developers/rss", "X"),
         Pair("https://news.google.com/rss/search?q=site:youtube.com+Kaspa&hl=en-US&gl=US&ceid=US:en", "YouTube"),
         Pair("https://news.google.com/rss/search?q=site:youtube.com+%22Kaspa+Silver%22&hl=en-US&gl=US&ceid=US:en", "YouTube"),
         Pair("https://news.google.com/rss/search?q=site:youtube.com+Kaspa+BlockDAG&hl=en-US&gl=US&ceid=US:en", "YouTube"),
@@ -560,11 +558,6 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
                     item.title.contains("Kaspa Community", ignoreCase = true) ||
                     item.desc.contains("Kaspa Community", ignoreCase = true)
 
-            val isFakeXFeed = item.category.equals("X", ignoreCase = true) ||
-                    item.url.contains("x.com") ||
-                    item.url.contains("twitter.com") ||
-                    item.url.contains("nitter")
-
             val isSpamOrAirdrop = item.title.contains("airdrop claim", ignoreCase = true) ||
                     item.title.contains("free kaspa", ignoreCase = true) ||
                     item.desc.contains("airdrop claim", ignoreCase = true)
@@ -579,7 +572,7 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
 
             val isInvalidYoutube = item.category == "YouTube" && (item.videoId.isNullOrBlank() || item.videoId.length != 11)
 
-            !isUnavailable && !isKaspaCommunityFake && !isFakeXFeed && !isKaspaCurrencyYoutube && !isSpamOrAirdrop && !isInvalidYoutube &&
+            !isUnavailable && !isKaspaCommunityFake && !isSpamOrAirdrop && !isInvalidYoutube &&
             !item.title.contains("ecosystem", ignoreCase = true) &&
             !item.url.contains("ecosystem", ignoreCase = true)
         }
