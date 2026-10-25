@@ -13,6 +13,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -31,6 +32,7 @@ class BrowserMediaPlaybackService : Service() {
     private var positionMs = 0L
     private var durationMs = 0L
     private var audioFocusRequest: Any? = null
+    private var playbackWakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -67,8 +69,10 @@ class BrowserMediaPlaybackService : Service() {
                 updateSession()
                 if (playing) {
                     requestAudioFocus()
+                    acquirePlaybackWakeLock()
                     startForegroundCompat()
                 } else {
+                    releasePlaybackWakeLock()
                     stopForegroundInternal(removeNotification = false)
                     val manager = getSystemService(NotificationManager::class.java)
                     manager.notify(NOTIFICATION_ID, buildNotification())
@@ -82,6 +86,7 @@ class BrowserMediaPlaybackService : Service() {
                 BrowserBackgroundPlayback.control(false)
             }
             ACTION_STOP -> {
+                releasePlaybackWakeLock()
                 abandonAudioFocus()
                 BrowserBackgroundPlayback.control(false)
                 stopForegroundInternal(removeNotification = true)
@@ -89,6 +94,25 @@ class BrowserMediaPlaybackService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun acquirePlaybackWakeLock() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val lock = playbackWakeLock ?: powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "KaspaBrowser:WebMediaPlayback"
+            ).apply { setReferenceCounted(false) }.also { playbackWakeLock = it }
+            if (!lock.isHeld) lock.acquire(12 * 60 * 60 * 1000L)
+        } catch (e: Exception) {
+            android.util.Log.w("BrowserMediaPlayback", "Could not acquire playback wake lock: " + e.message)
+        }
+    }
+
+    private fun releasePlaybackWakeLock() {
+        try {
+            playbackWakeLock?.let { if (it.isHeld) it.release() }
+        } catch (_: Exception) {}
     }
 
     private fun startForegroundCompat() {
@@ -271,6 +295,7 @@ class BrowserMediaPlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        releasePlaybackWakeLock()
         abandonAudioFocus()
         mediaSession?.run {
             isActive = false
