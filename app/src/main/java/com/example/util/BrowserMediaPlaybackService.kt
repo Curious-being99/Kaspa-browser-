@@ -48,10 +48,6 @@ class BrowserMediaPlaybackService : Service() {
                     stopSelf()
                 }
             })
-            setFlags(
-                MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-            )
             isActive = true
         }
     }
