@@ -10,52 +10,64 @@ import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 object BrowserBackgroundPlayback {
+    private const val POLL_INTERVAL_MS = 1000L
     private val handler = Handler(Looper.getMainLooper())
     private var webViewRef: WeakReference<WebView>? = null
     private var appContext: Context? = null
     private var enabled = false
+    private var hasObservedPlayback = false
     private var lastPlaying = false
     private var lastTitle = ""
     private var lastUrl = ""
 
     private val poll = object : Runnable {
         override fun run() {
+            if (!enabled) return
             val webView = webViewRef?.get()
-            if (!enabled || webView == null) return
+            if (webView == null) {
+                handler.postDelayed(this, POLL_INTERVAL_MS)
+                return
+            }
+
             runCatching {
-                    webView.evaluateJavascript(
-                        "(function(){var e=Array.from(document.querySelectorAll('audio,video')).find(function(m){return !m.paused&&!m.ended;});return JSON.stringify({playing:!!e,title:(e&&((e.getAttribute('title'))||(document.title)))||document.title||'',url:location.href});})()"
-                    ) { raw ->
-                        if (!enabled) return@evaluateJavascript
-                        runCatching {
-                            val decoded = JSONArray("[$raw]").getString(0)
-                            val state = JSONObject(decoded)
-                            val playing = state.optBoolean("playing", false)
-                            val title = state.optString("title").take(180)
-                            val url = state.optString("url").take(2048)
-                            val normalizedTitle = title.ifBlank { url }
-                            val changed = playing != lastPlaying || normalizedTitle != lastTitle || url != lastUrl
-                            val wasPlaying = lastPlaying
-                            lastPlaying = playing
-                            lastTitle = normalizedTitle
-                            lastUrl = url
-                            if (changed && (playing || wasPlaying)) {
-                                val context = appContext ?: return@runCatching
-                                val intent = Intent(context, BrowserMediaPlaybackService::class.java)
-                                    .setAction(BrowserMediaPlaybackService.ACTION_UPDATE)
-                                    .putExtra(BrowserMediaPlaybackService.EXTRA_PLAYING, playing)
-                                    .putExtra(BrowserMediaPlaybackService.EXTRA_TITLE, lastTitle)
-                                    .putExtra(BrowserMediaPlaybackService.EXTRA_URL, lastUrl)
-                                if (playing) {
-                                    androidx.core.content.ContextCompat.startForegroundService(context, intent)
-                                } else {
-                                    context.startService(intent)
-                                }
+                webView.evaluateJavascript(
+                    "(function(){var m=Array.from(document.querySelectorAll('audio,video'));var e=m.find(function(x){return !x.paused&&!x.ended;});var current=e||m.find(function(x){return !x.ended;});return JSON.stringify({playing:!!e,title:(current&&(current.getAttribute('title')||document.title))||document.title||'',url:location.href});})()"
+                ) { raw ->
+                    if (!enabled) return@evaluateJavascript
+                    runCatching {
+                        val decoded = JSONArray("[$raw]").optString(0)
+                        val state = JSONObject(decoded)
+                        val playing = state.optBoolean("playing", false)
+                        val title = state.optString("title").take(180)
+                        val url = state.optString("url").take(2048)
+                        val normalizedTitle = title.ifBlank { url }
+                        val changed = playing != lastPlaying ||
+                            normalizedTitle != lastTitle ||
+                            url != lastUrl
+                        val wasPlaying = lastPlaying
+
+                        lastPlaying = playing
+                        lastTitle = normalizedTitle
+                        lastUrl = url
+                        if (playing) hasObservedPlayback = true
+
+                        if (changed && (hasObservedPlayback || playing || wasPlaying)) {
+                            val context = appContext ?: return@runCatching
+                            val intent = Intent(context, BrowserMediaPlaybackService::class.java)
+                                .setAction(BrowserMediaPlaybackService.ACTION_UPDATE)
+                                .putExtra(BrowserMediaPlaybackService.EXTRA_PLAYING, playing)
+                                .putExtra(BrowserMediaPlaybackService.EXTRA_TITLE, lastTitle)
+                                .putExtra(BrowserMediaPlaybackService.EXTRA_URL, lastUrl)
+                            if (playing) {
+                                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                            } else {
+                                context.startService(intent)
                             }
                         }
                     }
                 }
-            handler.postDelayed(this, 1000L)
+            }
+            handler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
 
@@ -64,10 +76,13 @@ object BrowserBackgroundPlayback {
         webViewRef = webView?.let(::WeakReference)
         enabled = isEnabled
         handler.removeCallbacks(poll)
-        if (isEnabled && webView != null) {
+        if (isEnabled) {
             handler.post(poll)
         } else {
+            hasObservedPlayback = false
             lastPlaying = false
+            lastTitle = ""
+            lastUrl = ""
             context.stopService(Intent(context, BrowserMediaPlaybackService::class.java))
         }
     }
@@ -75,10 +90,14 @@ object BrowserBackgroundPlayback {
     fun control(play: Boolean) {
         val webView = webViewRef?.get() ?: return
         val js = if (play) {
-            "(function(){var e=Array.from(document.querySelectorAll('audio,video')).find(function(m){return !m.ended;});if(e){e.play().catch(function(){});}})()"
+            "(function(){var m=Array.from(document.querySelectorAll('audio,video'));var e=m.find(function(x){return !x.ended;});if(e){var p=e.play();if(p&&p.catch)p.catch(function(){});}})()"
         } else {
             "(function(){document.querySelectorAll('audio,video').forEach(function(e){if(!e.paused)e.pause();});})()"
         }
-        webView.post { webView.evaluateJavascript(js, null) }
+        webView.post {
+            if (enabled && webViewRef?.get() === webView) {
+                webView.evaluateJavascript(js, null)
+            }
+        }
     }
 }
