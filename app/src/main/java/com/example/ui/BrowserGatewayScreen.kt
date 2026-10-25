@@ -523,6 +523,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     }
     val tabs by viewModel.browserTabs.collectAsState()
     val activeTabId by viewModel.activeTabId.collectAsState()
+    val backgroundPlaybackEnabled by viewModel.backgroundPlaybackEnabled.collectAsState()
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
 
@@ -598,7 +599,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 try {
                     com.example.util.BrowserStateLog.save("Lifecycle ON_PAUSE: saving active tab state")
                     viewModel.saveActiveTabState("Lifecycle ON_PAUSE")
-                    if (!viewModel.backgroundPlaybackEnabled.value) {
+                    if (!backgroundPlaybackEnabled) {
                         webViewInstance?.onPause()
                     }
                 } catch (_: Exception) {}
@@ -743,6 +744,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     LaunchedEffect(activeTabId) {
         val tabId = activeTabId ?: return@LaunchedEffect
         viewModel.webViewTabManager.activateTab(tabId)
+    }
+
+    LaunchedEffect(activeTabId, webViewInstance, backgroundPlaybackEnabled) {
+        com.example.util.BrowserBackgroundPlayback.configure(
+            context = context,
+            webView = webViewInstance,
+            isEnabled = backgroundPlaybackEnabled
+        )
     }
 
     LaunchedEffect(activeTabId, urlInput, currentResource?.title) {
