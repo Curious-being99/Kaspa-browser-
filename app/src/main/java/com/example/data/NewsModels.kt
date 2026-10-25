@@ -382,10 +382,31 @@ fun getKaspaNewsDeduplicationKey(item: KaspaNewsItem): String {
     if (!vid.isNullOrBlank()) {
         return "video_${vid.lowercase()}"
     }
+
+    val normalizedUrl = runCatching {
+        val uri = java.net.URI(item.url.trim())
+        val host = uri.host?.lowercase() ?: ""
+        val path = (uri.path ?: "").trimEnd('/')
+        val query = uri.rawQuery
+            ?.split('&')
+            ?.filterNot {
+                val key = it.substringBefore('=').lowercase()
+                key.startsWith("utm_") || key in setOf("fbclid", "gclid", "mc_cid", "mc_eid")
+            }
+            ?.sorted()
+            ?.joinToString("&")
+            .orEmpty()
+        if (host.isBlank()) "" else "$host$path" + if (query.isBlank()) "" else "?$query"
+    }.getOrDefault("")
+
+    if (normalizedUrl.isNotBlank()) {
+        return "url_$normalizedUrl"
+    }
+
     val normTitle = item.title.lowercase()
         .replace(Regex("-\\s*(youtube|twitter|x|reddit|kaspa news|cointelegraph|google news).*", RegexOption.IGNORE_CASE), "")
         .replace(Regex("[^a-z0-9]"), "")
-    return if (normTitle.length > 8) "title_$normTitle" else "url_${item.url.lowercase().trim()}"
+    return "title_$normTitle"
 }
 
 fun getDefaultKaspaNewsItems(): List<KaspaNewsItem> {
