@@ -57,6 +57,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 enum class AppTab {
     BROWSER_GATEWAY,
@@ -367,6 +369,7 @@ class DecentralViewModel(
     }
 
     private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
+    private val walletPasswordOperationMutex = Mutex()
 
     private val themePrefs = com.example.ui.theme.PhotoThemePreferences(application)
     private val _currentPhotoTheme = MutableStateFlow(themePrefs.getSavedTheme())
@@ -446,18 +449,47 @@ class DecentralViewModel(
         }
     }
 
-    fun setWalletPassword(password: String, enableBiometrics: Boolean = true) {
-        if (password.isBlank()) return
-        if (!saveDerivedWalletPassword(password, enableBiometrics)) return
-
-        _hasWalletPassword.value = true
-        _biometricsEnabled.value = enableBiometrics
-        _isWalletLocked.value = false
+    fun setWalletPassword(
+        password: String,
+        enableBiometrics: Boolean = true,
+        onResult: (Boolean) -> Unit
+    ) {
+        if (password.isBlank()) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val saved = walletPasswordOperationMutex.withLock {
+                withContext(Dispatchers.Default) {
+                    saveDerivedWalletPassword(password, enableBiometrics)
+                }
+            }
+            if (saved) {
+                _hasWalletPassword.value = true
+                _biometricsEnabled.value = enableBiometrics
+                _isWalletLocked.value = false
+            }
+            onResult(saved)
+        }
     }
 
-    fun unlockWalletWithPassword(password: String): Boolean {
-        if (password.isBlank()) return false
+    fun unlockWalletWithPassword(password: String, onResult: (Boolean) -> Unit) {
+        if (password.isBlank()) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val matches = walletPasswordOperationMutex.withLock {
+                withContext(Dispatchers.Default) {
+                    verifyWalletPassword(password)
+                }
+            }
+            if (matches) _isWalletLocked.value = false
+            onResult(matches)
+        }
+    }
 
+    private fun verifyWalletPassword(password: String): Boolean {
         val storedHash = securityPrefs.getString("wallet_pwd_hash", null)
             ?.takeIf { it.isNotBlank() }
             ?: return false
@@ -484,24 +516,19 @@ class DecentralViewModel(
             val derivedHash = deriveWalletPasswordHash(password, salt, iterations) ?: return false
             java.security.MessageDigest.isEqual(derivedHash, expectedHash)
         } else if (kdf.isNullOrBlank()) {
-            // Legacy format: retain compatibility, then upgrade after a valid password.
             val legacyHash = CryptoUtils.sha256(password + LEGACY_WALLET_PASSWORD_SALT)
             val legacyMatches = java.security.MessageDigest.isEqual(
                 legacyHash.toByteArray(Charsets.UTF_8),
                 storedHash.toByteArray(Charsets.UTF_8)
             )
             if (legacyMatches) {
-                // Never block access to existing funds if the local KDF upgrade itself fails.
                 saveDerivedWalletPassword(password, securityPrefs.getBoolean("biometrics_enabled", true))
             }
             legacyMatches
         } else {
             false
         }
-
-        if (!matches) return false
-        _isWalletLocked.value = false
-        return true
+        return matches
     }
 
     fun unlockWalletWithBiometric() {
