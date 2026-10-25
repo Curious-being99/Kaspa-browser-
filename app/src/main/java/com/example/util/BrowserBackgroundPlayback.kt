@@ -33,25 +33,23 @@ object BrowserBackgroundPlayback {
                             val playing = state.optBoolean("playing", false)
                             val title = state.optString("title").take(180)
                             val url = state.optString("url").take(2048)
+                            val changed = playing != lastPlaying || title != lastTitle || url != lastUrl
+                            val wasPlaying = lastPlaying
                             lastPlaying = playing
                             lastTitle = title.ifBlank { url }
                             lastUrl = url
-                            val context = appContext ?: return@runCatching
-                            if (playing) {
+                            if (changed && (playing || wasPlaying)) {
+                                val context = appContext ?: return@runCatching
                                 val intent = Intent(context, BrowserMediaPlaybackService::class.java)
                                     .setAction(BrowserMediaPlaybackService.ACTION_UPDATE)
-                                    .putExtra(BrowserMediaPlaybackService.EXTRA_PLAYING, true)
+                                    .putExtra(BrowserMediaPlaybackService.EXTRA_PLAYING, playing)
                                     .putExtra(BrowserMediaPlaybackService.EXTRA_TITLE, lastTitle)
                                     .putExtra(BrowserMediaPlaybackService.EXTRA_URL, lastUrl)
-                                androidx.core.content.ContextCompat.startForegroundService(context, intent)
-                            } else {
-                                context.startService(
-                                    Intent(context, BrowserMediaPlaybackService::class.java)
-                                        .setAction(BrowserMediaPlaybackService.ACTION_UPDATE)
-                                        .putExtra(BrowserMediaPlaybackService.EXTRA_PLAYING, false)
-                                        .putExtra(BrowserMediaPlaybackService.EXTRA_TITLE, lastTitle)
-                                        .putExtra(BrowserMediaPlaybackService.EXTRA_URL, lastUrl)
-                                )
+                                if (playing) {
+                                    androidx.core.content.ContextCompat.startForegroundService(context, intent)
+                                } else {
+                                    context.startService(intent)
+                                }
                             }
                         }
                     }
