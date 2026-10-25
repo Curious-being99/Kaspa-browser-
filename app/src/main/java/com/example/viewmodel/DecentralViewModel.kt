@@ -21,6 +21,7 @@ import com.example.data.KaspaNewsItem
 import com.example.data.toKaspaNewsItem
 import com.example.data.toEntity
 import com.example.data.fetchLatestKaspaFeeds
+import com.example.data.isRelevantKaspaNews
 import com.example.network.kaspa.KaspaDomainRegistry
 import com.example.network.kaspa.KaspaTransactionEngine
 import com.example.network.kaspa.DomainAvailability
@@ -344,6 +345,7 @@ class DecentralViewModel(
         .map { list ->
             list.map { it.toKaspaNewsItem() }
                 .filter { item ->
+                    if (!isRelevantKaspaNews(item)) return@filter false
                     val isUnavailable = item.title.contains("private video", ignoreCase = true) ||
                             item.title.contains("deleted video", ignoreCase = true) ||
                             item.title.contains("video unavailable", ignoreCase = true) ||

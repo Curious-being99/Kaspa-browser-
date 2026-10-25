@@ -40,5 +40,46 @@ class ExampleUnitTest {
     assertEquals("YouTube", item.category)
     assertEquals("Kaspa", item.author)
   }
-}
 
+  @Test
+  fun testRssItemUsesDirectArticleLinkAndFiltersUnrelatedArticles() {
+    val sampleXml = """
+      <rss version="2.0">
+        <channel>
+          <title>Cointelegraph.com News</title>
+          <atom:link href="https://cointelegraph.com/rss/tag/kaspa" rel="self" type="application/rss+xml"/>
+          <item>
+            <title>Kaspa developers publish a BlockDAG update</title>
+            <link>https://cointelegraph.com/news/kaspa-blockdag-update</link>
+            <description>New details about Kaspa development.</description>
+            <pubDate>Sun, 25 Oct 2026 18:48:34 +0000</pubDate>
+          </item>
+          <item>
+            <title>Cardano price drops as treasury proposal changes</title>
+            <link>https://cointelegraph.com/news/cardano-treasury-proposal</link>
+            <description>Cardano market news only.</description>
+            <pubDate>Sun, 25 Oct 2026 18:00:00 +0000</pubDate>
+          </item>
+        </channel>
+      </rss>
+    """.trimIndent()
+
+    val items = parseRssXml(sampleXml, "News")
+    assertEquals(1, items.size)
+    assertEquals("Kaspa developers publish a BlockDAG update", items.single().title)
+    assertEquals("https://cointelegraph.com/news/kaspa-blockdag-update", items.single().url)
+    assertFalse(items.single().url.contains("/rss/"))
+  }
+
+  @Test
+  fun testFeedEndpointIsNotAValidArticleDestination() {
+    val feed = KaspaNewsItem(
+      title = "Kaspa market update",
+      desc = "Kaspa news",
+      url = "https://www.crypto-news-flash.com/tag/kaspa/feed/",
+      category = "News",
+      timestamp = "Recently"
+    )
+    assertFalse(isRelevantKaspaNews(feed))
+  }
+}
