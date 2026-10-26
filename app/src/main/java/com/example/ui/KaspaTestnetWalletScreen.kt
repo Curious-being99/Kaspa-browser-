@@ -732,7 +732,7 @@ fun KaspaTestnetWalletScreen(
         }
 
         if (showSwapScreen) {
-            SwapScreenOverlay(onClose = { showSwapScreen = false })
+            SwapScreenOverlay(viewModel = viewModel, onClose = { showSwapScreen = false })
         }
 
         // Security Verification BottomSheet Before Viewing Recovery Seed Phrase (Pops up from below)

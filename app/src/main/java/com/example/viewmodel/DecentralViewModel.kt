@@ -1243,6 +1243,20 @@ class DecentralViewModel(
         getTestnetAddressForAccount(acc)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
+    fun getMainnetAddressForAccount(account: AccountEntity?): String {
+        if (account == null) return ""
+        return try {
+            val seed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
+            CryptoUtils.deriveKaspaKeyPair(seed, prefix = "kaspa").kaspaAddress
+        } catch (_: Exception) {
+            if (account.kaspaAddress.startsWith("kaspa:")) account.kaspaAddress else ""
+        }
+    }
+
+    val mainnetAddress: StateFlow<String> = combine(activeAccount, _selectedNetwork) { acc, _ ->
+        getMainnetAddressForAccount(acc)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
     private val _activeTab = MutableStateFlow(AppTab.BROWSER_GATEWAY)
     val activeTab: StateFlow<AppTab> = _activeTab.asStateFlow()
 
@@ -2096,12 +2110,10 @@ class DecentralViewModel(
 
     fun calculateFeeBreakdown(
         amountKas: Double,
-        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+        sompiPerMass: Long = _networkFeeCondition.value.normalFeerate
     ): KaspaTransactionEngine.FeeCalculationBreakdown {
         return KaspaTransactionEngine.calculateFeeBreakdown(
             amountKas = amountKas,
-            // The current UTXO count is a better estimate than always assuming one input.
-            // Final fee still depends on the actual transaction mass and selected UTXOs.
             inputsCount = maxOf(1, _kaspaWalletState.value.utxosCount),
             outputsCount = 2,
             sompiPerMass = sompiPerMass
@@ -2205,11 +2217,16 @@ class DecentralViewModel(
                 return@launch
             }
             try {
-                val senderTestnetAddress = getTestnetAddressForAccount(senderAcc)
-                val isTestnet = senderTestnetAddress.startsWith("kaspatest:")
-                val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
-                
                 val rawRecipient = recipientAddress.trim().lowercase()
+                val isMainnetTarget = rawRecipient.startsWith("kaspa:") || _selectedNetwork.value.lowercase().contains("mainnet")
+                val expectedPrefix = if (isMainnetTarget) "kaspa" else "kaspatest"
+                
+                val senderAddress = if (isMainnetTarget) {
+                    getMainnetAddressForAccount(senderAcc)
+                } else {
+                    getTestnetAddressForAccount(senderAcc)
+                }
+
                 val targetRecipient = if (!rawRecipient.contains(":")) {
                     "$expectedPrefix:$rawRecipient"
                 } else {
@@ -2217,10 +2234,10 @@ class DecentralViewModel(
                 }
 
                 if (!CryptoUtils.isValidKaspaAddress(targetRecipient, expectedPrefix)) {
-                    val errMsg = if (targetRecipient.startsWith("kaspa:") && isTestnet) {
-                        "Network mismatch: Current wallet is on Testnet 10 (kaspatest:). Please enter a Testnet address."
-                    } else if (targetRecipient.startsWith("kaspatest:") && !isTestnet) {
-                        "Network mismatch: Current wallet is on Mainnet (kaspa:). Please enter a Mainnet address."
+                    val errMsg = if (targetRecipient.startsWith("kaspa:") && expectedPrefix == "kaspatest") {
+                        "Network mismatch: Target is Mainnet (kaspa:). Switching to Mainnet address verification."
+                    } else if (targetRecipient.startsWith("kaspatest:") && expectedPrefix == "kaspa") {
+                        "Network mismatch: Target is Testnet 10 (kaspatest:). Switching to Testnet verification."
                     } else {
                         "Invalid address. Please enter a valid $expectedPrefix:q... Kaspa address"
                     }
@@ -2246,7 +2263,7 @@ class DecentralViewModel(
                 }
 
                 val result = kaspaWalletService.sendKaspa(
-                    senderAddress = senderTestnetAddress,
+                    senderAddress = senderAddress,
                     senderSeed = decryptedSeed,
                     recipientAddress = targetRecipient,
                     amountKas = amountKas,
@@ -2312,7 +2329,7 @@ class DecentralViewModel(
                                     },
                                     statusNotice = "Transaction accepted by the Kaspa network"
                                 )
-                                refreshKaspaWallet(senderTestnetAddress)
+                                refreshKaspaWallet(senderAddress)
                             }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
@@ -2322,7 +2339,7 @@ class DecentralViewModel(
                     }
                 }.onFailure { err ->
                     val errorMsg = err.message ?: "Transaction broadcast failed"
-                    val networkLabel = if (isTestnet) "Testnet 10" else "Mainnet"
+                    val networkLabel = if (isMainnetTarget) "Mainnet" else "Testnet 10"
                     _statusMessage.value = "$networkLabel failed: $errorMsg"
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
