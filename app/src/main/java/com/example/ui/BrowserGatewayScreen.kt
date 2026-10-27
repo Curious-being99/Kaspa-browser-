@@ -201,6 +201,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -7267,70 +7269,64 @@ fun KaspaNewsSection(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        Row(
+        LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 6.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val categories = listOf("All", "News", "YouTube", "Reddit", "GitHub")
-                categories.forEach { cat ->
-                    val isSelected = selectedFilter == cat
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isSelected) EmeraldMesh else SurfaceCard,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) EmeraldMesh else SurfaceCardBorder),
-                        modifier = Modifier.clickable {
-                            selectedFilter = cat
-                        }
+            val categories = listOf("All", "News", "YouTube", "Reddit", "GitHub")
+            items(categories) { cat ->
+                val isSelected = selectedFilter == cat
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) EmeraldMesh else SurfaceCard,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) EmeraldMesh else SurfaceCardBorder),
+                    modifier = Modifier.clickable {
+                        selectedFilter = cat
+                    }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            when (cat) {
-                                "Reddit" -> {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_reddit_logo),
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.Black else TextSecondary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                }
-                                "GitHub" -> {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_github_logo),
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.Black else TextSecondary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                }
-                                "YouTube" -> {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_youtube_logo),
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.Black else TextSecondary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                }
+                        when (cat) {
+                            "Reddit" -> {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_reddit_logo),
+                                    contentDescription = null,
+                                    tint = if (isSelected) Color.Black else TextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
                             }
-                            Text(
-                                text = cat,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) Color.Black else TextSecondary
-                            )
+                            "GitHub" -> {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_github_logo),
+                                    contentDescription = null,
+                                    tint = if (isSelected) Color.Black else TextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                            }
+                            "YouTube" -> {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_youtube_logo),
+                                    contentDescription = null,
+                                    tint = if (isSelected) Color.Black else TextSecondary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                            }
                         }
+                        Text(
+                            text = cat,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color.Black else TextSecondary
+                        )
                     }
                 }
             }

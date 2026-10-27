@@ -243,8 +243,10 @@ class KaspaWalletService(
                         val parsedBalance = when (rawBalance) {
                             is Byte, is Short, is Int, is Long -> (rawBalance as Number).toLong()
                             is java.math.BigInteger -> try {
-                                rawBalance.longValueExact()
-                            } catch (_: ArithmeticException) {
+                                if (rawBalance >= java.math.BigInteger.ZERO && rawBalance <= java.math.BigInteger.valueOf(Long.MAX_VALUE)) {
+                                    rawBalance.toLong()
+                                } else null
+                            } catch (_: Exception) {
                                 null
                             }
                             is Number -> {
@@ -312,10 +314,10 @@ class KaspaWalletService(
                                 break
                             }
                         }
-                                                        if (entriesValid) {
+                        if (entriesValid) {
                             utxoFetchSuccess = true
                             utxosCount = array.length()
-                                                            if (!balanceFetchSuccess) {
+                            if (!balanceFetchSuccess) {
                                 balanceSompis = utxoSum
                                 balanceFetchSuccess = true
                             }

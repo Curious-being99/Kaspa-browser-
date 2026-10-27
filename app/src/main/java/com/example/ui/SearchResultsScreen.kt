@@ -197,7 +197,7 @@ fun SearchResultsScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (SearchEngine.isNativeAvailable()) "⚡ KASPA RUST JNI ENGINE" else "⚡ KASPA ENGINE (EMBEDDED)",
+                            text = if (SearchEngine.isNativeAvailable()) "KASPA RUST JNI ENGINE" else "KASPA ENGINE (EMBEDDED)",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = KaspaTea

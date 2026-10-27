@@ -45,7 +45,7 @@ internal object EvmWalletEngine {
         ?: throw IllegalArgumentException("Unsupported EVM chain ID")
 
     fun networkFromHex(value: String): Network {
-        val id = try { BigInteger(value.removePrefix("0x").removePrefix("0X"), 16).longValueExact() }
+        val id = try { BigInteger(value.removePrefix("0x").removePrefix("0X"), 16).toLong() }
         catch (_: Exception) { throw IllegalArgumentException("Invalid EVM chain ID") }
         return network(id)
     }
@@ -130,7 +130,7 @@ internal object EvmWalletEngine {
         if (tx.has("chainId")) {
             val requestedChain = tx.optString("chainId")
             val requestedId = if (requestedChain.startsWith("0x", true)) {
-                BigInteger(requestedChain.substring(2), 16).longValueExact()
+                BigInteger(requestedChain.substring(2), 16).toLong()
             } else {
                 requestedChain.toLong()
             }
@@ -146,7 +146,7 @@ internal object EvmWalletEngine {
         require(gasLimit > BigInteger.ZERO) { "Transaction gas limit must be positive" }
         val hasEip1559Fees = tx.has("maxFeePerGas") || tx.has("maxPriorityFeePerGas")
         if (tx.has("type")) {
-            val transactionType = optionalQuantity(tx, "type").intValueExact()
+            val transactionType = optionalQuantity(tx, "type").toInt()
             require(
                 if (hasEip1559Fees) transactionType == 2 else transactionType == 0
             ) { "Only legacy type-0 and EIP-1559 type-2 transactions are supported" }
@@ -225,7 +225,7 @@ internal object EvmWalletEngine {
     fun verifyNetwork(network: Network) {
         val actual = rpc(network, "eth_chainId", org.json.JSONArray()).optString("result")
         val actualId = try {
-            BigInteger(actual.removePrefix("0x").removePrefix("0X"), 16).longValueExact()
+            BigInteger(actual.removePrefix("0x").removePrefix("0X"), 16).toLong()
         } catch (_: Exception) {
             throw IllegalStateException("${network.name} RPC returned an invalid chain ID")
         }

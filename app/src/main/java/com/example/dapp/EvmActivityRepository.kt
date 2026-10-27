@@ -152,6 +152,6 @@ internal object EvmActivityRepository {
 
     private fun parseHex(value: String): Long {
         require(value.startsWith("0x", true) && value.length > 2) { "RPC returned an invalid block number" }
-        return BigInteger(value.substring(2), 16).longValueExact()
+        return BigInteger(value.substring(2), 16).toLong()
     }
 }

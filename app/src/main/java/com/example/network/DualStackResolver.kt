@@ -1156,7 +1156,7 @@ class DualStackResolver(
             """
             <div class="math-card">
                 <div class="math-header">
-                    <span class="math-badge">⚡ Advanced Calculation & Solver</span>
+                    <span class="math-badge">Advanced Calculation & Solver</span>
                     ${if (mathEvaluation.isKaspaCurrencyMath) "<span class=\"math-category\">Kaspa Rate</span>" else "<span class=\"math-category\">Math</span>"}
                 </div>
                 <div class="math-expression">$safeExpression</div>
@@ -1680,7 +1680,7 @@ class DualStackResolver(
 
                     <!-- Engine Quick Switcher -->
                     <div class="engine-switcher-bar">
-                        <span class="engine-pill active">⚡ Kaspa Engine</span>
+                        <span class="engine-pill active">Kaspa Engine</span>
                         <a href="https://search.brave.com/search?q=$encodedQuery" class="engine-pill" target="_self">🦁 Brave</a>
                         <a href="https://duckduckgo.com/?q=$encodedQuery" class="engine-pill" target="_self">🦆 DuckDuckGo</a>
                         <a href="https://www.bing.com/search?q=$encodedQuery" class="engine-pill" target="_self">🌊 Bing</a>

@@ -101,11 +101,16 @@ object KaspaPrivacyEngine {
     )
 
     private val ESSENTIAL_AUTH_CAPTCHA_DOMAINS = setOf(
+        "x.com",
+        "twitter.com",
+        "twimg.com",
+        "api.x.com",
+        "api.twitter.com",
+        "arkoselabs.com",
+        "client-api.arkoselabs.com",
         "github.com",
         "githubassets.com",
         "octocaptcha.com",
-        "arkoselabs.com",
-        "client-api.arkoselabs.com",
         "hcaptcha.com",
         "recaptcha.net",
         "challenges.cloudflare.com",
@@ -350,7 +355,7 @@ object KaspaPrivacyEngine {
             if (window.__kaspa_shield_injected) return;
             try {
                 var h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
-                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 || h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 || h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1) {
+                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 || h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 || h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1 || h.indexOf('x.com') !== -1 || h.indexOf('twitter.com') !== -1 || h.indexOf('twimg.com') !== -1 || h.indexOf('arkoselabs.com') !== -1 || h.indexOf('octocaptcha.com') !== -1) {
                     return;
                 }
             } catch(e) {}

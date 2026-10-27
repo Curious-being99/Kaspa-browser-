@@ -306,7 +306,7 @@ internal object EvmDappBridge {
                         if (domainChainId != null) {
                             val id = try {
                                 val raw = domainChainId.toString()
-                                if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16).longValueExact() else BigInteger(raw).longValueExact()
+                                if (raw.startsWith("0x", true)) BigInteger(raw.substring(2), 16).toLong() else BigInteger(raw).toLong()
                             } catch (_: Throwable) {
                                 respond(code = -32602, error = "Invalid EIP-712 domain chain ID")
                                 return@addWebMessageListener
@@ -385,7 +385,7 @@ internal object EvmDappBridge {
                                 if (tx.has("chainId")) {
                                     val requestedChain = tx.optString("chainId")
                                     val txChain = if (requestedChain.startsWith("0x", true)) {
-                                        BigInteger(requestedChain.substring(2), 16).longValueExact()
+                                        BigInteger(requestedChain.substring(2), 16).toLong()
                                     } else {
                                         requestedChain.toLong()
                                     }
