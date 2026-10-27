@@ -1448,35 +1448,32 @@ fun SiAgentScreen(
                     }
                 }
 
+                Text(
+                    text = "Live quotes are estimates only. Mainnet trade planning, covenant-aware signing, explicit wallet approval, broadcast, and on-chain confirmation are not connected here yet. No tokens will be credited and no transaction will be submitted from this screen.",
+                    fontSize = 12.sp,
+                    color = TextMuted
+                )
+
                 Button(
                     onClick = {
-                        isBuying = true
-                        scope.launch {
-                            delay(600L)
-                            val boughtKb = estKB.toDoubleOrNull() ?: 0.0
-                            if (boughtKb > 0) {
-                                viewModel.creditKbTokens(boughtKb)
-                            }
-                            isBuying = false
-                            showBuySheet = false
-                            messages.add(
-                                SiAgentMessage(
-                                    text = "🛒 \$KB Purchase Submitted!\n• Swapped: $kasAmount KAS → ~$estKB \$KB\n• Credited to Wallet: +$estKB \$KB\n• Covenant Pool: 2eec0a5bb...4b57c7258\n• Protocol: kasparocket.fun Testnet-10\n• Status: Confirmed",
-                                    isUser = false
-                                )
+                        messages.add(
+                            SiAgentMessage(
+                                text = "⚠️ \$KB purchase is unavailable in SI Agent until the mainnet route, trade plan, covenant-aware signing, user approval, broadcast, and on-chain confirmation are connected and verified. No transaction was submitted.",
+                                isUser = false
                             )
-                        }
+                        )
                     },
-                    enabled = (kasAmount.toDoubleOrNull() ?: 0.0) > 0 && !isBuying,
+                    enabled = false,
                     modifier = Modifier.fillMaxWidth().height(46.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ElectricCyan.copy(alpha = 0.35f),
+                        contentColor = Color.Black,
+                        disabledContainerColor = ElectricCyan.copy(alpha = 0.2f),
+                        disabledContentColor = TextMuted
+                    ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    if (isBuying) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
-                    } else {
-                        Text("Confirm & Swap to \$KB", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
+                    Text("Swap unavailable — signing not connected", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 }
             }
         }
