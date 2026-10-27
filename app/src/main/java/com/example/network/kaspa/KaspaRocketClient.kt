@@ -205,13 +205,19 @@ class KaspaRocketClient(
                 } else {
                     amountTokensFromResponse
                 }
+                // Raw token units are for arithmetic only. The display string must
+                // represent the same quantity using the protocol's fixed 1,000 raw/token scale.
+                // Never show an unvalidated server string that could disagree with the raw amount.
+                val canonicalDisplay = KaspaRocketMath.formatTokens(amountTokensRaw)
                 val serverDisplay = json.optString("amountTokensDisplay", "")
-                val amountTokensDisplay = if (direction == "sell") {
-                    KaspaRocketMath.formatTokens(amountTokensRaw)
-                } else if (serverDisplay.isNotBlank()) {
+                val amountTokensDisplay = if (
+                    direction == "buy" &&
+                    serverDisplay.isNotBlank() &&
+                    serverDisplay == canonicalDisplay
+                ) {
                     serverDisplay
                 } else {
-                    KaspaRocketMath.formatTokens(amountTokensRaw)
+                    canonicalDisplay
                 }
 
                 val feeObj = json.optJSONObject("fee")
