@@ -25,7 +25,7 @@ object KaspaWebViewConfigurator {
             if (KaspaPrivacyEngine.isGoogleAuthUrl(url)) {
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
-                cookieManager.setAcceptThirdPartyCookies(webView, true)
+                cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
             }
         } catch (_: Throwable) {}
     }
@@ -122,7 +122,7 @@ object KaspaWebViewConfigurator {
             offscreenPreRaster = false
 
             // Web Platform Parity: Compatibility mode allows secure webapps and modern PWAs to render seamlessly
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
