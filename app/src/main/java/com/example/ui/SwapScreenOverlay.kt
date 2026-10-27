@@ -868,57 +868,12 @@ fun SwapScreenOverlay(
 
                 // Primary Swap Execution Button (Matching Buy Token button size and styling)
                 val isUneconomic = krQuote?.uneconomic == true
-                val isExecutable = parsedFromAmount > 0.0 && isSufficientBalance && isAddressValid && !isExecutingSwap && !isUneconomic
+                val isExecutable = false
 
                 Button(
                     onClick = {
-                        if (parsedFromAmount <= 0.0 || isUneconomic) return@Button
-                        val recipient = effectiveRecipient
-                        if (recipient.isBlank()) {
-                            swapStatusMessage = "Error: Please specify or connect a wallet address"
-                            return@Button
-                        }
-                        
-                        isExecutingSwap = true
-                        swapStatusMessage = "Signing & Broadcasting Swap Transaction..."
-                        
-                        scope.launch {
-                            try {
-                                delay(300L)
-                                val amountToSendInKas = if (fromToken.isNative) parsedFromAmount else 0.0
-                                try {
-                                    viewModel?.sendKaspaTransaction(
-                                        recipientAddress = recipient,
-                                        amountKas = amountToSendInKas,
-                                        sompiPerMass = liveSompiPerMass
-                                    )
-                                } catch (_: Exception) {
-                                    // Non-blocking in case of offline/dry-run test
-                                }
-                                delay(600L)
-                                lastBroadcastTxHash = viewModel?.kaspaWalletState?.value?.lastBroadcastTxId
-                                    ?: "tx_covenant_swap_${System.currentTimeMillis().toString(16)}"
-                                
-                                // Credit or debit tokens in active wallet in real-time
-                                if (fromToken.isNative) {
-                                    val tokensBought = if (krQuote != null && krQuote!!.amountTokensDisplay.isNotEmpty()) {
-                                        krQuote!!.amountTokensDisplay.toDoubleOrNull() ?: estimatedOutputAmount
-                                    } else {
-                                        estimatedOutputAmount
-                                    }
-                                    viewModel?.creditKbTokens(tokensBought)
-                                } else {
-                                    viewModel?.debitKbTokens(parsedFromAmount)
-                                }
-
-                                isExecutingSwap = false
-                                swapStatusMessage = null
-                                showSuccessDialog = true
-                            } catch (e: Exception) {
-                                isExecutingSwap = false
-                                swapStatusMessage = "Error broadcasting swap: ${e.message}"
-                            }
-                        }
+                        swapStatusMessage = "Trading is temporarily unavailable: KaspaRocket covenant signing and on-chain verification are not connected. No funds were sent and no token balance was changed."
+                    }
                     },
                     enabled = isExecutable,
                     modifier = Modifier
