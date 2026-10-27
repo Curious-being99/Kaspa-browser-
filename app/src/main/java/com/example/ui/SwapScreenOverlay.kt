@@ -108,19 +108,23 @@ fun SwapScreenOverlay(
     // Resolve Pool Covenant & Spot Price for $KB token
     LaunchedEffect(fromToken, toToken) {
         val targetToken = if (!fromToken.isNative) fromToken else toToken
-        targetToken.tokenId?.let { id ->
+        val id = targetToken.tokenId
+        // Clear old pool/price data so a failed lookup cannot leave a previous token's quote visible.
+        lpCovenantId = null
+        spotQuote = null
+        krQuote = null
+        if (id != null) {
             val lpId = kaspaRocket.getPoolCovenant(id)
-            lpCovenantId = lpId
-            if (lpId != null) {
-                // Fetch live spot quote for 10 KAS benchmark budget
-                scope.launch {
+            if (targetToken == (if (!fromToken.isNative) fromToken else toToken)) {
+                lpCovenantId = lpId
+                if (lpId != null) {
                     val benchQuote = kaspaRocket.getQuote(
                         tokenId = id,
                         lpCovenantId = lpId,
                         direction = "buy",
-                        kasBudgetSompi = 1_000_000_000L // 10 KAS budget
+                        kasBudgetSompi = 1_000_000_000L
                     )
-                    if (benchQuote != null) {
+                    if (targetToken == (if (!fromToken.isNative) fromToken else toToken)) {
                         spotQuote = benchQuote
                     }
                 }
@@ -766,7 +770,7 @@ fun SwapScreenOverlay(
                                 fullValue = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8",
                                 displayValue = "b75a6e90f...6a47b4d8"
                             )
-                            val poolCovenantHex = lpCovenantId ?: "2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258"
+                            val poolCovenantHex = lpCovenantId ?: "Unavailable"
                             val poolCovenantDisplay = if (poolCovenantHex.length > 16) "${poolCovenantHex.take(9)}...${poolCovenantHex.takeLast(8)}" else poolCovenantHex
                             QuoteRowWithCopy(
                                 label = "Covenant Pool ID",
@@ -784,7 +788,7 @@ fun SwapScreenOverlay(
                                 val netKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(netSompi)
                                 QuoteRow(label = "Net Proceeds (Fees Deducted)", value = "$netKasStr KAS")
                             }
-                            QuoteRow(label = "Routing Path", value = "KaspaRocket LP Covenant (Testnet-10 / Mainnet)")
+                            QuoteRow(label = "Routing Path", value = "KaspaRocket LP Covenant (Mainnet)")
                             QuoteRow(
                                 label = "Min Received (0.5% Slippage)",
                                 value = if (toToken.isNative) {
