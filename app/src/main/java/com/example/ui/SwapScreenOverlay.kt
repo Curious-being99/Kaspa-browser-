@@ -187,10 +187,10 @@ fun SwapScreenOverlay(
     val fromUsdValue = remember(amountFromInput, fromToken, kasPriceUsd, krQuote) {
         if (fromToken.isNative) {
             val sompi = com.example.network.kaspa.KaspaRocketMath.kasToSompi(amountFromInput)
-            (sompi.toDouble() / 100_000_000.0) * kasPriceUsd
+            (sompi.toDouble() / 100_000_000.0) * (kasPriceUsd ?: 0.0)
         } else {
             krQuote?.let {
-                (it.netKasSompi.toDouble() / 100_000_000.0) * kasPriceUsd
+                (it.netKasSompi.toDouble() / 100_000_000.0) * (kasPriceUsd ?: 0.0)
             } ?: 0.0
         }
     }
@@ -198,13 +198,13 @@ fun SwapScreenOverlay(
     val toUsdValue = remember(toToken, kasPriceUsd, krQuote) {
         if (toToken.isNative) {
             krQuote?.let {
-                (it.netKasSompi.toDouble() / 100_000_000.0) * kasPriceUsd
+                (it.netKasSompi.toDouble() / 100_000_000.0) * (kasPriceUsd ?: 0.0)
             } ?: 0.0
         } else {
             krQuote?.let {
                 val tokenCount = it.amountTokensRaw.toDouble() / 1000.0
                 val priceKas = it.pricePerTokenSompi.toDouble() / 100_000_000.0
-                tokenCount * priceKas * kasPriceUsd
+                tokenCount * priceKas * (kasPriceUsd ?: 0.0)
             } ?: 0.0
         }
     }
@@ -732,7 +732,7 @@ fun SwapScreenOverlay(
                     ) {
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
                             val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
-                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.1928) * kasPriceUsd
+                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.1928) * (kasPriceUsd ?: 0.0)
                             "1 \$KB ≈ $priceKasStr KAS (≈ \$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)"
                         }
 
@@ -771,10 +771,7 @@ fun SwapScreenOverlay(
                         if (isDetailsExpanded) {
                             HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
 
-                            QuoteRow(label = "\$KB Market Cap", value = "~192,791 KAS (~$26k USD)")
-                            QuoteRow(label = "24h Volume (KAS)", value = "7,856.91 KAS (785,691,438,041 Sompi)")
-                            QuoteRow(label = "Pool Reserves", value = "36,147 KAS / 672,756 \$KB")
-                            QuoteRow(label = "Bonding Curve Progress", value = "50.35% (Phase: Bonding)")
+                            QuoteRow(label = "Live price", value = if (effectivePriceSompi > 0L) com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi) + " KAS / \\$KB" else "Unavailable")
                             QuoteRowWithCopy(
                                 label = "Token Covenant ID",
                                 fullValue = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8",
@@ -787,7 +784,7 @@ fun SwapScreenOverlay(
                                 fullValue = poolCovenantHex,
                                 displayValue = poolCovenantDisplay
                             )
-                            QuoteRow(label = "KAS Price (Live)", value = "\$${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD")
+                            QuoteRow(label = "KAS Price (USD)", value = kasPriceUsd?.let { "$" + String.format(java.util.Locale.US, "%.3f", it) + " USD" } ?: "Unavailable")
                             QuoteRow(label = "Slippage Tolerance", value = "0.5%")
                             
                             val dexFeeKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(krQuote?.feeTotalSompi ?: 0L)
