@@ -128,47 +128,31 @@ fun SwapScreenOverlay(
         }
     }
 
-    // Fetch Live Quote from KaspaRocket using lossless KaspaRocketMath
     LaunchedEffect(amountFromInput, fromToken, toToken, lpCovenantId) {
+        krQuote = null
         val cleanInput = amountFromInput.trim()
         val lpId = lpCovenantId
-        if (cleanInput.isNotBlank() && lpId != null) {
-            val isBuy = fromToken.isNative
-            val targetToken = if (isBuy) toToken else fromToken
-            val tokenId = targetToken.tokenId
-            if (tokenId != null) {
-                isFetchingQuote = true
-                if (isBuy) {
-                    val sompi = com.example.network.kaspa.KaspaRocketMath.kasToSompi(cleanInput)
-                    if (sompi > 0) {
-                        krQuote = kaspaRocket.getQuote(
-                            tokenId = tokenId,
-                            lpCovenantId = lpId,
-                            direction = "buy",
-                            kasBudgetSompi = sompi
-                        )
-                    } else {
-                        krQuote = null
-                    }
-                } else {
-                    val rawUnits = com.example.network.kaspa.KaspaRocketMath.tokensToRaw(cleanInput)
-                    if (rawUnits > 0) {
-                        krQuote = kaspaRocket.getQuote(
-                            tokenId = tokenId,
-                            lpCovenantId = lpId,
-                            direction = "sell",
-                            tokensRaw = rawUnits
-                        )
-                    } else {
-                        krQuote = null
-                    }
-                }
-                isFetchingQuote = false
-            } else {
-                krQuote = null
-            }
+        val isBuy = fromToken.isNative
+        val targetToken = if (isBuy) toToken else fromToken
+        val tokenId = targetToken.tokenId
+        val amountUnits = if (isBuy) {
+            com.example.network.kaspa.KaspaRocketMath.kasToSompi(cleanInput)
         } else {
-            krQuote = null
+            com.example.network.kaspa.KaspaRocketMath.tokensToRaw(cleanInput)
+        }
+        if (cleanInput.isBlank() || lpId == null || tokenId == null || amountUnits <= 0L) {
+            isFetchingQuote = false
+            return@LaunchedEffect
+        }
+        isFetchingQuote = true
+        try {
+            krQuote = if (isBuy) {
+                kaspaRocket.getQuote(tokenId, lpId, "buy", kasBudgetSompi = amountUnits)
+            } else {
+                kaspaRocket.getQuote(tokenId, lpId, "sell", tokensRaw = amountUnits)
+            }
+        } finally {
+            isFetchingQuote = false
         }
     }
 
@@ -731,9 +715,14 @@ fun SwapScreenOverlay(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
-                            val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
-                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.1928) * (kasPriceUsd ?: 0.0)
-                            "1 \$KB ≈ $priceKasStr KAS (≈ \$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)"
+                            if (effectivePriceSompi <= 0L) {
+                                "Live \\$KB price unavailable"
+                            } else {
+                                val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
+                                val priceUsdVal = kasPriceUsd?.let { (priceKasStr.toDoubleOrNull() ?: 0.0) * it }
+                                val usdSuffix = priceUsdVal?.let { " (≈ \\$" + String.format(java.util.Locale.US, "%.4f", it) + " USD)" }.orEmpty()
+                                "1 \\$KB ≈ " + priceKasStr + " KAS" + usdSuffix
+                            }
                         }
 
                         Row(
