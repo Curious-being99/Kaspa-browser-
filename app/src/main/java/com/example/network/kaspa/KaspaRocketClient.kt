@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import java.util.Locale
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * KaspaRocket SDK Core Math & Precision Handlers.
@@ -29,14 +31,17 @@ object KaspaRocketMath {
      */
     fun kasToSompi(kasStr: String): Long {
         val clean = kasStr.trim()
-        if (clean.isBlank()) return 0L
-        val parts = clean.split(".")
-        val wholePart = parts[0].toLongOrNull() ?: 0L
-        val decPart = if (parts.size > 1) parts[1] else ""
-        // Truncate to 8 decimal places (sompi precision)
-        val decPadded = (decPart + "00000000").take(8)
-        val sompiDec = decPadded.toLongOrNull() ?: 0L
-        return (wholePart * SOMPI_PER_KAS) + sompiDec
+        if (!clean.matches(Regex("^\\d+(?:\\.\\d{0,8})?$"))) return 0L
+        return try {
+            BigDecimal(clean)
+                .movePointRight(8)
+                .setScale(0, RoundingMode.DOWN)
+                .longValueExact()
+        } catch (_: ArithmeticException) {
+            0L
+        } catch (_: NumberFormatException) {
+            0L
+        }
     }
 
     /**
@@ -61,14 +66,17 @@ object KaspaRocketMath {
      */
     fun tokensToRaw(tokenStr: String): Long {
         val clean = tokenStr.trim()
-        if (clean.isBlank()) return 0L
-        val parts = clean.split(".")
-        val wholePart = parts[0].toLongOrNull() ?: 0L
-        val decPart = if (parts.size > 1) parts[1] else ""
-        // 1 token = 1000 raw units (3 decimal places)
-        val decPadded = (decPart + "000").take(3)
-        val rawDec = decPadded.toLongOrNull() ?: 0L
-        return (wholePart * RAW_PER_TOKEN) + rawDec
+        if (!clean.matches(Regex("^\\d+(?:\\.\\d{0,3})?$"))) return 0L
+        return try {
+            BigDecimal(clean)
+                .movePointRight(3)
+                .setScale(0, RoundingMode.DOWN)
+                .longValueExact()
+        } catch (_: ArithmeticException) {
+            0L
+        } catch (_: NumberFormatException) {
+            0L
+        }
     }
 
     /**
@@ -152,20 +160,22 @@ class KaspaRocketClient(
     suspend fun getQuote(
         tokenId: String,
         lpCovenantId: String,
-        direction: String, // "buy" or "sell"
+        direction: String,
         kasBudgetSompi: Long? = null,
         tokensRaw: Long? = null
     ): KaspaRocketQuote? = withContext(Dispatchers.IO) {
+        if (direction != "buy" && direction != "sell") return@withContext null
+        if (direction == "buy" && (kasBudgetSompi == null || kasBudgetSompi <= 0L)) return@withContext null
+        if (direction == "sell" && (tokensRaw == null || tokensRaw <= 0L)) return@withContext null
+
         try {
-            val url = "$baseUrl/pro-api/quote"
             val jsonBody = JSONObject().apply {
                 put("tokenId", tokenId)
                 put("lpCovenantId", lpCovenantId)
                 put("direction", direction)
-                if (kasBudgetSompi != null && kasBudgetSompi > 0) {
+                if (direction == "buy") {
                     put("kasBudgetSompi", kasBudgetSompi.toString())
-                }
-                if (tokensRaw != null && tokensRaw > 0) {
+                } else {
                     put("tokenAmountRaw", tokensRaw.toString())
                     put("tokensRaw", tokensRaw.toString())
                     put("amountTokens", tokensRaw.toString())
@@ -173,48 +183,81 @@ class KaspaRocketClient(
             }
 
             val request = Request.Builder()
-                .url(url)
+                .url("$baseUrl/pro-api/quote")
                 .post(jsonBody.toString().toRequestBody(jsonMediaType))
-                .apply {
-                    apiKey?.let { addHeader("Authorization", "Bearer $it") }
-                }
+                .apply { apiKey?.let { addHeader("Authorization", "Bearer $it") } }
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: return@use null
-                    val json = JSONObject(body)
-                    
-                    val amountTokensRaw = json.optLong("amountTokens", 0L)
-                    val serverDisplay = json.optString("amountTokensDisplay", "")
-                    val amountTokensDisplay = if (serverDisplay.isNotBlank()) {
-                        serverDisplay
-                    } else {
-                        KaspaRocketMath.formatTokens(amountTokensRaw)
-                    }
-
-                    val feeObj = json.optJSONObject("fee")
-                    val feeTotalSompi = feeObj?.optLong("total", 0L)
-                        ?: json.optLong("feeSompi", json.optLong("fee_total", 0L))
-
-                    val uneconomic = json.optBoolean("uneconomic", false)
-                    val netKasSompi = json.optLong("netKasSompi", 0L)
-                    val pricePerRaw = json.optLong("priceSompiPerRaw", 0L)
-
-                    return@use KaspaRocketQuote(
-                        amountTokensRaw = amountTokensRaw,
-                        amountTokensDisplay = amountTokensDisplay,
-                        feeTotalSompi = feeTotalSompi,
-                        uneconomic = uneconomic,
-                        netKasSompi = netKasSompi,
-                        priceSompiPerRaw = pricePerRaw
-                    )
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful || body.isBlank()) {
+                    Log.w("KaspaRocketClient", "Quote request failed: HTTP ${response.code}")
+                    return@use null
                 }
-                null
+
+                val root = JSONObject(body)
+                val json = root.optJSONObject("quote") ?: root
+                val amountTokensFromResponse = json.optLongValue("amountTokens")
+                    .takeIf { it > 0L }
+                    ?: json.optLongValue("amountTokensRaw")
+                val amountTokensRaw = if (direction == "sell") {
+                    tokensRaw ?: amountTokensFromResponse
+                } else {
+                    amountTokensFromResponse
+                }
+                val serverDisplay = json.optString("amountTokensDisplay", "")
+                val amountTokensDisplay = if (direction == "sell") {
+                    KaspaRocketMath.formatTokens(amountTokensRaw)
+                } else if (serverDisplay.isNotBlank()) {
+                    serverDisplay
+                } else {
+                    KaspaRocketMath.formatTokens(amountTokensRaw)
+                }
+
+                val feeObj = json.optJSONObject("fee")
+                val feeTotalSompi = feeObj?.optLongValue("total")
+                    ?: json.optLongValue("feeSompi")
+                    ?: json.optLongValue("fee_total")
+                    ?: 0L
+                val uneconomic = json.optBoolean("uneconomic", false)
+                val netKasSompi = json.optLongValue("netKasSompi")
+                    ?: json.optLongValue("net_kas_sompi")
+                    ?: 0L
+                val pricePerRaw = json.optLongValue("priceSompiPerRaw")
+                    ?: json.optLongValue("price_sompi_per_raw")
+                    ?: 0L
+
+                if (direction == "buy" && amountTokensRaw <= 0L) {
+                    Log.w("KaspaRocketClient", "Quote response contained no positive token output")
+                    return@use null
+                }
+                if (direction == "sell" && netKasSompi <= 0L && !uneconomic) {
+                    Log.w("KaspaRocketClient", "Sell quote contained no positive net proceeds")
+                    return@use null
+                }
+
+                KaspaRocketQuote(
+                    amountTokensRaw = amountTokensRaw,
+                    amountTokensDisplay = amountTokensDisplay,
+                    feeTotalSompi = feeTotalSompi,
+                    uneconomic = uneconomic,
+                    netKasSompi = netKasSompi,
+                    priceSompiPerRaw = pricePerRaw
+                )
             }
         } catch (e: Exception) {
             Log.e("KaspaRocketClient", "Error fetching quote: ${e.message}")
             null
+        }
+    }
+
+    private fun JSONObject.optLongValue(key: String): Long? {
+        if (!has(key) || isNull(key)) return null
+        val value = opt(key) ?: return null
+        return when (value) {
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull()
+            else -> null
         }
     }
 
