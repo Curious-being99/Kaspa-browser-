@@ -93,7 +93,7 @@ fun SwapScreenOverlay(
     var lastBroadcastTxHash by remember { mutableStateOf("") }
 
     // Live Kaspa Price in USD (from wallet state or default fallback)
-    val kasPriceUsd = if (walletState.priceUsd > 0.0) walletState.priceUsd else 0.142
+    val kasPriceUsd = walletState.priceUsd.takeIf { it > 0.0 } ?: 0.0
     
     // Parse numeric input amount
     val parsedFromAmount = amountFromInput.toDoubleOrNull() ?: 0.0
@@ -163,7 +163,7 @@ fun SwapScreenOverlay(
         } else if (spotQuote != null && spotQuote!!.pricePerTokenSompi > 0) {
             spotQuote!!.pricePerTokenSompi
         } else {
-            19_279_100L // ~0.1928 KAS per $KB
+            0L
         }
     }
 
@@ -171,10 +171,10 @@ fun SwapScreenOverlay(
     val fromUsdValue = remember(amountFromInput, fromToken, kasPriceUsd, krQuote) {
         if (fromToken.isNative) {
             val sompi = com.example.network.kaspa.KaspaRocketMath.kasToSompi(amountFromInput)
-            (sompi.toDouble() / 100_000_000.0) * (kasPriceUsd ?: 0.0)
+            (sompi.toDouble() / 100_000_000.0) * (kasPriceUsd)
         } else {
             krQuote?.let {
-                (it.netKasSompi.toDouble() / 100_000_000.0) * (kasPriceUsd ?: 0.0)
+                (it.netKasSompi.toDouble() / 100_000_000.0) * (kasPriceUsd)
             } ?: 0.0
         }
     }
@@ -182,13 +182,13 @@ fun SwapScreenOverlay(
     val toUsdValue = remember(toToken, kasPriceUsd, krQuote) {
         if (toToken.isNative) {
             krQuote?.let {
-                (it.netKasSompi.toDouble() / 100_000_000.0) * (kasPriceUsd ?: 0.0)
+                (it.netKasSompi.toDouble() / 100_000_000.0) * (kasPriceUsd)
             } ?: 0.0
         } else {
             krQuote?.let {
                 val tokenCount = it.amountTokensRaw.toDouble() / 1000.0
                 val priceKas = it.pricePerTokenSompi.toDouble() / 100_000_000.0
-                tokenCount * priceKas * (kasPriceUsd ?: 0.0)
+                tokenCount * priceKas * (kasPriceUsd)
             } ?: 0.0
         }
     }
