@@ -93,7 +93,7 @@ fun SwapScreenOverlay(
     var lastBroadcastTxHash by remember { mutableStateOf("") }
 
     // Live Kaspa Price in USD (from wallet state or default fallback)
-    val kasPriceUsd = if (walletState.priceUsd > 0.0) walletState.priceUsd else 0.142
+    val kasPriceUsd = walletState.priceUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
     
     // Parse numeric input amount
     val parsedFromAmount = amountFromInput.toDoubleOrNull() ?: 0.0
@@ -179,7 +179,7 @@ fun SwapScreenOverlay(
         } else if (spotQuote != null && spotQuote!!.pricePerTokenSompi > 0) {
             spotQuote!!.pricePerTokenSompi
         } else {
-            19_279_100L // ~0.1928 KAS per $KB
+            0L
         }
     }
 
@@ -732,7 +732,7 @@ fun SwapScreenOverlay(
                     ) {
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
                             val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
-                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.1928) * kasPriceUsd
+                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.0) * kasPriceUsd
                             "1 \$KB ≈ $priceKasStr KAS (≈ \$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)"
                         }
 
@@ -770,17 +770,12 @@ fun SwapScreenOverlay(
 
                         if (isDetailsExpanded) {
                             HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
-
-                            QuoteRow(label = "\$KB Market Cap", value = "~192,791 KAS (~$26k USD)")
-                            QuoteRow(label = "24h Volume (KAS)", value = "7,856.91 KAS (785,691,438,041 Sompi)")
-                            QuoteRow(label = "Pool Reserves", value = "36,147 KAS / 672,756 \$KB")
-                            QuoteRow(label = "Bonding Curve Progress", value = "50.35% (Phase: Bonding)")
                             QuoteRowWithCopy(
                                 label = "Token Covenant ID",
                                 fullValue = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8",
                                 displayValue = "b75a6e90f...6a47b4d8"
                             )
-                            val poolCovenantHex = lpCovenantId ?: "2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258"
+                            val poolCovenantHex = lpCovenantId.orEmpty()
                             val poolCovenantDisplay = if (poolCovenantHex.length > 16) "${poolCovenantHex.take(9)}...${poolCovenantHex.takeLast(8)}" else poolCovenantHex
                             QuoteRowWithCopy(
                                 label = "Covenant Pool ID",
@@ -798,7 +793,7 @@ fun SwapScreenOverlay(
                                 val netKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(netSompi)
                                 QuoteRow(label = "Net Proceeds (Fees Deducted)", value = "$netKasStr KAS")
                             }
-                            QuoteRow(label = "Routing Path", value = "KaspaRocket LP Covenant (Testnet-10 / Mainnet)")
+                            QuoteRow(label = "Network", value = "Kaspa Mainnet only")
                             QuoteRow(
                                 label = "Min Received (0.5% Slippage)",
                                 value = if (toToken.isNative) {
