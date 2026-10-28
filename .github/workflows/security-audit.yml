@@ -155,7 +155,7 @@ jobs:
   android-dependencies:
     name: Android dependency vulnerability audit
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -179,12 +179,22 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Cache OWASP Dependency-Check vulnerability database
+        uses: actions/cache@v4
+        with:
+          path: \${{ runner.temp }}/dependency-check-data
+          key: dependency-check-\${{ runner.os }}-v12.2.2-\${{ hashFiles('**/gradle.lockfile', '**/gradle/libs.versions.toml') }}
+          restore-keys: |
+            dependency-check-\${{ runner.os }}-v12.2.2-
+
       - name: Generate CI debug keystore
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Audit resolved Gradle dependencies with OWASP Dependency-Check
         shell: bash
+        env:
+          NVD_API_KEY: \${{ secrets.NVD_API_KEY }}
         run: |
           set -euo pipefail
           cat > "${RUNNER_TEMP}/dependency-check.init.gradle" <<'EOF'
