@@ -152,6 +152,75 @@ jobs:
         run: |
           semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --include '*.yml' --include '*.yaml' --include '*.json' --include '*.py' --include '*.sh' --include '*.js' --include 'Dockerfile*' .
 
+  android-dependencies:
+    name: Android dependency vulnerability audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Generate CI debug keystore
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Audit resolved Gradle dependencies with OWASP Dependency-Check
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/dependency-check.init.gradle" <<'EOF'
+          initscript {
+            repositories {
+              gradlePluginPortal()
+              mavenCentral()
+            }
+            dependencies {
+              classpath 'org.owasp:dependency-check-gradle:12.1.0'
+            }
+          }
+          allprojects {
+            apply plugin: org.owasp.dependencycheck.gradle.DependencyCheckPlugin
+            dependencyCheck {
+              failBuildOnCVSS = 7.0
+              formats = ['HTML', 'JSON']
+              outputDirectory = "${System.getenv('RUNNER_TEMP')}/dependency-check-report"
+              nvd {
+                validForHours = 24
+              }
+            }
+          }
+          EOF
+          gradle --no-daemon --stacktrace -I "${RUNNER_TEMP}/dependency-check.init.gradle" dependencyCheckAnalyze
+          test -s "${RUNNER_TEMP}/dependency-check-report/dependency-check-report.json"
+
+      - name: Upload Android dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-dependency-vulnerability-report
+          path: ${{ runner.temp }}/dependency-check-report/
+          if-no-files-found: warn
+          retention-days: 14
+
   rust-dependencies:
     name: Rust dependency vulnerability audit
     runs-on: ubuntu-latest
