@@ -1,0 +1,206 @@
+package com.example.network.kaspa
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import org.json.JSONArray
+import org.json.JSONObject
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+enum class Kcc20SwapRecoveryStatus {
+    PREPARED,
+    BROADCAST_UNKNOWN,
+    CONFIRMED,
+    CONFLICTED
+}
+
+data class Kcc20SwapInput(val transactionId: String, val outputIndex: Long) {
+    fun key(): String = "${transactionId.lowercase()}:$outputIndex"
+}
+
+data class Kcc20SignedSwapRecord(
+    val swapId: String,
+    val network: String,
+    val walletAddress: String,
+    val tokenId: String,
+    val signedTransactionHex: String,
+    val inputs: List<Kcc20SwapInput>,
+    val status: Kcc20SwapRecoveryStatus,
+    val createdAtMillis: Long,
+    val transactionId: String? = null
+)
+
+data class Kcc20SwapHistoryPage(
+    val transactions: List<Kcc20HistoryTransaction>,
+    val nextOffset: Int?,
+    val complete: Boolean
+)
+
+data class Kcc20HistoryTransaction(
+    val transactionId: String,
+    val spentOutpoints: Set<String>,
+    val accepted: Boolean
+)
+
+sealed interface Kcc20SwapConflictResult {
+    data object NoConflict : Kcc20SwapConflictResult
+    data class Conflict(val spendingTransactionId: String) : Kcc20SwapConflictResult
+    data class Unknown(val reason: String) : Kcc20SwapConflictResult
+}
+
+fun interface Kcc20SwapHistorySource {
+    suspend fun loadPage(address: String, offset: Int, limit: Int): Kcc20SwapHistoryPage
+}
+
+object Kcc20SwapConflictChecker {
+    const val PAGE_SIZE = 50
+    const val MAX_PAGES_PER_ADDRESS = 20
+    const val MAX_TOTAL_PAGES = 100
+
+    suspend fun check(
+        address: String,
+        inputs: List<Kcc20SwapInput>,
+        source: Kcc20SwapHistorySource
+    ): Kcc20SwapConflictResult {
+        if (address.isBlank() || inputs.isEmpty()) {
+            return Kcc20SwapConflictResult.Unknown("Missing wallet address or swap inputs")
+        }
+        val targets = inputs.map { it.key() }.toSet()
+        var offset = 0
+        var pages = 0
+        while (pages < MAX_PAGES_PER_ADDRESS && pages < MAX_TOTAL_PAGES) {
+            val page = try {
+                source.loadPage(address, offset, PAGE_SIZE)
+            } catch (_: Exception) {
+                return Kcc20SwapConflictResult.Unknown("Transaction history could not be fully checked")
+            }
+            pages++
+            for (transaction in page.transactions) {
+                if (transaction.accepted && transaction.spentOutpoints.any { it.lowercase() in targets }) {
+                    return Kcc20SwapConflictResult.Conflict(transaction.transactionId)
+                }
+            }
+            if (page.complete) return Kcc20SwapConflictResult.NoConflict
+            val next = page.nextOffset
+                ?: return Kcc20SwapConflictResult.Unknown("Transaction history pagination is incomplete")
+            if (next <= offset) {
+                return Kcc20SwapConflictResult.Unknown("Transaction history pagination did not advance")
+            }
+            offset = next
+        }
+        return Kcc20SwapConflictResult.Unknown("Transaction history scan reached its safety limit")
+    }
+}
+
+class Kcc20SignedSwapStore(context: Context) {
+    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    @Synchronized
+    fun save(record: Kcc20SignedSwapRecord) {
+        require(record.swapId.isNotBlank())
+        require(record.network.isNotBlank())
+        require(record.walletAddress.isNotBlank())
+        require(record.tokenId.isNotBlank())
+        require(record.signedTransactionHex.matches(Regex("(?i)^(?:[0-9a-f]{2})+$")))
+        require(record.inputs.isNotEmpty())
+        val json = JSONObject().apply {
+            put("swapId", record.swapId)
+            put("network", record.network)
+            put("walletAddress", record.walletAddress)
+            put("tokenId", record.tokenId)
+            put("signedTransactionHex", record.signedTransactionHex)
+            put("inputs", JSONArray().apply {
+                record.inputs.forEach { input ->
+                    put(JSONObject().put("transactionId", input.transactionId).put("outputIndex", input.outputIndex))
+                }
+            })
+            put("status", record.status.name)
+            put("createdAtMillis", record.createdAtMillis)
+            put("transactionId", record.transactionId)
+        }
+        prefs.edit().putString(record.swapId, encrypt(json.toString())).apply()
+    }
+
+    @Synchronized
+    fun get(swapId: String): Kcc20SignedSwapRecord? {
+        val encrypted = prefs.getString(swapId, null) ?: return null
+        return try {
+            val json = JSONObject(decrypt(encrypted))
+            val inputsJson = json.getJSONArray("inputs")
+            val inputs = (0 until inputsJson.length()).map { index ->
+                val item = inputsJson.getJSONObject(index)
+                Kcc20SwapInput(item.getString("transactionId"), item.getLong("outputIndex"))
+            }
+            Kcc20SignedSwapRecord(
+                swapId = json.getString("swapId"),
+                network = json.getString("network"),
+                walletAddress = json.getString("walletAddress"),
+                tokenId = json.getString("tokenId"),
+                signedTransactionHex = json.getString("signedTransactionHex"),
+                inputs = inputs,
+                status = Kcc20SwapRecoveryStatus.valueOf(json.getString("status")),
+                createdAtMillis = json.getLong("createdAtMillis"),
+                transactionId = json.optString("transactionId").takeIf { it.isNotBlank() && it != "null" }
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    @Synchronized
+    fun remove(swapId: String) {
+        prefs.edit().remove(swapId).apply()
+    }
+
+    private fun encrypt(plainText: String): String {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+        val iv = cipher.iv
+        val combined = ByteArray(iv.size + encrypted.size)
+        System.arraycopy(iv, 0, combined, 0, iv.size)
+        System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
+        return android.util.Base64.encodeToString(combined, android.util.Base64.NO_WRAP)
+    }
+
+    private fun decrypt(encoded: String): String {
+        val combined = android.util.Base64.decode(encoded, android.util.Base64.NO_WRAP)
+        require(combined.size > IV_LENGTH)
+        val iv = combined.copyOfRange(0, IV_LENGTH)
+        val encrypted = combined.copyOfRange(IV_LENGTH, combined.size)
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(TAG_LENGTH_BITS, iv))
+        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
+    }
+
+    private fun getOrCreateKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    private companion object {
+        const val PREFS_NAME = "kcc20_signed_swap_recovery"
+        const val KEY_ALIAS = "kaspa_browser_kcc20_swap_recovery_v1"
+        const val ANDROID_KEY_STORE = "AndroidKeyStore"
+        const val TRANSFORMATION = "AES/GCM/NoPadding"
+        const val IV_LENGTH = 12
+        const val TAG_LENGTH_BITS = 128
+    }
+}
