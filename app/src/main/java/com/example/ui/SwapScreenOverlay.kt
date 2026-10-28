@@ -733,7 +733,7 @@ fun SwapScreenOverlay(
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
                             val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
                             val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.0) * kasPriceUsd
-                            "1 \$KB ≈ $priceKasStr KAS (≈ \$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)"
+                            if (effectivePriceSompi <= 0L) "Live rate unavailable" else if (kasPriceUsd > 0.0) "1 \\$KB ≈ $priceKasStr KAS (≈ \\$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)" else "1 \\$KB ≈ $priceKasStr KAS"
                         }
 
                         Row(
@@ -782,7 +782,7 @@ fun SwapScreenOverlay(
                                 fullValue = poolCovenantHex,
                                 displayValue = poolCovenantDisplay
                             )
-                            QuoteRow(label = "KAS Price (Live)", value = "\$${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD")
+                            QuoteRow(label = "KAS Price (Live)", value = if (kasPriceUsd > 0.0) "\\$${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD" else "Unavailable")
                             QuoteRow(label = "Slippage Tolerance", value = "0.5%")
                             
                             val dexFeeKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(krQuote?.feeTotalSompi ?: 0L)
