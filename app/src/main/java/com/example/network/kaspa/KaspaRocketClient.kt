@@ -117,11 +117,17 @@ class KaspaRocketClient(
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
+    private fun isValidId(value: String): Boolean =
+        value.matches(Regex("^[0-9a-fA-F]{64}$"))
+
+    private fun isValidSide(side: String): Boolean = side == "buy" || side == "sell"
+
     /**
-     * 0 — Resolve the pool covenant ID for a given token.
-     * Every trading call requires lpCovenantId.
+     * Resolve only the protocol's canonical LP AMM covenant ID.
+     * Missing or malformed IDs fail closed; a generic covenant_id is not a pool proof.
      */
     suspend fun getPoolCovenant(tokenId: String): String? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId)) return@withContext null
         try {
             val url = "$baseUrl/api/poolCovenant?tokenId=$tokenId"
             val request = Request.Builder()
@@ -134,9 +140,7 @@ class KaspaRocketClient(
                     val body = response.body?.string() ?: return@use null
                     val json = JSONObject(body)
                     val lpId = json.optString("lp_amm_covenant_id", "")
-                    if (lpId.isNotBlank()) return@use lpId
-                    val altId = json.optString("covenant_id", "")
-                    if (altId.isNotBlank()) return@use altId
+                    if (isValidId(lpId)) return@use lpId.lowercase(Locale.ROOT)
                 }
                 null
             }
@@ -164,7 +168,7 @@ class KaspaRocketClient(
         kasBudgetSompi: Long? = null,
         tokensRaw: Long? = null
     ): KaspaRocketQuote? = withContext(Dispatchers.IO) {
-        if (direction != "buy" && direction != "sell") return@withContext null
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) || !isValidSide(direction)) return@withContext null
         if (direction == "buy" && (kasBudgetSompi == null || kasBudgetSompi <= 0L)) return@withContext null
         if (direction == "sell" && (tokensRaw == null || tokensRaw <= 0L)) return@withContext null
 
@@ -277,6 +281,9 @@ class KaspaRocketClient(
         side: String, // "buy" or "sell"
         budgetSompi: Long
     ): JSONObject? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) ||
+            address.isBlank() || !isValidSide(side) || budgetSompi <= 0L
+        ) return@withContext null
         try {
             val url = "$baseUrl/pro-api/route"
             val jsonBody = JSONObject().apply {
@@ -320,6 +327,9 @@ class KaspaRocketClient(
         budgetSompi: Long,
         expected: String
     ): JSONObject? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) ||
+            address.isBlank() || !isValidSide(side) || budgetSompi <= 0L || expected.isBlank()
+        ) return@withContext null
         try {
             val url = "$baseUrl/pro-api/plan-trade"
             val jsonBody = JSONObject().apply {
@@ -358,6 +368,7 @@ class KaspaRocketClient(
      * GET /api/tokens/:tokenId
      */
     suspend fun getTokenDetail(tokenId: String): KaspaRocketTokenDetail? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId)) return@withContext null
         try {
             val url = "$baseUrl/api/tokens/$tokenId"
             val request = Request.Builder()
