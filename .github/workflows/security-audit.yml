@@ -148,6 +148,10 @@ jobs:
         run: |
           semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --include '*.rs' .
 
+      - name: Scan remaining shared source security rules with Semgrep
+        run: |
+          semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --include '*.yml' --include '*.yaml' --include '*.json' --include '*.py' --include '*.sh' --include '*.js' --include 'Dockerfile*' .
+
   rust-dependencies:
     name: Rust dependency vulnerability audit
     runs-on: ubuntu-latest
