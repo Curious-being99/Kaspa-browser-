@@ -92,8 +92,8 @@ fun SwapScreenOverlay(
     var showSuccessDialog by remember { mutableStateOf(false) }
     var lastBroadcastTxHash by remember { mutableStateOf("") }
 
-    // Live Kaspa Price in USD (from wallet state or default fallback)
-    val kasPriceUsd = if (walletState.priceUsd > 0.0) walletState.priceUsd else 0.142
+    // Use only a price supplied by the wallet live-price source.
+    val kasPriceUsd = walletState.priceUsd.takeIf { it > 0.0 } ?: 0.0
     
     // Parse numeric input amount
     val parsedFromAmount = amountFromInput.toDoubleOrNull() ?: 0.0
@@ -179,7 +179,7 @@ fun SwapScreenOverlay(
         } else if (spotQuote != null && spotQuote!!.pricePerTokenSompi > 0) {
             spotQuote!!.pricePerTokenSompi
         } else {
-            19_279_100L // ~0.1928 KAS per $KB
+            0L
         }
     }
 
@@ -731,9 +731,17 @@ fun SwapScreenOverlay(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
-                            val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
-                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.1928) * kasPriceUsd
-                            "1 \$KB ≈ $priceKasStr KAS (≈ \$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)"
+                            if (effectivePriceSompi <= 0L) {
+                                "Live KaspaRocket quote unavailable"
+                            } else {
+                                val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
+                                val usdText = if (kasPriceUsd > 0.0) {
+                                    " (USD value available)"
+                                } else {
+                                    ""
+                                }
+                                "1 \\$KB ≈ $priceKasStr KAS$usdText"
+                            }
                         }
 
                         Row(
