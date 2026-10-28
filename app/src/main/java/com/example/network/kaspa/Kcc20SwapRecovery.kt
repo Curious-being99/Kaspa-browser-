@@ -207,6 +207,7 @@ class Kcc20SignedSwapStore(context: Context) {
 
 sealed interface Kcc20SwapRecoveryDecision {
     data object KeepWaiting : Kcc20SwapRecoveryDecision
+    data object AlreadyConfirmed : Kcc20SwapRecoveryDecision
     data object OriginalTransactionMayBeResubmittedWithUserApproval : Kcc20SwapRecoveryDecision
     data class DoNotResubmit(val spendingTransactionId: String) : Kcc20SwapRecoveryDecision
     data class StopForManualReview(val reason: String) : Kcc20SwapRecoveryDecision
@@ -220,7 +221,7 @@ class Kcc20SwapRecoveryCoordinator(
         val record = store.get(swapId)
             ?: return Kcc20SwapRecoveryDecision.StopForManualReview("Saved signed swap record is unavailable")
         if (record.status == Kcc20SwapRecoveryStatus.CONFIRMED) {
-            return Kcc20SwapRecoveryDecision.KeepWaiting
+            return Kcc20SwapRecoveryDecision.AlreadyConfirmed
         }
         if (record.status == Kcc20SwapRecoveryStatus.CONFLICTED) {
             return Kcc20SwapRecoveryDecision.StopForManualReview("This swap was already marked conflicted")
