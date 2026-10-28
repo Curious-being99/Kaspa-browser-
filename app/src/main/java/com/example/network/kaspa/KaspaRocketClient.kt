@@ -252,11 +252,11 @@ class KaspaRocketClient(
                 val amountTokensFromResponse = json.optLongValue("amount_tokens")
                     ?: json.optLongValue("amountTokens")
                     ?: json.optLongValue("amountTokensRaw")
-                val amountTokensRaw = if (direction == "sell") {
+                val amountTokensRaw = (if (direction == "sell") {
                     tokensRaw ?: amountTokensFromResponse
                 } else {
                     amountTokensFromResponse
-                }
+                }) ?: 0L
                 // Raw token units are for arithmetic only. The display string must
                 // represent the same quantity using the protocol's fixed 1,000 raw/token scale.
                 // Never show an unvalidated server string that could disagree with the raw amount.
