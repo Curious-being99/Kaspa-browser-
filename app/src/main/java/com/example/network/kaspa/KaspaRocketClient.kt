@@ -421,6 +421,49 @@ class KaspaRocketClient(
     }
 
     /**
+     * Read the live KCC20 token record and conservative validation verdict from Kascov.
+     * Values remain in raw units; this method never guesses token display decimals.
+     */
+    suspend fun getKascovToken(tokenId: String): KascovTokenRecord? = withContext(Dispatchers.IO) {
+        if (!network.equals("mainnet", ignoreCase = true) || !isValidId(tokenId)) return@withContext null
+        try {
+            val canonicalId = tokenId.lowercase(Locale.ROOT)
+            val request = Request.Builder()
+                .url("https://kascov.io/data/mainnet/token/$canonicalId")
+                .get()
+                .header("Accept", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string() ?: return@use null
+                val root = JSONObject(body)
+                val token = root.optJSONObject("token") ?: return@use null
+                if (!token.optString("covenant_id").equals(canonicalId, ignoreCase = true)) {
+                    return@use null
+                }
+                val fields = token.optJSONObject("fields")
+                val validation = root.optJSONObject("validation")
+                val supply = token.optString("supply_str").takeIf { it.isNotBlank() }
+                    ?: token.optLongValue("supply")?.toString()
+                KascovTokenRecord(
+                    covenantId = canonicalId,
+                    status = token.optString("status", "unvalidated").takeIf { it.isNotBlank() } ?: "unvalidated",
+                    ticker = fields?.optString("tick")?.takeIf { it.isNotBlank() },
+                    supplyRaw = supply,
+                    holders = token.optLongValue("holders"),
+                    checkedEvents = validation?.optLongValue("checked"),
+                    validationReason = validation?.optString("reason")?.takeIf { it.isNotBlank() }
+                        ?: token.optString("invalid_reason").takeIf { it.isNotBlank() }
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("KaspaRocketClient", "Kascov token lookup failed", e)
+            null
+        }
+    }
+
+    /**
      * Fetch Token Metadata and Logo from KaspaRocket catalogue:
      * GET /api/tokens/:tokenId
      */
@@ -460,6 +503,16 @@ class KaspaRocketClient(
         }
     }
 }
+
+data class KascovTokenRecord(
+    val covenantId: String,
+    val status: String,
+    val ticker: String?,
+    val supplyRaw: String?,
+    val holders: Long?,
+    val checkedEvents: Long?,
+    val validationReason: String?
+)
 
 data class KaspaRocketTokenDetail(
     val tokenId: String,
