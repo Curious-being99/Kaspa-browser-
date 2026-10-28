@@ -740,7 +740,7 @@ fun SwapScreenOverlay(
                                 } else {
                                     ""
                                 }
-                                "1 \\$KB ≈ $priceKasStr KAS$usdText"
+                                "1 \$KB ≈ $priceKasStr KAS$usdText"
                             }
                         }
 
