@@ -871,7 +871,7 @@ fun SwapScreenOverlay(
 
                 // Primary Swap Execution Button (Matching Buy Token button size and styling)
                 val isUneconomic = krQuote?.uneconomic == true
-                val isExecutable = parsedFromAmount > 0.0 && isSufficientBalance && isAddressValid && !isExecutingSwap && !isUneconomic
+                val isExecutable = false
 
                 Button(
                     onClick = {
@@ -912,7 +912,7 @@ fun SwapScreenOverlay(
                         Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Swap ${fromToken.symbol} to ${toToken.symbol}",
+                            text = "Mainnet signer unavailable",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
