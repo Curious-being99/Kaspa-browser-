@@ -137,7 +137,7 @@ jobs:
 
       - name: Scan Rust source with Semgrep
         run: |
-          python -m pip install --disable-pip-version-check 'semgrep==1.144.0'
+          python -m pip install --disable-pip-version-check 'semgrep==1.144.0' 'pydantic<2.14'
           semgrep scan --config p/rust --metrics=off --error -j 1 --max-memory 500 --optimizations none --include '*.rs' .
 
       - name: Scan Kotlin and Java security rules with Semgrep
