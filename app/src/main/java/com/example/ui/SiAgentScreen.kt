@@ -1843,45 +1843,28 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.contains("swap") -> {
-            "🔄 Kaspa DEX Swap\n• Pair: KAS ⇄ \$KB / KRC-20\n• Network: Kaspa Live BlockDAG\n• Fee Rate: Live Sompi Calculator"
+            "🔄 KaspaRocket KCC-20 Swap\n• Pair: KAS ⇄ \$KB\n• Status: Swap execution is disabled until covenant-aware transaction construction, signing, broadcast, and on-chain verification are implemented.\n• No transaction was sent and no wallet balance was changed. Use the Swap screen to view the current quote."
         }
 
         lower.contains("buy") -> {
-            "🛒 Buy \$KB Token\n• Token: \$KB (Kaspa Browser)\n• Network: Kaspa Live BlockDAG\n• Pair: KAS → \$KB"
+            "🛒 Buy \$KB Token\n• Token: \$KB (Kaspa Browser, KCC-20)\n• Status: Purchase execution is unavailable until the real covenant trade flow is implemented and verified.\n• No transaction was sent and no wallet balance was changed."
         }
 
         lower.contains("covenant") || lower.contains("pool") -> {
-            "🔐 \$KB Token & LP Covenant Details\n\n" +
-            "• Token Name: Kaspabrowser (\$KB)\n" +
+            "🔐 \$KB Token & Covenant Details\n\n" +
+            "• Token: Kaspabrowser (\$KB), KCC-20\n" +
             "• Token Covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8\n" +
-            "• Covenant Pool ID: 2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258\n" +
-            "• Live Spot Price: ~0.1928 KAS per \$KB (19,279 Sompi/raw)\n" +
-            "• Market Cap (MCAP): ~192,791 KAS (~$26,026 USD)\n" +
-            "• 24h Volume (KAS): 7,856.91 KAS (785,691,438,041 Sompi)\n" +
-            "• LP AMM Reserves: 36,147.396 KAS & 672,755.977 \$KB\n" +
-            "• Active Holders: 32 Active Holders\n" +
-            "• Bonding Curve Progress: 50.35% (Phase: Active Bonding)\n" +
-            "• Graduation Status: Pre-Graduation (Graduates to Mainnet AMM at 100% Curve Completion)\n" +
-            "• DEX Router: kasparocket.fun (@kasparocket/sdk)"
+            "• Pool Covenant, reserves, spot price, volume, holders, and bonding-curve progress are not verified by this command.\n" +
+            "• Open the Swap screen for a live quote when KaspaRocket returns one."
         }
 
         lower.contains("price") -> {
-            "💎 \$KB Token & Kaspa Market Data (Live)\n\n" +
-            "• Ticker: \$KB (Kaspabrowser)\n" +
-            "• \$KB Description: Native ecosystem utility token for Kaspa Browser Web3 gateway and KCC-20 smart covenant DEX trading on Kaspa BlockDAG.\n" +
-            "• Kaspa (KAS) Description: Proof-of-Work GHOSTDAG BlockDAG with 10 BPS throughput, sub-second finality, and 100,000,000 sompi per KAS.\n" +
+            "💎 \$KB Token & Kaspa Price\n\n" +
+            "• Ticker: \$KB (Kaspa Browser)\n" +
+            "• Standard: KCC-20\n" +
             "• Token Covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8\n" +
-            "• Covenant Pool ID: 2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258\n" +
-            "• Live Spot Price: ~0.1928 KAS per \$KB (19,279 Sompi/raw)\n" +
-            "• Market Cap (MCAP): ~192,791 KAS (~$26,026 USD)\n" +
-            "• 24h Volume: 7,856.91 KAS (785,691,438,041 Sompi)\n" +
-            "• 24h Price Trend: [▂▃▅▇█▇▅▃ 0.1928 KAS]\n" +
-            "• Total Supply: 1,000,000 \$KB\n" +
-            "• Circulating / Holders: 327,244 \$KB (32 Active Holders)\n" +
-            "• LP AMM Pool Reserves: 672,756 \$KB & 36,147 KAS\n" +
-            "• Bonding Curve: 50.35% (Status: Active Bonding | Pre-Graduation)\n" +
-            "• Graduation Target: Mainnet AMM Liquidity Migration at 100%\n" +
-            "• DEX Router: kasparocket.fun (@kasparocket/sdk Testnet-10 / Mainnet)"
+            "• Current price and market statistics are not verified by this fallback response.\n" +
+            "• Open the Swap screen for a live KaspaRocket quote when available."
         }
 
         lower.contains("summarize") || lower.contains("summary") || lower.contains("overview") || lower.contains("sum") -> {
@@ -1917,7 +1900,7 @@ suspend fun executeSiAgentCommand(
         }
 
         else -> {
-            "🤖 Command: $trimmed\n• Status: Executed\n• Tip: Send /help for commands"
+            "🤖 Request: $trimmed\n• Status: No verified action was performed.\n• Tip: Send /help for commands"
         }
     }
 }
