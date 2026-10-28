@@ -744,12 +744,12 @@ fun SwapScreenOverlay(
                     ) {
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
                             if (effectivePriceSompi <= 0L) {
-                                "Live \\$KB price unavailable"
+                                "Live \$KB price unavailable"
                             } else {
                                 val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
                                 val priceUsdVal = kasPriceUsd?.let { (priceKasStr.toDoubleOrNull() ?: 0.0) * it }
                                 val usdSuffix = priceUsdVal?.let { " (≈ \\$" + String.format(java.util.Locale.US, "%.4f", it) + " USD)" }.orEmpty()
-                                "1 \\$KB ≈ " + priceKasStr + " KAS" + usdSuffix
+                                "1 \$KB ≈ " + priceKasStr + " KAS" + usdSuffix
                             }
                         }
 
@@ -788,7 +788,7 @@ fun SwapScreenOverlay(
                         if (isDetailsExpanded) {
                             HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
 
-                            QuoteRow(label = "Live price", value = if (effectivePriceSompi > 0L) com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi) + " KAS / \\$KB" else "Unavailable")
+                            QuoteRow(label = "Live price", value = if (effectivePriceSompi > 0L) com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi) + " KAS / \$KB" else "Unavailable")
                             QuoteRow(
                                 label = "Kascov on-chain validation",
                                 value = when (kascovToken?.status) {
