@@ -104,6 +104,25 @@ fun SwapScreenOverlay(
     var krQuote by remember { mutableStateOf<com.example.network.kaspa.KaspaRocketQuote?>(null) }
     var spotQuote by remember { mutableStateOf<com.example.network.kaspa.KaspaRocketQuote?>(null) }
     var isFetchingQuote by remember { mutableStateOf(false) }
+    var kascovToken by remember { mutableStateOf<com.example.network.kaspa.KascovTokenRecord?>(null) }
+    var isFetchingKascov by remember { mutableStateOf(false) }
+
+    // Load Kascov's live mainnet record independently of market quote availability.
+    LaunchedEffect(fromToken, toToken) {
+        val targetToken = if (!fromToken.isNative) fromToken else toToken
+        val id = targetToken.tokenId
+        kascovToken = null
+        if (id == null) {
+            isFetchingKascov = false
+        } else {
+            isFetchingKascov = true
+            try {
+                kascovToken = kaspaRocket.getKascovToken(id)
+            } finally {
+                isFetchingKascov = false
+            }
+        }
+    }
 
     // Resolve Pool Covenant & Spot Price for $KB token
     LaunchedEffect(fromToken, toToken) {
@@ -770,6 +789,30 @@ fun SwapScreenOverlay(
                             HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
 
                             QuoteRow(label = "Live price", value = if (effectivePriceSompi > 0L) com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi) + " KAS / \\$KB" else "Unavailable")
+                            QuoteRow(
+                                label = "Kascov on-chain validation",
+                                value = when (kascovToken?.status) {
+                                    "verified" -> "Verified"
+                                    "invalid" -> "Invalid"
+                                    "unvalidated" -> "Unvalidated"
+                                    null -> if (isFetchingKascov) "Checking live record…" else "Unavailable"
+                                    else -> "Unvalidated (unknown status)"
+                                }
+                            )
+                            kascovToken?.let { record ->
+                                record.supplyRaw?.let { raw ->
+                                    QuoteRow(label = "Supply (raw token units)", value = raw)
+                                }
+                                record.holders?.let { holders ->
+                                    QuoteRow(label = "Holders", value = holders.toString())
+                                }
+                                record.checkedEvents?.let { checked ->
+                                    QuoteRow(label = "Events checked by Kascov", value = checked.toString())
+                                }
+                                record.validationReason?.let { reason ->
+                                    QuoteRow(label = "Validation note", value = reason)
+                                }
+                            }
                             QuoteRowWithCopy(
                                 label = "Token Covenant ID",
                                 fullValue = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8",
