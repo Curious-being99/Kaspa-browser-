@@ -204,3 +204,43 @@ class Kcc20SignedSwapStore(context: Context) {
         const val TAG_LENGTH_BITS = 128
     }
 }
+
+sealed interface Kcc20SwapRecoveryDecision {
+    data object KeepWaiting : Kcc20SwapRecoveryDecision
+    data object OriginalTransactionMayBeResubmittedWithUserApproval : Kcc20SwapRecoveryDecision
+    data class DoNotResubmit(val spendingTransactionId: String) : Kcc20SwapRecoveryDecision
+    data class StopForManualReview(val reason: String) : Kcc20SwapRecoveryDecision
+}
+
+class Kcc20SwapRecoveryCoordinator(
+    private val store: Kcc20SignedSwapStore,
+    private val historySource: Kcc20SwapHistorySource
+) {
+    suspend fun inspect(swapId: String): Kcc20SwapRecoveryDecision {
+        val record = store.get(swapId)
+            ?: return Kcc20SwapRecoveryDecision.StopForManualReview("Saved signed swap record is unavailable")
+        if (record.status == Kcc20SwapRecoveryStatus.CONFIRMED) {
+            return Kcc20SwapRecoveryDecision.KeepWaiting
+        }
+        if (record.status == Kcc20SwapRecoveryStatus.CONFLICTED) {
+            return Kcc20SwapRecoveryDecision.StopForManualReview("This swap was already marked conflicted")
+        }
+        val result = Kcc20SwapConflictChecker.check(record.walletAddress, record.inputs, historySource)
+        return when (result) {
+            is Kcc20SwapConflictResult.Conflict -> {
+                store.save(record.copy(status = Kcc20SwapRecoveryStatus.CONFLICTED))
+                Kcc20SwapRecoveryDecision.DoNotResubmit(result.spendingTransactionId)
+            }
+            Kcc20SwapConflictResult.NoConflict -> {
+                if (record.status == Kcc20SwapRecoveryStatus.BROADCAST_UNKNOWN) {
+                    Kcc20SwapRecoveryDecision.OriginalTransactionMayBeResubmittedWithUserApproval
+                } else {
+                    Kcc20SwapRecoveryDecision.KeepWaiting
+                }
+            }
+            is Kcc20SwapConflictResult.Unknown -> {
+                Kcc20SwapRecoveryDecision.StopForManualReview(result.reason)
+            }
+        }
+    }
+}
