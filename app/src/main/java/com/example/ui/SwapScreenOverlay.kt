@@ -882,46 +882,8 @@ fun SwapScreenOverlay(
                             return@Button
                         }
                         
-                        isExecutingSwap = true
-                        swapStatusMessage = "Signing & Broadcasting Swap Transaction..."
-                        
-                        scope.launch {
-                            try {
-                                delay(300L)
-                                val amountToSendInKas = if (fromToken.isNative) parsedFromAmount else 0.0
-                                try {
-                                    viewModel?.sendKaspaTransaction(
-                                        recipientAddress = recipient,
-                                        amountKas = amountToSendInKas,
-                                        sompiPerMass = liveSompiPerMass
-                                    )
-                                } catch (_: Exception) {
-                                    // Non-blocking in case of offline/dry-run test
-                                }
-                                delay(600L)
-                                lastBroadcastTxHash = viewModel?.kaspaWalletState?.value?.lastBroadcastTxId
-                                    ?: "tx_covenant_swap_${System.currentTimeMillis().toString(16)}"
-                                
-                                // Credit or debit tokens in active wallet in real-time
-                                if (fromToken.isNative) {
-                                    val tokensBought = if (krQuote != null && krQuote!!.amountTokensDisplay.isNotEmpty()) {
-                                        krQuote!!.amountTokensDisplay.toDoubleOrNull() ?: estimatedOutputAmount
-                                    } else {
-                                        estimatedOutputAmount
-                                    }
-                                    viewModel?.creditKbTokens(tokensBought)
-                                } else {
-                                    viewModel?.debitKbTokens(parsedFromAmount)
-                                }
-
-                                isExecutingSwap = false
-                                swapStatusMessage = null
-                                showSuccessDialog = true
-                            } catch (e: Exception) {
-                                isExecutingSwap = false
-                                swapStatusMessage = "Error broadcasting swap: ${e.message}"
-                            }
-                        }
+                        isExecutingSwap = false
+                        swapStatusMessage = "Error: Mainnet KCC-20 signing is unavailable. No transaction was signed or broadcast, and wallet balances were not changed."
                     },
                     enabled = isExecutable,
                     modifier = Modifier
