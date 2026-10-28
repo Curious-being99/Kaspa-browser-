@@ -227,11 +227,16 @@ fun SwapScreenOverlay(
     }
     val estGasFeeKas = feeBreakdown.feeKas
 
-    val isSufficientBalance = remember(parsedFromAmount, fromToken, walletState.balanceKas, walletState.tokenBalanceKb, estGasFeeKas) {
+    val isSufficientBalance = remember(amountFromInput, fromToken, walletState.balanceSompis, walletState.tokenBalanceKbRaw, estGasFeeKas) {
         if (fromToken.isNative) {
-            walletState.balanceKas == 0.0 || (parsedFromAmount + estGasFeeKas <= walletState.balanceKas)
+            val amountSompi = com.example.network.kaspa.KaspaRocketMath.kasToSompi(amountFromInput)
+            amountSompi > 0L &&
+                walletState.balanceSompis > 0L &&
+                amountSompi <= walletState.balanceSompis &&
+                com.example.network.kaspa.KaspaRocketMath.kasToSompi(estGasFeeKas.toString()) <= walletState.balanceSompis - amountSompi
         } else {
-            walletState.tokenBalanceKb == 0.0 || (parsedFromAmount <= walletState.tokenBalanceKb)
+            val tokenRaw = com.example.network.kaspa.KaspaRocketMath.tokensToRaw(amountFromInput)
+            tokenRaw > 0L && walletState.tokenBalanceKbRaw > 0L && tokenRaw <= walletState.tokenBalanceKbRaw
         }
     }
 
@@ -866,7 +871,6 @@ fun SwapScreenOverlay(
                 Button(
                     onClick = {
                         swapStatusMessage = "Trading is temporarily unavailable: KaspaRocket covenant signing and on-chain verification are not connected. No funds were sent and no token balance was changed."
-                    }
                     },
                     enabled = isExecutable,
                     modifier = Modifier
