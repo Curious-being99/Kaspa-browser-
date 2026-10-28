@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import java.util.Locale
+import java.math.BigDecimal
+import java.math.RoundingMode
 
 /**
  * KaspaRocket SDK Core Math & Precision Handlers.
@@ -29,14 +31,17 @@ object KaspaRocketMath {
      */
     fun kasToSompi(kasStr: String): Long {
         val clean = kasStr.trim()
-        if (clean.isBlank()) return 0L
-        val parts = clean.split(".")
-        val wholePart = parts[0].toLongOrNull() ?: 0L
-        val decPart = if (parts.size > 1) parts[1] else ""
-        // Truncate to 8 decimal places (sompi precision)
-        val decPadded = (decPart + "00000000").take(8)
-        val sompiDec = decPadded.toLongOrNull() ?: 0L
-        return (wholePart * SOMPI_PER_KAS) + sompiDec
+        if (!clean.matches(Regex("^\\d+(?:\\.\\d{0,8})?$"))) return 0L
+        return try {
+            BigDecimal(clean)
+                .movePointRight(8)
+                .setScale(0, RoundingMode.DOWN)
+                .longValueExact()
+        } catch (_: ArithmeticException) {
+            0L
+        } catch (_: NumberFormatException) {
+            0L
+        }
     }
 
     /**
@@ -61,14 +66,17 @@ object KaspaRocketMath {
      */
     fun tokensToRaw(tokenStr: String): Long {
         val clean = tokenStr.trim()
-        if (clean.isBlank()) return 0L
-        val parts = clean.split(".")
-        val wholePart = parts[0].toLongOrNull() ?: 0L
-        val decPart = if (parts.size > 1) parts[1] else ""
-        // 1 token = 1000 raw units (3 decimal places)
-        val decPadded = (decPart + "000").take(3)
-        val rawDec = decPadded.toLongOrNull() ?: 0L
-        return (wholePart * RAW_PER_TOKEN) + rawDec
+        if (!clean.matches(Regex("^\\d+(?:\\.\\d{0,3})?$"))) return 0L
+        return try {
+            BigDecimal(clean)
+                .movePointRight(3)
+                .setScale(0, RoundingMode.DOWN)
+                .longValueExact()
+        } catch (_: ArithmeticException) {
+            0L
+        } catch (_: NumberFormatException) {
+            0L
+        }
     }
 
     /**
@@ -109,26 +117,79 @@ class KaspaRocketClient(
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
+    private val apiRoot: String
+        get() = if (network.equals("mainnet", ignoreCase = true)) {
+            "https://kaspire.kaslab.space/api/kasparocket/pro-api"
+        } else {
+            "$baseUrl/pro-api"
+        }
+
+    private val catalogueRoot: String
+        get() = if (network.equals("mainnet", ignoreCase = true)) {
+            "https://kaspire.kaslab.space/api/kasparocket"
+        } else {
+            baseUrl
+        }
+
+    private fun Request.Builder.withKaspaRocketHeaders(): Request.Builder = apply {
+        header("Accept", "application/json")
+        header("Content-Type", "application/json")
+        if (network.equals("mainnet", ignoreCase = true)) {
+            header("Origin", "https://kaspire.kaslab.space")
+            header("User-Agent", "Kaspire-Android/KaspaRocket")
+        } else {
+            apiKey?.let { header("Authorization", "Bearer $it") }
+        }
+    }
+ 
+    private val networkId: String
+        get() = if (network.equals("mainnet", ignoreCase = true)) "mainnet" else "testnet-10"
+
+    private suspend fun verifyNetwork(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$apiRoot/protocol")
+                .get()
+                .withKaspaRocketHeaders()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use false
+                val body = response.body?.string() ?: return@use false
+                JSONObject(body).optString("network") == networkId
+            }
+        } catch (e: Exception) {
+            Log.e("KaspaRocketClient", "KaspaRocket network verification failed", e)
+            false
+        }
+    }
+
+    private fun isValidId(value: String): Boolean =
+        value.matches(Regex("^[0-9a-fA-F]{64}$"))
+
+    private fun isValidSide(side: String): Boolean = side == "buy" || side == "sell"
+
     /**
-     * 0 — Resolve the pool covenant ID for a given token.
-     * Every trading call requires lpCovenantId.
+     * Resolve only the protocol's canonical LP AMM covenant ID.
+     * Missing or malformed IDs fail closed; a generic covenant_id is not a pool proof.
      */
     suspend fun getPoolCovenant(tokenId: String): String? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId)) return@withContext null
         try {
-            val url = "$baseUrl/api/poolCovenant?tokenId=$tokenId"
             val request = Request.Builder()
-                .url(url)
+                .url("$catalogueRoot/api/covenants/by-token/$tokenId")
                 .get()
+                .withKaspaRocketHeaders()
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: return@use null
-                    val json = JSONObject(body)
-                    val lpId = json.optString("lp_amm_covenant_id", "")
-                    if (lpId.isNotBlank()) return@use lpId
-                    val altId = json.optString("covenant_id", "")
-                    if (altId.isNotBlank()) return@use altId
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string() ?: return@use null
+                val rows = org.json.JSONArray(body)
+                for (index in 0 until rows.length()) {
+                    val row = rows.optJSONObject(index) ?: continue
+                    if (row.optString("utxo_type") != "amm") continue
+                    val lpId = row.optString("lp_amm_covenant_id", "")
+                    if (isValidId(lpId)) return@use lpId.lowercase(Locale.ROOT)
                 }
                 null
             }
@@ -152,69 +213,111 @@ class KaspaRocketClient(
     suspend fun getQuote(
         tokenId: String,
         lpCovenantId: String,
-        direction: String, // "buy" or "sell"
+        direction: String,
         kasBudgetSompi: Long? = null,
         tokensRaw: Long? = null
     ): KaspaRocketQuote? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) || !isValidSide(direction)) return@withContext null
+        if (direction == "buy" && (kasBudgetSompi == null || kasBudgetSompi <= 0L)) return@withContext null
+        if (direction == "sell" && (tokensRaw == null || tokensRaw <= 0L)) return@withContext null
+
         try {
-            val url = "$baseUrl/pro-api/quote"
+            if (!verifyNetwork()) return@withContext null
             val jsonBody = JSONObject().apply {
-                put("tokenId", tokenId)
-                put("lpCovenantId", lpCovenantId)
+                put("lp_covenant_id", lpCovenantId)
+                put("kcc20_covenant_id", tokenId)
                 put("direction", direction)
-                if (kasBudgetSompi != null && kasBudgetSompi > 0) {
-                    put("kasBudgetSompi", kasBudgetSompi.toString())
-                }
-                if (tokensRaw != null && tokensRaw > 0) {
-                    put("tokenAmountRaw", tokensRaw.toString())
-                    put("tokensRaw", tokensRaw.toString())
-                    put("amountTokens", tokensRaw.toString())
+                if (direction == "buy") {
+                    put("kas_budget_sompi", kasBudgetSompi.toString())
+                } else {
+                    put("amount_tokens", tokensRaw.toString())
                 }
             }
 
             val request = Request.Builder()
-                .url(url)
+                .url("$apiRoot/pool/quote")
                 .post(jsonBody.toString().toRequestBody(jsonMediaType))
-                .apply {
-                    apiKey?.let { addHeader("Authorization", "Bearer $it") }
-                }
+                .withKaspaRocketHeaders()
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val body = response.body?.string() ?: return@use null
-                    val json = JSONObject(body)
-                    
-                    val amountTokensRaw = json.optLong("amountTokens", 0L)
-                    val serverDisplay = json.optString("amountTokensDisplay", "")
-                    val amountTokensDisplay = if (serverDisplay.isNotBlank()) {
-                        serverDisplay
-                    } else {
-                        KaspaRocketMath.formatTokens(amountTokensRaw)
-                    }
-
-                    val feeObj = json.optJSONObject("fee")
-                    val feeTotalSompi = feeObj?.optLong("total", 0L)
-                        ?: json.optLong("feeSompi", json.optLong("fee_total", 0L))
-
-                    val uneconomic = json.optBoolean("uneconomic", false)
-                    val netKasSompi = json.optLong("netKasSompi", 0L)
-                    val pricePerRaw = json.optLong("priceSompiPerRaw", 0L)
-
-                    return@use KaspaRocketQuote(
-                        amountTokensRaw = amountTokensRaw,
-                        amountTokensDisplay = amountTokensDisplay,
-                        feeTotalSompi = feeTotalSompi,
-                        uneconomic = uneconomic,
-                        netKasSompi = netKasSompi,
-                        priceSompiPerRaw = pricePerRaw
-                    )
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful || body.isBlank()) {
+                    Log.w("KaspaRocketClient", "Quote request failed: HTTP ${response.code}")
+                    return@use null
                 }
-                null
+
+                val root = JSONObject(body)
+                val json = root.optJSONObject("quote") ?: root
+                val amountTokensFromResponse = json.optLongValue("amount_tokens")
+                    ?: json.optLongValue("amountTokens")
+                    ?: json.optLongValue("amountTokensRaw")
+                val amountTokensRaw = (if (direction == "sell") {
+                    tokensRaw ?: amountTokensFromResponse
+                } else {
+                    amountTokensFromResponse
+                }) ?: 0L
+                // Raw token units are for arithmetic only. The display string must
+                // represent the same quantity using the protocol's fixed 1,000 raw/token scale.
+                // Never show an unvalidated server string that could disagree with the raw amount.
+                val canonicalDisplay = KaspaRocketMath.formatTokens(amountTokensRaw)
+                val serverDisplay = json.optString("amountTokensDisplay", "")
+                val amountTokensDisplay = if (
+                    direction == "buy" &&
+                    serverDisplay.isNotBlank() &&
+                    serverDisplay == canonicalDisplay
+                ) {
+                    serverDisplay
+                } else {
+                    canonicalDisplay
+                }
+
+                val feeObj = json.optJSONObject("fee")
+                val feeTotalSompi = feeObj?.optLongValue("total")
+                    ?: json.optLongValue("fee_total_sompi")
+                    ?: json.optLongValue("feeSompi")
+                    ?: json.optLongValue("fee_total")
+                    ?: 0L
+                val uneconomic = json.optBoolean("uneconomic", false)
+                val netKasSompi = json.optLongValue("net_kas_sompi")
+                    ?: json.optLongValue("netKasSompi")
+                    ?: 0L
+                val pricePerRaw = json.optLongValue("price_sompi")
+                    ?: json.optLongValue("priceSompiPerRaw")
+                    ?: json.optLongValue("price_sompi_per_raw")
+                    ?: 0L
+
+                if (direction == "buy" && amountTokensRaw <= 0L) {
+                    Log.w("KaspaRocketClient", "Quote response contained no positive token output")
+                    return@use null
+                }
+                if (direction == "sell" && netKasSompi <= 0L && !uneconomic) {
+                    Log.w("KaspaRocketClient", "Sell quote contained no positive net proceeds")
+                    return@use null
+                }
+
+                KaspaRocketQuote(
+                    amountTokensRaw = amountTokensRaw,
+                    amountTokensDisplay = amountTokensDisplay,
+                    feeTotalSompi = feeTotalSompi,
+                    uneconomic = uneconomic,
+                    netKasSompi = netKasSompi,
+                    priceSompiPerRaw = pricePerRaw
+                )
             }
         } catch (e: Exception) {
             Log.e("KaspaRocketClient", "Error fetching quote: ${e.message}")
             null
+        }
+    }
+
+    private fun JSONObject.optLongValue(key: String): Long? {
+        if (!has(key) || isNull(key)) return null
+        val value = opt(key) ?: return null
+        return when (value) {
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull()
+            else -> null
         }
     }
 
@@ -228,23 +331,30 @@ class KaspaRocketClient(
         side: String, // "buy" or "sell"
         budgetSompi: Long
     ): JSONObject? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) ||
+            address.isBlank() || !isValidSide(side) || budgetSompi <= 0L
+        ) return@withContext null
         try {
-            val url = "$baseUrl/pro-api/route"
+            if (!verifyNetwork()) return@withContext null
+            val expectedPrefix = if (network.equals("mainnet", true)) "kaspa:" else "kaspatest:"
+            if (!address.startsWith(expectedPrefix, ignoreCase = true)) return@withContext null
             val jsonBody = JSONObject().apply {
-                put("tokenId", tokenId)
-                put("lpCovenantId", lpCovenantId)
                 put("address", address)
+                put("lp_covenant_id", lpCovenantId)
+                put("kcc20_covenant_id", tokenId)
                 put("side", side)
                 put("kind", "market")
-                put("budgetSompi", budgetSompi.toString())
+                if (side == "buy") put("budget_sompi", budgetSompi.toString())
+                else put("tokens", budgetSompi.toString())
+                put("max_fills", 3)
+                put("attendu", JSONObject.NULL)
+                put("apres_tx", JSONObject.NULL)
             }
 
             val request = Request.Builder()
-                .url(url)
+                .url("$apiRoot/route")
                 .post(jsonBody.toString().toRequestBody(jsonMediaType))
-                .apply {
-                    apiKey?.let { addHeader("Authorization", "Bearer $it") }
-                }
+                .withKaspaRocketHeaders()
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -271,24 +381,30 @@ class KaspaRocketClient(
         budgetSompi: Long,
         expected: String
     ): JSONObject? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) ||
+            address.isBlank() || !isValidSide(side) || budgetSompi <= 0L || expected.isBlank()
+        ) return@withContext null
         try {
-            val url = "$baseUrl/pro-api/plan-trade"
+            if (!verifyNetwork()) return@withContext null
+            val expectedPrefix = if (network.equals("mainnet", true)) "kaspa:" else "kaspatest:"
+            if (!address.startsWith(expectedPrefix, ignoreCase = true)) return@withContext null
             val jsonBody = JSONObject().apply {
-                put("tokenId", tokenId)
-                put("lpCovenantId", lpCovenantId)
                 put("address", address)
+                put("lp_covenant_id", lpCovenantId)
+                put("kcc20_covenant_id", tokenId)
                 put("side", side)
                 put("kind", "market")
-                put("budgetSompi", budgetSompi.toString())
-                put("expected", expected)
+                if (side == "buy") put("budget_sompi", budgetSompi.toString())
+                else put("tokens", budgetSompi.toString())
+                put("max_fills", 3)
+                put("attendu", expected)
+                put("apres_tx", JSONObject.NULL)
             }
 
             val request = Request.Builder()
-                .url(url)
+                .url("$apiRoot/plan/trade")
                 .post(jsonBody.toString().toRequestBody(jsonMediaType))
-                .apply {
-                    apiKey?.let { addHeader("Authorization", "Bearer $it") }
-                }
+                .withKaspaRocketHeaders()
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -305,15 +421,61 @@ class KaspaRocketClient(
     }
 
     /**
+     * Read the live KCC20 token record and conservative validation verdict from Kascov.
+     * Values remain in raw units; this method never guesses token display decimals.
+     */
+    suspend fun getKascovToken(tokenId: String): KascovTokenRecord? = withContext(Dispatchers.IO) {
+        if (!network.equals("mainnet", ignoreCase = true) || !isValidId(tokenId)) return@withContext null
+        try {
+            val canonicalId = tokenId.lowercase(Locale.ROOT)
+            val request = Request.Builder()
+                .url("https://kascov.io/data/mainnet/token/$canonicalId")
+                .get()
+                .header("Accept", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string() ?: return@use null
+                val root = JSONObject(body)
+                val token = root.optJSONObject("token") ?: return@use null
+                if (!token.optString("covenant_id").equals(canonicalId, ignoreCase = true)) {
+                    return@use null
+                }
+                val fields = token.optJSONObject("fields")
+                val validation = root.optJSONObject("validation")
+                val supply = token.optString("supply_str").takeIf { it.isNotBlank() }
+                    ?: token.optLongValue("supply")?.toString()
+                KascovTokenRecord(
+                    covenantId = canonicalId,
+                    status = token.optString("status", "unvalidated").takeIf { it.isNotBlank() } ?: "unvalidated",
+                    ticker = fields?.optString("tick")?.takeIf { it.isNotBlank() },
+                    supplyRaw = supply,
+                    holders = token.optLongValue("holders"),
+                    checkedEvents = validation?.optLongValue("checked"),
+                    validationReason = validation?.optString("reason")?.takeIf { it.isNotBlank() }
+                        ?: token.optString("invalid_reason").takeIf { it.isNotBlank() }
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("KaspaRocketClient", "Kascov token lookup failed", e)
+            null
+        }
+    }
+
+    /**
      * Fetch Token Metadata and Logo from KaspaRocket catalogue:
      * GET /api/tokens/:tokenId
      */
     suspend fun getTokenDetail(tokenId: String): KaspaRocketTokenDetail? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId)) return@withContext null
         try {
-            val url = "$baseUrl/api/tokens/$tokenId"
+            if (!verifyNetwork()) return@withContext null
+            val url = "$catalogueRoot/api/tokens/$tokenId"
             val request = Request.Builder()
                 .url(url)
                 .get()
+                .withKaspaRocketHeaders()
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -341,6 +503,16 @@ class KaspaRocketClient(
         }
     }
 }
+
+data class KascovTokenRecord(
+    val covenantId: String,
+    val status: String,
+    val ticker: String?,
+    val supplyRaw: String?,
+    val holders: Long?,
+    val checkedEvents: Long?,
+    val validationReason: String?
+)
 
 data class KaspaRocketTokenDetail(
     val tokenId: String,
