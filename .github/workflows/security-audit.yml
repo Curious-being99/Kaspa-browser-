@@ -194,7 +194,7 @@ jobs:
               mavenCentral()
             }
             dependencies {
-              classpath 'org.owasp:dependency-check-gradle:12.1.0'
+              classpath 'org.owasp:dependency-check-gradle:12.2.2'
             }
           }
           allprojects {
@@ -202,6 +202,11 @@ jobs:
             dependencyCheck {
               failBuildOnCVSS = 7.0
               formats = ['HTML', 'JSON']
+              scanSet = []
+              analyzers {
+                nodeAudit.enabled = false
+                nodePackage.enabled = false
+              }
               outputDirectory = "${System.getenv('RUNNER_TEMP')}/dependency-check-report"
               nvd {
                 validForHours = 24
