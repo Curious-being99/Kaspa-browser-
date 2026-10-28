@@ -222,7 +222,7 @@ class KaspaRestKcc20SwapHistorySource(
 
     override suspend fun loadPage(address: String, offset: Int, limit: Int): Kcc20SwapHistoryPage =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            require(address.matches(Regex("(?i)^kaspa(?:test|dev)?1:[a-z0-9]+$")))
+            require(address.matches(Regex("(?i)^(?:kaspa|kaspatest|kaspadev):[a-z0-9]+$")))
             require(offset >= 0 && limit == Kcc20SwapConflictChecker.PAGE_SIZE)
             val url = "$apiBase/addresses/${java.net.URLEncoder.encode(address, "UTF-8")}/full-transactions?limit=$limit&offset=$offset"
             val request = okhttp3.Request.Builder().url(url).get().header("Accept", "application/json").build()
