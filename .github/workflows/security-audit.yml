@@ -214,7 +214,7 @@ jobs:
             }
           }
           EOF
-          gradle --no-daemon --stacktrace -I "${RUNNER_TEMP}/dependency-check.init.gradle" dependencyCheckAnalyze
+          gradle --no-daemon --stacktrace -I "${RUNNER_TEMP}/dependency-check.init.gradle" :app:dependencyCheckAnalyze
           test -s "${RUNNER_TEMP}/dependency-check-report/dependency-check-report.json"
 
       - name: Upload Android dependency audit report
