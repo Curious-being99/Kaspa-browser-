@@ -363,6 +363,142 @@ class KaspaRocketClient(
         }
     }
 
+    private val kaspireApiRoot: String
+        get() = if (network.equals("mainnet", ignoreCase = true)) {
+            "https://kaspire.kaslab.space/api/kasparocket/pro-api"
+        } else {
+            "$baseUrl/pro-api"
+        }
+
+    private val kaspireCatalogueRoot: String
+        get() = if (network.equals("mainnet", ignoreCase = true)) {
+            "https://kaspire.kaslab.space/api/kasparocket"
+        } else {
+            baseUrl
+        }
+
+    suspend fun verifyKaspireNetwork(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$kaspireApiRoot/protocol")
+                .get()
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use false
+                val body = response.body?.string() ?: return@use false
+                JSONObject(body).optString("network") == network
+            }
+        } catch (e: Exception) {
+            Log.e("KaspaRocketClient", "KaspaRocket network verification failed", e)
+            false
+        }
+    }
+
+    suspend fun createKaspireTradePlan(
+        tokenId: String,
+        lpCovenantId: String,
+        address: String,
+        side: String,
+        rawAmount: String
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        if (!isValidId(tokenId) || !isValidId(lpCovenantId) ||
+            address.isBlank() || !isValidSide(side) ||
+            rawAmount.toLongOrNull()?.let { it > 0L } != true
+        ) return@withContext null
+        val expectedPrefix = if (network.equals("mainnet", true)) "kaspa:" else "kaspatest:"
+        if (!address.startsWith(expectedPrefix, ignoreCase = true)) return@withContext null
+        try {
+            if (!verifyKaspireNetwork()) return@withContext null
+            val requestBody = JSONObject().apply {
+                put("address", address)
+                put("lp_covenant_id", lpCovenantId.lowercase(Locale.ROOT))
+                put("kcc20_covenant_id", tokenId.lowercase(Locale.ROOT))
+                put("side", side)
+                put("kind", "market")
+                if (side == "buy") put("budget_sompi", rawAmount) else put("tokens", rawAmount)
+                put("max_fills", 3)
+                put("apres_tx", JSONObject.NULL)
+            }
+            val routeRequest = Request.Builder()
+                .url("$kaspireApiRoot/route")
+                .post(requestBody.toString().toRequestBody(jsonMediaType))
+                .build()
+            val route = client.newCall(routeRequest).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                response.body?.string()?.takeIf { it.isNotBlank() }?.let(::JSONObject)
+            } ?: return@withContext null
+            val attendu = route.opt("attendu")
+            if (attendu == null || attendu == JSONObject.NULL ||
+                (attendu is String && attendu.isBlank())) return@withContext null
+
+            val planBody = JSONObject(requestBody.toString()).put("attendu", attendu)
+            val planRequest = Request.Builder()
+                .url("$kaspireApiRoot/plan/trade")
+                .post(planBody.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(planRequest).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body?.string()?.takeIf { it.isNotBlank() }
+                    ?: return@use null
+                val plan = JSONObject(body)
+                val returnedNetwork = plan.optString("networkId", network)
+                val summary = plan.optJSONObject("summary")
+                val transactions = plan.optJSONArray("transactions")
+                if (returnedNetwork != network || summary == null ||
+                    summary.optString("direction") != side ||
+                    transactions == null || transactions.length() == 0
+                ) return@use null
+                val cappedValue = if (side == "buy") {
+                    summary.optString("kasFlowSompi", "")
+                } else {
+                    summary.optString("amountTokens", "")
+                }.toLongOrNull() ?: return@use null
+                if (cappedValue <= 0L || cappedValue > rawAmount.toLong()) return@use null
+                for (index in 0 until transactions.length()) {
+                    val item = transactions.optJSONObject(index) ?: return@use null
+                    val tx = item.optJSONObject("tx") ?: return@use null
+                    val inputs = tx.optJSONArray("inputs") ?: return@use null
+                    val instructions = item.optJSONArray("signingInstructions") ?: return@use null
+                    if (inputs.length() == 0 || instructions.length() == 0) return@use null
+                    for (instructionIndex in 0 until instructions.length()) {
+                        val instruction = instructions.optJSONObject(instructionIndex) ?: return@use null
+                        val kind = instruction.optString("kind")
+                        val inputIndex = instruction.optInt("inputIndex", -1)
+                        if (kind !in setOf("p2pkh", "covenant-leader", "final") ||
+                            (kind != "final" && inputIndex !in 0 until inputs.length())
+                        ) return@use null
+                    }
+                }
+                plan.put("route", route)
+                plan
+            }
+        } catch (e: Exception) {
+            Log.e("KaspaRocketClient", "KaspaRocket trade plan validation failed", e)
+            null
+        }
+    }
+
+    suspend fun submitKaspirePlannedTransaction(
+        transaction: JSONObject,
+        orderRow: JSONObject? = null
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        try {
+            val body = JSONObject().put("transactions", org.json.JSONArray().put(transaction))
+            if (orderRow != null) body.put("order_row", orderRow)
+            val request = Request.Builder()
+                .url("$kaspireApiRoot/submit")
+                .post(body.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                response.body?.string()?.takeIf { it.isNotBlank() }?.let(::JSONObject)
+            }
+        } catch (e: Exception) {
+            Log.e("KaspaRocketClient", "KaspaRocket transaction submission failed", e)
+            null
+        }
+    }
+
     /**
      * Fetch Token Metadata and Logo from KaspaRocket catalogue:
      * GET /api/tokens/:tokenId
