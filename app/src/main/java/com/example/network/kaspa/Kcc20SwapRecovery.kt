@@ -205,6 +205,63 @@ class Kcc20SignedSwapStore(context: Context) {
     }
 }
 
+
+class KaspaRestKcc20SwapHistorySource(
+    private val apiBase: String,
+    private val httpClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+) : Kcc20SwapHistorySource {
+    init {
+        val parsed = java.net.URI(apiBase)
+        require(parsed.scheme == "https" && parsed.host != null && parsed.userInfo == null)
+        require(parsed.path.isNullOrEmpty() || parsed.path == "/")
+        require(parsed.query == null && parsed.fragment == null)
+    }
+
+    override suspend fun loadPage(address: String, offset: Int, limit: Int): Kcc20SwapHistoryPage =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            require(address.matches(Regex("(?i)^kaspa(?:test|dev)?1:[a-z0-9]+$")))
+            require(offset >= 0 && limit == Kcc20SwapConflictChecker.PAGE_SIZE)
+            val url = "$apiBase/addresses/${java.net.URLEncoder.encode(address, "UTF-8")}/full-transactions?limit=$limit&offset=$offset"
+            val request = okhttp3.Request.Builder().url(url).get().header("Accept", "application/json").build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw java.io.IOException("Transaction history request failed with HTTP ${response.code}")
+                val body = response.body?.string() ?: throw java.io.IOException("Transaction history response was empty")
+                val rows = org.json.JSONArray(body)
+                if (rows.length() > limit) throw java.io.IOException("Transaction history returned more rows than requested")
+                val transactions = (0 until rows.length()).map { index ->
+                    val row = rows.optJSONObject(index) ?: throw java.io.IOException("Transaction history row was invalid")
+                    val txId = row.optString("transaction_id", "")
+                    if (!txId.matches(Regex("(?i)^[0-9a-f]{64}$"))) throw java.io.IOException("Transaction history contained an invalid transaction ID")
+                    val inputs = row.optJSONArray("inputs") ?: throw java.io.IOException("Transaction history omitted transaction inputs")
+                    val spent = (0 until inputs.length()).mapNotNull { inputIndex ->
+                        val input = inputs.optJSONObject(inputIndex) ?: return@mapNotNull null
+                        val outpoint = input.optJSONObject("previous_outpoint")
+                            ?: input.optJSONObject("previousOutpoint")
+                        if (outpoint == null) return@mapNotNull null
+                        val origin = outpoint.optString("transaction_id", outpoint.optString("transactionId", ""))
+                        val outputIndex = if (outpoint.has("index")) outpoint.optLong("index", -1L)
+                            else outpoint.optLong("output_index", -1L)
+                        if (!origin.matches(Regex("(?i)^[0-9a-f]{64}$")) || outputIndex < 0) null
+                        else "${origin.lowercase()}:$outputIndex"
+                    }.toSet()
+                    Kcc20HistoryTransaction(
+                        transactionId = txId.lowercase(),
+                        spentOutpoints = spent,
+                        accepted = row.optBoolean("is_accepted", false)
+                    )
+                }
+                Kcc20SwapHistoryPage(
+                    transactions = transactions,
+                    nextOffset = if (rows.length() == limit) offset + rows.length() else null,
+                    complete = rows.length() < limit
+                )
+            }
+        }
+}
+
 sealed interface Kcc20SwapRecoveryDecision {
     data object KeepWaiting : Kcc20SwapRecoveryDecision
     data object AlreadyConfirmed : Kcc20SwapRecoveryDecision
