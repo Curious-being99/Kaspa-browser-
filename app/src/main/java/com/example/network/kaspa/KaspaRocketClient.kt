@@ -226,7 +226,8 @@ class KaspaRocketClient(
         lpCovenantId: String,
         address: String,
         side: String, // "buy" or "sell"
-        budgetSompi: Long
+        budgetSompi: Long,
+        tokensRaw: Long? = null
     ): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val url = "$baseUrl/pro-api/route"
@@ -236,7 +237,11 @@ class KaspaRocketClient(
                 put("address", address)
                 put("side", side)
                 put("kind", "market")
-                put("budgetSompi", budgetSompi.toString())
+                if (budgetSompi > 0L) put("budgetSompi", budgetSompi.toString())
+                if (tokensRaw != null && tokensRaw > 0L) {
+                    put("tokensRaw", tokensRaw.toString())
+                    put("tokenAmountRaw", tokensRaw.toString())
+                }
             }
 
             val request = Request.Builder()
@@ -269,7 +274,8 @@ class KaspaRocketClient(
         address: String,
         side: String,
         budgetSompi: Long,
-        expected: String
+        expected: String,
+        tokensRaw: Long? = null
     ): JSONObject? = withContext(Dispatchers.IO) {
         try {
             val url = "$baseUrl/pro-api/plan-trade"
@@ -279,7 +285,11 @@ class KaspaRocketClient(
                 put("address", address)
                 put("side", side)
                 put("kind", "market")
-                put("budgetSompi", budgetSompi.toString())
+                if (budgetSompi > 0L) put("budgetSompi", budgetSompi.toString())
+                if (tokensRaw != null && tokensRaw > 0L) {
+                    put("tokensRaw", tokensRaw.toString())
+                    put("tokenAmountRaw", tokensRaw.toString())
+                }
                 put("expected", expected)
             }
 
