@@ -93,7 +93,7 @@ fun SwapScreenOverlay(
     var lastBroadcastTxHash by remember { mutableStateOf("") }
 
     // Live Kaspa Price in USD (from wallet state or default fallback)
-    val kasPriceUsd = if (walletState.priceUsd > 0.0) walletState.priceUsd else 0.142
+    val kasPriceUsd = walletState.priceUsd.takeIf { it > 0.0 } ?: 0.0
     
     // Parse numeric input amount
     val parsedFromAmount = amountFromInput.toDoubleOrNull() ?: 0.0
@@ -179,7 +179,7 @@ fun SwapScreenOverlay(
         } else if (spotQuote != null && spotQuote!!.pricePerTokenSompi > 0) {
             spotQuote!!.pricePerTokenSompi
         } else {
-            19_279_100L // ~0.1928 KAS per $KB
+            0L
         }
     }
 
@@ -241,9 +241,9 @@ fun SwapScreenOverlay(
 
     val isSufficientBalance = remember(parsedFromAmount, fromToken, walletState.balanceKas, walletState.tokenBalanceKb, estGasFeeKas) {
         if (fromToken.isNative) {
-            walletState.balanceKas == 0.0 || (parsedFromAmount + estGasFeeKas <= walletState.balanceKas)
+            walletState.balanceKas > 0.0 && parsedFromAmount + estGasFeeKas <= walletState.balanceKas
         } else {
-            walletState.tokenBalanceKb == 0.0 || (parsedFromAmount <= walletState.tokenBalanceKb)
+            walletState.tokenBalanceKb > 0.0 && parsedFromAmount <= walletState.tokenBalanceKb
         }
     }
 
@@ -732,7 +732,7 @@ fun SwapScreenOverlay(
                     ) {
                         val rateRatioStr = remember(fromToken, toToken, effectivePriceSompi, kasPriceUsd) {
                             val priceKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi)
-                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.1928) * kasPriceUsd
+                            val priceUsdVal = (priceKasStr.toDoubleOrNull() ?: 0.0) * kasPriceUsd
                             "1 \$KB ≈ $priceKasStr KAS (≈ \$${String.format(java.util.Locale.US, "%.4f", priceUsdVal)} USD)"
                         }
 
@@ -771,23 +771,20 @@ fun SwapScreenOverlay(
                         if (isDetailsExpanded) {
                             HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
 
-                            QuoteRow(label = "\$KB Market Cap", value = "~192,791 KAS (~$26k USD)")
-                            QuoteRow(label = "24h Volume (KAS)", value = "7,856.91 KAS (785,691,438,041 Sompi)")
-                            QuoteRow(label = "Pool Reserves", value = "36,147 KAS / 672,756 \$KB")
-                            QuoteRow(label = "Bonding Curve Progress", value = "50.35% (Phase: Bonding)")
+                            QuoteRow(label = "Market Analytics", value = "Unavailable — verified live pool data required")
                             QuoteRowWithCopy(
                                 label = "Token Covenant ID",
                                 fullValue = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8",
                                 displayValue = "b75a6e90f...6a47b4d8"
                             )
-                            val poolCovenantHex = lpCovenantId ?: "2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258"
+                            val poolCovenantHex = lpCovenantId ?: "Unavailable — not resolved from live API"
                             val poolCovenantDisplay = if (poolCovenantHex.length > 16) "${poolCovenantHex.take(9)}...${poolCovenantHex.takeLast(8)}" else poolCovenantHex
                             QuoteRowWithCopy(
                                 label = "Covenant Pool ID",
                                 fullValue = poolCovenantHex,
                                 displayValue = poolCovenantDisplay
                             )
-                            QuoteRow(label = "KAS Price (Live)", value = "\$${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD")
+                            QuoteRow(label = "KAS Price", value = if (kasPriceUsd > 0.0) "\${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD" else "Unavailable — no live price")
                             QuoteRow(label = "Slippage Tolerance", value = "0.5%")
                             
                             val dexFeeKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(krQuote?.feeTotalSompi ?: 0L)
@@ -798,7 +795,7 @@ fun SwapScreenOverlay(
                                 val netKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(netSompi)
                                 QuoteRow(label = "Net Proceeds (Fees Deducted)", value = "$netKasStr KAS")
                             }
-                            QuoteRow(label = "Routing Path", value = "KaspaRocket LP Covenant (Testnet-10 / Mainnet)")
+                            QuoteRow(label = "Routing Path", value = if (lpCovenantId != null) "KaspaRocket LP Covenant (API-resolved)" else "Unavailable — pool covenant not resolved")
                             QuoteRow(
                                 label = "Min Received (0.5% Slippage)",
                                 value = if (toToken.isNative) {
@@ -871,57 +868,11 @@ fun SwapScreenOverlay(
 
                 // Primary Swap Execution Button (Matching Buy Token button size and styling)
                 val isUneconomic = krQuote?.uneconomic == true
-                val isExecutable = parsedFromAmount > 0.0 && isSufficientBalance && isAddressValid && !isExecutingSwap && !isUneconomic
+                val isExecutable = false
 
                 Button(
                     onClick = {
-                        if (parsedFromAmount <= 0.0 || isUneconomic) return@Button
-                        val recipient = effectiveRecipient
-                        if (recipient.isBlank()) {
-                            swapStatusMessage = "Error: Please specify or connect a wallet address"
-                            return@Button
-                        }
-                        
-                        isExecutingSwap = true
-                        swapStatusMessage = "Signing & Broadcasting Swap Transaction..."
-                        
-                        scope.launch {
-                            try {
-                                delay(300L)
-                                val amountToSendInKas = if (fromToken.isNative) parsedFromAmount else 0.0
-                                try {
-                                    viewModel?.sendKaspaTransaction(
-                                        recipientAddress = recipient,
-                                        amountKas = amountToSendInKas,
-                                        sompiPerMass = liveSompiPerMass
-                                    )
-                                } catch (_: Exception) {
-                                    // Non-blocking in case of offline/dry-run test
-                                }
-                                delay(600L)
-                                lastBroadcastTxHash = viewModel?.kaspaWalletState?.value?.lastBroadcastTxId
-                                    ?: "tx_covenant_swap_${System.currentTimeMillis().toString(16)}"
-                                
-                                // Credit or debit tokens in active wallet in real-time
-                                if (fromToken.isNative) {
-                                    val tokensBought = if (krQuote != null && krQuote!!.amountTokensDisplay.isNotEmpty()) {
-                                        krQuote!!.amountTokensDisplay.toDoubleOrNull() ?: estimatedOutputAmount
-                                    } else {
-                                        estimatedOutputAmount
-                                    }
-                                    viewModel?.creditKbTokens(tokensBought)
-                                } else {
-                                    viewModel?.debitKbTokens(parsedFromAmount)
-                                }
-
-                                isExecutingSwap = false
-                                swapStatusMessage = null
-                                showSuccessDialog = true
-                            } catch (e: Exception) {
-                                isExecutingSwap = false
-                                swapStatusMessage = "Error broadcasting swap: ${e.message}"
-                            }
-                        }
+                        swapStatusMessage = "Swap disabled: verified KCC-20 covenant transaction construction, validation, and signing are not integrated. No transaction was sent and no token balance was changed."
                     },
                     enabled = isExecutable,
                     modifier = Modifier
@@ -980,15 +931,15 @@ fun SwapScreenOverlay(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Your swap order has been signed and broadcast to the Kaspa BlockDAG network.",
+                        text = "A swap cannot be reported as broadcast until a real covenant transaction is signed and verified.",
                         color = TextPrimary,
                         fontSize = 14.sp
                     )
                     HorizontalDivider(color = SurfaceCardBorder)
                     Text(text = "• Swapped: ${String.format("%.4f", parsedFromAmount)} ${fromToken.symbol}", color = TextSecondary, fontSize = 13.sp)
-                    Text(text = "• Credited to Wallet: +${String.format("%.4f", estimatedOutputAmount)} ${toToken.symbol}", color = EmeraldMesh, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "• Estimated output: ${String.format("%.4f", estimatedOutputAmount)} ${toToken.symbol} (not credited)", color = TextSecondary, fontSize = 13.sp)
                     Text(text = "• Token Covenant: b75a6e90f...6a47b4d8", color = TextSecondary, fontSize = 11.sp)
-                    Text(text = "• Covenant Pool: 2eec0a5bb...4b57c7258", color = TextSecondary, fontSize = 11.sp)
+                    Text(text = "• Covenant Pool: ${lpCovenantId?.let { "${it.take(9)}...${it.takeLast(8)}" } ?: "unresolved"}", color = TextSecondary, fontSize = 11.sp)
                     Text(text = "• Recipient: ${effectiveRecipient.take(16)}...", color = TextSecondary, fontSize = 12.sp)
                     if (lastBroadcastTxHash.isNotEmpty()) {
                         Text(text = "• Tx Hash: ${lastBroadcastTxHash.take(20)}...", color = KaspaTea, fontSize = 11.sp)
