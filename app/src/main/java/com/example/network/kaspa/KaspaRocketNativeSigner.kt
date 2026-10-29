@@ -144,7 +144,7 @@ internal object KaspaRocketNativeSigner {
         require(signedCount > 0 || inputs.all { it.signatureScript.isNotBlank() }) {
             "The trade transaction has neither a signable input nor prebuilt final input scripts"
         }
-        return SignedPlanTransaction(signedTx, signedCount)
+        return SignedPlanTransaction(JSONObject(signedTxRoot.toString()), signedCount)
     }
 
     private fun spliceCovenantLeaderSignature(
