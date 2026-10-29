@@ -91,6 +91,7 @@ internal object KaspaRocketNativeSigner {
             ?: signedTx
         val signedInputs = signedTxRoot.optJSONArray("inputs")
             ?: throw IllegalArgumentException("Plan transaction inputs are missing")
+        validateInstructionCoverage(instructions, inputs.size, signedInputs)
         var signedCount = 0
         val seen = HashSet<Int>()
 
@@ -156,6 +157,55 @@ internal object KaspaRocketNativeSigner {
             "The trade transaction has neither a signable input nor prebuilt final input scripts"
         }
         return SignedPlanTransaction(JSONObject(signedTxRoot.toString()), signedCount)
+    }
+
+    internal fun validateInstructionCoverage(
+        instructions: JSONArray,
+        inputCount: Int,
+        signedInputs: JSONArray
+    ) {
+        require(inputCount > 0 && signedInputs.length() == inputCount) {
+            "Signing instructions do not match the transaction input count"
+        }
+        val seen = HashSet<Int>()
+        for (index in 0 until instructions.length()) {
+            val instruction = instructions.optJSONObject(index)
+                ?: throw IllegalArgumentException("Malformed signing instruction")
+            val kind = instruction.optString("kind", "")
+            require(kind == "final" || kind == "p2pkh" || kind == "covenant-leader") {
+                "Unsupported KaspaRocket signing instruction: $kind"
+            }
+            val inputIndex = instruction.optInt("inputIndex", instruction.optInt("input_index", -1))
+            require(inputIndex in 0 until inputCount) {
+                "Signing instruction input index is out of range"
+            }
+            require(seen.add(inputIndex)) {
+                "Duplicate signing instruction for input $inputIndex"
+            }
+            val signedInput = signedInputs.optJSONObject(inputIndex)
+                ?: throw IllegalArgumentException("Malformed input $inputIndex")
+            val script = signedInput.optString(
+                "signatureScript",
+                signedInput.optString("signature_script", "")
+            )
+            require(script.matches(Regex("(?i)([0-9a-f]{2})*"))) {
+                "Input $inputIndex has malformed signature script"
+            }
+            when (kind) {
+                "final" -> require(script.isNotBlank()) {
+                    "Final input $inputIndex has no prebuilt signature script"
+                }
+                "p2pkh" -> require(script.isBlank()) {
+                    "Refusing to overwrite input $inputIndex signature script"
+                }
+                "covenant-leader" -> require(script.isNotBlank()) {
+                    "Covenant leader input $inputIndex has no prebuilt script"
+                }
+            }
+        }
+        require(seen.size == inputCount) {
+            "Signing instructions must explicitly classify every transaction input; refusing to sign an incomplete plan"
+        }
     }
 
     private fun spliceCovenantLeaderSignature(
