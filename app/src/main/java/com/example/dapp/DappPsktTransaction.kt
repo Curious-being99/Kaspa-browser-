@@ -222,7 +222,7 @@ internal object DappPsktTransaction {
         require(transactionVersion == 0) {
             "Generic PSKT signing/submission supports transaction version 0 only; version 1 covenant fields must be preserved by a covenant-aware transaction engine"
         }
-        require(outputs.none { it.covenantBinding != null }) {
+        require(outputs.none { it.covenant != null }) {
             "Covenant-bound outputs cannot be signed or submitted through the generic PSKT transaction engine"
         }
 
