@@ -420,16 +420,12 @@ class KaspaRocketClient(
         }
     }
 
-    /**
-     * Read the live KCC20 token record and conservative validation verdict from Kascov.
-     * Values remain in raw units; this method never guesses token display decimals.
-     */
     suspend fun getKascovToken(tokenId: String): KascovTokenRecord? = withContext(Dispatchers.IO) {
         if (!network.equals("mainnet", ignoreCase = true) || !isValidId(tokenId)) return@withContext null
         try {
             val canonicalId = tokenId.lowercase(Locale.ROOT)
             val request = Request.Builder()
-                .url("https://kascov.io/data/mainnet/token/$canonicalId")
+                .url("https://kascov.io/data/mainnet/tokens.json?limit=200&q=$canonicalId")
                 .get()
                 .header("Accept", "application/json")
                 .build()
@@ -438,23 +434,25 @@ class KaspaRocketClient(
                 if (!response.isSuccessful) return@use null
                 val body = response.body?.string() ?: return@use null
                 val root = JSONObject(body)
-                val token = root.optJSONObject("token") ?: return@use null
-                if (!token.optString("covenant_id").equals(canonicalId, ignoreCase = true)) {
-                    return@use null
-                }
-                val fields = token.optJSONObject("fields")
-                val validation = root.optJSONObject("validation")
+                val tokens = root.optJSONArray("tokens") ?: return@use null
+                val token = (0 until tokens.length())
+                    .mapNotNull { tokens.optJSONObject(it) }
+                    .firstOrNull {
+                        it.optString("covenant_id").equals(canonicalId, ignoreCase = true)
+                    } ?: return@use null
+                val market = token.optJSONObject("market")
                 val supply = token.optString("supply_str").takeIf { it.isNotBlank() }
                     ?: token.optLongValue("supply")?.toString()
                 KascovTokenRecord(
                     covenantId = canonicalId,
                     status = token.optString("status", "unvalidated").takeIf { it.isNotBlank() } ?: "unvalidated",
-                    ticker = fields?.optString("tick")?.takeIf { it.isNotBlank() },
+                    ticker = token.optString("claimed_ticker").takeIf { it.isNotBlank() }
+                        ?: token.optString("listed_ticker").takeIf { it.isNotBlank() },
                     supplyRaw = supply,
                     holders = token.optLongValue("holders"),
-                    checkedEvents = validation?.optLongValue("checked"),
-                    validationReason = validation?.optString("reason")?.takeIf { it.isNotBlank() }
-                        ?: token.optString("invalid_reason").takeIf { it.isNotBlank() }
+                    checkedEvents = null,
+                    validationReason = token.optString("invalid_reason").takeIf { it.isNotBlank() },
+                    priceChangeBps = market?.optLongValue("change_24h_bps")
                 )
             }
         } catch (e: Exception) {
@@ -511,7 +509,8 @@ data class KascovTokenRecord(
     val supplyRaw: String?,
     val holders: Long?,
     val checkedEvents: Long?,
-    val validationReason: String?
+    val validationReason: String?,
+    val priceChangeBps: Long? = null
 )
 
 data class KaspaRocketTokenDetail(
