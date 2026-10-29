@@ -866,6 +866,13 @@ fun SwapScreenOverlay(
                     )
                 }
 
+                Text(
+                    text = "Live quotes are estimates only. This wallet does not yet construct and validate the deployed KCC-20 covenant transaction, so swaps are disabled and no balances will be changed locally.",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+
                 // Primary Swap Execution Button (Matching Buy Token button size and styling)
                 val isUneconomic = krQuote?.uneconomic == true
                 val isExecutable = false
@@ -901,8 +908,8 @@ fun SwapScreenOverlay(
                         Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Swap ${fromToken.symbol} to ${toToken.symbol}",
-                            fontSize = 14.sp,
+                            text = "Swap unavailable — KCC-20 signing not integrated",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
