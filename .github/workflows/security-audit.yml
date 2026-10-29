@@ -123,7 +123,7 @@ jobs:
           retention-days: 14
 
   rust-source:
-    name: Rust source security scan
+    name: Rust and shared source security scan
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -133,13 +133,30 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
-      - name: Scan Rust and shared source with Semgrep
+      - name: Install pinned Semgrep runtime
+        run: python -m pip install --disable-pip-version-check 'semgrep==1.144.0' 'pydantic<2.14'
+
+      - name: Scan Rust source with Semgrep
         run: |
-          python -m pip install --disable-pip-version-check semgrep
-          # Limit parallel workers and per-file memory to avoid runner OOM/SIGSEGV.
-          semgrep scan --config p/rust --config p/security-audit --metrics=off --error -j 1 --max-memory 2000 .
+          semgrep scan --config p/rust --metrics=off --error -j 1 --max-memory 500 --optimizations none --include '*.rs' .
+
+      - name: Scan Kotlin and Java source with Semgrep
+        run: |
+          semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --timeout 20 --include '*.kt' --include '*.java' app/src/main/java app/src/test
+
+      - name: Scan C and C++ source with Semgrep
+        run: |
+          semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --timeout 20 --include '*.c' --include '*.cc' --include '*.cpp' --include '*.h' --include '*.hpp' app/src/main/cpp
+
+      - name: Scan Rust security rules with Semgrep
+        run: |
+          semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --timeout 20 --include '*.rs' .
+
+      - name: Scan remaining shared source with Semgrep
+        run: |
+          semgrep scan --config p/security-audit --metrics=off --error -j 1 --max-memory 500 --timeout 20 --include '*.yml' --include '*.yaml' --include '*.json' --include '*.py' --include '*.sh' --include '*.js' --include 'Dockerfile*' .
 
   rust-dependencies:
     name: Rust dependency vulnerability audit
