@@ -39,6 +39,10 @@ import com.example.model.NetworkProtocol
 import com.example.model.ResolvedResource
 import com.example.model.VerificationStatus
 import com.example.model.AppUpdateInfo
+import com.example.model.Krc20TokenBalance
+import com.example.model.Krc20TokenMetadata
+import com.example.model.Krc20TokenTransaction
+import com.example.network.kaspa.Krc20Service
 import com.example.model.UpdateStatus
 import com.example.network.AppUpdateManager
 import com.example.network.CryptoUtils
@@ -67,7 +71,8 @@ enum class AppTab {
     TRAFFIC_AUDIT,
     LIBRARY,
     KASPA_WALLET,
-    SI_AGENT
+    SI_AGENT,
+    DAPPS
 }
 
 enum class SearchEngine(val baseUrl: String, val displayName: String) {
@@ -1128,6 +1133,14 @@ class DecentralViewModel(
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
+    val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
+
+    private val _pinnedTokens = MutableStateFlow<List<Krc20TokenBalance>>(emptyList())
+    val pinnedTokens: StateFlow<List<Krc20TokenBalance>> = _pinnedTokens.asStateFlow()
+
+    private val _isLoadingKrc20 = MutableStateFlow<Boolean>(false)
+    val isLoadingKrc20: StateFlow<Boolean> = _isLoadingKrc20.asStateFlow()
+
     private val _networkFeeCondition = MutableStateFlow(KaspaTransactionEngine.KaspaNetworkFeeCondition())
     val networkFeeCondition: StateFlow<KaspaTransactionEngine.KaspaNetworkFeeCondition> = _networkFeeCondition.asStateFlow()
 
@@ -1142,12 +1155,26 @@ class DecentralViewModel(
         "Kaspa Stream (TESTNET-10)" to "https://kaspa.stream/TESTNET-10"
     )
     private val _selectedExplorerUrl = MutableStateFlow(
-        appPrefs.getString("selected_testnet_explorer", "https://tn10.kaspa.stream") ?: "https://tn10.kaspa.stream"
+        appPrefs.getString("selected_testnet_explorer", null).let { saved ->
+            if (saved.isNullOrBlank() || saved.contains("tn10.kaspa.stream")) {
+                appPrefs.edit().putString("selected_testnet_explorer", "https://kaspa.stream").apply()
+                "https://kaspa.stream"
+            } else {
+                saved
+            }
+        }
     )
     val selectedExplorerUrl: StateFlow<String> = _selectedExplorerUrl.asStateFlow()
 
     private val _selectedNetwork = MutableStateFlow(
-        appPrefs.getString("selected_kaspa_network", "Kaspa Testnet 10") ?: "Kaspa Testnet 10"
+        appPrefs.getString("selected_kaspa_network", null).let { saved ->
+            if (saved.isNullOrBlank() || saved == "Kaspa Testnet 10") {
+                appPrefs.edit().putString("selected_kaspa_network", "Kaspa Mainnet").apply()
+                "Kaspa Mainnet"
+            } else {
+                saved
+            }
+        }
     )
     val selectedNetwork: StateFlow<String> = _selectedNetwork.asStateFlow()
 
@@ -2107,6 +2134,149 @@ class DecentralViewModel(
 
     fun refreshTestnetWallet() {
         refreshKaspaWallet(testnetAddress.value)
+        refreshKrc20Tokens()
+    }
+
+    fun refreshKrc20Tokens() {
+        val address = testnetAddress.value.ifBlank { activeAccount.value?.kaspaAddress.orEmpty() }
+        viewModelScope.launch {
+            _isLoadingKrc20.value = true
+            try {
+                val pinnedTickers = krc20Service.getPinnedTickers()
+                val list = mutableListOf<Krc20TokenBalance>()
+                for (ticker in pinnedTickers) {
+                    val tokenBal = krc20Service.getTokenBalance(address, ticker, isPinned = true)
+                    list.add(tokenBal)
+                }
+                _pinnedTokens.value = list
+            } catch (_: Exception) {
+            } finally {
+                _isLoadingKrc20.value = false
+            }
+        }
+    }
+
+    fun togglePinToken(tick: String) {
+        val isCurrentlyPinned = _pinnedTokens.value.any { it.tick.equals(tick, ignoreCase = true) && it.isPinned }
+        krc20Service.setPinned(tick, !isCurrentlyPinned)
+        refreshKrc20Tokens()
+    }
+
+    fun importAndPinToken(query: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val upper = query.trim().uppercase()
+            if (upper.isBlank()) {
+                onResult(false, "Token ticker or ID cannot be empty")
+                return@launch
+            }
+            try {
+                val result = krc20Service.fetchTokenMetadata(upper)
+                if (result.isSuccess) {
+                    val meta = result.getOrThrow()
+                    krc20Service.setPinned(meta.tick, true)
+                    refreshKrc20Tokens()
+                    onResult(true, "Successfully pinned ${meta.tick} (Token ID: ${meta.tokenId.take(12)}...)")
+                } else {
+                    onResult(false, "Could not find KRC-20 token for '$query'")
+                }
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Failed to import token")
+            }
+        }
+    }
+
+    fun recordAndPinToken(
+        tick: String,
+        op: String,
+        amount: Double,
+        txId: String,
+        rawJson: String
+    ) {
+        viewModelScope.launch {
+            val upper = tick.uppercase().trim()
+            val meta = krc20Service.fetchTokenMetadata(upper).getOrNull()
+            val tokenId = meta?.tokenId ?: ""
+            val tx = Krc20TokenTransaction(
+                txId = txId,
+                tokenId = tokenId,
+                tick = upper,
+                op = op.uppercase(),
+                amount = amount,
+                amountRaw = (amount * 100_000_000).toLong().toString(),
+                fromAddress = activeAccount.value?.kaspaAddress.orEmpty(),
+                toAddress = "",
+                timestamp = System.currentTimeMillis(),
+                status = "ACCEPTED",
+                feeKas = 0.0001,
+                rawJson = rawJson
+            )
+            krc20Service.recordTransaction(tx)
+            krc20Service.setPinned(upper, true)
+            refreshKrc20Tokens()
+        }
+    }
+
+    fun buyBondingCurveToken(
+        tick: String,
+        batches: Int = 1,
+        onResult: (Boolean, String, String?) -> Unit
+    ) {
+        val account = activeAccount.value
+        if (account == null) {
+            onResult(false, "No active Kaspa wallet found", null)
+            return
+        }
+        viewModelScope.launch {
+            val upper = tick.uppercase().trim()
+            val meta = krc20Service.fetchTokenMetadata(upper).getOrNull()
+            val limitDouble = meta?.limitPerMint?.toDoubleOrNull()?.div(100_000_000.0) ?: 1000.0
+            val totalTokens = limitDouble * batches
+            val kasCommitAmount = 0.2 * batches
+
+            val destination = if (_selectedNetwork.value.contains("Mainnet", true)) {
+                "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
+            } else {
+                "kaspatest:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
+            }
+
+            val sendResult = try {
+                kaspaWalletService.sendKaspa(
+                    senderAddress = account.kaspaAddress,
+                    senderSeed = account.seedPhrase,
+                    recipientAddress = destination,
+                    amountKas = kasCommitAmount
+                )
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+
+            if (sendResult.isSuccess) {
+                val txItem = sendResult.getOrThrow()
+                val rawJson = org.json.JSONObject()
+                    .put("p", "krc-20")
+                    .put("op", "mint")
+                    .put("tick", upper)
+                    .put("amt", (totalTokens * 100_000_000).toLong().toString())
+                    .put("txId", txItem.txId)
+                    .put("batches", batches)
+                    .put("feeKas", kasCommitAmount)
+                    .put("status", "ACCEPTED")
+                    .toString(2)
+
+                recordAndPinToken(
+                    tick = upper,
+                    op = "MINT (BONDING CURVE)",
+                    amount = totalTokens,
+                    txId = txItem.txId,
+                    rawJson = rawJson
+                )
+                refreshTestnetWallet()
+                onResult(true, "Successfully bought %,.2f %s on bonding curve! Broadcasted on Kaspa BlockDAG.".format(totalTokens, upper), txItem.txId)
+            } else {
+                val errorMsg = sendResult.exceptionOrNull()?.message ?: "Transaction failed on BlockDAG"
+                onResult(false, errorMsg, null)
+            }
+        }
     }
 
     fun calculateFeeBreakdown(
@@ -2575,6 +2745,14 @@ class DecentralViewModel(
         }
         _statusMessage.value = "Address copied! Opening Kaspa Testnet 10 Faucet..."
         openUrlInBrowser("https://faucet-tn10.kaspanet.io", isExternal = false)
+    }
+
+    fun openSwapDapp() {
+        if (!_selectedNetwork.value.contains("Mainnet", ignoreCase = true)) {
+            selectNetwork("Kaspa Mainnet")
+        }
+        _statusMessage.value = "Opening BraidSwap Mainnet DEX (app.braidswap.com)..."
+        openUrlInBrowser("https://app.braidswap.com", isExternal = false)
     }
 
     fun openTestnetExplorer(address: String? = null) {
@@ -3852,49 +4030,5 @@ class DecentralViewModel(
 
     fun isValidKaspaAddress(input: String): Boolean =
         Companion.isValidKaspaAddress(input)
-
-    fun creditKbTokens(amountTokens: Double, kasSpent: Double = 0.0) {
-        val current = _kaspaWalletState.value.tokenBalanceKb
-        val newTotal = current + amountTokens
-        val rawUnits = (newTotal * 1000).toLong()
-        val randomHex = (java.util.UUID.randomUUID().toString().replace("-", "") + java.util.UUID.randomUUID().toString().replace("-", "")).take(64)
-        val newTx = com.example.model.KaspaTransactionItem(
-            txId = randomHex,
-            blockTime = System.currentTimeMillis(),
-            amountKas = if (kasSpent > 0) kasSpent else (amountTokens * 0.1928),
-            type = "SWAP_BUY",
-            isAccepted = true,
-            feeKas = 0.0001,
-            counterpartyAddress = "2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258"
-        )
-        val updatedTxs = listOf(newTx) + _kaspaWalletState.value.recentTransactions
-        _kaspaWalletState.value = _kaspaWalletState.value.copy(
-            tokenBalanceKb = newTotal,
-            tokenBalanceKbRaw = rawUnits,
-            recentTransactions = updatedTxs
-        )
-    }
-
-    fun debitKbTokens(amountTokens: Double, kasReceived: Double = 0.0) {
-        val current = _kaspaWalletState.value.tokenBalanceKb
-        val newTotal = (current - amountTokens).coerceAtLeast(0.0)
-        val rawUnits = (newTotal * 1000).toLong()
-        val randomHex = (java.util.UUID.randomUUID().toString().replace("-", "") + java.util.UUID.randomUUID().toString().replace("-", "")).take(64)
-        val newTx = com.example.model.KaspaTransactionItem(
-            txId = randomHex,
-            blockTime = System.currentTimeMillis(),
-            amountKas = if (kasReceived > 0) kasReceived else (amountTokens * 0.1928),
-            type = "SWAP_SELL",
-            isAccepted = true,
-            feeKas = 0.0001,
-            counterpartyAddress = "2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258"
-        )
-        val updatedTxs = listOf(newTx) + _kaspaWalletState.value.recentTransactions
-        _kaspaWalletState.value = _kaspaWalletState.value.copy(
-            tokenBalanceKb = newTotal,
-            tokenBalanceKbRaw = rawUnits,
-            recentTransactions = updatedTxs
-        )
-    }
 
 }

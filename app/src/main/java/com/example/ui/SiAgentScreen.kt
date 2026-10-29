@@ -167,13 +167,13 @@ private val SI_AGENT_COMMANDS = listOf(
     ),
     SiCommandItem(
         command = "/send",
-        title = "Send KAS / \$KB",
+        title = "Send KAS",
         description = "Sign & broadcast on-chain transaction",
         icon = Icons.Default.Send
     ),
     SiCommandItem(
         command = "/receive",
-        title = "Receive KAS / \$KB",
+        title = "Receive KAS",
         description = "Show receive QR & Bech32 addresses",
         icon = Icons.AutoMirrored.Filled.CallReceived
     ),
@@ -185,21 +185,9 @@ private val SI_AGENT_COMMANDS = listOf(
     ),
     SiCommandItem(
         command = "/swap",
-        title = "Swap KAS ⇄ \$KB",
-        description = "Instant DEX asset swap",
+        title = "Kaspa DEX Aggregator",
+        description = "Instant DEX asset swap via BraidSwap",
         icon = Icons.Default.SwapHoriz
-    ),
-    SiCommandItem(
-        command = "/buy",
-        title = "Buy \$KB token",
-        description = "KaspaRocket token purchase",
-        icon = Icons.Default.Add
-    ),
-    SiCommandItem(
-        command = "/price",
-        title = "\$KB token & Kaspa price",
-        description = "KaspaRocket rates & info",
-        icon = Icons.Default.AutoAwesome
     ),
     SiCommandItem(
         command = "/summarize",
@@ -267,8 +255,6 @@ fun SiAgentScreen(
     // Action sheet states for inline buttons
     var showSendSheet by remember { mutableStateOf(false) }
     var showReceiveSheet by remember { mutableStateOf(false) }
-    var showBuySheet by remember { mutableStateOf(false) }
-    var showSwapOverlay by remember { mutableStateOf(false) }
 
     var inputText by remember { mutableStateOf("") }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
@@ -296,15 +282,14 @@ fun SiAgentScreen(
 
     val isSlashMode = inputText.startsWith("/") || showCommandPicker
 
-    val initialGreeting = "🤖 Si Bot\n\nCommands: /wallet  /send  /receive  /history  /swap  /buy  /price  /help"
+    val initialGreeting = "🤖 Si Bot\n\nCommands: /wallet  /send  /receive  /history  /swap  /help"
 
     val initialButtons = listOf(
         InlineBotButton("Wallet", Icons.Default.AccountBalanceWallet, "OPEN_WALLET"),
         InlineBotButton("Send", Icons.Default.Send, "OPEN_SEND"),
         InlineBotButton("Receive", Icons.AutoMirrored.Filled.CallReceived, "OPEN_RECEIVE"),
         InlineBotButton("History", Icons.AutoMirrored.Filled.Article, "OPEN_HISTORY"),
-        InlineBotButton("Swap", Icons.Default.SwapHoriz, "OPEN_SWAP"),
-        InlineBotButton("Buy \$KB", Icons.Default.Add, "OPEN_BUY")
+        InlineBotButton("Dapps", Icons.Default.SwapHoriz, "OPEN_SWAP")
     )
 
     val messages = remember {
@@ -359,16 +344,14 @@ fun SiAgentScreen(
                 InlineBotButton("Send KAS", Icons.Default.Send, "OPEN_SEND"),
                 InlineBotButton("Receive", Icons.AutoMirrored.Filled.CallReceived, "OPEN_RECEIVE"),
                 InlineBotButton("Tx History", Icons.AutoMirrored.Filled.Article, "OPEN_HISTORY"),
-                InlineBotButton("Swap KAS ⇄ \$KB", Icons.Default.SwapHoriz, "OPEN_SWAP"),
-                InlineBotButton("Buy \$KB", Icons.Default.Add, "OPEN_BUY")
+                InlineBotButton("Dapps", Icons.Default.SwapHoriz, "OPEN_SWAP")
             )
             lower.contains("history") || lower.contains("tx") -> listOf(
                 InlineBotButton("Compose Send", Icons.Default.Send, "OPEN_SEND"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
-            lower.contains("swap") -> listOf(
-                InlineBotButton("Swap Assets", Icons.Default.SwapHoriz, "OPEN_SWAP"),
-                InlineBotButton("Buy \$KB Token", Icons.Default.Add, "OPEN_BUY"),
+            lower.contains("swap") || lower.contains("dapp") -> listOf(
+                InlineBotButton("Dapps", Icons.Default.SwapHoriz, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("send") -> listOf(
@@ -380,17 +363,9 @@ fun SiAgentScreen(
                 InlineBotButton("Show Receive QR", Icons.AutoMirrored.Filled.CallReceived, "OPEN_RECEIVE"),
                 InlineBotButton("Copy Address", Icons.Default.ContentCopy, "COPY_ADDRESS")
             )
-            lower.contains("buy") -> listOf(
-                InlineBotButton("Buy \$KB Now", Icons.Default.Add, "OPEN_BUY"),
-                InlineBotButton("Open Swap", Icons.Default.SwapHoriz, "OPEN_SWAP")
-            )
-            lower.contains("price") -> listOf(
-                InlineBotButton("Swap KAS ⇄ \$KB", Icons.Default.SwapHoriz, "OPEN_SWAP"),
-                InlineBotButton("Buy \$KB Token", Icons.Default.Add, "OPEN_BUY")
-            )
             else -> listOf(
                 InlineBotButton("Wallet", Icons.Default.AccountBalanceWallet, "OPEN_WALLET"),
-                InlineBotButton("Swap", Icons.Default.SwapHoriz, "OPEN_SWAP")
+                InlineBotButton("Dapps", Icons.Default.SwapHoriz, "OPEN_SWAP")
             )
         }
     }
@@ -520,8 +495,7 @@ fun SiAgentScreen(
                 kasBalance = walletState.balanceKas,
                 utxoCount = walletState.utxosCount,
                 recentTransactions = walletState.recentTransactions,
-                selectedNetwork = viewModel.selectedNetwork.value,
-                kbBalance = walletState.tokenBalanceKb
+                selectedNetwork = viewModel.selectedNetwork.value
             )
             val isJsonProposal = responseText.trim().startsWith("{")
             val actionType = when {
@@ -547,8 +521,9 @@ fun SiAgentScreen(
         when (actionKey) {
             "OPEN_SEND" -> showSendSheet = true
             "OPEN_RECEIVE" -> showReceiveSheet = true
-            "OPEN_SWAP" -> showSwapOverlay = true
-            "OPEN_BUY" -> showBuySheet = true
+            "OPEN_SWAP" -> {
+                viewModel.openSwapDapp()
+            }
             "OPEN_WALLET", "CREATE_WALLET", "IMPORT_WALLET" -> viewModel.setTab(AppTab.KASPA_WALLET)
             "OPEN_HISTORY" -> executeMessage("/history")
             "COPY_ADDRESS" -> {
@@ -983,7 +958,7 @@ fun SiAgentScreen(
             var recipientInput by remember { mutableStateOf("") }
             var amountInput by remember { mutableStateOf("") }
             var selectedAsset by remember { mutableStateOf("KAS") }
-            var selectedSendNetwork by remember { mutableStateOf("Testnet-10") }
+            var selectedSendNetwork by remember { mutableStateOf("Mainnet") }
             var isSendingTx by remember { mutableStateOf(false) }
 
             // Auto-detect network prefix from recipient address input
@@ -1044,49 +1019,24 @@ fun SiAgentScreen(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (selectedAsset == "KAS") KaspaTea.copy(alpha = 0.2f) else SurfaceCard,
+                    border = BorderStroke(1.dp, if (selectedAsset == "KAS") KaspaTea else SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth().clickable { selectedAsset = "KAS" }
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (selectedAsset == "KAS") KaspaTea.copy(alpha = 0.2f) else SurfaceCard,
-                        border = BorderStroke(1.dp, if (selectedAsset == "KAS") KaspaTea else SurfaceCardBorder),
-                        modifier = Modifier.weight(1f).clickable { selectedAsset = "KAS" }
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 8.dp)
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        ) {
-                            androidx.compose.foundation.Image(
-                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_kaspa_official_pebble),
-                                contentDescription = "KAS",
-                                modifier = Modifier.size(16.dp).clip(CircleShape)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text("KAS", fontWeight = FontWeight.Bold, color = if (selectedAsset == "KAS") KaspaTea else TextMuted, fontSize = 13.sp)
-                        }
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (selectedAsset == "\$KB") ElectricCyan.copy(alpha = 0.2f) else SurfaceCard,
-                        border = BorderStroke(1.dp, if (selectedAsset == "\$KB") ElectricCyan else SurfaceCardBorder),
-                        modifier = Modifier.weight(1f).clickable { selectedAsset = "\$KB" }
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        ) {
-                            AsyncImage(
-                                model = "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png",
-                                contentDescription = "\$KB",
-                                modifier = Modifier.size(16.dp).clip(CircleShape)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text("\$KB Token", fontWeight = FontWeight.Bold, color = if (selectedAsset == "\$KB") ElectricCyan else TextMuted, fontSize = 13.sp)
-                        }
+                        androidx.compose.foundation.Image(
+                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.ic_kaspa_official_pebble),
+                            contentDescription = "KAS",
+                            modifier = Modifier.size(16.dp).clip(CircleShape)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("KAS", fontWeight = FontWeight.Bold, color = if (selectedAsset == "KAS") KaspaTea else TextMuted, fontSize = 13.sp)
                     }
                 }
 
@@ -1209,7 +1159,7 @@ fun SiAgentScreen(
             containerColor = SurfaceDark,
             scrimColor = Color.Black.copy(alpha = 0.6f)
         ) {
-            var selectedReceiveNet by remember { mutableStateOf("Testnet-10") }
+            var selectedReceiveNet by remember { mutableStateOf("Mainnet") }
             val activeReceiveAddress = if (selectedReceiveNet == "Mainnet") {
                 mainnetAddress.ifBlank { "kaspa:qq0000000000000000000000000000000000000000" }
             } else {
@@ -1230,7 +1180,7 @@ fun SiAgentScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Receive Kaspa / \$KB",
+                        text = "Receive Kaspa",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
@@ -1306,187 +1256,10 @@ fun SiAgentScreen(
             }
         }
     }
-
-    // BUY $KB ACTION SHEET
-    if (showBuySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showBuySheet = false },
-            containerColor = SurfaceDark,
-            scrimColor = Color.Black.copy(alpha = 0.6f)
-        ) {
-            var kasAmount by remember { mutableStateOf("100") }
-            var isBuying by remember { mutableStateOf(false) }
-
-            // KaspaRocket Client for real quotes
-            val kaspaRocket = remember { com.example.network.kaspa.KaspaRocketClient() }
-            val tokenId = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
-            var krQuote by remember { mutableStateOf<com.example.network.kaspa.KaspaRocketQuote?>(null) }
-            var isFetchingQuote by remember { mutableStateOf(false) }
-            var lpCovenantId by remember { mutableStateOf<String?>(null) }
-
-            // Resolve Pool for $KB
-            LaunchedEffect(Unit) {
-                lpCovenantId = kaspaRocket.getPoolCovenant(tokenId)
-            }
-
-            // Fetch live quote using lossless KaspaRocketMath
-            LaunchedEffect(kasAmount, lpCovenantId) {
-                val cleanAmt = kasAmount.trim()
-                val lpId = lpCovenantId
-                if (cleanAmt.isNotBlank() && lpId != null) {
-                    val kasAmountSompi = com.example.network.kaspa.KaspaRocketMath.kasToSompi(cleanAmt)
-                    if (kasAmountSompi > 0) {
-                        isFetchingQuote = true
-                        krQuote = kaspaRocket.getQuote(
-                            tokenId = tokenId,
-                            lpCovenantId = lpId,
-                            direction = "buy",
-                            kasBudgetSompi = kasAmountSompi
-                        )
-                        isFetchingQuote = false
-                    } else {
-                        krQuote = null
-                    }
-                } else {
-                    krQuote = null
-                }
-            }
-
-            val estKB = krQuote?.amountTokensDisplay ?: "0"
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
-                    .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        AsyncImage(
-                            model = "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png",
-                            contentDescription = "\$KB Logo",
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                        )
-                        Text(
-                            text = "Buy \$KB Token (kasparocket.fun)",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                    }
-                    IconButton(onClick = { showBuySheet = false }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextMuted)
-                    }
-                }
-
-                OutlinedTextField(
-                    value = kasAmount,
-                    onValueChange = { kasAmount = it },
-                    label = { Text("Pay KAS Amount") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ElectricCyan,
-                        unfocusedBorderColor = SurfaceCardBorder,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    )
-                )
-
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = SurfaceCard,
-                    border = BorderStroke(1.dp, SurfaceCardBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Receive \$KB Token (Est.):", fontSize = 12.5.sp, color = TextMuted)
-                            if (isFetchingQuote) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = ElectricCyan)
-                            } else {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    AsyncImage(
-                                        model = "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png",
-                                        contentDescription = "\$KB Logo",
-                                        modifier = Modifier.size(16.dp).clip(CircleShape)
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("~$estKB \$KB", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = ElectricCyan)
-                                }
-                            }
-                        }
-                        
-                        val liveSompiPerMass = viewModel.networkFeeCondition.value.normalFeerate
-                        val feeBreakdown = remember(kasAmount, walletState.utxosCount, liveSompiPerMass) {
-                            val amtDouble = kasAmount.toDoubleOrNull() ?: 0.0
-                            viewModel.calculateFeeBreakdown(amtDouble, liveSompiPerMass)
-                        }
-                        
-                        HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 4.dp))
-                        
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Est. Network Fee (Real):", fontSize = 12.sp, color = TextMuted)
-                            Text("${String.format("%.6f", feeBreakdown.feeKas)} KAS (${feeBreakdown.feeSompis} Sompis)", fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        isBuying = true
-                        scope.launch {
-                            delay(600L)
-                            val boughtKb = estKB.toDoubleOrNull() ?: 0.0
-                            if (boughtKb > 0) {
-                                viewModel.creditKbTokens(boughtKb)
-                            }
-                            isBuying = false
-                            showBuySheet = false
-                            messages.add(
-                                SiAgentMessage(
-                                    text = "🛒 \$KB Purchase Submitted!\n• Swapped: $kasAmount KAS → ~$estKB \$KB\n• Credited to Wallet: +$estKB \$KB\n• Covenant Pool: 2eec0a5bb...4b57c7258\n• Protocol: kasparocket.fun Testnet-10\n• Status: Confirmed",
-                                    isUser = false
-                                )
-                            )
-                        }
-                    },
-                    enabled = (kasAmount.toDoubleOrNull() ?: 0.0) > 0 && !isBuying,
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Color.Black),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    if (isBuying) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.Black, strokeWidth = 2.dp)
-                    } else {
-                        Text("Confirm & Swap to \$KB", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    // SWAP SCREEN OVERLAY
-    if (showSwapOverlay) {
-        SwapScreenOverlay(viewModel = viewModel, onClose = { showSwapOverlay = false })
-    }
 }
+
+
+
 
 @Composable
 fun ChatBubble(
@@ -1717,8 +1490,7 @@ suspend fun executeSiAgentCommand(
     kasBalance: Double,
     utxoCount: Int,
     recentTransactions: List<com.example.model.KaspaTransactionItem> = emptyList(),
-    selectedNetwork: String = "",
-    kbBalance: Double = 0.0
+    selectedNetwork: String = ""
 ): String {
     val trimmed = input.trim()
     val kascovUrl = KASCOV_URL
@@ -1772,7 +1544,6 @@ suspend fun executeSiAgentCommand(
                 "💼 $netLabel Wallet\n\n" +
                 "• Address: $addrShort\n" +
                 "• Live Balance: ${String.format("%.4f", kasBalance)} KAS\n" +
-                (if (kbBalance > 0.0) "• \$KB Token: ${String.format("%.4f", kbBalance)} \$KB\n" else "") +
                 "• Active UTXOs: $utxoCount\n" +
                 "• Node Endpoint: $nodeLabel\n" +
                 "• Network: $selectedNetwork"
@@ -1793,8 +1564,6 @@ suspend fun executeSiAgentCommand(
                 } else {
                     val formattedTxs = recentTransactions.take(8).joinToString("\n\n") { tx ->
                         val typeTag = when (tx.type) {
-                            "SWAP_BUY" -> "🛒 SWAP BUY \$KB"
-                            "SWAP_SELL" -> "📤 SWAP SELL \$KB"
                             "SENT" -> "📤 SENT KAS"
                             else -> "📥 RECEIVED KAS"
                         }
@@ -1809,7 +1578,7 @@ suspend fun executeSiAgentCommand(
 
         lower.contains("send") -> {
             if (hasNoWallet) {
-                "📤 Send Kaspa / \$KB\n\n" +
+                "📤 Send Kaspa\n\n" +
                 "⚠️ No active Kaspa wallet found to send funds from.\n" +
                 "• Create a new wallet or import an existing seed phrase to unlock sending capabilities."
             } else {
@@ -1817,7 +1586,7 @@ suspend fun executeSiAgentCommand(
                 val activeAddr = if (isTestnet) testnetAddress else mainnetAddress
                 val addrShort = if (activeAddr.length > 20) "${activeAddr.take(14)}...${activeAddr.takeLast(4)}" else activeAddr
 
-                "📤 Send Kaspa / \$KB ($selectedNetwork)\n\n" +
+                "📤 Send Kaspa ($selectedNetwork)\n\n" +
                 "• Command Syntax:\n  /send <address> <amount>\n" +
                 "• Example:\n  /send $addrShort 5.0\n\n" +
                 "• Available Balance: ${String.format("%.4f", kasBalance)} KAS\n" +
@@ -1827,7 +1596,7 @@ suspend fun executeSiAgentCommand(
 
         lower.contains("receive") -> {
             if (hasNoWallet) {
-                "📥 Receive Kaspa / \$KB\n\n" +
+                "📥 Receive Kaspa\n\n" +
                 "⚠️ No active Kaspa address generated yet.\n" +
                 "• Create or import a wallet to view your receiving address and QR code."
             } else {
@@ -1835,53 +1604,30 @@ suspend fun executeSiAgentCommand(
                 val activeAddr = if (isTestnet) testnetAddress else mainnetAddress
                 val netLabel = if (isTestnet) "Kaspa Testnet" else "Kaspa Mainnet"
 
-                "📥 Receive Kaspa / \$KB ($selectedNetwork)\n\n" +
+                "📥 Receive Kaspa ($selectedNetwork)\n\n" +
                 "• $netLabel Address:\n$activeAddr\n\n" +
                 "• Network: $selectedNetwork\n" +
-                "• Assets: KAS, \$KB, KRC-20"
+                "• Assets: KAS, KRC-20"
             }
         }
 
-        lower.contains("swap") -> {
-            "🔄 Kaspa DEX Swap\n• Pair: KAS ⇄ \$KB / KRC-20\n• Network: Kaspa Live BlockDAG\n• Fee Rate: Live Sompi Calculator"
-        }
-
-        lower.contains("buy") -> {
-            "🛒 Buy \$KB Token\n• Token: \$KB (Kaspa Browser)\n• Network: Kaspa Live BlockDAG\n• Pair: KAS → \$KB"
-        }
-
-        lower.contains("covenant") || lower.contains("pool") -> {
-            "🔐 \$KB Token & LP Covenant Details\n\n" +
-            "• Token Name: Kaspabrowser (\$KB)\n" +
-            "• Token Covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8\n" +
-            "• Covenant Pool ID: 2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258\n" +
-            "• Live Spot Price: ~0.1928 KAS per \$KB (19,279 Sompi/raw)\n" +
-            "• Market Cap (MCAP): ~192,791 KAS (~$26,026 USD)\n" +
-            "• 24h Volume (KAS): 7,856.91 KAS (785,691,438,041 Sompi)\n" +
-            "• LP AMM Reserves: 36,147.396 KAS & 672,755.977 \$KB\n" +
-            "• Active Holders: 32 Active Holders\n" +
-            "• Bonding Curve Progress: 50.35% (Phase: Active Bonding)\n" +
-            "• Graduation Status: Pre-Graduation (Graduates to Mainnet AMM at 100% Curve Completion)\n" +
-            "• DEX Router: kasparocket.fun (@kasparocket/sdk)"
+        lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") -> {
+            "⚡ BraidSwap Kaspa Mainnet DEX Aggregator (https://app.braidswap.com)\n\n" +
+            "• Platform: BraidSwap (The premier self-custody Kaspa token aggregator)\n" +
+            "• Network: Kaspa Mainnet (Production BlockDAG, No Simulation)\n" +
+            "• Direct Link: https://app.braidswap.com\n" +
+            "• Best Route Guarantee: Aggregates liquidity across native Kaspa Mainnet DEXes and Igra Layer 2\n" +
+            "• Self-Custody: Non-custodial covenant execution with automatic refund protection\n" +
+            "• Performance Fee: Zero base fee — only shares in positive trade savings\n" +
+            "• Wallets: Integrated with Kaspa Browser, KasWare, Kastle, Kaspire, & Web3 EVM bridge"
         }
 
         lower.contains("price") -> {
-            "💎 \$KB Token & Kaspa Market Data (Live)\n\n" +
-            "• Ticker: \$KB (Kaspabrowser)\n" +
-            "• \$KB Description: Native ecosystem utility token for Kaspa Browser Web3 gateway and KCC-20 smart covenant DEX trading on Kaspa BlockDAG.\n" +
+            "💎 Kaspa Market Data (Live)\n\n" +
             "• Kaspa (KAS) Description: Proof-of-Work GHOSTDAG BlockDAG with 10 BPS throughput, sub-second finality, and 100,000,000 sompi per KAS.\n" +
-            "• Token Covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8\n" +
-            "• Covenant Pool ID: 2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258\n" +
-            "• Live Spot Price: ~0.1928 KAS per \$KB (19,279 Sompi/raw)\n" +
-            "• Market Cap (MCAP): ~192,791 KAS (~$26,026 USD)\n" +
-            "• 24h Volume: 7,856.91 KAS (785,691,438,041 Sompi)\n" +
-            "• 24h Price Trend: [▂▃▅▇█▇▅▃ 0.1928 KAS]\n" +
-            "• Total Supply: 1,000,000 \$KB\n" +
-            "• Circulating / Holders: 327,244 \$KB (32 Active Holders)\n" +
-            "• LP AMM Pool Reserves: 672,756 \$KB & 36,147 KAS\n" +
-            "• Bonding Curve: 50.35% (Status: Active Bonding | Pre-Graduation)\n" +
-            "• Graduation Target: Mainnet AMM Liquidity Migration at 100%\n" +
-            "• DEX Router: kasparocket.fun (@kasparocket/sdk Testnet-10 / Mainnet)"
+            "• Network: Kaspa Mainnet\n" +
+            "• Consensus: GHOSTDAG\n" +
+            "• Performance: 1 BPS (Mainnet) / 10 BPS (TN10)"
         }
 
         lower.contains("summarize") || lower.contains("summary") || lower.contains("overview") || lower.contains("sum") -> {
@@ -1913,7 +1659,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.startsWith("help") || lower.startsWith("command") || lower.startsWith("menu") || lower.isEmpty() -> {
-            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/swap — Swap KAS ⇄ \$KB\n/buy — Buy \$KB token\n/price — \$KB token & rates\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/clear — Clear chat"
+            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/swap — BraidSwap Aggregator\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/clear — Clear chat"
         }
 
         else -> {

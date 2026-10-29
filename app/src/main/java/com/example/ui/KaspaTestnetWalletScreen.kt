@@ -86,6 +86,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -147,8 +148,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.KaspaTransactionItem
+import com.example.model.Krc20TokenBalance
+import com.example.model.Krc20TokenMetadata
+import com.example.model.Krc20TokenTransaction
 import com.example.network.CryptoUtils
 import com.example.ui.components.KaspaQrCodeView
+import com.example.ui.components.PinnedTokensSection
+import com.example.ui.components.Krc20TokenDetailSheet
+import com.example.ui.components.PinTokenDialog
 import androidx.compose.material.icons.filled.Public
 import com.example.ui.theme.AmberCentral
 import com.example.ui.theme.CyanGlow
@@ -268,11 +275,16 @@ fun KaspaTestnetWalletScreen(
     var showNetworkDetailsScreen by remember { mutableStateOf(false) }
     var showNetworkSwitchScreen by remember { mutableStateOf(false) }
     var showResultOverlay by remember { mutableStateOf(false) }
-    var showSwapScreen by remember { mutableStateOf(false) }
     var lastResultIsSuccess by remember { mutableStateOf(true) }
     var lastResultTxId by remember { mutableStateOf("") }
     var lastResultError by remember { mutableStateOf("") }
     var selectedTransactionForDetails by remember { mutableStateOf<KaspaTransactionItem?>(null) }
+
+    // KRC-20 Pinned Tokens State
+    val pinnedTokens by viewModel.pinnedTokens.collectAsState()
+    val isLoadingKrc20 by viewModel.isLoadingKrc20.collectAsState()
+    var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
+    var showPinTokenDialog by remember { mutableStateOf(false) }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
@@ -306,6 +318,10 @@ fun KaspaTestnetWalletScreen(
         if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
+        } else if (selectedTokenForDetails != null) {
+            selectedTokenForDetails = null
+        } else if (showPinTokenDialog) {
+            showPinTokenDialog = false
         } else if (showUnlockBeforeSeedSheet) {
             showUnlockBeforeSeedSheet = false
         } else if (showCompoundDialog) {
@@ -599,10 +615,12 @@ fun KaspaTestnetWalletScreen(
                     onClick = { showReceiveScreen = true }
                 )
                 QuickActionButton(
-                    icon = Icons.Default.SwapHoriz,
-                    label = "Swap",
+                    icon = Icons.Default.Apps,
+                    label = "Dapps",
                     color = KaspaTea,
-                    onClick = { showSwapScreen = true }
+                    onClick = {
+                        viewModel.setTab(AppTab.DAPPS)
+                    }
                 )
                 QuickActionButton(
                     iconRes = R.drawable.ic_compound_utxo,
@@ -623,7 +641,19 @@ fun KaspaTestnetWalletScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Real KRC-20 Pinned Tokens Section
+            PinnedTokensSection(
+                pinnedTokens = pinnedTokens,
+                isLoading = isLoadingKrc20,
+                onTokenClick = { token -> selectedTokenForDetails = token },
+                onTogglePin = { tick -> viewModel.togglePinToken(tick) },
+                onOpenSwap = { tick -> viewModel.openSwapDapp() },
+                onAddTokenClick = { showPinTokenDialog = true }
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Section Header: Transaction History
             Row(
@@ -729,10 +759,6 @@ fun KaspaTestnetWalletScreen(
                 },
                 onClose = { showManageScreen = false }
             )
-        }
-
-        if (showSwapScreen) {
-            SwapScreenOverlay(viewModel = viewModel, onClose = { showSwapScreen = false })
         }
 
         // Security Verification BottomSheet Before Viewing Recovery Seed Phrase (Pops up from below)
@@ -863,6 +889,42 @@ fun KaspaTestnetWalletScreen(
                     viewModel.openTestnetTxExplorer(txId)
                 },
                 onDismiss = { selectedTransactionForDetails = null }
+            )
+        }
+
+        // KRC-20 Token Detail & History Sheet
+        if (selectedTokenForDetails != null) {
+            Krc20TokenDetailSheet(
+                token = selectedTokenForDetails!!,
+                onDismiss = { selectedTokenForDetails = null },
+                onTogglePin = { tick ->
+                    viewModel.togglePinToken(tick)
+                    selectedTokenForDetails = selectedTokenForDetails?.let {
+                        it.copy(isPinned = !it.isPinned)
+                    }
+                },
+                onOpenSwap = { tick ->
+                    selectedTokenForDetails = null
+                    viewModel.openSwapDapp()
+                },
+                onBuyBondingCurve = { batches ->
+                    val tick = selectedTokenForDetails?.tick.orEmpty()
+                    viewModel.buyBondingCurveToken(tick, batches) { success, msg, txId ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar(msg)
+                        }
+                    }
+                }
+            )
+        }
+
+        // Pin Token Search & Import Dialog
+        if (showPinTokenDialog) {
+            PinTokenDialog(
+                onDismiss = { showPinTokenDialog = false },
+                onPinToken = { query, onResult ->
+                    viewModel.importAndPinToken(query, onResult)
+                }
             )
         }
 
@@ -5251,14 +5313,14 @@ fun WalletSetupFlow(
     var isImportPassphraseVisible by remember { mutableStateOf(false) }
     var isImportPhraseMasked by remember { mutableStateOf(false) }
 
-    var selectedSetupNetwork by remember { mutableStateOf("Kaspa Testnet 10") }
+    var selectedSetupNetwork by remember { mutableStateOf("Kaspa Mainnet") }
     var expandedNetworkDropdown by remember { mutableStateOf(false) }
     val availableNetworks = listOf(
+        "Kaspa Mainnet",
         "Kaspa Testnet 10",
         "Kaspa Testnet 11",
-        "Kaspa Mainnet",
-        "Kasplex Testnet",
         "Kasplex Mainnet",
+        "Kasplex Testnet",
         "Igra Mainnet"
     )
 

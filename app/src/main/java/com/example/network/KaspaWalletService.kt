@@ -43,7 +43,7 @@ class KaspaWalletService(
         private const val KNS_MAINNET_REGISTRY_ID = "ee2128c03dfac7f6d74734bb3c879bd999434c47a55945b8a6daae2a1e4a21de"
     }
 
-    fun getCandidateEndpoints(address: String, networkName: String = "Kaspa Testnet 10"): List<String> {
+    fun getCandidateEndpoints(address: String, networkName: String = "Kaspa Mainnet"): List<String> {
         return when {
             networkName.contains("Mainnet", ignoreCase = true) || address.startsWith("kaspa:") -> listOf(API_MAINNET, "https://api.kaspanet.io")
             networkName.contains("Testnet 11", ignoreCase = true) -> listOf(API_TESTNET_11, "https://api-tn11.kaspanet.io")
@@ -51,7 +51,7 @@ class KaspaWalletService(
         }
     }
 
-    private fun getApiBase(address: String, networkName: String = "Kaspa Testnet 10"): String {
+    private fun getApiBase(address: String, networkName: String = "Kaspa Mainnet"): String {
         return when {
             networkName.contains("Mainnet", ignoreCase = true) || address.startsWith("kaspa:") -> API_MAINNET
             networkName.contains("Testnet 11", ignoreCase = true) -> API_TESTNET_11
@@ -59,7 +59,7 @@ class KaspaWalletService(
         }
     }
 
-    private fun getNetworkName(address: String, networkName: String = "Kaspa Testnet 10"): String {
+    private fun getNetworkName(address: String, networkName: String = "Kaspa Mainnet"): String {
         return networkName
     }
 

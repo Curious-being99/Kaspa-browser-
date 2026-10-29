@@ -5501,6 +5501,51 @@ fun KaspaLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
 }
 
 @Composable
+fun BraidSwapLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
+    Canvas(modifier = modifier.size(iconSize)) {
+        val w = size.width
+        val h = size.height
+        val teal = Color(0xFF70C7BA)
+        val cyan = Color(0xFF38BDF8)
+        val stroke = w * 0.12f
+
+        // Intertwined braided figure-8 ribbon path
+        val leftLoop = Path().apply {
+            moveTo(w * 0.5f, h * 0.5f)
+            cubicTo(w * 0.32f, h * 0.22f, w * 0.12f, h * 0.22f, w * 0.12f, h * 0.5f)
+            cubicTo(w * 0.12f, h * 0.78f, w * 0.32f, h * 0.78f, w * 0.5f, h * 0.5f)
+        }
+        val rightLoop = Path().apply {
+            moveTo(w * 0.5f, h * 0.5f)
+            cubicTo(w * 0.68f, h * 0.78f, w * 0.88f, h * 0.78f, w * 0.88f, h * 0.5f)
+            cubicTo(w * 0.88f, h * 0.22f, w * 0.68f, h * 0.22f, w * 0.5f, h * 0.5f)
+        }
+
+        drawPath(
+            path = leftLoop,
+            color = teal,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = stroke,
+                cap = StrokeCap.Round
+            )
+        )
+        drawPath(
+            path = rightLoop,
+            color = cyan,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = stroke,
+                cap = StrokeCap.Round
+            )
+        )
+        drawCircle(
+            color = Color.White,
+            radius = w * 0.06f,
+            center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.5f)
+        )
+    }
+}
+
+@Composable
 fun KaspaComLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
     Canvas(modifier = modifier.size(iconSize)) {
         val w = size.width
@@ -6415,6 +6460,7 @@ fun BrowserSpeedDial(
                 ) {
                     KaspaLogoIcon(iconSize = 36.dp)
                 }
+
 
                 // Item 3: Kaspa.com
                 SpeedDialCircleItem(

@@ -4,8 +4,6 @@ data class KaspaWalletState(
     val kaspaAddress: String = "",
     val balanceSompis: Long = 0L,
     val balanceKas: Double = 0.0,
-    val tokenBalanceKb: Double = 0.0,
-    val tokenBalanceKbRaw: Long = 0L,
     val priceUsd: Double = 0.0,
     val balanceUsd: Double = 0.0,
     val utxosCount: Int = 0,

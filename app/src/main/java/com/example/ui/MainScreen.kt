@@ -132,6 +132,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                             viewModel = viewModel,
                             onClose = { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
                         )
+                        AppTab.DAPPS -> DappsScreen(viewModel = viewModel)
                     }
                 }
             }

@@ -20,7 +20,8 @@ internal object DappPsktTransaction {
         val signInputs: List<SignInput>,
         val inputSumSompi: Long,
         val outputSumSompi: Long,
-        val feeSompi: Long
+        val feeSompi: Long,
+        val redeemScript: String = ""
     ) {
         val feeKas: String
             get() = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(feeSompi))
@@ -29,7 +30,9 @@ internal object DappPsktTransaction {
     fun prepareForSigning(
         txJsonString: String,
         signInputsJson: JSONArray,
-        walletPublicKeyHex: String
+        walletPublicKeyHex: String,
+        isPolicy: Boolean = false,
+        redeemScript: String = ""
     ): Prepared {
         require(walletPublicKeyHex.matches(Regex("(?i)[0-9a-f]{64}"))) {
             "Invalid active wallet public key"
@@ -48,7 +51,7 @@ internal object DappPsktTransaction {
         require(requests.map { it.index }.distinct().size == requests.size) {
             "Duplicate input index requested"
         }
-        val prepared = parseAndValidate(txJsonString, requests)
+        val prepared = parseAndValidate(txJsonString, requests, redeemScript)
         val expectedScript = "20" + walletPublicKeyHex.lowercase() + "ac"
         for (request in requests) {
             require(request.index in prepared.transaction.inputs.indices) {
@@ -60,15 +63,18 @@ internal object DappPsktTransaction {
             }
             val script = prepared.utxoEntries[request.index].scriptPublicKey.script
                 .replace(" ", "").lowercase()
-            require(prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && script == expectedScript) {
-                "Selected input ${request.index} is not a standard P2PK input owned by the active wallet"
+            
+            if (!isPolicy) {
+                require(prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && script == expectedScript) {
+                    "Selected input ${request.index} is not a standard P2PK input owned by the active wallet"
+                }
             }
         }
         return prepared
     }
 
     fun inspectForSubmission(txJsonString: String): Prepared {
-        val prepared = parseAndValidate(txJsonString, emptyList())
+        val prepared = parseAndValidate(txJsonString, emptyList(), "")
         prepared.transaction.inputs.forEachIndexed { index, input ->
             require(input.signatureScript.length % 2 == 0 &&
                 input.signatureScript.matches(Regex("[0-9a-fA-F]*"))) {
@@ -92,11 +98,20 @@ internal object DappPsktTransaction {
             ?: throw IllegalArgumentException("Transaction inputs are missing")
         for (request in prepared.signInputs) {
             val input = prepared.transaction.inputs[request.index]
+            val utxoEntry = prepared.utxoEntries[request.index]
+            
+            // For P2SH/Policy, use the redeem script instead of the script public key for sighash calculation
+            val effectiveUtxoEntry = if (prepared.redeemScript.isNotBlank()) {
+                utxoEntry.copy(scriptPublicKey = utxoEntry.scriptPublicKey.copy(script = prepared.redeemScript))
+            } else {
+                utxoEntry
+            }
+
             val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
                 prepared.transaction,
                 request.index,
                 request.sighashType,
-                prepared.utxoEntries[request.index]
+                effectiveUtxoEntry
             )
             val signature = CryptoUtils.signSchnorr(privateKey, sighash)
             val signatureScript = "41" + signature + "01"
@@ -117,7 +132,7 @@ internal object DappPsktTransaction {
         return signedRoot.toString()
     }
 
-    private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>): Prepared {
+    private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>, redeemScript: String): Prepared {
         require(txJsonString.isNotBlank() && txJsonString.length <= MAX_TRANSACTION_JSON_CHARS) {
             "Transaction JSON is empty or too large"
         }
@@ -214,7 +229,7 @@ internal object DappPsktTransaction {
         require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
             "Transaction mass exceeds the standard mempool limit"
         }
-        return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee)
+        return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee, redeemScript)
     }
 
     fun reviewText(prepared: Prepared, origin: String, network: String, address: String): String {
