@@ -305,6 +305,42 @@ class KaspaRocketClient(
     }
 
     /**
+     * Submit already-signed KaspaRocket plan transactions in their original order.
+     * The caller must sign and validate every transaction before calling this method.
+     */
+    suspend fun submitSignedTransactions(
+        transactions: List<JSONObject>,
+        orderRow: JSONObject? = null
+    ): JSONObject? = withContext(Dispatchers.IO) {
+        require(transactions.isNotEmpty()) { "No signed transactions to submit" }
+        try {
+            val payload = JSONObject().apply {
+                val items = org.json.JSONArray()
+                transactions.forEach { items.put(JSONObject(it.toString())) }
+                put("transactions", items)
+                if (orderRow != null) put("order_row", JSONObject(orderRow.toString()))
+            }
+            val request = Request.Builder()
+                .url("$baseUrl/pro-api/submit")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .apply { apiKey?.let { addHeader("Authorization", "Bearer $it") } }
+                .build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful || body.isBlank()) {
+                    Log.e("KaspaRocketClient", "Trade submission failed with HTTP ${response.code}")
+                    null
+                } else {
+                    JSONObject(body)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("KaspaRocketClient", "Trade submission failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Fetch Token Metadata and Logo from KaspaRocket catalogue:
      * GET /api/tokens/:tokenId
      */
