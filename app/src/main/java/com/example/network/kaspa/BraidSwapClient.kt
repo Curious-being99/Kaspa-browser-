@@ -133,11 +133,13 @@ internal class BraidSwapClient(
             "Wallet fee address and fee percentage must be provided together"
         }
         if (walletFeeAddress != null) {
+            val feeBps = walletFeeBps
+                ?: throw IllegalArgumentException("Wallet fee rate is required with a fee address")
             val expectedPrefix = if (network == Network.MAINNET) "kaspa" else "kaspatest"
             require(com.example.network.CryptoUtils.isValidKaspaAddress(walletFeeAddress, expectedPrefix)) {
                 "Wallet fee address is invalid for ${network.name}"
             }
-            require(walletFeeBps in 1..200) { "Wallet fee must be between 1 and 200 bps (2% maximum)" }
+            require(feeBps in 1..200) { "Wallet fee must be between 1 and 200 bps (2% maximum)" }
         }
         require((amountIn != null) xor (payTotal != null)) {
             "Provide exactly one of token amountIn or KAS payTotal"
