@@ -25,6 +25,10 @@ internal object KaspaRocketNativeSigner {
 
         val inputs = ArrayList<KaspaTransactionEngine.KaspaTransactionInput>(inputsJson.length())
         val utxos = ArrayList<KaspaTransactionEngine.KaspaUtxoEntry>(inputsJson.length())
+        val utxoArray = transactionJson.optJSONArray("utxoEntries")
+            ?: transactionJson.optJSONArray("utxo_entries")
+            ?: (transactionJson.optJSONObject("tx")?.optJSONArray("utxoEntries"))
+            ?: (transactionJson.optJSONObject("transaction")?.optJSONArray("utxoEntries"))
         for (index in 0 until inputsJson.length()) {
             val input = inputsJson.optJSONObject(index) ?: throw IllegalArgumentException("Malformed input $index")
             val outpointJson = input.optJSONObject("previousOutpoint")
@@ -43,6 +47,7 @@ internal object KaspaRocketNativeSigner {
             )
             val utxoJson = input.optJSONObject("utxoEntry")
                 ?: input.optJSONObject("utxo_entry")
+                ?: utxoArray?.optJSONObject(index)
                 ?: throw IllegalArgumentException("Input $index is missing its UTXO entry")
             utxos += KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoJson)
         }
@@ -136,7 +141,9 @@ internal object KaspaRocketNativeSigner {
             signedCount++
         }
 
-        require(signedCount > 0) { "The trade plan contains no signable wallet inputs" }
+        require(signedCount > 0 || inputs.all { it.signatureScript.isNotBlank() }) {
+            "The trade transaction has neither a signable input nor prebuilt final input scripts"
+        }
         return SignedPlanTransaction(signedTx, signedCount)
     }
 
