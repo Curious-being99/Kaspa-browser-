@@ -69,6 +69,10 @@ fun SwapScreenOverlay(
 ) {
     val walletStateState = viewModel?.kaspaWalletState?.collectAsState()
     val walletState = walletStateState?.value ?: KaspaWalletState()
+    val activeAccountState = viewModel?.activeAccount?.collectAsState()
+    val activeAccount = activeAccountState?.value
+    val walletLockedState = viewModel?.isWalletLocked?.collectAsState()
+    val walletIsLocked = walletLockedState?.value ?: true
 
     val networkFeeConditionState = viewModel?.networkFeeCondition?.collectAsState()
     val networkFeeCondition = networkFeeConditionState?.value ?: com.example.network.kaspa.KaspaTransactionEngine.KaspaNetworkFeeCondition()
@@ -91,6 +95,8 @@ fun SwapScreenOverlay(
     var swapStatusMessage by remember { mutableStateOf<String?>(null) }
     var showSuccessDialog by remember { mutableStateOf(false) }
     var lastBroadcastTxHash by remember { mutableStateOf("") }
+    var pendingTradePlan by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var showTradeReviewDialog by remember { mutableStateOf(false) }
 
     // Live Kaspa Price in USD (from wallet state or default fallback)
     val kasPriceUsd = walletState.priceUsd.takeIf { it > 0.0 } ?: 0.0
@@ -867,7 +873,7 @@ fun SwapScreenOverlay(
                 }
 
                 Text(
-                    text = "Live quotes are estimates only. Prepare Swap becomes available when the quote and balance checks pass. Broadcasting remains blocked until verified KCC-20 covenant signing is integrated.",
+                    text = "Trade plans are checked against the live route commitment before wallet signing. Review every output and fee before approving.",
                     fontSize = 12.sp,
                     color = TextSecondary,
                     fontWeight = FontWeight.Medium
@@ -883,9 +889,55 @@ fun SwapScreenOverlay(
 
                 Button(
                     onClick = {
-                        swapStatusMessage = "Quote is available, but execution is blocked until the native KCC-20 covenant transaction is built, verified against the quote commitment, signed, and broadcast. No transaction was sent and no token balance was changed."
+                        scope.launch {
+                            isExecutingSwap = true
+                            swapStatusMessage = null
+                            try {
+                                val account = activeAccount ?: throw IllegalStateException("No active wallet account")
+                                if (walletIsLocked) throw IllegalStateException("Unlock the wallet before signing a swap")
+                                val tokenId = (if (fromToken.isNative) toToken else fromToken).tokenId
+                                    ?: throw IllegalStateException("Select the KCC-20 token")
+                                val poolId = lpCovenantId ?: throw IllegalStateException("KaspaRocket pool covenant was not resolved")
+                                val recipient = effectiveRecipient
+                                if (recipient.isBlank() || !DecentralViewModel.isValidKaspaAddress(recipient)) {
+                                    throw IllegalStateException("Enter a valid Kaspa recipient address")
+                                }
+                                val side = if (fromToken.isNative) "buy" else "sell"
+                                val budgetSompi = if (side == "buy") {
+                                    com.example.network.kaspa.KaspaRocketMath.kasToSompi(amountFromInput)
+                                } else 0L
+                                val tokensRaw = if (side == "sell") {
+                                    com.example.network.kaspa.KaspaRocketMath.tokensToRaw(amountFromInput)
+                                } else null
+                                val preview = kaspaRocket.getRoute(
+                                    tokenId = tokenId,
+                                    lpCovenantId = poolId,
+                                    address = recipient,
+                                    side = side,
+                                    budgetSompi = budgetSompi,
+                                    tokensRaw = tokensRaw
+                                ) ?: throw IllegalStateException("KaspaRocket could not build a live route preview")
+                                val expected = preview.optString("attendu", "")
+                                if (expected.isBlank()) throw IllegalStateException("KaspaRocket route did not provide a price commitment")
+                                val plan = kaspaRocket.planTrade(
+                                    tokenId = tokenId,
+                                    lpCovenantId = poolId,
+                                    address = recipient,
+                                    side = side,
+                                    budgetSompi = budgetSompi,
+                                    expected = expected,
+                                    tokensRaw = tokensRaw
+                                ) ?: throw IllegalStateException("KaspaRocket could not build the committed transaction plan")
+                                pendingTradePlan = plan.put("_reviewRecipient", recipient)
+                                showTradeReviewDialog = true
+                            } catch (error: Throwable) {
+                                swapStatusMessage = "Error: ${error.message ?: "Unable to prepare swap"}"
+                            } finally {
+                                isExecutingSwap = false
+                            }
+                        }
                     },
-                    enabled = canPrepareSwap,
+                    enabled = canPrepareSwap && activeAccount != null && !walletIsLocked,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(46.dp)
@@ -922,6 +974,99 @@ fun SwapScreenOverlay(
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+
+    if (showTradeReviewDialog && pendingTradePlan != null) {
+        val planForReview = pendingTradePlan!!
+        AlertDialog(
+            onDismissRequest = {
+                showTradeReviewDialog = false
+                pendingTradePlan = null
+            },
+            containerColor = SurfaceCard,
+            title = { Text("Review KaspaRocket swap", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Direction: ${fromToken.symbol} → ${toToken.symbol}", color = TextPrimary)
+                    Text("Input: $amountFromInput ${fromToken.symbol}", color = TextPrimary)
+                    Text("Estimated output: ${String.format(java.util.Locale.US, "%.8f", estimatedOutputAmount)} ${toToken.symbol}", color = TextPrimary)
+                    Text("Recipient: ${planForReview.optString("_reviewRecipient")}", color = TextSecondary)
+                    Text("The transaction plan will be locally re-hashed and every signing digest compared with KaspaRocket's commitment before any signature is created.", color = TextSecondary, fontSize = 12.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showTradeReviewDialog = false
+                    val plan = pendingTradePlan
+                    pendingTradePlan = null
+                    scope.launch {
+                        isExecutingSwap = true
+                        swapStatusMessage = null
+                        try {
+                            val account = activeAccount ?: throw IllegalStateException("No active wallet account")
+                            if (walletIsLocked) throw IllegalStateException("Wallet locked; unlock before signing")
+                            val seedBytes = com.example.network.CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                            val keyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(seedBytes)
+                            val activePubKey = com.example.network.CryptoUtils.extractPublicKeyFromAddress(walletState.kaspaAddress)
+                                ?: throw IllegalStateException("Could not verify the active wallet address")
+                            if (!com.example.network.CryptoUtils.bytesToHex(activePubKey).equals(keyPair.publicKeyHex, ignoreCase = true)) {
+                                throw IllegalStateException("Active wallet key does not match the selected address")
+                            }
+                            val tradePlan = plan ?: throw IllegalStateException("Trade plan expired")
+                            val plannedTransactions = tradePlan.optJSONArray("transactions")
+                                ?: throw IllegalStateException("KaspaRocket plan has no transaction list")
+                            val signedTransactions = ArrayList<org.json.JSONObject>(plannedTransactions.length())
+                            for (txIndex in 0 until plannedTransactions.length()) {
+                                val plannedTx = plannedTransactions.optJSONObject(txIndex)
+                                    ?: throw IllegalStateException("Malformed planned transaction $txIndex")
+                                val txInstructions = plannedTx.optJSONArray("instructions")
+                                    ?: tradePlan.optJSONArray("instructions")
+                                    ?: tradePlan.optJSONArray("instructionsToSign")
+                                    ?: throw IllegalStateException("Plan has no signing instructions for transaction $txIndex")
+                                val scopedInstructions = org.json.JSONArray()
+                                for (instructionIndex in 0 until txInstructions.length()) {
+                                    val instruction = txInstructions.optJSONObject(instructionIndex) ?: continue
+                                    val instructionTxIndex = instruction.optInt("transactionIndex", instruction.optInt("transaction_index", -1))
+                                    if (instructionTxIndex == -1 && plannedTransactions.length() == 1) {
+                                        scopedInstructions.put(instruction)
+                                    } else if (instructionTxIndex == txIndex) {
+                                        scopedInstructions.put(instruction)
+                                    }
+                                }
+                                val signed = com.example.network.kaspa.KaspaRocketNativeSigner.sign(
+                                    transactionJson = plannedTx,
+                                    instructions = scopedInstructions,
+                                    privateKey = keyPair.privateKey,
+                                    publicKeyHex = keyPair.publicKeyHex
+                                )
+                                signedTransactions += signed.transaction
+                            }
+                            val orderRow = tradePlan.optJSONObject("order_row") ?: tradePlan.optJSONObject("orderRow")
+                            val receipt = kaspaRocket.submitSignedTransactions(signedTransactions, orderRow)
+                                ?: throw IllegalStateException("KaspaRocket did not confirm transaction submission")
+                            val txid = receipt.optString("txid",
+                                receipt.optString("txId",
+                                    receipt.optJSONArray("txids")?.optString(0, "")
+                                        ?: receipt.optJSONArray("transactions")?.optJSONObject(0)?.optString("txid", "").orEmpty()))
+                            if (txid.isBlank()) throw IllegalStateException("Submission response did not include a transaction ID")
+                            lastBroadcastTxHash = txid
+                            showSuccessDialog = true
+                            swapStatusMessage = "Swap transaction submitted: $txid"
+                        } catch (error: Throwable) {
+                            swapStatusMessage = "Error: ${error.message ?: "Swap signing or submission failed"}"
+                        } finally {
+                            isExecutingSwap = false
+                        }
+                    }
+                }) { Text("Sign and submit") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showTradeReviewDialog = false
+                    pendingTradePlan = null
+                }) { Text("Cancel") }
+            }
+        )
     }
 
     // Success Confirmation Modal Dialog
