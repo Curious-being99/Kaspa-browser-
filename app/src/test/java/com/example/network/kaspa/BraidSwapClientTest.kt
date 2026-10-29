@@ -25,7 +25,7 @@ class BraidSwapClientTest {
     @Test
     fun kbTokenIsNotDeclaredBraidCompatible() {
         assertFalse(BraidSwapClient.isSupported(BraidSwapClient.Network.MAINNET, "KB"))
-        assertFalse(BraidSwapClient.isSupported(BraidSwapClient.Network.MAINNET, "\\$KB"))
+        assertFalse(BraidSwapClient.isSupported(BraidSwapClient.Network.MAINNET, "\$KB"))
         assertFalse(BraidSwapClient.isSupported(BraidSwapClient.Network.TN10, "KB"))
     }
 
