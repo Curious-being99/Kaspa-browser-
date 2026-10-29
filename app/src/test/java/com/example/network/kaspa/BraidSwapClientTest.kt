@@ -36,6 +36,38 @@ class BraidSwapClientTest {
     }
 
     @Test
+    fun launchModeAcceptsDocumentedDeadlineAndZeroPriority() {
+        val client = BraidSwapClient(BraidSwapClient.Network.TN10)
+        client.validateLaunchModeOptions("KAS", "3000000000", BraidSwapClient.LaunchModeOptions(600, true, "0"))
+    }
+
+    @Test
+    fun launchModeRejectsDeadlineOutsideWindow() {
+        val client = BraidSwapClient(BraidSwapClient.Network.TN10)
+        val error = try {
+            client.validateLaunchModeOptions("KAS", "3000000000", BraidSwapClient.LaunchModeOptions(120, true, "0"))
+            null
+        } catch (e: IllegalArgumentException) { e }
+        assertTrue(error != null)
+    }
+
+    @Test
+    fun launchModeCapsPriorityAndMainnetKASRatio() {
+        val mainnet = BraidSwapClient(BraidSwapClient.Network.MAINNET)
+        val tooHigh = try {
+            mainnet.validateLaunchModeOptions("KAS", "1000000000", BraidSwapClient.LaunchModeOptions(600, true, "31000000"))
+            null
+        } catch (e: IllegalArgumentException) { e }
+        assertTrue(tooHigh != null)
+
+        val globalCap = try {
+            mainnet.validateLaunchModeOptions("TOKEN", null, BraidSwapClient.LaunchModeOptions(600, true, "45000001"))
+            null
+        } catch (e: IllegalArgumentException) { e }
+        assertTrue(globalCap != null)
+    }
+
+    @Test
     fun routerPinsAreExplicitPerNetwork() {
         assertEquals(
             "f994470f9bd84d2ca2578a5d8294cc403bb699f19f7e73922c51d04cbb17027d",
