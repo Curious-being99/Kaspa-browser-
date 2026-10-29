@@ -155,7 +155,6 @@ import com.example.network.CryptoUtils
 import com.example.ui.components.KaspaQrCodeView
 import com.example.ui.components.PinnedTokensSection
 import com.example.ui.components.Krc20TokenDetailSheet
-import com.example.ui.components.PinTokenDialog
 import androidx.compose.material.icons.filled.Public
 import com.example.ui.theme.AmberCentral
 import com.example.ui.theme.CyanGlow
@@ -284,7 +283,6 @@ fun KaspaTestnetWalletScreen(
     val pinnedTokens by viewModel.pinnedTokens.collectAsState()
     val isLoadingKrc20 by viewModel.isLoadingKrc20.collectAsState()
     var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
-    var showPinTokenDialog by remember { mutableStateOf(false) }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
@@ -320,8 +318,6 @@ fun KaspaTestnetWalletScreen(
             viewModel.clearWalletStatusNotice()
         } else if (selectedTokenForDetails != null) {
             selectedTokenForDetails = null
-        } else if (showPinTokenDialog) {
-            showPinTokenDialog = false
         } else if (showUnlockBeforeSeedSheet) {
             showUnlockBeforeSeedSheet = false
         } else if (showCompoundDialog) {
@@ -649,8 +645,7 @@ fun KaspaTestnetWalletScreen(
                 isLoading = isLoadingKrc20,
                 onTokenClick = { token -> selectedTokenForDetails = token },
                 onTogglePin = { tick -> viewModel.togglePinToken(tick) },
-                onOpenSwap = { tick -> viewModel.openSwapDapp() },
-                onAddTokenClick = { showPinTokenDialog = true }
+                onOpenSwap = { tick -> viewModel.openSwapDapp() }
             )
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -919,15 +914,6 @@ fun KaspaTestnetWalletScreen(
         }
 
         // Pin Token Search & Import Dialog
-        if (showPinTokenDialog) {
-            PinTokenDialog(
-                onDismiss = { showPinTokenDialog = false },
-                onPinToken = { query, onResult ->
-                    viewModel.importAndPinToken(query, onResult)
-                }
-            )
-        }
-
         // Compound UTXO Confirmation Dialog
         if (showCompoundDialog) {
             CompoundUtxoDialog(
