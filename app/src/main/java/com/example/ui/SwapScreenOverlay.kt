@@ -913,49 +913,13 @@ fun SwapScreenOverlay(
                     )
                 }
 
-                // Keep execution fail-closed until a native covenant-aware signer and
-                // verified Mainnet submission path are integrated. A quote or unsigned plan
-                // is not evidence that a trade can safely execute.
                 val isUneconomic = krQuote?.uneconomic == true
-                val isExecutable = false
+                val isExecutable = !isUneconomic && !isExecutingSwap &&
+                    parsedFromAmount > 0.0 && isSufficientBalance && isAddressValid
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = RedTamper.copy(alpha = 0.10f)),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.35f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = RedTamper,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = "KCC-20 trading is not enabled yet",
-                                color = TextPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "KaspaRocket trade signing and verified Mainnet broadcast are not integrated. This screen can show live quotes, but it cannot safely execute a swap. No transaction has been sent.",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                    }
-                }
-
-                // Primary Swap Execution Button (Matching Buy Token button size and styling)
                 Button(
                     onClick = {
-                        swapStatusMessage = "Trading is temporarily unavailable: KaspaRocket covenant signing and on-chain verification are not connected. No funds were sent and no token balance was changed."
+                        swapStatusMessage = "KCC-20 signing is not available for this trade yet."
                     },
                     enabled = isExecutable,
                     modifier = Modifier
