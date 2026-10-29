@@ -116,13 +116,14 @@ object KaspaTransactionEngine {
         val previousOutpoint: KaspaOutpoint,
         var signatureScript: String = "",
         val sequence: Long = 0L,
-        val sigOpCount: Int = 1
+        val sigOpCount: Int = 1,
+        val computeBudget: Int = 0
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("previousOutpoint", previousOutpoint.toJson())
             put("signatureScript", signatureScript)
             put("sequence", sequence)
-            put("sigOpCount", sigOpCount)
+            if (computeBudget > 0) put("computeBudget", computeBudget) else put("sigOpCount", sigOpCount)
         }
     }
 
@@ -377,6 +378,18 @@ object KaspaTransactionEngine {
      * Calculates the exact BIP-143 style Kaspa Transaction Signing Hash
      * strictly adhering to kaspa-consensus-core & kaspa-txscript algorithms.
      */
+    private fun writeCovenantBinding(stream: ByteArrayOutputStream, binding: KaspaCovenantBinding?) {
+        if (binding == null) {
+            writeByte(stream, 0)
+            return
+        }
+        require(binding.authorizingInput in 0..0xffff) { "Covenant authorizing input is out of range" }
+        require(binding.covenantId.matches(Regex("(?i)[0-9a-f]{64}"))) { "Invalid covenant ID" }
+        writeByte(stream, 1)
+        writeUInt16LE(stream, binding.authorizingInput)
+        writeHex(stream, binding.covenantId)
+    }
+
     fun calcSchnorrSignatureHash(
         tx: KaspaTransaction,
         inputIndex: Int,
@@ -417,7 +430,7 @@ object KaspaTransactionEngine {
         }
 
         // 3. sigOpCountsHash (32 bytes)
-        val sigOpCountsHash: ByteArray = if ((sigHashType and SIGHASH_ANYONECANPAY) == 0) {
+        val sigOpCountsHash: ByteArray = if (tx.version < 1 && (sigHashType and SIGHASH_ANYONECANPAY) == 0) {
             val bos = ByteArrayOutputStream()
             for (input in tx.inputs) {
                 writeByte(bos, input.sigOpCount.toByte())
@@ -442,7 +455,7 @@ object KaspaTransactionEngine {
         inputBos.write(scriptBytes)
         writeUInt64LE(inputBos, utxoEntry.amount)
         writeUInt64LE(inputBos, currentInput.sequence)
-        writeByte(inputBos, currentInput.sigOpCount.toByte())
+        if (tx.version < 1) writeByte(inputBos, currentInput.sigOpCount.toByte())
         val inputSpecificData = inputBos.toByteArray()
 
         // 5. outputsHash (32 bytes)
@@ -455,6 +468,7 @@ object KaspaTransactionEngine {
                     val outScriptBytes = hexToBytes(output.scriptPublicKey.script)
                     writeUInt64LE(bos, outScriptBytes.size.toLong())
                     bos.write(outScriptBytes)
+                    if (tx.version >= 1) writeCovenantBinding(bos, output.covenant)
                 }
                 CryptoUtils.blake2b256(bos.toByteArray(), KEY_TRANSACTION_SIGNING_HASH)
             }
@@ -467,6 +481,7 @@ object KaspaTransactionEngine {
                     val outScriptBytes = hexToBytes(output.scriptPublicKey.script)
                     writeUInt64LE(bos, outScriptBytes.size.toLong())
                     bos.write(outScriptBytes)
+                    if (tx.version >= 1) writeCovenantBinding(bos, output.covenant)
                     CryptoUtils.blake2b256(bos.toByteArray(), KEY_TRANSACTION_SIGNING_HASH)
                 } else {
                     ByteArray(32)
