@@ -328,7 +328,10 @@ class KaspaRocketClient(
                 val items = org.json.JSONArray()
                 transactions.forEach { items.put(JSONObject(it.toString())) }
                 put("transactions", items)
-                if (orderRow != null) put("order_row", JSONObject(orderRow.toString()))
+                if (orderRow != null) {
+                    put("order_row", JSONObject(orderRow.toString()))
+                    put("orderRow", JSONObject(orderRow.toString()))
+                }
             }
             val request = Request.Builder()
                 .url("$baseUrl/pro-api/submit")
