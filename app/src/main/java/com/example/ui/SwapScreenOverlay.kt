@@ -790,7 +790,7 @@ fun SwapScreenOverlay(
                                 fullValue = poolCovenantHex,
                                 displayValue = poolCovenantDisplay
                             )
-                            QuoteRow(label = "KAS Price", value = if (kasPriceUsd > 0.0) "\${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD" else "Unavailable — no live price")
+                            QuoteRow(label = "KAS Price", value = if (kasPriceUsd > 0.0) "${String.format(java.util.Locale.US, "%.3f", kasPriceUsd)} USD" else "Unavailable — no live price")
                             QuoteRow(label = "Slippage Tolerance", value = "0.5%")
                             
                             val dexFeeKasStr = com.example.network.kaspa.KaspaRocketMath.formatKas(krQuote?.feeTotalSompi ?: 0L)
