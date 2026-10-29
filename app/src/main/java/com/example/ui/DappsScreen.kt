@@ -347,7 +347,7 @@ private fun FeaturedBraidAppCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 30dp Braid logo at top as requested
-                BraidLogoIcon(iconSize = 24.dp)
+                BraidLogoIcon(iconSize = 30.dp)
 
                 Spacer(modifier = Modifier.width(8.dp))
 
