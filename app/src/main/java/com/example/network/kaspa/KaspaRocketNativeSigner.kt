@@ -98,13 +98,26 @@ internal object KaspaRocketNativeSigner {
             val instruction = instructions.optJSONObject(instructionIndex)
                 ?: throw IllegalArgumentException("Malformed signing instruction")
             val kind = instruction.optString("kind", "")
-            if (kind == "final") continue
-            require(kind == "p2pkh" || kind == "covenant-leader") {
-                "Unsupported KaspaRocket signing instruction: $kind"
-            }
             val inputIndex = instruction.optInt("inputIndex", instruction.optInt("input_index", -1))
             require(inputIndex in inputs.indices) { "Signing instruction input index is out of range" }
             require(seen.add(inputIndex)) { "Duplicate signing instruction for input $inputIndex" }
+
+            val signedInput = signedInputs.optJSONObject(inputIndex)
+                ?: throw IllegalArgumentException("Malformed input $inputIndex")
+            val currentScript = signedInput.optString("signatureScript", signedInput.optString("signature_script", ""))
+            require(currentScript.matches(Regex("(?i)([0-9a-f]{2})*"))) {
+                "Input $inputIndex has malformed signature script"
+            }
+
+            if (kind == "final") {
+                require(currentScript.isNotBlank()) {
+                    "Final input $inputIndex has no prebuilt signature script"
+                }
+                continue
+            }
+            require(kind == "p2pkh" || kind == "covenant-leader") {
+                "Unsupported KaspaRocket signing instruction: $kind"
+            }
 
             val expectedDigest = instruction.optString("sighash", "").removePrefix("0x").lowercase()
             require(expectedDigest.matches(Regex("[0-9a-f]{64}"))) {
@@ -121,11 +134,6 @@ internal object KaspaRocketNativeSigner {
             }
 
             val signatureHex = CryptoUtils.signSchnorr(privateKey, localDigest) + "01"
-            val signedInput = signedInputs.optJSONObject(inputIndex)
-                ?: throw IllegalArgumentException("Malformed input $inputIndex")
-            val currentScript = signedInput.optString("signatureScript", signedInput.optString("signature_script", ""))
-            require(currentScript.matches(Regex("(?i)([0-9a-f]{2})*"))) { "Input $inputIndex has malformed signature script" }
-
             val script = when (kind) {
                 "p2pkh" -> {
                     require(currentScript.isBlank()) { "Refusing to overwrite input $inputIndex signature script" }
@@ -141,6 +149,9 @@ internal object KaspaRocketNativeSigner {
             signedCount++
         }
 
+        require(seen.size == inputs.size) {
+            "Signing instructions must explicitly classify every transaction input; refusing to sign an incomplete plan"
+        }
         require(signedCount > 0 || inputs.all { it.signatureScript.isNotBlank() }) {
             "The trade transaction has neither a signable input nor prebuilt final input scripts"
         }
