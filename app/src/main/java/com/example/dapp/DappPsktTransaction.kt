@@ -218,8 +218,16 @@ internal object DappPsktTransaction {
             "Transaction fee is below the wallet minimum of 0.0056 KAS"
         }
 
+        val transactionVersion = txRoot.optInt("version", 0)
+        require(transactionVersion == 0) {
+            "Generic PSKT signing/submission supports transaction version 0 only; version 1 covenant fields must be preserved by a covenant-aware transaction engine"
+        }
+        require(outputs.none { it.covenantBinding != null }) {
+            "Covenant-bound outputs cannot be signed or submitted through the generic PSKT transaction engine"
+        }
+
         val tx = KaspaTransactionEngine.KaspaTransaction(
-            version = txRoot.optInt("version", 0),
+            version = transactionVersion,
             inputs = inputs,
             outputs = outputs,
             lockTime = txRoot.optLong("lockTime", txRoot.optLong("lock_time", 0L)),
