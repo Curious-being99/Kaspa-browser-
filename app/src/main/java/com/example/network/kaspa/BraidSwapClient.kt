@@ -129,7 +129,7 @@ internal class BraidSwapClient(
         require(fromSymbol != toSymbol) { "Choose two different assets" }
         amountIn?.let { require(it.matches(Regex("[1-9][0-9]{0,18}"))) { "Invalid token base-unit amount" } }
         payTotal?.let { require(it.matches(Regex("[1-9][0-9]{0,18}"))) { "Invalid KAS sompi amount" } }
-        userPublicKey?.let { require(it.matches(Regex("(?i)[0-9a-f]{64}")) { "Invalid x-only public key" } }
+        userPublicKey?.let { require(it.matches(Regex("(?i)[0-9a-f]{64}"))) { "Invalid x-only public key" } }
 
         verifyRouterStatus()
         val query = buildList {
