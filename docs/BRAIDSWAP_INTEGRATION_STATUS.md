@@ -4,7 +4,7 @@
 
 BraidSwap is implemented as a separate, read-only API client in `BraidSwapClient.kt`. It has separate mainnet and TN10 endpoints, expected current router fingerprints, and a local network-specific token allowlist sourced from the supplied Braid wallet kit. Before requesting quotes, it checks the router status/pin, validates amount strings, enforces network-specific slippage limits, and can pass an optional integrator fee address/rate (1–200 bps). When a fee is requested, it checks that the returned quote reports the same fee address/rate. These API checks are not a substitute for independently hashing the router program and verifying a built transaction.
 
-This is intentionally not wired to the existing swap execution button yet. The client currently supports read-only quotes only; it does not call `/deposit-build`, `/deposit-submit`, `/status`, or `/details`. Braid's deposit protocol is different from KaspaRocket's `planTrade` / signing instructions; passing a Braid deposit through `KaspaRocketNativeSigner` would be unsafe. The full Braid pre-sign verifier, independent BLAKE2b-256 router pin calculation, independent chain-time checks, transaction sighash calculation, and post-submit status verification must be ported and tested before any Braid deposit is built, signed, or submitted.
+This is intentionally not wired to the existing swap execution button yet. The client currently supports read-only quotes, launch-mode parameter validation, and read-only `/status` and `/details` lookups; it does not call `/deposit-build` or `/deposit-submit`. Braid's deposit protocol is different from KaspaRocket's `planTrade` / signing instructions; passing a Braid deposit through `KaspaRocketNativeSigner` would be unsafe. The full Braid pre-sign verifier, independent BLAKE2b-256 router pin calculation, independent chain-time checks, transaction sighash calculation, deadline-bound fill-window handling, priority-adjusted quote/minOut calculation, polling/finality verification, and recovery/refund/reclaim verification must be ported and tested before any Braid deposit is built, signed, or submitted.
 
 KaspaRocket execution and quote code is unchanged. The wallet send flow and SI Agent are not changed.
 
@@ -27,6 +27,10 @@ The supplied Braid wallet kit's pinned token registry and pinned-pool table did 
 3. Braid's quote/build API supports the exact $KB covenant ID;
 4. the complete deposit verifier passes against a fresh quote/build and tampering fixtures, including outputs, fees, token notes, recovery payload, deadline, minimum output, sighash, and exact wallet debit.
 
+## Launch mode and lifecycle
+
+The client exposes local validation for the documented 180–1200 second fill window and a priority bid capped at 45,000,000 sompi. For KAS input, it additionally applies the documented 3% mainnet / 20% TN10 ratio cap. It also exposes read-only status and details requests. These helpers are not yet connected to a deposit build, and the client does not yet independently calculate the reduced quote/minOut required when priority is spent, identify live curve pools from `/pools`, or automatically poll status every two seconds. No live launch-mode trade is enabled.
+
 ## Validation status
 
-The added unit tests cover the local token allowlist and network router pin constants. Android compilation, CI, Braid live API behavior, quote fee behavior, transaction verification, signing, and a low-value live trade have not been verified in this session. Do not treat Braid swaps as production-ready yet.
+The added unit tests cover the local token allowlist, network router pin constants, and launch-mode input bounds. Android compilation, CI, Braid live API behavior, quote fee behavior, transaction verification, signing, and a low-value live trade have not been verified in this session. Do not treat Braid swaps as production-ready yet.
