@@ -203,6 +203,56 @@ internal class BraidSwapClient(
         quote
     }
 
+    data class LaunchModeOptions(
+        val deadlineSec: Int = 600,
+        val waitForPrice: Boolean = false,
+        val priorityMaxSompi: String = "0"
+    )
+
+    fun validateLaunchModeOptions(
+        from: String,
+        payTotalSompi: String?,
+        options: LaunchModeOptions
+    ) {
+        require(options.deadlineSec in 180..1200) {
+            "Launch-mode fill window must be between 180 and 1200 seconds"
+        }
+        require(options.priorityMaxSompi.matches(Regex("0|[1-9][0-9]{0,8}"))) {
+            "Invalid launch-mode priority bid"
+        }
+        val priority = java.math.BigInteger(options.priorityMaxSompi)
+        val maximumPriority = java.math.BigInteger("45000000")
+        require(priority <= maximumPriority) {
+            "Launch-mode priority bid exceeds 0.45 KAS"
+        }
+        if (from.trim().equals("KAS", ignoreCase = true) && priority.signum() > 0) {
+            val pay = payTotalSompi?.takeIf { it.matches(Regex("[1-9][0-9]{0,18}")) }
+                ?: throw IllegalArgumentException("KAS launch-mode priority requires a valid payTotal")
+            val payValue = java.math.BigInteger(pay)
+            val ratioCapBps = if (network == Network.MAINNET) 300 else 2000
+            val ratioCap = payValue.multiply(java.math.BigInteger(ratioCapBps.toString()))
+                .divide(java.math.BigInteger("10000"))
+            require(priority <= ratioCap) {
+                "KAS launch-mode priority exceeds the ${ratioCapBps / 100}% network cap"
+            }
+        }
+    }
+
+    suspend fun getPublicStatus(ref: String): JSONObject = withContext(Dispatchers.IO) {
+        require(ref.matches(Regex("br-[A-Za-z0-9-]{6,80}"))) { "Invalid BraidSwap reference" }
+        getJson("${network.apiBase}/status?ref=${java.net.URLEncoder.encode(ref, "UTF-8")}")
+    }
+
+    suspend fun getDetailsByRef(ref: String): JSONObject = withContext(Dispatchers.IO) {
+        require(ref.matches(Regex("br-[A-Za-z0-9-]{6,80}"))) { "Invalid BraidSwap reference" }
+        getJson("${network.apiBase}/details?ref=${java.net.URLEncoder.encode(ref, "UTF-8")}")
+    }
+
+    suspend fun getDetailsByTransactionId(txid: String): JSONObject = withContext(Dispatchers.IO) {
+        require(txid.matches(Regex("(?i)[0-9a-f]{64}"))) { "Invalid Kaspa transaction ID" }
+        getJson("${network.apiBase}/details?tx=${java.net.URLEncoder.encode(txid.lowercase(), "UTF-8")}")
+    }
+
     private fun getJson(url: String): JSONObject {
         val request = Request.Builder().url(url).get().build()
         client.newCall(request).execute().use { response ->
