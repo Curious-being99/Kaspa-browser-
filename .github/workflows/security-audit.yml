@@ -182,10 +182,10 @@ jobs:
       - name: Cache OWASP Dependency-Check vulnerability database
         uses: actions/cache@v4
         with:
-          path: \${{ runner.temp }}/dependency-check-data
-          key: dependency-check-\${{ runner.os }}-v12.2.2-\${{ hashFiles('**/gradle.lockfile', '**/gradle/libs.versions.toml') }}
+          path: ${{ runner.temp }}/dependency-check-data
+          key: dependency-check-${{ runner.os }}-v13.0.0-${{ hashFiles('**/gradle.lockfile', '**/gradle/libs.versions.toml') }}
           restore-keys: |
-            dependency-check-\${{ runner.os }}-v12.2.2-
+            dependency-check-${{ runner.os }}-v13.0.0-
 
       - name: Generate CI debug keystore
         run: |
@@ -194,7 +194,7 @@ jobs:
       - name: Audit resolved Gradle dependencies with OWASP Dependency-Check
         shell: bash
         env:
-          NVD_API_KEY: \${{ secrets.NVD_API_KEY }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           set -euo pipefail
           cat > "${RUNNER_TEMP}/dependency-check.init.gradle" <<'EOF'
@@ -204,7 +204,7 @@ jobs:
               mavenCentral()
             }
             dependencies {
-              classpath 'org.owasp:dependency-check-gradle:12.2.2'
+              classpath 'org.owasp:dependency-check-gradle:13.0.0'
             }
           }
           allprojects {
@@ -218,8 +218,15 @@ jobs:
                 nodePackage.enabled = false
               }
               outputDirectory = "${System.getenv('RUNNER_TEMP')}/dependency-check-report"
+              data {
+                directory = "${System.getenv('RUNNER_TEMP')}/dependency-check-data"
+              }
               nvd {
                 validForHours = 24
+                def nvdKey = System.getenv('NVD_API_KEY')
+                if (nvdKey) {
+                  apiKey = nvdKey
+                }
               }
             }
           }
