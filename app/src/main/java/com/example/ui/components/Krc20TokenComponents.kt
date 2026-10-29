@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
@@ -56,8 +55,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -111,7 +108,6 @@ fun PinnedTokensSection(
     onTokenClick: (Krc20TokenBalance) -> Unit,
     onTogglePin: (String) -> Unit,
     onOpenSwap: (String) -> Unit,
-    onAddTokenClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -127,68 +123,12 @@ fun PinnedTokensSection(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Token,
-                    contentDescription = "Tokens",
-                    tint = KaspaTea,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Tokens",
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Surface(
-                    color = SurfaceCardBorder,
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text(
-                        text = "${pinnedTokens.size}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                    )
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(14.dp),
                         strokeWidth = 1.5.dp,
                         color = KaspaTea
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Surface(
-                    onClick = onAddTokenClick,
-                    shape = RoundedCornerShape(8.dp),
-                    color = SurfaceCard,
-                    border = BorderStroke(1.dp, SurfaceCardBorder),
-                    modifier = Modifier.testTag("add_pinned_token_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add Token",
-                            tint = KaspaTea,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Add Token",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = TextPrimary
-                        )
-                    }
                 }
             }
         }
@@ -1319,142 +1259,3 @@ fun RawJsonViewerDialog(
     )
 }
 
-/**
- * Dialog to add/search and pin a new KRC-20 token by ticker or token ID, with Bonding Curve tags.
- */
-@Composable
-fun PinTokenDialog(
-    onDismiss: () -> Unit,
-    onPinToken: (String, (Boolean, String) -> Unit) -> Unit
-) {
-    var query by remember { mutableStateOf("") }
-    var statusText by remember { mutableStateOf<String?>(null) }
-    var isSearching by remember { mutableStateOf(false) }
-
-    val quickPicks = listOf(
-        Pair("KASPUMP", "Bonding Curve"),
-        Pair("NACHO", "Graduated"),
-        Pair("KASPER", "Graduated"),
-        Pair("SOMI", "Graduated"),
-        Pair("BOMB", "Graduated")
-    )
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (query.isNotBlank()) {
-                        isSearching = true
-                        statusText = "Querying Kasplex mainnet indexer..."
-                        onPinToken(query) { success, msg ->
-                            isSearching = false
-                            statusText = msg
-                            if (success) {
-                                onDismiss()
-                            }
-                        }
-                    }
-                },
-                enabled = query.isNotBlank() && !isSearching,
-                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                modifier = Modifier.testTag("submit_pin_token_button")
-            ) {
-                if (isSearching) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = ObsidianBg
-                    )
-                } else {
-                    Text("Add Token", color = ObsidianBg, fontWeight = FontWeight.Bold)
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextSecondary)
-            }
-        },
-        title = {
-            Text(
-                text = "Add KRC-20 Token",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary
-            )
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it.uppercase() },
-                    placeholder = { Text("e.g. KASPUMP, NACHO, SOMI", color = TextMuted) },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = KaspaTea,
-                        unfocusedBorderColor = SurfaceCardBorder,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("pin_token_input")
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "Recommendations:",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextMuted
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    quickPicks.forEach { (tick, type) ->
-                        Surface(
-                            onClick = { query = tick },
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (query == tick) KaspaTea.copy(alpha = 0.2f) else SurfaceDark,
-                            border = BorderStroke(1.dp, if (query == tick) KaspaTea else SurfaceCardBorder)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = tick,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (query == tick) KaspaTea else TextSecondary
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "• $type",
-                                    fontSize = 9.sp,
-                                    color = if (type.contains("Bonding")) AmberCentral else KaspaTea
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (statusText != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = statusText.orEmpty(),
-                        fontSize = 11.sp,
-                        color = if (statusText?.contains("Success", true) == true) EmeraldMesh else TextSecondary
-                    )
-                }
-            }
-        },
-        containerColor = SurfaceElevated
-    )
-}
