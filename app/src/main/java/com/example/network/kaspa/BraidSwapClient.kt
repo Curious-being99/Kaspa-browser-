@@ -88,20 +88,29 @@ internal class BraidSwapClient(
     suspend fun verifyRouterStatus(): VerifiedRouterStatus = withContext(Dispatchers.IO) {
         val info = getJson("${network.apiBase}/info")
         val pin = info.optString("pin", "").lowercase()
-        require(pin == network.currentRouterPin && info.optBoolean("pinOk", false)) {
+        val expectedPin = info.optString("expectedPin", network.currentRouterPin).lowercase()
+        require(pin == network.currentRouterPin &&
+            expectedPin == network.currentRouterPin &&
+            info.optBoolean("pinOk", false)
+        ) {
             "BraidSwap router fingerprint is not the pinned current release"
         }
-        require(info.optBoolean("enabled", false)) {
-            "BraidSwap router is not enabled; swaps are unavailable"
+        val executorStatus = info.optJSONObject("executorStatus")
+        require(executorStatus == null || executorStatus.optBoolean("healthy", false)) {
+            "BraidSwap executor is not healthy; swaps are unavailable"
         }
-        val statusNetwork = info.optString("networkName", network.networkName)
-        require(statusNetwork == network.networkName) {
-            "BraidSwap API returned the wrong network"
+        val enabled = info.optBoolean("enabled", false)
+        require(enabled) {
+            if (info.optBoolean("canary", false)) {
+                "BraidSwap deposits are canary-restricted or disabled"
+            } else {
+                "BraidSwap router is not enabled; swaps are unavailable"
+            }
         }
         VerifiedRouterStatus(
             network = network,
             pin = pin,
-            enabled = true,
+            enabled = enabled,
             canary = info.optBoolean("canary", false)
         )
     }
@@ -112,9 +121,24 @@ internal class BraidSwapClient(
         amountIn: String? = null,
         payTotal: String? = null,
         slippageBps: Int = 100,
-        userPublicKey: String? = null
+        userPublicKey: String? = null,
+        walletFeeAddress: String? = null,
+        walletFeeBps: Int? = null
     ): JSONObject = withContext(Dispatchers.IO) {
-        require(slippageBps in 1..2000) { "Slippage must be between 1 and 2000 bps" }
+        val maxSlippageBps = if (network == Network.MAINNET) 500 else 5000
+        require(slippageBps in 1..maxSlippageBps) {
+            "Slippage must be between 1 and ${maxSlippageBps} bps on ${network.name}"
+        }
+        require((walletFeeAddress == null) == (walletFeeBps == null)) {
+            "Wallet fee address and fee percentage must be provided together"
+        }
+        if (walletFeeAddress != null) {
+            val expectedPrefix = if (network == Network.MAINNET) "kaspa" else "kaspatest"
+            require(com.example.network.CryptoUtils.isValidKaspaAddress(walletFeeAddress, expectedPrefix)) {
+                "Wallet fee address is invalid for ${network.name}"
+            }
+            require(walletFeeBps in 1..200) { "Wallet fee must be between 1 and 200 bps (2% maximum)" }
+        }
         require((amountIn != null) xor (payTotal != null)) {
             "Provide exactly one of token amountIn or KAS payTotal"
         }
@@ -139,6 +163,8 @@ internal class BraidSwapClient(
             if (amountIn != null) add("amountIn" to amountIn)
             if (payTotal != null) add("payTotal" to payTotal)
             if (userPublicKey != null) add("userPk" to userPublicKey.lowercase())
+            if (walletFeeAddress != null) add("walletFeeAddress" to walletFeeAddress)
+            if (walletFeeBps != null) add("walletFeeBps" to walletFeeBps.toString())
         }.joinToString("&") { (key, value) ->
             "${java.net.URLEncoder.encode(key, "UTF-8")}=${java.net.URLEncoder.encode(value, "UTF-8")}"
         }
@@ -158,6 +184,19 @@ internal class BraidSwapClient(
         }
         require(quote.optString("minOut").matches(Regex("[1-9][0-9]{0,18}"))) {
             "BraidSwap quote has an invalid minimum output"
+        }
+        if (walletFeeAddress != null) {
+            val reportedFee = quote.optJSONObject("walletFee")
+                ?: throw IllegalArgumentException("BraidSwap omitted the requested wallet fee terms")
+            require(reportedFee.optString("address").equals(walletFeeAddress, true)) {
+                "BraidSwap quote redirected the wallet fee"
+            }
+            require(reportedFee.optInt("bps", -1) == walletFeeBps) {
+                "BraidSwap quote changed the wallet fee rate"
+            }
+            require(reportedFee.optString("amount").matches(Regex("[0-9]{1,19}"))) {
+                "BraidSwap quote returned an invalid wallet fee amount"
+            }
         }
         quote
     }
