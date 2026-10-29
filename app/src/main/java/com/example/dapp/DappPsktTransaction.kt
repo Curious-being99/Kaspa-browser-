@@ -49,6 +49,12 @@ internal object DappPsktTransaction {
             "Duplicate input index requested"
         }
         val prepared = parseAndValidate(txJsonString, requests)
+        require(prepared.transaction.version == 0) {
+            "Transaction version 1 covenant signing is not supported by the generic PSKT signer"
+        }
+        require(!hasCovenantBoundOutputs(prepared.originalJson)) {
+            "Covenant-bound outputs require a covenant-aware signer; generic PSKT signing is refused"
+        }
         val expectedScript = "20" + walletPublicKeyHex.lowercase() + "ac"
         for (request in requests) {
             require(request.index in prepared.transaction.inputs.indices) {
@@ -115,6 +121,18 @@ internal object DappPsktTransaction {
         )
         txRoot.put("mass", prepared.transaction.mass)
         return signedRoot.toString()
+    }
+
+    private fun hasCovenantBoundOutputs(root: JSONObject): Boolean {
+        val txRoot = root.optJSONObject("transaction") ?: root
+        val outputs = txRoot.optJSONArray("outputs") ?: return false
+        for (index in 0 until outputs.length()) {
+            val output = outputs.optJSONObject(index) ?: continue
+            if (output.has("covenant") || output.has("covenantBinding") || output.has("covenant_binding")) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>): Prepared {
