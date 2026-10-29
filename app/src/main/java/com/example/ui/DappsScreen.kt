@@ -349,13 +349,13 @@ private fun FeaturedBraidAppCard(
                 // 30dp Braid logo at top as requested
                 BraidLogoIcon(iconSize = 30.dp)
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     // Write up title is "Braid" ONLY
                     Text(
                         text = "Braid",
-                        fontSize = 16.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -363,7 +363,7 @@ private fun FeaturedBraidAppCard(
                     // URL link added beneath title
                     Text(
                         text = "https://app.braidswap.com",
-                        fontSize = 10.sp,
+                        fontSize = 12.5.sp,
                         color = ElectricCyan,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
@@ -375,11 +375,11 @@ private fun FeaturedBraidAppCard(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(KaspaTea.copy(alpha = 0.15f))
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = "L1 / L2 DEX",
-                        fontSize = 9.5.sp,
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = KaspaTea
                     )
@@ -390,9 +390,9 @@ private fun FeaturedBraidAppCard(
 
             Text(
                 text = dapp.description,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 color = TextSecondary,
-                lineHeight = 16.sp
+                lineHeight = 18.sp
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -409,7 +409,7 @@ private fun FeaturedBraidAppCard(
                         tint = KaspaTea,
                         modifier = Modifier.size(14.dp)
                     )
-                    Spacer(modifier = Modifier.width(3.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Verified Self-Custody Bridge",
                         fontSize = 11.5.sp,
@@ -421,12 +421,12 @@ private fun FeaturedBraidAppCard(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
                         .background(KaspaTea)
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Launch",
-                            fontSize = 11.sp,
+                            text = "Launch dApp",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = ObsidianBg
                         )
@@ -435,7 +435,7 @@ private fun FeaturedBraidAppCard(
                             imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = null,
                             tint = ObsidianBg,
-                            modifier = Modifier.size(10.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
                 }
