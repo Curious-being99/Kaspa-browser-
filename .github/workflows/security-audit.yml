@@ -183,9 +183,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/dependency-check-data
-          key: dependency-check-${{ runner.os }}-v13.0.0-${{ hashFiles('**/gradle.lockfile', '**/gradle/libs.versions.toml') }}
+          key: dependency-check-${{ runner.os }}-v12.2.2-${{ hashFiles('**/gradle.lockfile', '**/gradle/libs.versions.toml') }}
           restore-keys: |
-            dependency-check-${{ runner.os }}-v13.0.0-
+            dependency-check-${{ runner.os }}-v12.2.2-
 
       - name: Generate CI debug keystore
         run: |
@@ -197,6 +197,10 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           set -euo pipefail
+          if [[ -z "${NVD_API_KEY:-}" ]]; then
+            unset NVD_API_KEY
+            echo 'NVD_API_KEY is not configured; continuing without an API key (initial database update may be slower).'
+          fi
           cat > "${RUNNER_TEMP}/dependency-check.init.gradle" <<'EOF'
           initscript {
             repositories {
@@ -204,7 +208,7 @@ jobs:
               mavenCentral()
             }
             dependencies {
-              classpath 'org.owasp:dependency-check-gradle:13.0.0'
+              classpath 'org.owasp:dependency-check-gradle:12.2.2'
             }
           }
           allprojects {
@@ -223,7 +227,7 @@ jobs:
               }
               nvd {
                 validForHours = 24
-                def nvdKey = System.getenv('NVD_API_KEY')
+                def nvdKey = System.getenv('NVD_API_KEY')?.trim()
                 if (nvdKey) {
                   apiKey = nvdKey
                 }
@@ -231,7 +235,7 @@ jobs:
             }
           }
           EOF
-          gradle --no-daemon --stacktrace -I "${RUNNER_TEMP}/dependency-check.init.gradle" :app:dependencyCheckAnalyze
+          gradle --no-daemon --no-configuration-cache --stacktrace -I "${RUNNER_TEMP}/dependency-check.init.gradle" :app:dependencyCheckAnalyze
           test -s "${RUNNER_TEMP}/dependency-check-report/dependency-check-report.json"
 
       - name: Upload Android dependency audit report
