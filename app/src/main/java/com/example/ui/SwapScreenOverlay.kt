@@ -867,7 +867,7 @@ fun SwapScreenOverlay(
                 }
 
                 Text(
-                    text = "Live quotes are estimates only. This wallet does not yet construct and validate the deployed KCC-20 covenant transaction, so swaps are disabled and no balances will be changed locally.",
+                    text = "Live quotes are estimates only. Prepare Swap becomes available when the quote and balance checks pass. Broadcasting remains blocked until verified KCC-20 covenant signing is integrated.",
                     fontSize = 12.sp,
                     color = TextSecondary,
                     fontWeight = FontWeight.Medium
@@ -875,13 +875,17 @@ fun SwapScreenOverlay(
 
                 // Primary Swap Execution Button (Matching Buy Token button size and styling)
                 val isUneconomic = krQuote?.uneconomic == true
-                val isExecutable = false
+                val canPrepareSwap = !isExecutingSwap &&
+                    parsedFromAmount > 0 &&
+                    isSufficientBalance &&
+                    !isUneconomic &&
+                    krQuote != null
 
                 Button(
                     onClick = {
-                        swapStatusMessage = "Swap disabled: verified KCC-20 covenant transaction construction, validation, and signing are not integrated. No transaction was sent and no token balance was changed."
+                        swapStatusMessage = "Quote is available, but execution is blocked until the native KCC-20 covenant transaction is built, verified against the quote commitment, signed, and broadcast. No transaction was sent and no token balance was changed."
                     },
-                    enabled = isExecutable,
+                    enabled = canPrepareSwap,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(46.dp)
@@ -908,8 +912,8 @@ fun SwapScreenOverlay(
                         Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Swap unavailable — KCC-20 signing not integrated",
-                            fontSize = 12.sp,
+                            text = "Prepare swap",
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
