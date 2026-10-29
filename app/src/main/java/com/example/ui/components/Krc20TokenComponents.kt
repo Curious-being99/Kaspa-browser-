@@ -108,7 +108,6 @@ fun PinnedTokensSection(
     onTokenClick: (Krc20TokenBalance) -> Unit,
     onTogglePin: (String) -> Unit,
     onOpenSwap: (String) -> Unit,
-    onAddTokenClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
