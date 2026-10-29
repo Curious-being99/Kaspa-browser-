@@ -790,6 +790,12 @@ fun SwapScreenOverlay(
 
                             QuoteRow(label = "Live price", value = if (effectivePriceSompi > 0L) com.example.network.kaspa.KaspaRocketMath.formatKas(effectivePriceSompi) + " KAS / \$KB" else "Unavailable")
                             QuoteRow(
+                                label = "24h price change",
+                                value = kascovToken?.priceChangeBps?.let {
+                                    String.format(java.util.Locale.US, "%+.2f%%", it.toDouble() / 100.0)
+                                } ?: "Unavailable"
+                            )
+                            QuoteRow(
                                 label = "Kascov on-chain validation",
                                 value = when (kascovToken?.status) {
                                     "verified" -> "Verified"
