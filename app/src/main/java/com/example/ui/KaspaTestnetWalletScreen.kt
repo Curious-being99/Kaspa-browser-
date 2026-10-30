@@ -700,7 +700,7 @@ fun KaspaTestnetWalletScreen(
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 12.sp)
                                 Text(
-                                    token.priceChange24hPercent?.let { "${if (it.toBigDecimalOrNull()?.signum() ?: 0 >= 0) "+" else ""}$it% (24h)" } ?: "24h change unavailable",
+                                    token.priceChange24hPercent?.let { "${if ((it.toBigDecimalOrNull()?.signum() ?: 0) >= 0) "+" else ""}$it% (24h)" } ?: "24h change unavailable",
                                     color = token.priceChange24hPercent?.toBigDecimalOrNull()?.let { if (it.signum() >= 0) EmeraldMesh else RedTamper } ?: TextSecondary,
                                     fontSize = 10.sp
                                 )
