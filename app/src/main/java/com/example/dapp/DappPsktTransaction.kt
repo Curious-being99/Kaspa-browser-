@@ -11,7 +11,7 @@ internal object DappPsktTransaction {
     private const val MAX_INPUTS = 256
     private const val MAX_OUTPUTS = 256
 
-    data class SignInput(val index: Int, val sighashType: Int)
+    data class SignInput(val index: Int, val sighashType: Int, val redeemScript: String = "")
 
     data class Prepared(
         val originalJson: JSONObject,
@@ -46,7 +46,7 @@ internal object DappPsktTransaction {
             require(sighashType == KaspaTransactionEngine.SIGHASH_ALL) {
                 "Only SIGHASH_ALL (1) is supported"
             }
-            SignInput(inputIndex, sighashType)
+            SignInput(inputIndex, sighashType, item.optString("redeemScript", ""))
         }
         require(requests.map { it.index }.distinct().size == requests.size) {
             "Duplicate input index requested"
@@ -123,8 +123,10 @@ internal object DappPsktTransaction {
             val signature = CryptoUtils.signSchnorr(privateKey, sighash)
             val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
             val redeem = if (Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
-                require(prepared.redeemScript.isNotBlank()) { "P2SH redeemScript is required for input ${request.index}" }
-                pushDataScript(prepared.redeemScript.lowercase())
+                val redeemScript = request.redeemScript.takeIf { it.isNotBlank() }
+                    ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("P2SH redeemScript is required for input ${request.index}")
+                pushDataScript(redeemScript.lowercase())
             } else {
                 ""
             }
