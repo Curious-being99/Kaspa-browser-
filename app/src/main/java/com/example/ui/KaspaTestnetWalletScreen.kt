@@ -6355,7 +6355,14 @@ fun Kcc20TokenDetailSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             Button(
-                onClick = { onBuyTrade(token.contractId) },
+                onClick = {
+                    if (token.ticker.equals("KB", ignoreCase = true)) {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://kasparocket.fun/token/b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"))
+                        context.startActivity(intent)
+                    } else {
+                        onBuyTrade(token.contractId)
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().height(48.dp)
