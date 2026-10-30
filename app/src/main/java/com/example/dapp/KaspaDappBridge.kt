@@ -204,9 +204,28 @@ object KaspaDappBridge {
                     }
 
                     "getPublicKey" -> {
-                        val keyPair = if (isConnected) currentKeyPair() else null
-                        if (keyPair == null) respond(errorCode = 4100, errorMessage = "Connect this site first")
-                        else respond(keyPair.publicKeyHex)
+                        val keyPair = currentKeyPair()
+                        if (keyPair == null) {
+                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                        } else if (isConnected) {
+                            respond(keyPair.publicKeyHex)
+                        } else {
+                            AlertDialog.Builder(context)
+                                .setTitle("Connect Kaspa Browser Wallet")
+                                .setMessage("$origin wants to read your Kaspa public key on $network. This does not authorize signing or sending transactions.")
+                                .setNegativeButton("Reject") { _, _ ->
+                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                }
+                                .setPositiveButton("Connect") { _, _ ->
+                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                        .edit().putBoolean(origin, true).apply()
+                                    respond(keyPair.publicKeyHex)
+                                }
+                                .setOnCancelListener {
+                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                }
+                                .show()
+                        }
                     }
 
                     "signMessage" -> {
