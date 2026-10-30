@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import org.bouncycastle.crypto.digests.Blake3Digest
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -204,13 +205,21 @@ class Kcc20KasivoService(private val context: Context? = null) {
                     normalizedAddress.isNotBlank() &&
                     rowAddress.isNotBlank() &&
                     rowAddress == normalizedAddress
-                if (rowOwner.startsWith("p2pkh:") || rowOwner.startsWith("p2pkh-ecdsa:")) {
+                val isSchnorrKeyHashOwner =
+                    rowOwner.startsWith("p2pkh:") &&
+                    (schemeName == "p2pkh-schnorr/v1" || scheme == "p2pkh-schnorr/v1" || schemeName.isBlank() || scheme.isBlank())
+                val schnorrKeyHashMatch = if (isSchnorrKeyHashOwner) {
+                    val digest = Blake3Digest()
+                    val publicKeyBytes = owner.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                    val hash = ByteArray(32)
+                    digest.update(publicKeyBytes, 0, publicKeyBytes.size)
+                    digest.doFinal(hash, 0)
+                    rowOwner == "p2pkh:" + hash.joinToString("") { "%02x".format(it) }
+                } else false
+                if (rowOwner.startsWith("p2pkh-ecdsa:") || schemeName == "p2pkh-ecdsa/v1" || scheme == "p2pkh-ecdsa/v1") {
                     return addressMatch
                 }
-                if (schemeName.contains("p2pkh") || scheme.contains("p2pkh")) {
-                    return addressMatch
-                }
-                return directPublicKeyMatch || addressMatch
+                return directPublicKeyMatch || schnorrKeyHashMatch || addressMatch
             }
             fun exactBalance(row: JSONObject): String? {
                 return row.optString("balance_str").takeIf { it.isNotBlank() && it != "null" }
