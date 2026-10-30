@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import org.bouncycastle.crypto.digests.Blake3Digest
 import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -195,28 +194,23 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 ?: throw java.io.IOException("Kascov did not return token metadata")
             val balances = detail.optJSONArray("balances") ?: JSONArray()
             val normalizedAddress = walletAddress?.trim()?.lowercase()
-            val schnorrPubKeyHash = run {
-                val digest = Blake3Digest()
-                val publicKeyBytes = owner.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                val output = ByteArray(32)
-                digest.update(publicKeyBytes, 0, publicKeyBytes.size)
-                digest.doFinal(output, 0)
-                output.joinToString("") { "%02x".format(it) }
-            }
             fun isWalletOwner(row: JSONObject): Boolean {
                 val rowOwner = row.optString("owner").trim().lowercase().removePrefix("0x")
                 val rowAddress = row.optString("owner_address").trim().lowercase()
                 val schemeName = row.optString("owner_scheme_name").trim().lowercase()
                 val scheme = row.optString("owner_scheme").trim().lowercase()
-                val p2pkMatch = rowOwner == owner
-                val p2pkhSchnorrMatch =
-                    (schemeName == "p2pkh-schnorr/v1" || scheme == "p2pkh-schnorr/v1" || rowOwner.startsWith("p2pkh:")) &&
-                    rowOwner == "p2pkh:$schnorrPubKeyHash"
+                val directPublicKeyMatch = rowOwner == owner
                 val addressMatch = normalizedAddress != null &&
                     normalizedAddress.isNotBlank() &&
                     rowAddress.isNotBlank() &&
                     rowAddress == normalizedAddress
-                return p2pkMatch || p2pkhSchnorrMatch || addressMatch
+                if (rowOwner.startsWith("p2pkh:") || rowOwner.startsWith("p2pkh-ecdsa:")) {
+                    return addressMatch
+                }
+                if (schemeName.contains("p2pkh") || scheme.contains("p2pkh")) {
+                    return addressMatch
+                }
+                return directPublicKeyMatch || addressMatch
             }
             fun exactBalance(row: JSONObject): String? {
                 return row.optString("balance_str").takeIf { it.isNotBlank() && it != "null" }
@@ -289,11 +283,11 @@ class Kcc20KasivoService(private val context: Context? = null) {
             val decimals = claimedDecimals ?: displayDecimals ?: 0
             val isVerified = token.optString("status") == "verified"
             val currentPriceSompi = if (isVerified) market?.let {
-                val numerator = it.optString("spot_num_sompi").toBigDecimalOrNull()
-                val denominator = it.optString("spot_den").toBigDecimalOrNull()
-                if (numerator != null && denominator != null && denominator.signum() > 0) {
-                    numerator.multiply(java.math.BigDecimal.TEN.pow(decimals))
-                        .divide(denominator, 18, java.math.RoundingMode.HALF_UP)
+                val quoteSompi = it.optString("quote_sompi").toBigDecimalOrNull()
+                val baseAmount = it.optString("base_amount").toBigDecimalOrNull()
+                if (quoteSompi != null && baseAmount != null && baseAmount.signum() > 0) {
+                    quoteSompi.multiply(java.math.BigDecimal.TEN.pow(decimals))
+                        .divide(baseAmount, 18, java.math.RoundingMode.HALF_UP)
                 } else null
             } else null
 
