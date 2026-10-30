@@ -326,6 +326,47 @@ class Kcc20KasivoService(private val context: Context? = null) {
         }
     }
 
+    suspend fun fetchVerifiedMarketQuote(
+        contractId: String,
+        decimals: Int
+    ): Result<Pair<String?, Long?>> = withContext(Dispatchers.IO) {
+        val tokenId = contractId.trim().lowercase()
+        if (!tokenId.matches(Regex("[0-9a-f]{64}")) || decimals !in 0..30) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid KCC-20 market identity or decimals"))
+        }
+        try {
+            val connection = (URL("https://kascov.io/data/mainnet/token/$tokenId/market").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 5000
+                readTimeout = 7000
+                setRequestProperty("Accept", "application/json")
+            }
+            val market = try {
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw java.io.IOException("Kascov market HTTP ${connection.responseCode}")
+                }
+                val response = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                response.optJSONObject("market") ?: response
+            } finally {
+                connection.disconnect()
+            }
+            val numerator = market.optString("spot_num_sompi").toBigDecimalOrNull()
+                ?: market.optString("quote_sompi").toBigDecimalOrNull()
+            val denominator = market.optString("spot_den").toBigDecimalOrNull()
+                ?: market.optString("base_amount").toBigDecimalOrNull()
+            if (numerator == null || denominator == null || denominator.signum() <= 0) {
+                return@withContext Result.success(null to null)
+            }
+            val price = numerator.multiply(java.math.BigDecimal.TEN.pow(decimals))
+                .divide(denominator, 18, java.math.RoundingMode.HALF_UP)
+                .divide(java.math.BigDecimal("100000000"), 18, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros().toPlainString()
+            Result.success(price to market.optLong("updated_at_ms").takeIf { it > 0 })
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     fun classifyProtocol(rawPayload: String): KaspaProtocolType {
         return KaspaProtocolType.parseFromJson(rawPayload)
     }
