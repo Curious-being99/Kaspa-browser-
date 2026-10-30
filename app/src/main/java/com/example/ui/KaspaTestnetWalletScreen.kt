@@ -361,8 +361,8 @@ fun KaspaTestnetWalletScreen(
         if (activeAccount != null && selectedNetwork.contains("Mainnet", ignoreCase = true)) {
             viewModel.refreshKcc20Tokens()
             while (true) {
-                kotlinx.coroutines.delay(30_000L)
-                viewModel.refreshKcc20Tokens()
+                kotlinx.coroutines.delay(3_000L)
+                viewModel.refreshKcc20MarketPrices()
             }
         }
     }
@@ -692,13 +692,16 @@ fun KaspaTestnetWalletScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(token.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text("${token.ticker} · ${token.validationStatus}", color = TextSecondary, fontSize = 10.sp)
+                                Text("Kaspa Browser · ${token.ticker}", color = TextSecondary, fontSize = 10.sp)
+                                Text("${token.validationStatus} · ${token.contractId.take(10)}…${token.contractId.takeLast(6)}", color = TextSecondary, fontSize = 9.sp)
+                                token.holderCount?.let { Text("$it holders", color = TextSecondary, fontSize = 9.sp) }
                                 val raw = token.balanceRaw.toBigDecimalOrNull()
                                 val shownBalance = raw?.movePointLeft(token.decimals)?.stripTrailingZeros()?.toPlainString() ?: "—"
                                 Text("$shownBalance ${token.ticker}", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 12.sp)
+                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Verified market unavailable", color = TextPrimary, fontSize = 12.sp)
+                                token.priceUpdatedAtMs?.let { Text("Quote updated", color = TextSecondary, fontSize = 9.sp) }
                                 val priceChange = token.priceChange24hPercent
                                 val priceChangeValue = priceChange?.toBigDecimalOrNull()
                                 val priceChangeLabel = if (priceChangeValue == null) {
