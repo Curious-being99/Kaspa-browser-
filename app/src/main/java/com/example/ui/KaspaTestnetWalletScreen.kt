@@ -654,7 +654,7 @@ fun KaspaTestnetWalletScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Real KRC-20 Pinned Tokens Section
+            // Native mobile token portfolio: existing KRC-20 and KCC-20 data/actions remain unchanged.
             PinnedTokensSection(
                 pinnedTokens = pinnedTokens,
                 isLoading = isLoadingKrc20,
@@ -663,59 +663,93 @@ fun KaspaTestnetWalletScreen(
                 onOpenSwap = { tick -> viewModel.openSwapDapp() }
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             if (isLoadingKcc20 || kcc20Tokens.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .background(SurfaceCard, RoundedCornerShape(14.dp))
-                        .border(1.dp, SurfaceCardBorder, RoundedCornerShape(14.dp))
-                        .padding(14.dp)
+                        .background(SurfaceCard, RoundedCornerShape(20.dp))
+                        .border(1.dp, SurfaceCardBorder, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 16.dp, vertical = 14.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("KCC-20 Tokens", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.weight(1f))
-                        if (isLoadingKcc20) CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                        else Text("LIVE", color = EmeraldMesh, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("KCC-20 ASSETS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                            Text("Covenant tokens", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Surface(
+                            color = if (isLoadingKcc20) SurfaceElevated else EmeraldMesh.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isLoadingKcc20) {
+                                    CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp)
+                                } else {
+                                    Box(Modifier.size(6.dp).background(EmeraldMesh, CircleShape))
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (isLoadingKcc20) "SYNCING" else "LIVE", color = if (isLoadingKcc20) TextSecondary else EmeraldMesh, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh KCC-20", tint = TextSecondary)
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh KCC-20", tint = KaspaTea)
                         }
                     }
                     if (kcc20Tokens.isEmpty() && isLoadingKcc20) {
-                        Text("Fetching on-chain token holdings…", color = TextSecondary, fontSize = 12.sp)
+                        Text("Fetching on-chain token holdings…", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
                     }
-                    kcc20Tokens.forEach { token ->
-                        HorizontalDivider(color = SurfaceCardBorder)
-                        Spacer(modifier = Modifier.height(9.dp))
+                    kcc20Tokens.forEachIndexed { index, token ->
+                        if (index > 0 || kcc20Tokens.isNotEmpty()) {
+                            HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                        val raw = token.balanceRaw.toBigDecimalOrNull()
+                        val shownBalance = raw?.movePointLeft(token.decimals)?.stripTrailingZeros()?.toPlainString() ?: "—"
+                        val priceChangeValue = token.priceChange24hPercent?.toBigDecimalOrNull()
+                        val priceChangeLabel = if (priceChangeValue == null) {
+                            "24h change unavailable"
+                        } else {
+                            "${if (priceChangeValue.signum() >= 0) "+" else ""}${priceChangeValue.stripTrailingZeros().toPlainString()}% · 24h"
+                        }
+                        val priceChangeColor = when {
+                            priceChangeValue == null -> TextSecondary
+                            priceChangeValue.signum() >= 0 -> EmeraldMesh
+                            else -> RedTamper
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .background(KaspaTea.copy(alpha = 0.12f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(token.ticker.take(2).uppercase(), color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(token.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(token.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${token.ticker} · ${token.validationStatus}", color = TextSecondary, fontSize = 10.sp)
-                                val raw = token.balanceRaw.toBigDecimalOrNull()
-                                val shownBalance = raw?.movePointLeft(token.decimals)?.stripTrailingZeros()?.toPlainString() ?: "—"
-                                Text("$shownBalance ${token.ticker}", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(5.dp))
+                                Text("$shownBalance ${token.ticker}", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 12.sp)
-                                val priceChange = token.priceChange24hPercent
-                                val priceChangeValue = priceChange?.toBigDecimalOrNull()
-                                val priceChangeLabel = if (priceChangeValue == null) {
-                                    "24h change unavailable"
-                                } else {
-                                    "${if (priceChangeValue.signum() >= 0) "+" else ""}${priceChangeValue.stripTrailingZeros().toPlainString()}% (24h)"
-                                }
-                                val priceChangeColor = when {
-                                    priceChangeValue == null -> TextSecondary
-                                    priceChangeValue.signum() >= 0 -> EmeraldMesh
-                                    else -> RedTamper
-                                }
-                                Text(priceChangeLabel, color = priceChangeColor, fontSize = 10.sp)
+                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(priceChangeLabel, color = priceChangeColor, fontSize = 9.sp, textAlign = TextAlign.End)
                             }
                         }
                     }
-                    Text("Balances and market data from Kascov. Unverified tokens are labelled; missing prices are not estimated.", color = TextSecondary, fontSize = 10.sp)
+                    Text(
+                        "Balances and market data from Kascov. Unverified tokens are labelled; missing prices are not estimated.",
+                        color = TextSecondary,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
                 }
             }
 
