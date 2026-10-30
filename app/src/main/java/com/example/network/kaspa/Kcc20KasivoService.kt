@@ -274,7 +274,10 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 }
             }
 
-            val liveFeed = try {\n                val feedConnection = (URL("https://kascov.io/data/$network-live.json").openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 10000 }\n                try { JSONObject(feedConnection.inputStream.bufferedReader().use { it.readText() }) } finally { feedConnection.disconnect() }\n            } catch (_: Exception) { JSONObject() }
+            val liveFeed = try {
+                val feedConnection = (URL("https://kascov.io/data/$network-live.json").openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 10000 }
+                try { JSONObject(feedConnection.inputStream.bufferedReader().use { it.readText() }) } finally { feedConnection.disconnect() }
+            } catch (_: Exception) { JSONObject() }
             val currentDaa = liveFeed.optLong("tip_daa")
             val tradeRows = try { getJson("token/$tokenId/trades?limit=100").optJSONArray("trades") ?: JSONArray() } catch (_: Exception) { JSONArray() }
             var oldTradePrice: java.math.BigDecimal? = null
