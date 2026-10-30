@@ -2177,6 +2177,7 @@ class DecentralViewModel(
     fun refreshTestnetWallet() {
         refreshKaspaWallet(testnetAddress.value)
         refreshKrc20Tokens()
+        refreshKcc20Tokens()
     }
 
     fun refreshKrc20Tokens() {
