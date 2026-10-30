@@ -968,6 +968,8 @@ object KaspaDappBridge {
                   };
                   const kaspaBrowserProvider = Object.freeze({
                     ...requestProvider,
+                    id: 'org.kaspa.browser',
+                    name: 'Kaspa Browser',
                     isKaspabrowser: true,
                     isKaspaBrowser: true,
                     version: '1.0.0',
@@ -1049,7 +1051,9 @@ object KaspaDappBridge {
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
+                  window.addEventListener('kaspabrowser#requestProvider', announce);
                   announce();
+                  window.dispatchEvent(new Event('kaspabrowser#initialized'));
                   if (!isBraidSwap) {
                     window.dispatchEvent(new Event('kasperia#initialized'));
                   }
