@@ -156,7 +156,8 @@ class Kcc20KasivoService(private val context: Context? = null) {
         publicKeyHex: String,
         contractId: String,
         network: String = "mainnet",
-        kasUsd: String? = null
+        kasUsd: String? = null,
+        walletAddress: String? = null
     ): Result<Kcc20WalletToken> = withContext(Dispatchers.IO) {
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
@@ -192,10 +193,16 @@ class Kcc20KasivoService(private val context: Context? = null) {
             val token = detail.optJSONObject("token")
                 ?: throw java.io.IOException("Kascov did not return token metadata")
             val balances = detail.optJSONArray("balances") ?: JSONArray()
+            val normalizedAddress = walletAddress?.trim()?.lowercase()
+            fun isWalletOwner(row: JSONObject): Boolean {
+                val rowOwner = row.optString("owner").trim().lowercase().removePrefix("0x")
+                val rowAddress = row.optString("owner_address").trim().lowercase()
+                return rowOwner == owner || (normalizedAddress != null && rowAddress.isNotBlank() && rowAddress == normalizedAddress)
+            }
             var balanceRaw: String? = null
             for (i in 0 until balances.length()) {
                 val row = balances.optJSONObject(i) ?: continue
-                if (row.optString("owner").trim().lowercase().removePrefix("0x") == owner) {
+                if (isWalletOwner(row)) {
                     balanceRaw = row.optString("balance_str").takeIf { it.isNotBlank() }
                         ?: row.opt("balance")?.toString()
                     break
@@ -205,6 +212,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
             if (balanceRaw == null) {
                 var afterBalance: String? = null
                 var afterOwner: String? = null
+                var afterClass: String? = null
                 var matched = false
                 var pageCount = 0
                 do {
@@ -213,13 +221,14 @@ class Kcc20KasivoService(private val context: Context? = null) {
                         if (afterBalance != null && afterOwner != null) {
                             append("&after_balance=").append(java.net.URLEncoder.encode(afterBalance, "UTF-8"))
                             append("&after_owner=").append(java.net.URLEncoder.encode(afterOwner, "UTF-8"))
+                            if (afterClass != null) append("&after_class=").append(java.net.URLEncoder.encode(afterClass, "UTF-8"))
                         }
                     }
                     val page = getJson(query)
                     val rows = page.optJSONArray("holders") ?: JSONArray()
                     for (i in 0 until rows.length()) {
                         val row = rows.optJSONObject(i) ?: continue
-                        if (row.optString("owner").trim().lowercase().removePrefix("0x") == owner) {
+                        if (isWalletOwner(row)) {
                             balanceRaw = row.optString("balance_str").takeIf { it.isNotBlank() }
                                 ?: row.opt("balance")?.toString()
                             matched = true
@@ -229,6 +238,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                     if (matched) break
                     afterBalance = page.optString("next_after_balance").takeIf { it.isNotBlank() && it != "null" }
                     afterOwner = page.optString("next_after_owner").takeIf { it.isNotBlank() && it != "null" }
+                    afterClass = page.optString("next_after_class").takeIf { it.isNotBlank() && it != "null" }
                     pageCount++
                 } while (afterBalance != null && afterOwner != null && pageCount < 500)
                 if (balanceRaw == null && afterBalance != null && afterOwner != null) {
@@ -245,21 +255,6 @@ class Kcc20KasivoService(private val context: Context? = null) {
             var priceUsd: String? = null
             var priceSource: String? = null
             var priceUpdatedAt: Long? = null
-            if (market != null) {
-                val quote = market.optString("quote_sompi").toBigDecimalOrNull()
-                val base = market.optString("base_amount").toBigDecimalOrNull()
-                if (quote != null && base != null && base.signum() > 0) {
-                    val scale = java.math.BigDecimal.TEN.pow(decimals)
-                    val kas = quote.multiply(scale).divide(base, 18, java.math.RoundingMode.HALF_UP)
-                        .divide(java.math.BigDecimal("100000000"), 18, java.math.RoundingMode.HALF_UP)
-                    priceKas = kas.stripTrailingZeros().toPlainString()
-                    val usdRate = kasUsd?.toBigDecimalOrNull()
-                    if (usdRate != null) priceUsd = kas.multiply(usdRate).stripTrailingZeros().toPlainString()
-                    priceSource = market.optString("source").takeIf { it.isNotBlank() }
-                        ?: "Kascov verified market quote"
-                    priceUpdatedAt = market.optLong("updated_at_ms").takeIf { it > 0 }
-                }
-            }
 
             val liveFeed = try {
                 val feedConnection = (URL("https://kascov.io/data/$network-live.json").openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 10000 }
@@ -273,7 +268,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                     val trade = tradeRows.optJSONObject(i) ?: continue
                     if (trade.has("market_recognized") && !trade.optBoolean("market_recognized")) continue
                     val daa = trade.optLong("accepting_daa", trade.optLong("daa"))
-                    if (daa <= 0L || daa > currentDaa - 864000L) continue
+                    if (daa <= 0L || daa > currentDaa - 86400L) continue
                     val quote = trade.optString("quote_sompi").toBigDecimalOrNull() ?: continue
                     val base = trade.optString("base_amount").toBigDecimalOrNull() ?: continue
                     if (base.signum() <= 0) continue
@@ -303,6 +298,15 @@ class Kcc20KasivoService(private val context: Context? = null) {
                     .divide(oldTradePrice, 8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
             } else null
 
+            val isVerified = token.optString("status") == "verified"
+            if (isVerified && currentPriceSompi != null) {
+                val kas = currentPriceSompi.divide(java.math.BigDecimal("100000000"), 18, java.math.RoundingMode.HALF_UP)
+                priceKas = kas.stripTrailingZeros().toPlainString()
+                val usdRate = kasUsd?.toBigDecimalOrNull()
+                if (usdRate != null) priceUsd = kas.multiply(usdRate).stripTrailingZeros().toPlainString()
+                priceSource = market?.optString("source")?.takeIf { it.isNotBlank() } ?: "Kascov verified market quote"
+                priceUpdatedAt = market?.optLong("updated_at_ms")?.takeIf { it > 0 }
+            }
             val ticker = token.optString("claimed_ticker").ifBlank {
                 token.optJSONObject("fields")?.optString("tick", "")?.ifBlank { "KCC20" } ?: "KCC20"
             }
@@ -313,7 +317,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 balanceRaw = balanceRaw ?: "0",
                 decimals = decimals,
                 holderCount = if (token.has("holders")) token.optLong("holders") else null,
-                validationStatus = if (token.optString("status") == "verified") "verified" else "unvalidated",
+                validationStatus = if (isVerified) "verified" else token.optString("status").ifBlank { "unvalidated" },
                 marketPriceKas = priceKas,
                 marketPriceUsd = priceUsd,
                 marketPriceSource = priceSource,
