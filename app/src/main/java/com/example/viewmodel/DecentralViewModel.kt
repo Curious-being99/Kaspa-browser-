@@ -2174,6 +2174,23 @@ class DecentralViewModel(
         }
     }
 
+    fun refreshKcc20MarketPrices() {
+        viewModelScope.launch {
+            val snapshot = _kcc20Tokens.value
+            if (snapshot.isEmpty()) return@launch
+            val updates = snapshot.map { token ->
+                val quote = kcc20Service.fetchVerifiedMarketQuote(token.contractId, token.decimals)
+                token to quote.getOrNull()
+            }
+            _kcc20Tokens.value = updates.map { (token, quote) ->
+                if (quote == null) token else token.copy(
+                    marketPriceKas = quote.first,
+                    priceUpdatedAtMs = quote.second
+                )
+            }
+        }
+    }
+
     fun refreshTestnetWallet() {
         refreshKaspaWallet(testnetAddress.value)
         refreshKrc20Tokens()
