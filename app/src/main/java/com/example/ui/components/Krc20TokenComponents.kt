@@ -116,51 +116,47 @@ fun PinnedTokensSection(
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .testTag("pinned_tokens_section")
     ) {
-        // Section Header
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 1.5.dp,
-                        color = KaspaTea
-                    )
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("KRC-20 ASSETS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                Text("Inscription tokens", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 1.8.dp, color = KaspaTea)
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         if (pinnedTokens.isEmpty()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = SurfaceCard.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp),
+                color = SurfaceCard,
+                shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(1.dp, SurfaceCardBorder)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "No tokens added yet",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextSecondary
-                    )
+                    Box(
+                        modifier = Modifier.size(40.dp).background(KaspaTea.copy(alpha = 0.12f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Token, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(20.dp))
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text("No pinned tokens", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+                        Text("Your added KRC-20 assets will appear here", fontSize = 11.sp, color = TextSecondary)
+                    }
                 }
             }
         } else {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 pinnedTokens.forEach { token ->
                     PinnedTokenCard(
                         token = token,

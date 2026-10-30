@@ -2159,7 +2159,7 @@ class DecentralViewModel(
                     }
                     try {
                         val results = kcc20ContractIds.mapNotNull { id ->
-                            kcc20Service.fetchWalletToken(keyPair.publicKeyHex, id, "mainnet").getOrNull()
+                            kcc20Service.fetchWalletToken(keyPair.publicKeyHex, id, "mainnet", walletAddress = keyPair.kaspaAddress).getOrNull()
                         }
                         _kcc20Tokens.value = results
                     } finally {
