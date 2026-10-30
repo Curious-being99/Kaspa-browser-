@@ -68,7 +68,8 @@ internal object DappPsktTransaction {
             }
             val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
                 ?: throw IllegalArgumentException("Selected input ${request.index} is not an active-wallet P2PK or supported P2SH input")
-            val redeem = prepared.redeemScript.takeIf { it.isNotBlank() }
+            val redeem = request.redeemScript.takeIf { it.isNotBlank() }
+                ?: prepared.redeemScript.takeIf { it.isNotBlank() }
                 ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
             require(redeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                 "P2SH redeemScript for input ${request.index} is malformed"
