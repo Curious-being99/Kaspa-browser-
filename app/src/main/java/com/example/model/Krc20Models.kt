@@ -19,8 +19,26 @@ data class Krc20TokenMetadata(
     val state: String = "deployed",
     val holderTotal: Long = 0L,
     val transferTotal: Long = 0L,
-    val rawMetadataJson: String = ""
+    val rawMetadataJson: String = "",
+    val logoUrl: String? = null
 ) {
+    /**
+     * Resolves real metadata logo image URL for token rendering.
+     */
+    val effectiveLogoUrl: String?
+        get() {
+            if (!logoUrl.isNullOrBlank()) return logoUrl
+            return when (tick.uppercase()) {
+                "KB" -> "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
+                "NACHO" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/nacho.png"
+                "KASPER" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kasper.png"
+                "SOMI" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/somi.png"
+                "BOMB" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/bomb.png"
+                "KASPUMP" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kaspump.png"
+                else -> "https://api.kasplex.org/v1/krc20/logo/${tick.lowercase()}"
+            }
+        }
+
     /**
      * Indicates whether the token is currently in its active bonding curve / minting phase.
      */
@@ -58,6 +76,7 @@ data class Krc20TokenMetadata(
                 val root = JSONObject(rawMetadataJson)
                 root.put("isBondingCurve", isBondingCurve)
                 root.put("bondingCurveProgress", "%.2f%%".format(bondingCurveProgress))
+                root.put("logoUrl", effectiveLogoUrl ?: "")
                 root.toString(2)
             } catch (_: Exception) {
                 rawMetadataJson
@@ -79,6 +98,7 @@ data class Krc20TokenMetadata(
             obj.put("minted", mintedSupply)
             obj.put("holderTotal", holderTotal)
             obj.put("transferTotal", transferTotal)
+            obj.put("logoUrl", effectiveLogoUrl ?: "")
             obj.toString(2)
         }
     }
@@ -93,7 +113,8 @@ data class Krc20TokenBalance(
     val balanceRaw: String = "0",
     val isPinned: Boolean = false,
     val metadata: Krc20TokenMetadata? = null,
-    val recentTransactions: List<Krc20TokenTransaction> = emptyList()
+    val recentTransactions: List<Krc20TokenTransaction> = emptyList(),
+    val logoUrl: String? = null
 ) {
     val tokenId: String
         get() = metadata?.tokenId ?: ""
@@ -106,6 +127,21 @@ data class Krc20TokenBalance(
 
     val bondingCurveProgress: Double
         get() = metadata?.bondingCurveProgress ?: 0.0
+
+    val effectiveLogoUrl: String?
+        get() {
+            if (!logoUrl.isNullOrBlank()) return logoUrl
+            if (!metadata?.effectiveLogoUrl.isNullOrBlank()) return metadata?.effectiveLogoUrl
+            return when (tick.uppercase()) {
+                "KB" -> "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
+                "NACHO" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/nacho.png"
+                "KASPER" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kasper.png"
+                "SOMI" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/somi.png"
+                "BOMB" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/bomb.png"
+                "KASPUMP" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kaspump.png"
+                else -> "https://api.kasplex.org/v1/krc20/logo/${tick.lowercase()}"
+            }
+        }
 
     fun formattedBalance(): String {
         return "%,.4f %s".format(balance, tick)

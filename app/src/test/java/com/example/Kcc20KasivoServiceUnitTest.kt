@@ -62,4 +62,28 @@ class Kcc20KasivoServiceUnitTest {
         assertEquals(500.0, summary.l1KasBalance, 0.001)
         assertEquals(0, summary.krc20TokenBalancesCount)
     }
+
+    @Test
+    fun testFetchWalletTokenKbPrice() = runBlocking {
+        val service = Kcc20KasivoService()
+        val dummyPubkey = "e7f7369478ebdbfadbb8e802af6cbf4ee1ee5ce43c0c0b6d3df115ddb1b96037"
+        val kbContractId = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
+        val res = service.fetchWalletToken(dummyPubkey, kbContractId, "mainnet")
+        println("fetchWalletToken result: " + res)
+        assertTrue(res.isSuccess)
+        val token = res.getOrNull()
+        assertNotNull(token)
+        println("marketPriceKas: " + token?.marketPriceKas)
+        println("marketPriceUsd: " + token?.marketPriceUsd)
+        println("imageUrl: " + token?.imageUrl)
+        println("priceChange24h: " + token?.priceChange24hPercent)
+        assertNotNull("marketPriceKas should not be null", token?.marketPriceKas)
+        assertNotNull("imageUrl should not be null", token?.imageUrl)
+        assertTrue("imageUrl should be valid URL", token?.imageUrl?.startsWith("https://") == true)
+        assertNotNull("priceChange24hPercent should not be null", token?.priceChange24hPercent)
+
+        val oracleKasPrice = service.fetchKasUsdPriceFromOracle()
+        assertTrue(oracleKasPrice.isSuccess)
+        assertTrue((oracleKasPrice.getOrNull() ?: 0.0) > 0.0)
+    }
 }

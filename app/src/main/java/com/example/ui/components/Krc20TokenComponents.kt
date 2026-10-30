@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -78,6 +79,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.example.model.Krc20TokenBalance
 import com.example.model.Krc20TokenMetadata
 import com.example.model.Krc20TokenTransaction
@@ -122,14 +126,14 @@ fun PinnedTokensSection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("KRC-20 ASSETS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                Text("Inscription tokens", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("Inscription tokens", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 1.8.dp, color = KaspaTea)
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         if (pinnedTokens.isEmpty()) {
             Surface(
@@ -139,16 +143,34 @@ fun PinnedTokensSection(
                 border = BorderStroke(1.dp, SurfaceCardBorder)
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        modifier = Modifier.size(40.dp).background(KaspaTea.copy(alpha = 0.12f), CircleShape),
+                        modifier = Modifier.size(36.dp).clip(CircleShape).background(KaspaTea.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Token, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(20.dp))
+                        SubcomposeAsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data("https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png")
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "KB Token Logo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            loading = {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("KB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                                }
+                            },
+                            error = {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("KB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                                }
+                            }
+                        )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text("No pinned tokens", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
                         Text("Your added KRC-20 assets will appear here", fontSize = 11.sp, color = TextSecondary)
@@ -215,12 +237,53 @@ fun PinnedTokenCard(
                             .background(accentColor.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = token.tick.take(2).uppercase(),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            color = accentColor
-                        )
+                        val logoUrl = token.effectiveLogoUrl
+                        if (!logoUrl.isNullOrBlank()) {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(logoUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "${token.tick} metadata logo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                loading = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = token.tick.take(2).uppercase(),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accentColor
+                                        )
+                                    }
+                                },
+                                error = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = token.tick.take(2).uppercase(),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accentColor
+                                        )
+                                    }
+                                }
+                            )
+                        } else {
+                            Text(
+                                text = token.tick.take(2).uppercase(),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(10.dp))
@@ -458,12 +521,53 @@ fun Krc20TokenDetailSheet(
                             .background(accentColor.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = token.tick.take(2).uppercase(),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = accentColor
-                        )
+                        val logoUrl = token.effectiveLogoUrl
+                        if (!logoUrl.isNullOrBlank()) {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(logoUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "${token.tick} metadata logo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                loading = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = token.tick.take(2).uppercase(),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accentColor
+                                        )
+                                    }
+                                },
+                                error = {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = token.tick.take(2).uppercase(),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = accentColor
+                                        )
+                                    }
+                                }
+                            )
+                        } else {
+                            Text(
+                                text = token.tick.take(2).uppercase(),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {

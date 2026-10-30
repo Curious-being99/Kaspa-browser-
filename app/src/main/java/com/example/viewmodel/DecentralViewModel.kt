@@ -25,6 +25,7 @@ import com.example.data.isRelevantKaspaNews
 import com.example.network.kaspa.KaspaDomainRegistry
 import com.example.network.kaspa.KaspaTransactionEngine
 import com.example.network.kaspa.DomainAvailability
+import com.example.network.KaspaPriceService
 import com.example.util.BrowserStateLog
 import com.example.util.BrowserTabWebViewManager
 import kotlinx.coroutines.Job
@@ -1139,6 +1140,10 @@ class DecentralViewModel(
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
     private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
     val kcc20Tokens: StateFlow<List<Kcc20WalletToken>> = _kcc20Tokens.asStateFlow()
+    private val _liveKasUsdPrice = MutableStateFlow<Double>(0.0)
+    val liveKasUsdPrice: StateFlow<Double> = _liveKasUsdPrice.asStateFlow()
+    private val _liveKas24hChange = MutableStateFlow<Double>(0.0)
+    val liveKas24hChange: StateFlow<Double> = _liveKas24hChange.asStateFlow()
     private val _isLoadingKcc20 = MutableStateFlow(false)
     val isLoadingKcc20: StateFlow<Boolean> = _isLoadingKcc20.asStateFlow()
     private val kcc20RefreshMutex = Mutex()
@@ -2154,14 +2159,34 @@ class DecentralViewModel(
                 }
                 _isLoadingKcc20.value = true
                 try {
+                    // 1. Fetch authentic KAS live oracle price stream from https://kascov.io/data/price.json
+                    val liveKasUsd = kcc20Service.fetchKasUsdPriceFromOracle().getOrNull()
+                    if (liveKasUsd != null && liveKasUsd > 0.0) {
+                        _liveKasUsdPrice.value = liveKasUsd
+                    }
+                    val kasMarketPriceInfo = KaspaPriceService.priceState.value
+                    if (kasMarketPriceInfo.change24hPercent != 0.0) {
+                        _liveKas24hChange.value = kasMarketPriceInfo.change24hPercent
+                    }
+
+                    // 2. Fetch KB live spot price and token metadata
                     val keyPair = withContext(Dispatchers.Default) {
                         CryptoUtils.deriveKaspaKeyPair(account.seedPhrase, prefix = "kaspa")
                     }
                     try {
+                        val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
                         val results = kcc20ContractIds.mapNotNull { id ->
-                            kcc20Service.fetchWalletToken(keyPair.publicKeyHex, id, "mainnet", walletAddress = keyPair.kaspaAddress).getOrNull()
+                            kcc20Service.fetchWalletToken(
+                                publicKeyHex = keyPair.publicKeyHex,
+                                contractId = id,
+                                network = "mainnet",
+                                kasUsd = currentUsdRate,
+                                walletAddress = keyPair.kaspaAddress
+                            ).getOrNull()
                         }
-                        _kcc20Tokens.value = results
+                        if (results.isNotEmpty()) {
+                            _kcc20Tokens.value = results
+                        }
                     } finally {
                         keyPair.wipe()
                     }

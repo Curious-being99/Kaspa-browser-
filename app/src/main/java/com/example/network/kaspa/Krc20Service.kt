@@ -130,6 +130,11 @@ class Krc20Service(private val context: Context) {
                 if (resultArray != null && resultArray.length() > 0) {
                     val item = resultArray.getJSONObject(0)
                     val decimals = item.optInt("dec", 8)
+                    val parsedLogo = item.optString("logo").ifBlank {
+                        item.optString("image").ifBlank {
+                            item.optString("icon", "")
+                        }
+                    }
                     val metadata = Krc20TokenMetadata(
                         tick = item.optString("tick", upperTick),
                         tokenId = item.optString("hashRev", known?.tokenId ?: ""),
@@ -143,7 +148,8 @@ class Krc20Service(private val context: Context) {
                         state = item.optString("state", "deployed"),
                         holderTotal = item.optLong("holderTotal", known?.holderTotal ?: 0L),
                         transferTotal = item.optLong("transferTotal", known?.transferTotal ?: 0L),
-                        rawMetadataJson = item.toString(2)
+                        rawMetadataJson = item.toString(2),
+                        logoUrl = if (parsedLogo.isNotBlank()) parsedLogo else null
                     )
                     return@withContext Result.success(metadata)
                 }

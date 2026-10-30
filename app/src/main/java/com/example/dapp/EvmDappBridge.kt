@@ -528,6 +528,8 @@ internal object EvmDappBridge {
                   });
                   const ethereum = {
                     isKaspaBrowser: true,
+                    isKaspire: true,
+                    isKasware: true,
                     isMetaMask: false,
                     request,
                     enable: () => request({method: 'eth_requestAccounts'}),

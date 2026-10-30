@@ -12,6 +12,7 @@ import android.content.Intent
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
 import android.net.Uri
+import androidx.compose.runtime.key
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -57,11 +58,16 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.Token
 import com.example.ui.theme.PhotoThemeSelectorDialog
 import com.example.utils.BiometricAuthHelper
 import androidx.compose.ui.res.painterResource
@@ -129,6 +135,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.SubcomposeAsyncImage
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -285,7 +293,10 @@ fun KaspaTestnetWalletScreen(
     val isLoadingKrc20 by viewModel.isLoadingKrc20.collectAsState()
     val kcc20Tokens by viewModel.kcc20Tokens.collectAsState()
     val isLoadingKcc20 by viewModel.isLoadingKcc20.collectAsState()
+    val liveKasUsdPrice by viewModel.liveKasUsdPrice.collectAsState()
+    val liveKas24hChange by viewModel.liveKas24hChange.collectAsState()
     var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
+    var selectedKcc20TokenForDetails by remember { mutableStateOf<com.example.network.kaspa.Kcc20WalletToken?>(null) }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
@@ -361,7 +372,7 @@ fun KaspaTestnetWalletScreen(
         if (activeAccount != null && selectedNetwork.contains("Mainnet", ignoreCase = true)) {
             viewModel.refreshKcc20Tokens()
             while (true) {
-                kotlinx.coroutines.delay(30_000L)
+                kotlinx.coroutines.delay(3_000L)
                 viewModel.refreshKcc20Tokens()
             }
         }
@@ -411,14 +422,20 @@ fun KaspaTestnetWalletScreen(
             .background(ObsidianBg.copy(alpha = 0.35f))
             .testTag("kaspa_testnet_wallet_screen")
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        val walletScrollState = rememberScrollState()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(walletScrollState)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
+        ) {
 
             // Top Header Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -484,6 +501,19 @@ fun KaspaTestnetWalletScreen(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
+                        onClick = { showTransactionHistoryScreen = true },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("open_transaction_history")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = "Transaction History",
+                            tint = KaspaTea
+                        )
+                    }
+
+                    IconButton(
                         onClick = { showManageScreen = true },
                         modifier = Modifier
                             .size(36.dp)
@@ -530,7 +560,7 @@ fun KaspaTestnetWalletScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     val currencySymbol = when {
@@ -542,14 +572,45 @@ fun KaspaTestnetWalletScreen(
 
                     Text(
                         text = "%.4f %s".format(walletState.balanceKas, currencySymbol),
-                        fontSize = 28.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = TextPrimary,
                         letterSpacing = (-0.5).sp,
                         maxLines = 1
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    if (liveKasUsdPrice > 0.0) {
+                        val fiatTotal = walletState.balanceKas * liveKasUsdPrice
+                        Text(
+                            text = "≈ $%.2f USD".format(fiatTotal),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Text(
+                                text = "1 KAS ≈ $${String.format("%.5f", liveKasUsdPrice)}",
+                                fontSize = 11.sp,
+                                color = KaspaTea,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (liveKas24hChange != 0.0) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${if (liveKas24hChange >= 0) "+" else ""}${String.format("%.2f", liveKas24hChange)}% 24h",
+                                    fontSize = 10.5.sp,
+                                    color = if (liveKas24hChange >= 0) EmeraldMesh else RedTamper,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Address Pill with One-Tap Copy
                     Surface(
@@ -570,7 +631,7 @@ fun KaspaTestnetWalletScreen(
                             .testTag("copy_address_chip")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -593,10 +654,10 @@ fun KaspaTestnetWalletScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Derivation: $heroDerivationPath",
-                        fontSize = 10.sp,
+                        fontSize = 9.5.sp,
                         color = TextMuted,
                         fontFamily = FontFamily.Monospace
                     )
@@ -605,12 +666,12 @@ fun KaspaTestnetWalletScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Standalone Action Button Bar (No clunky bottom tabs, action buttons open their own pages!)
+            // Standalone Action Button Bar with even distribution to prevent label clipping
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.spacedBy(36.dp, Alignment.CenterHorizontally),
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 QuickActionButton(
@@ -654,61 +715,66 @@ fun KaspaTestnetWalletScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Native mobile token portfolio: existing KRC-20 and KCC-20 data/actions remain unchanged.
-            PinnedTokensSection(
-                pinnedTokens = pinnedTokens,
-                isLoading = isLoadingKrc20,
-                onTokenClick = { token -> selectedTokenForDetails = token },
-                onTogglePin = { tick -> viewModel.togglePinToken(tick) },
-                onOpenSwap = { tick -> viewModel.openSwapDapp() }
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            if (isLoadingKcc20 || kcc20Tokens.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .background(SurfaceCard, RoundedCornerShape(20.dp))
-                        .border(1.dp, SurfaceCardBorder, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 16.dp, vertical = 14.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("KCC-20 ASSETS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                            Text("Covenant tokens", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            // KCC-20 Covenant Token Assets
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .background(SurfaceCard, RoundedCornerShape(18.dp))
+                    .border(1.dp, SurfaceCardBorder, RoundedCornerShape(18.dp))
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "KCC-20 ASSETS",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.1.sp
+                        )
+                        if (isLoadingKcc20 && kcc20Tokens.isNotEmpty()) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                color = KaspaTea,
+                                strokeWidth = 1.5.dp
+                            )
                         }
-                        Surface(
-                            color = if (isLoadingKcc20) SurfaceElevated else EmeraldMesh.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(50)
+                    }
+                    if (kcc20Tokens.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(36.dp),
+                            contentAlignment = Alignment.CenterStart
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isLoadingKcc20) {
-                                    CircularProgressIndicator(modifier = Modifier.size(11.dp), strokeWidth = 1.5.dp)
-                                } else {
-                                    Box(Modifier.size(6.dp).background(EmeraldMesh, CircleShape))
+                            if (isLoadingKcc20) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        color = KaspaTea,
+                                        strokeWidth = 1.5.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Syncing KCC-20 tokens…", color = TextSecondary, fontSize = 12.sp)
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (isLoadingKcc20) "SYNCING" else "LIVE", color = if (isLoadingKcc20) TextSecondary else EmeraldMesh, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Text("No KCC-20 tokens found in wallet", color = TextSecondary, fontSize = 12.sp)
                             }
                         }
-                        IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh KCC-20", tint = KaspaTea)
-                        }
-                    }
-                    if (kcc20Tokens.isEmpty() && isLoadingKcc20) {
-                        Text("Fetching on-chain token holdings…", color = TextSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
                     }
                     kcc20Tokens.forEachIndexed { index, token ->
-                        if (index > 0 || kcc20Tokens.isNotEmpty()) {
-                            HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 12.dp))
+                        key(token.contractId.ifBlank { token.ticker }) {
+                            if (index > 0) {
+                            HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 10.dp))
                         }
                         val raw = token.balanceRaw.toBigDecimalOrNull()
-                        val shownBalance = raw?.movePointLeft(token.decimals)?.stripTrailingZeros()?.toPlainString() ?: "—"
+                        val shownBalance = if (raw == null || raw.compareTo(java.math.BigDecimal.ZERO) == 0) "0" else raw.movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
                         val priceChangeValue = token.priceChange24hPercent?.toBigDecimalOrNull()
                         val priceChangeLabel = if (priceChangeValue == null) {
                             "24h change unavailable"
@@ -720,89 +786,105 @@ fun KaspaTestnetWalletScreen(
                             priceChangeValue.signum() >= 0 -> EmeraldMesh
                             else -> RedTamper
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        val resolvedLogoUrl = if (!token.imageUrl.isNullOrBlank()) token.imageUrl else when (token.ticker.uppercase()) {
+                            "KB" -> "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
+                            "NACHO" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/nacho.png"
+                            "KASPER" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kasper.png"
+                            "SOMI" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/somi.png"
+                            "BOMB" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/bomb.png"
+                            "KASPUMP" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kaspump.png"
+                            else -> null
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { selectedKcc20TokenForDetails = token }
+                                .padding(vertical = 4.dp, horizontal = 2.dp)
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .size(42.dp)
-                                    .background(KaspaTea.copy(alpha = 0.12f), CircleShape),
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(KaspaTea.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(token.ticker.take(2).uppercase(), color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                                if (!resolvedLogoUrl.isNullOrBlank()) {
+                                    SubcomposeAsyncImage(
+                                        model = resolvedLogoUrl,
+                                        contentDescription = "${token.name} metadata logo",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                            .border(1.dp, SurfaceCardBorder, CircleShape),
+                                        contentScale = ContentScale.Crop,
+                                        loading = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(KaspaTea.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = token.ticker.take(2).uppercase().ifEmpty { "KB" },
+                                                    color = KaspaTea,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        },
+                                        error = {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(KaspaTea.copy(alpha = 0.12f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = token.ticker.take(2).uppercase().ifEmpty { "KB" },
+                                                    color = KaspaTea,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    )
+                                } else {
+                                    Text(
+                                        text = token.ticker.take(2).uppercase().ifEmpty { "KB" },
+                                        color = KaspaTea,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(token.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${token.ticker} · ${token.validationStatus}", color = TextSecondary, fontSize = 10.sp)
-                                Spacer(modifier = Modifier.height(5.dp))
-                                Text("$shownBalance ${token.ticker}", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(token.name, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text("$shownBalance ${token.ticker}", color = KaspaTea, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(priceChangeLabel, color = priceChangeColor, fontSize = 9.sp, textAlign = TextAlign.End)
+                                val kasVal = token.marketPriceKas?.toBigDecimalOrNull()
+                                val kasFormatted = if (kasVal != null) {
+                                    kasVal.setScale(4, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + " KAS"
+                                } else {
+                                    "— KAS"
+                                }
+                                Text(kasFormatted, color = TextPrimary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                val usdFormatted = if (token.marketPriceUsd != null) "~$${token.marketPriceUsd}" else " "
+                                Text(usdFormatted, color = TextSecondary, fontSize = 9.5.sp, fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(priceChangeLabel, color = priceChangeColor, fontSize = 9.5.sp, textAlign = TextAlign.End)
                             }
                         }
                     }
-                    Text(
-                        "Balances and market data from Kascov. Unverified tokens are labelled; missing prices are not estimated.",
-                        color = TextSecondary,
-                        fontSize = 10.sp,
-                        lineHeight = 14.sp,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Surface(
-                onClick = { showTransactionHistoryScreen = true },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .testTag("open_transaction_history"),
-                shape = RoundedCornerShape(12.dp),
-                color = SurfaceCard,
-                border = BorderStroke(1.dp, SurfaceCardBorder)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Transaction History",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "${walletState.recentTransactions.size} transactions",
-                            fontSize = 11.sp,
-                            color = TextSecondary
-                        )
-                    }
-                    if (walletState.recentTransactions.isNotEmpty()) {
-                        Text(
-                            text = "View Explorer",
-                            fontSize = 11.sp,
-                            color = KaspaTea,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.clickable { viewModel.openTestnetExplorer() }
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                    }
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = "Open transaction history",
-                        tint = KaspaTea
-                    )
-                }
             }
         }
+    }
 
-        if (showTransactionHistoryScreen) {
+    if (showTransactionHistoryScreen) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1082,6 +1164,25 @@ fun KaspaTestnetWalletScreen(
                             snackbarHostState.showSnackbar(msg)
                         }
                     }
+                }
+            )
+        }
+
+        // KCC-20 Covenant Token Detail Sheet
+        if (selectedKcc20TokenForDetails != null) {
+            Kcc20TokenDetailSheet(
+                token = selectedKcc20TokenForDetails!!,
+                onDismiss = { selectedKcc20TokenForDetails = null },
+                onOpenExplorer = { contractId ->
+                    selectedKcc20TokenForDetails = null
+                    viewModel.openUrlInBrowser("https://kascov.io/token/$contractId")
+                },
+                onBuyTrade = { contractId ->
+                    selectedKcc20TokenForDetails = null
+                    if (!viewModel.selectedNetwork.value.contains("Mainnet", ignoreCase = true)) {
+                        viewModel.selectNetwork("Kaspa Mainnet")
+                    }
+                    viewModel.openUrlInBrowser("https://app.braidswap.com/swap?outputCurrency=$contractId")
                 }
             )
         }
@@ -6069,6 +6170,216 @@ fun WalletSetupFlow(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun Kcc20TokenDetailSheet(
+    token: com.example.network.kaspa.Kcc20WalletToken,
+    onDismiss: () -> Unit,
+    onOpenExplorer: (String) -> Unit,
+    onBuyTrade: (String) -> Unit = {}
+) {
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceDark,
+        scrimColor = Color.Black.copy(alpha = 0.65f),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .background(SurfaceCardBorder, RoundedCornerShape(2.dp))
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 10.dp)
+                .navigationBarsPadding()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val resolvedLogoUrl = if (!token.imageUrl.isNullOrBlank()) token.imageUrl else when (token.ticker.uppercase()) {
+                    "KB" -> "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
+                    else -> null
+                }
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(KaspaTea.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!resolvedLogoUrl.isNullOrBlank()) {
+                        SubcomposeAsyncImage(
+                            model = resolvedLogoUrl,
+                            contentDescription = "${token.name} logo",
+                            modifier = Modifier.fillMaxSize().clip(CircleShape).border(1.dp, SurfaceCardBorder, CircleShape),
+                            contentScale = ContentScale.Crop,
+                            loading = { Text(token.ticker.take(2).uppercase(), color = KaspaTea, fontWeight = FontWeight.Bold) },
+                            error = { Text(token.ticker.take(2).uppercase(), color = KaspaTea, fontWeight = FontWeight.Bold) }
+                        )
+                    } else {
+                        Text(token.ticker.take(2).uppercase(), color = KaspaTea, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(token.name, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            color = KaspaTea.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.3f))
+                        ) {
+                            Text("KCC-20 COVENANT", color = KaspaTea, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(token.ticker, color = TextSecondary, fontSize = 12.sp)
+                    }
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            val raw = token.balanceRaw.toBigDecimalOrNull()
+            val shownBalance = if (raw == null || raw.compareTo(java.math.BigDecimal.ZERO) == 0) "0" else raw.movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceCard, RoundedCornerShape(16.dp))
+                    .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Text("YOUR HOLDINGS", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("$shownBalance ${token.ticker}", color = KaspaTea, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                if (token.marketPriceUsd != null && raw != null && raw.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                    val usdUnit = token.marketPriceUsd.toBigDecimalOrNull()
+                    if (usdUnit != null) {
+                        val totalVal = raw.movePointLeft(token.decimals).multiply(usdUnit).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
+                        Text("≈ $$totalVal USD", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceCard, RoundedCornerShape(16.dp))
+                    .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Text("LIVE MARKET DATA (KASCOV ORACLE)", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Spot Price", color = TextMuted, fontSize = 11.sp)
+                        val kasVal = token.marketPriceKas?.toBigDecimalOrNull()
+                        val kasText = if (kasVal != null) kasVal.setScale(4, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + " KAS" else "N/A"
+                        Text(kasText, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("USD Value", color = TextMuted, fontSize = 11.sp)
+                        Text(if (token.marketPriceUsd != null) "$${token.marketPriceUsd}" else "N/A", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("24h Change", color = TextMuted, fontSize = 11.sp)
+                        val pVal = token.priceChange24hPercent?.toBigDecimalOrNull()
+                        val pColor = when {
+                            pVal == null -> TextSecondary
+                            pVal.signum() >= 0 -> EmeraldMesh
+                            else -> RedTamper
+                        }
+                        val pText = if (pVal == null) "0.0%" else "${if (pVal.signum() >= 0) "+" else ""}${pVal.stripTrailingZeros().toPlainString()}%"
+                        Text(pText, color = pColor, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(SurfaceCard, RoundedCornerShape(16.dp))
+                    .border(1.dp, SurfaceCardBorder, RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Text("COVENANT CONTRACT ID", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = token.contractId,
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(token.contractId))
+                            android.widget.Toast.makeText(context, "Contract ID copied!", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy Contract ID", tint = KaspaTea, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Button(
+                onClick = { onBuyTrade(token.contractId) },
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Buy / Trade Token on BraidSwap DEX", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = { onOpenExplorer(token.contractId) },
+                border = BorderStroke(1.dp, SurfaceCardBorder),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("View Token on KasCov Explorer", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

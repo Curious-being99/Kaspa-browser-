@@ -800,6 +800,11 @@ object KaspaDappBridge {
                       emit('disconnect', result);
                       return result;
                     },
+                    enable: async () => {
+                      const accounts = await request('requestAccounts');
+                      emit('accountsChanged', accounts);
+                      return accounts;
+                    },
                     on,
                     addListener: on,
                     removeListener,
@@ -830,6 +835,7 @@ object KaspaDappBridge {
                       'kaspa:submitTransaction': 'submitTransaction',
                       'kaspa:disconnect': 'disconnect',
                       connect: 'requestAccounts',
+                      enable: 'requestAccounts',
                       kaspa_requestAccounts: 'requestAccounts',
                       kaspa_getAccounts: 'getAccounts',
                       kaspa_getNetwork: 'getNetwork',
@@ -866,6 +872,20 @@ object KaspaDappBridge {
                       kasperia_sendTransaction: 'sendTransaction',
                       kasperia_submitTransaction: 'submitTransaction',
                       kasperia_disconnect: 'disconnect',
+                      kaspire_requestAccounts: 'requestAccounts',
+                      kaspire_getAccounts: 'getAccounts',
+                      kaspire_getNetwork: 'getNetwork',
+                      kaspire_getBalance: 'getBalance',
+                      kaspire_getUtxoEntries: 'getUtxoEntries',
+                      kaspire_getPublicKey: 'getPublicKey',
+                      kaspire_signMessage: 'signMessage',
+                      kaspire_signPskt: 'signPskt',
+                      kaspire_signKrc20Transaction: 'signKrc20Transaction',
+                      kaspire_signKcc20Transaction: 'signKcc20Transaction',
+                      kaspire_sendKaspa: 'sendKaspa',
+                      kaspire_sendTransaction: 'sendTransaction',
+                      kaspire_submitTransaction: 'submitTransaction',
+                      kaspire_disconnect: 'disconnect',
                       kaspabrowser_requestAccounts: 'requestAccounts',
                       kaspabrowser_getAccounts: 'getAccounts',
                       kaspabrowser_getNetwork: 'getNetwork',
@@ -964,26 +984,40 @@ object KaspaDappBridge {
                     name: 'Kaspa Browser',
                     isKaspabrowser: true,
                     isKaspaBrowser: true,
-                    version: '1.0.0',
+                    isKasware: true,
+                    isKastle: true,
+                    isKaspire: true,
+                    isKaspa: true,
+                    isInstalled: true,
+                    type: 'extension',
+                    version: '1.2.0',
+                    requestAccounts: () => requestCompat({ method: 'kaspa:requestAccounts' }),
+                    getAccounts: () => requestCompat({ method: 'kaspa:getAccounts' }),
+                    getNetwork: () => requestCompat({ method: 'kaspa:getNetwork' }),
+                    getPublicKey: () => requestCompat({ method: 'kaspa:getPublicKey' }),
+                    getBalance: () => requestCompat({ method: 'kaspa:getBalance' }),
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
                   });
-                  const isBraidSwap = window.location.hostname === 'app.braidswap.com';
-                  if (!isBraidSwap) installAlias('kastle', Object.freeze({
+                  installAlias('kastle', Object.freeze({
                     ...requestProvider,
                     isKastle: true,
-                    version: '1.0.0',
+                    isInstalled: true,
+                    isKaspa: true,
+                    version: '1.2.0',
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
                   }));
-                  if (!isBraidSwap) installAlias('kasware', Object.freeze({
+                  installAlias('kasware', Object.freeze({
                     ...requestProvider,
                     isKasware: true,
-                    version: '1.0.0',
+                    isInstalled: true,
+                    isKaspa: true,
+                    version: '1.2.0',
                     getNetwork: () => requestCompat({ method: 'kaspa:getNetwork' }),
                     getAccounts: () => requestCompat({ method: 'kaspa:getAccounts' }),
                     requestAccounts: () => requestCompat({ method: 'kaspa:requestAccounts' }),
@@ -996,7 +1030,9 @@ object KaspaDappBridge {
                   }));
                   const kasperiaProvider = {
                     ...requestProvider,
-                    isKasperia: true
+                    isKasperia: true,
+                    isInstalled: true,
+                    isKaspa: true
                   };
                   Object.defineProperty(kasperiaProvider, 'ethereum', {
                     configurable: false,
@@ -1004,9 +1040,30 @@ object KaspaDappBridge {
                     get: () => window.ethereum
                   });
                   Object.freeze(kasperiaProvider);
-                  if (!isBraidSwap) installAlias('kasperia', kasperiaProvider);
+                  installAlias('kasperia', kasperiaProvider);
+                  const kaspireProvider = {
+                    ...requestProvider,
+                    id: 'kaspire',
+                    name: 'Kaspire',
+                    provider: 'kaspire',
+                    isKaspire: true,
+                    isInstalled: true,
+                    isKaspa: true,
+                    type: 'extension',
+                    version: '1.2.5'
+                  };
+                  Object.defineProperty(kaspireProvider, 'ethereum', {
+                    configurable: false,
+                    enumerable: true,
+                    get: () => window.ethereum
+                  });
+                  Object.freeze(kaspireProvider);
+                  window.kaspire = kaspireProvider;
+                  window.isKaspire = true;
+                  installAlias('kaspire', kaspireProvider);
+
                   Object.defineProperty(window, 'kaspa', {
-                    configurable: false, enumerable: true, writable: false, value: provider
+                    configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
                   });
                   Object.defineProperty(window, 'kaspaBrowser', {
                     configurable: false, enumerable: true, writable: false, value: browserProvider
@@ -1017,6 +1074,9 @@ object KaspaDappBridge {
                   Object.defineProperty(window, 'kaspabrowserProvider', {
                     configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
                   });
+                  window.isKasware = true;
+                  window.isKaspa = true;
+
                   const walletNamespace = window.wallet && typeof window.wallet === 'object' ? window.wallet : {};
                   if (!Object.prototype.hasOwnProperty.call(walletNamespace, 'kaspa')) {
                     try {
@@ -1041,14 +1101,18 @@ object KaspaDappBridge {
                   const announce = () => {
                     const detail = Object.freeze({ info, provider: kaspaBrowserProvider });
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
+                    window.dispatchEvent(new CustomEvent('kaspire:provider', { detail: Object.freeze({ info: { ...info, id: 'kaspire', name: 'Kaspire', rdns: 'io.kaspire' }, provider: kaspireProvider }) }));
+                    window.dispatchEvent(new CustomEvent('kasware:provider', { detail: Object.freeze({ info: { ...info, id: 'kasware', name: 'Kasware', rdns: 'com.kasware.wallet' }, provider: window.kasware }) }));
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   window.addEventListener('kaspabrowser#requestProvider', announce);
+                  window.addEventListener('kaspire:requestProvider', announce);
+                  window.addEventListener('kasware:requestProvider', announce);
                   announce();
                   window.dispatchEvent(new Event('kaspabrowser#initialized'));
-                  if (!isBraidSwap) {
-                    window.dispatchEvent(new Event('kasperia#initialized'));
-                  }
+                  window.dispatchEvent(new Event('kasperia#initialized'));
+                  window.dispatchEvent(new Event('kaspire#initialized'));
+                  window.dispatchEvent(new Event('kasware#initialized'));
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
