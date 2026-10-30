@@ -1047,8 +1047,10 @@ object KaspaDappBridge {
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   announce();
-                  window.dispatchEvent(new Event('kasperia#initialized'));
-                  window.dispatchEvent(new Event('kaspire#initialized'));
+                  if (!isBraidSwap) {
+                    window.dispatchEvent(new Event('kasperia#initialized'));
+                    window.dispatchEvent(new Event('kaspire#initialized'));
+                  }
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
