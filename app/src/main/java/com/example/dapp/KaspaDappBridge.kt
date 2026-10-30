@@ -120,7 +120,7 @@ object KaspaDappBridge {
                                 .put("igra", evmAddress)
                             if (method == "requestNetworkAccounts" && !isConnected) {
                                 AlertDialog.Builder(context)
-                                    .setTitle("Connect Kaspire Extension")
+                                    .setTitle("Connect Kaspa Browser Wallet")
                                     .setMessage("$origin wants to connect to Kaspa Mainnet L1 & L2 (Kasplex/Igra).")
                                     .setNegativeButton("Reject") { _, _ ->
                                         respond(errorCode = 4001, errorMessage = "User rejected network connection")
@@ -977,9 +977,11 @@ object KaspaDappBridge {
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
                   });
                   const isBraidSwap = window.location.hostname === 'app.braidswap.com';
-                  if (!isBraidSwap) installAlias('kaspire', Object.freeze({
+                  installAlias('kaspire', Object.freeze({
                     ...requestProvider,
                     isKaspire: true,
+                    isKaspaBrowser: true,
+                    name: 'Kaspa Browser',
                     version: '1.0.0',
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
@@ -1059,10 +1061,8 @@ object KaspaDappBridge {
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   announce();
-                  if (!isBraidSwap) {
-                    window.dispatchEvent(new Event('kasperia#initialized'));
-                    window.dispatchEvent(new Event('kaspire#initialized'));
-                  }
+                  if (!isBraidSwap) window.dispatchEvent(new Event('kasperia#initialized'));
+                  window.dispatchEvent(new Event('kaspire#initialized'));
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
