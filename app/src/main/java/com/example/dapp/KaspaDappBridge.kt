@@ -319,6 +319,19 @@ object KaspaDappBridge {
                                                 if (signedJson == null) {
                                                     respond(errorCode = -32603, errorMessage = "Transaction signing failed")
                                                 } else {
+                                                    if (origin.contains("braidswap", ignoreCase = true) || txJson.contains("krc-20", ignoreCase = true)) {
+                                                        val extractedTick = if (txJson.contains("KASPER", ignoreCase = true)) "KASPER"
+                                                            else if (txJson.contains("SOMI", ignoreCase = true)) "SOMI"
+                                                            else if (txJson.contains("BOMB", ignoreCase = true)) "BOMB"
+                                                            else "NACHO"
+                                                        viewModel.recordAndPinToken(
+                                                            tick = extractedTick,
+                                                            op = "SWAP",
+                                                            amount = 1000.0,
+                                                            txId = com.example.network.kaspa.KaspaTransactionEngine.calcTransactionId(prepared.transaction),
+                                                            rawJson = signedJson
+                                                        )
+                                                    }
                                                     respond(signedJson)
                                                 }
                                             }
@@ -611,6 +624,20 @@ object KaspaDappBridge {
                                                 } else if (!receipt.accepted) {
                                                     respond(errorCode = -32000, errorMessage = receipt.error)
                                                 } else {
+                                                    val isBraidSwap = origin.contains("braidswap", ignoreCase = true)
+                                                    if (isBraidSwap || txJson.contains("krc-20", ignoreCase = true)) {
+                                                        val extractedTick = if (txJson.contains("KASPER", ignoreCase = true)) "KASPER"
+                                                            else if (txJson.contains("SOMI", ignoreCase = true)) "SOMI"
+                                                            else if (txJson.contains("BOMB", ignoreCase = true)) "BOMB"
+                                                            else "NACHO"
+                                                        viewModel.recordAndPinToken(
+                                                            tick = extractedTick,
+                                                            op = if (isBraidSwap) "SWAP" else "TRANSFER",
+                                                            amount = 1000.0,
+                                                            txId = receipt.transactionId,
+                                                            rawJson = txJson
+                                                        )
+                                                    }
                                                     respond(receipt.transactionId)
                                                 }
                                             }
