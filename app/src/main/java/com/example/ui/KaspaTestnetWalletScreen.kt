@@ -699,11 +699,19 @@ fun KaspaTestnetWalletScreen(
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 12.sp)
-                                Text(
-                                    token.priceChange24hPercent?.let { "${if ((it.toBigDecimalOrNull()?.signum() ?: 0) >= 0) "+" else ""}$it% (24h)" } ?: "24h change unavailable",
-                                    color = token.priceChange24hPercent?.toBigDecimalOrNull()?.let { if (it.signum() >= 0) EmeraldMesh else RedTamper } ?: TextSecondary,
-                                    fontSize = 10.sp
-                                )
+                                val priceChange = token.priceChange24hPercent
+                                val priceChangeValue = priceChange?.toBigDecimalOrNull()
+                                val priceChangeLabel = if (priceChangeValue == null) {
+                                    "24h change unavailable"
+                                } else {
+                                    "${if (priceChangeValue.signum() >= 0) "+" else ""}${priceChangeValue.stripTrailingZeros().toPlainString()}% (24h)"
+                                }
+                                val priceChangeColor = when {
+                                    priceChangeValue == null -> TextSecondary
+                                    priceChangeValue.signum() >= 0 -> EmeraldMesh
+                                    else -> RedTamper
+                                }
+                                Text(priceChangeLabel, color = priceChangeColor, fontSize = 10.sp)
                             }
                         }
                     }
