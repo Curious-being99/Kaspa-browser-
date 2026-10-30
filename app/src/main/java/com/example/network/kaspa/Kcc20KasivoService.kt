@@ -322,7 +322,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 marketPriceUsd = priceUsd,
                 marketPriceSource = priceSource,
                 priceUpdatedAtMs = priceUpdatedAt,
-                priceChange24hPercent = change24h,
+                priceChange24hPercent = if (isVerified) change24h else null,
                 imageUrl = token.optString("claimed_image").takeIf { it.startsWith("https://") }
             ))
         } catch (error: Exception) {
