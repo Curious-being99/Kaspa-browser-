@@ -67,6 +67,33 @@ class DappPsktTransactionTest {
     }
 
     @Test
+    fun signsWalletOwnedP2shInputUsingLockingScriptAndPreservesMass() {
+        val redeemScript = "20" + publicKeyHex + "ac"
+        val p2shHash = CryptoUtils.blake2b256(
+            redeemScript.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        ).joinToString("") { "%02x".format(it) }
+        val json = JSONObject(transactionJson())
+        val p2shInput = json.getJSONArray("inputs").getJSONObject(1)
+        p2shInput.getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
+            .put("script", "aa20" + p2shHash + "87")
+        val originalMass = json.getLong("mass")
+        val prepared = DappPsktTransaction.prepareForSigning(
+            json.toString(),
+            JSONArray().put(JSONObject()
+                .put("index", 1)
+                .put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)
+                .put("redeemScript", redeemScript)),
+            publicKeyHex
+        )
+        val signed = JSONObject(DappPsktTransaction.sign(prepared, privateKey))
+        val signedInput = signed.getJSONArray("inputs").getJSONObject(1)
+        val signatureScript = signedInput.getString("signatureScript")
+        assertTrue(signatureScript.startsWith("41"))
+        assertTrue(signatureScript.endsWith("20" + publicKeyHex + "ac"))
+        assertEquals(originalMass, signed.getLong("mass"))
+    }
+
+    @Test
     fun enforcesExistingWalletMinimumFeePolicy() {
         val prepared = DappPsktTransaction.prepareForSigning(
             transactionJson(),
