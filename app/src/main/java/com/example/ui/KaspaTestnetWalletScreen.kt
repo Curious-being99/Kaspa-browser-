@@ -271,6 +271,7 @@ fun KaspaTestnetWalletScreen(
     var showSendScreen by remember { mutableStateOf(false) }
     var showReceiveScreen by remember { mutableStateOf(false) }
     var showManageScreen by remember { mutableStateOf(false) }
+    var showTransactionHistoryScreen by remember { mutableStateOf(false) }
     var showNetworkDetailsScreen by remember { mutableStateOf(false) }
     var showNetworkSwitchScreen by remember { mutableStateOf(false) }
     var showResultOverlay by remember { mutableStateOf(false) }
@@ -313,7 +314,9 @@ fun KaspaTestnetWalletScreen(
 
     // Handle Hardware/System Back -> Close overlays or Return to Browser Gateway
     BackHandler(enabled = true) {
-        if (showResultOverlay) {
+        if (showTransactionHistoryScreen) {
+            showTransactionHistoryScreen = false
+        } else if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
         } else if (selectedTokenForDetails != null) {
@@ -650,46 +653,114 @@ fun KaspaTestnetWalletScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Section Header: Transaction History
-            Row(
+            Surface(
+                onClick = { showTransactionHistoryScreen = true },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("open_transaction_history"),
+                shape = RoundedCornerShape(12.dp),
+                color = SurfaceCard,
+                border = BorderStroke(1.dp, SurfaceCardBorder)
             ) {
-                Column {
-                    Text(
-                        text = "Transaction History",
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                }
-                if (walletState.recentTransactions.isNotEmpty()) {
-                    Text(
-                        text = "View Explorer",
-                        fontSize = 11.sp,
-                        color = KaspaTea,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { viewModel.openTestnetExplorer() }
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Transaction History",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${walletState.recentTransactions.size} transactions",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    if (walletState.recentTransactions.isNotEmpty()) {
+                        Text(
+                            text = "View Explorer",
+                            fontSize = 11.sp,
+                            color = KaspaTea,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable { viewModel.openTestnetExplorer() }
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open transaction history",
+                        tint = KaspaTea
                     )
                 }
             }
+        }
 
-            // Transaction History List directly on Main Screen (pins dashboard up, no scroll cutoffs!)
-            Box(
+        if (showTransactionHistoryScreen) {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
+                    .fillMaxSize()
+                    .background(ObsidianBg)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .testTag("wallet_transaction_history_page")
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { showTransactionHistoryScreen = false },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to wallet",
+                            tint = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Transaction History",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${walletState.recentTransactions.size} transactions",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    IconButton(onClick = { viewModel.refreshTestnetWallet() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh transactions",
+                            tint = KaspaTea
+                        )
+                    }
+                    IconButton(onClick = { viewModel.openTestnetExplorer() }) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInBrowser,
+                            contentDescription = "Open explorer",
+                            tint = KaspaTea
+                        )
+                    }
+                }
                 HistoryTabContent(
                     transactions = walletState.recentTransactions,
                     isLoading = walletState.isLoading,
                     onOpenTx = { tx -> selectedTransactionForDetails = tx },
                     onGetFaucetCoins = { viewModel.openTestnetFaucet(context) },
-                    onSendKaspa = { showSendScreen = true },
-                    onReceiveKaspa = { showReceiveScreen = true },
+                    onSendKaspa = { showTransactionHistoryScreen = false; showSendScreen = true },
+                    onReceiveKaspa = { showTransactionHistoryScreen = false; showReceiveScreen = true },
                     isMainnet = isMainnet,
                     selectedNetwork = selectedNetwork
                 )
