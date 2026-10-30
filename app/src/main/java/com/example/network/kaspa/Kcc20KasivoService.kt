@@ -122,19 +122,6 @@ data class Kcc20WalletToken(
     val contractId: String,
     val ticker: String,
     val name: String,
-    val balanceRaw: String?,
-    val displayDecimals: Int?,
-    val holders: Long?,
-    val validationStatus: String,
-    val metadataSource: String,
-    val image: String?,
-    val balanceOwnerMatched: Boolean
-)
-
-data class Kcc20WalletToken(
-    val contractId: String,
-    val ticker: String,
-    val name: String,
     val balanceRaw: String,
     val decimals: Int,
     val holderCount: Long?,
