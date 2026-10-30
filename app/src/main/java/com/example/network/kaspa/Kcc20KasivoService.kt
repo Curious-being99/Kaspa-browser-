@@ -274,7 +274,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 }
             }
 
-            val liveFeed = try { getJson("../mainnet-live.json") } catch (_: Exception) { JSONObject() }
+            val liveFeed = try {\n                val feedConnection = (URL("https://kascov.io/data/$network-live.json").openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 10000 }\n                try { JSONObject(feedConnection.inputStream.bufferedReader().use { it.readText() }) } finally { feedConnection.disconnect() }\n            } catch (_: Exception) { JSONObject() }
             val currentDaa = liveFeed.optLong("tip_daa")
             val tradeRows = try { getJson("token/$tokenId/trades?limit=100").optJSONArray("trades") ?: JSONArray() } catch (_: Exception) { JSONArray() }
             var oldTradePrice: java.math.BigDecimal? = null
@@ -282,7 +282,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 for (i in 0 until tradeRows.length()) {
                     val trade = tradeRows.optJSONObject(i) ?: continue
                     if (trade.has("market_recognized") && !trade.optBoolean("market_recognized")) continue
-                    val daa = trade.optLong("accepting_daa")
+                    val daa = trade.optLong("accepting_daa", trade.optLong("daa"))
                     if (daa <= 0L || daa > currentDaa - 864000L) continue
                     val quote = trade.optString("quote_sompi").toBigDecimalOrNull() ?: continue
                     val base = trade.optString("base_amount").toBigDecimalOrNull() ?: continue
