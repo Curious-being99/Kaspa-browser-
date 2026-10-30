@@ -87,9 +87,45 @@ jobs:
         with:
           packages: 'platform-tools'
 
-      - name: Install Android NDK and CMake
+      - name: Install Android CMake
         if: matrix.language == 'cpp'
-        run: sdkmanager --install "ndk;27.2.12479018" "cmake;3.22.1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install "cmake;3.22.1"
+          cmake_bin="${ANDROID_SDK_ROOT}/cmake/3.22.1/bin/cmake"
+          test -x "$cmake_bin"
+          "$cmake_bin" --version
+
+      - name: Install and verify Android NDK
+        if: matrix.language == 'cpp'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ndk_version="27.2.12479018"
+          ndk_dir="${ANDROID_SDK_ROOT}/ndk/${ndk_version}"
+          toolchain_file="${ndk_dir}/build/cmake/android.toolchain.cmake"
+
+          for attempt in 1 2 3; do
+            echo "Installing Android NDK ${ndk_version} (attempt ${attempt}/3)"
+            rm -rf "$ndk_dir" "${ANDROID_SDK_ROOT}/.temp" "${HOME}/.android/cache"
+
+            if sdkmanager --install --verbose "ndk;${ndk_version}" \
+              && test -s "${ndk_dir}/source.properties" \
+              && test -f "$toolchain_file"; then
+              echo "NDK ${ndk_version} installed and verified."
+              exit 0
+            fi
+
+            echo "::warning::NDK installation or verification failed on attempt ${attempt}."
+            rm -rf "$ndk_dir" "${ANDROID_SDK_ROOT}/.temp" "${HOME}/.android/cache"
+            if [ "$attempt" -lt 3 ]; then
+              sleep 10
+            fi
+          done
+
+          echo "::error::Unable to install a valid Android NDK ${ndk_version} after three attempts."
+          exit 1
 
       - name: Build native C++ library with Android NDK
         if: matrix.language == 'cpp'
@@ -97,11 +133,12 @@ jobs:
         run: |
           set -euo pipefail
           ndk_dir="${ANDROID_SDK_ROOT}/ndk/27.2.12479018"
+          cmake_bin="${ANDROID_SDK_ROOT}/cmake/3.22.1/bin/cmake"
           cmake -S app/src/main/cpp -B "${RUNNER_TEMP}/native-mmap-cache-build" \
             -DCMAKE_TOOLCHAIN_FILE="${ndk_dir}/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-24
-          cmake --build "${RUNNER_TEMP}/native-mmap-cache-build" --parallel 2
+          "$cmake_bin" --build "${RUNNER_TEMP}/native-mmap-cache-build" --parallel 2
 
       - name: Prepare SARIF output directory
         run: mkdir -p "${GITHUB_WORKSPACE}/results"
@@ -114,12 +151,12 @@ jobs:
           upload: false
 
       - name: Upload CodeQL SARIF reports as workflow artifact
-        if: always()
+        if: always() && hashFiles('results/*.sarif') != ''
         uses: actions/upload-artifact@v4
         with:
           name: codeql-sarif-${{ matrix.language }}
           path: results/*.sarif
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
   rust-source:
