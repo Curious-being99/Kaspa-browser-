@@ -118,6 +118,19 @@ data class ProtocolTaxonomySummary(
  * KCC-20 KasCov / Kasivo Service interfacing directly with Kaspa's RPC gateway and KasCov BlockDAG indexer endpoints (https://kascov.io).
  * Connects to live Mainnet network nodes for real-time balances, transaction execution, and covenant state.
  */
+data class Kcc20WalletToken(
+    val contractId: String,
+    val ticker: String,
+    val name: String,
+    val balanceRaw: String?,
+    val displayDecimals: Int?,
+    val holders: Long?,
+    val validationStatus: String,
+    val metadataSource: String,
+    val image: String?,
+    val balanceOwnerMatched: Boolean
+)
+
 class Kcc20KasivoService(private val context: Context? = null) {
 
     companion object {
@@ -136,6 +149,61 @@ class Kcc20KasivoService(private val context: Context? = null) {
     /**
      * Differentiate raw payload or metadata JSON into exact Kaspa Protocol Taxonomy.
      */
+    suspend fun fetchWalletToken(
+        address: String,
+        contractId: String,
+        network: String = "mainnet"
+    ): Result<Kcc20WalletToken> = withContext(Dispatchers.IO) {
+        if (address.isBlank()) return@withContext Result.failure(IllegalArgumentException("Wallet address is empty"))
+        if (network != "mainnet") return@withContext Result.failure(IllegalArgumentException("KCC-20 index lookup is currently mainnet-only"))
+        try {
+            fun getJson(path: String): JSONObject {
+                val connection = (URL("https://kascov.io/data/$network/$path").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 10000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0")
+                }
+                try {
+                    if (connection.responseCode != HttpURLConnection.HTTP_OK) throw java.io.IOException("Kascov returned HTTP ${connection.responseCode}")
+                    return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                } finally { connection.disconnect() }
+            }
+            val detail = getJson("token/$contractId")
+            val token = detail.optJSONObject("token") ?: throw java.io.IOException("Token metadata is missing from Kascov")
+            val holderPage = getJson("token/$contractId/holders?limit=100")
+            val holdersArray = holderPage.optJSONArray("holders") ?: JSONArray()
+            val normalizedAddress = address.trim().lowercase()
+            var matchedBalance: String? = null
+            for (index in 0 until holdersArray.length()) {
+                val holder = holdersArray.optJSONObject(index) ?: continue
+                val ownerAddress = holder.optString("owner_address", "").trim().lowercase()
+                if (ownerAddress.isNotBlank() && ownerAddress == normalizedAddress) {
+                    matchedBalance = holder.optString("balance_str").takeIf { it.isNotBlank() }
+                        ?: holder.opt("balance")?.toString()?.takeIf { it.isNotBlank() }
+                    break
+                }
+            }
+            val fields = token.optJSONObject("fields")
+            val ticker = token.optString("claimed_ticker").ifBlank { fields?.optString("tick", "")?.ifBlank { "KCC20" } ?: "KCC20" }
+            Result.success(Kcc20WalletToken(
+                contractId = token.optString("covenant_id", contractId),
+                ticker = ticker,
+                name = token.optString("claimed_name").ifBlank { token.optString("name", ticker) },
+                balanceRaw = matchedBalance,
+                displayDecimals = if (token.has("display_decimals") && !token.isNull("display_decimals")) token.optInt("display_decimals") else null,
+                holders = if (token.has("holders")) token.optLong("holders") else null,
+                validationStatus = if (token.optString("status") == "verified") "verified" else "unvalidated",
+                metadataSource = token.optString("metadata_source", "chain indexer"),
+                image = token.optString("claimed_image").takeIf { it.startsWith("https://") },
+                balanceOwnerMatched = matchedBalance != null
+            ))
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     fun classifyProtocol(rawPayload: String): KaspaProtocolType {
         return KaspaProtocolType.parseFromJson(rawPayload)
     }
