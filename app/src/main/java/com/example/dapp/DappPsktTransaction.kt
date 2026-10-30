@@ -11,7 +11,7 @@ internal object DappPsktTransaction {
     private const val MAX_INPUTS = 256
     private const val MAX_OUTPUTS = 256
 
-    data class SignInput(val index: Int, val sighashType: Int)
+    data class SignInput(val index: Int, val sighashType: Int, val redeemScript: String = "")
 
     data class Prepared(
         val originalJson: JSONObject,
@@ -46,7 +46,7 @@ internal object DappPsktTransaction {
             require(sighashType == KaspaTransactionEngine.SIGHASH_ALL) {
                 "Only SIGHASH_ALL (1) is supported"
             }
-            SignInput(inputIndex, sighashType)
+            SignInput(inputIndex, sighashType, item.optString("redeemScript", ""))
         }
         require(requests.map { it.index }.distinct().size == requests.size) {
             "Duplicate input index requested"
@@ -61,13 +61,28 @@ internal object DappPsktTransaction {
             require(input.signatureScript.isBlank()) {
                 "Refusing to overwrite an existing signature script"
             }
-            val script = prepared.utxoEntries[request.index].scriptPublicKey.script
+            val utxoScript = prepared.utxoEntries[request.index].scriptPublicKey.script
                 .replace(" ", "").lowercase()
-            
-            if (!isPolicy) {
-                require(prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && script == expectedScript) {
-                    "Selected input ${request.index} is not a standard P2PK input owned by the active wallet"
-                }
+            if (prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && utxoScript == expectedScript) {
+                continue
+            }
+            val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
+                ?: throw IllegalArgumentException("Selected input ${request.index} is not an active-wallet P2PK or supported P2SH input")
+            val redeem = request.redeemScript.takeIf { it.isNotBlank() }
+                ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
+            require(redeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                "P2SH redeemScript for input ${request.index} is malformed"
+            }
+            val redeemBytes = hexToBytes(redeem)
+            val actualHash = CryptoUtils.blake2b256(redeemBytes)
+                .joinToString("") { "%02x".format(it) }
+            require(actualHash.equals(p2shHash, ignoreCase = true)) {
+                "P2SH redeemScript does not match input ${request.index} locking script"
+            }
+            val redeemHex = redeem.lowercase()
+            require(redeemHex.contains(expectedScript)) {
+                "P2SH input ${request.index} redeemScript is not controlled by the active wallet key"
             }
         }
         return prepared
@@ -100,21 +115,23 @@ internal object DappPsktTransaction {
             val input = prepared.transaction.inputs[request.index]
             val utxoEntry = prepared.utxoEntries[request.index]
             
-            // For P2SH/Policy, use the redeem script instead of the script public key for sighash calculation
-            val effectiveUtxoEntry = if (prepared.redeemScript.isNotBlank()) {
-                utxoEntry.copy(scriptPublicKey = utxoEntry.scriptPublicKey.copy(script = prepared.redeemScript))
-            } else {
-                utxoEntry
-            }
-
             val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
                 prepared.transaction,
                 request.index,
                 request.sighashType,
-                effectiveUtxoEntry
+                utxoEntry
             )
             val signature = CryptoUtils.signSchnorr(privateKey, sighash)
-            val signatureScript = "41" + signature + "01"
+            val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
+            val redeem = if (Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
+                val redeemScript = request.redeemScript.takeIf { it.isNotBlank() }
+                    ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("P2SH redeemScript is required for input ${request.index}")
+                pushDataScript(redeemScript.lowercase())
+            } else {
+                ""
+            }
+            val signatureScript = "41" + signature + "01" + redeem
             input.signatureScript = signatureScript
             val originalInput = inputArray.optJSONObject(request.index)
                 ?: throw IllegalArgumentException("Transaction input is malformed")
@@ -124,11 +141,6 @@ internal object DappPsktTransaction {
                 originalInput.put("signatureScript", signatureScript)
             }
         }
-        prepared.transaction.mass = KaspaTransactionEngine.calculateMass(
-            prepared.transaction,
-            prepared.utxoEntries.map { it.amount }
-        )
-        txRoot.put("mass", prepared.transaction.mass)
         return signedRoot.toString()
     }
 
@@ -225,11 +237,25 @@ internal object DappPsktTransaction {
             payload = txRoot.optString("payload", ""),
             mass = txRoot.optLong("mass", 0L)
         )
-        tx.mass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
-        require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+        val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+        require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
             "Transaction mass exceeds the standard mempool limit"
         }
         return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee, redeemScript)
+    }
+
+    private fun hexToBytes(value: String): ByteArray =
+        value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    private fun pushDataScript(dataHex: String): String {
+        val byteLength = dataHex.length / 2
+        val prefix = when {
+            byteLength <= 75 -> "%02x".format(byteLength)
+            byteLength <= 255 -> "4c" + "%02x".format(byteLength)
+            byteLength <= 65535 -> "4d" + "%04x".format(Integer.reverseBytes(byteLength).ushr(16))
+            else -> throw IllegalArgumentException("P2SH redeemScript is too large")
+        }
+        return prefix + dataHex
     }
 
     fun reviewText(prepared: Prepared, origin: String, network: String, address: String): String {

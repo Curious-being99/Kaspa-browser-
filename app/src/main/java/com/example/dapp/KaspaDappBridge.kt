@@ -289,7 +289,12 @@ object KaspaDappBridge {
                         }
                         cryptoExecutor.execute {
                             val prepared = try {
-                                DappPsktTransaction.prepareForSigning(txJson, signInputs, keyPair.publicKeyHex)
+                                DappPsktTransaction.prepareForSigning(
+                                    txJson,
+                                    signInputs,
+                                    keyPair.publicKeyHex,
+                                    redeemScript = options?.optString("redeemScript", "").orEmpty()
+                                )
                             } catch (error: Throwable) {
                                 mainHandler.post {
                                     respond(errorCode = -32602, errorMessage = error.message ?: "Transaction review failed")
@@ -949,7 +954,7 @@ object KaspaDappBridge {
                       }
                     } catch (_) {}
                   };
-                  installAlias('kaspabrowser', Object.freeze({
+                  const kaspaBrowserProvider = Object.freeze({
                     ...requestProvider,
                     isKaspabrowser: true,
                     isKaspaBrowser: true,
@@ -958,14 +963,9 @@ object KaspaDappBridge {
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
-                  }));
-                  installAlias('kaspabrowserProvider', Object.freeze({
-                    ...requestProvider,
-                    isKaspabrowser: true,
-                    isKaspaBrowser: true,
-                    version: '1.0.0'
-                  }));
-                  installAlias('kaspire', Object.freeze({
+                  });
+                  const isBraidSwap = window.location.hostname === 'app.braidswap.com';
+                  if (!isBraidSwap) installAlias('kaspire', Object.freeze({
                     ...requestProvider,
                     isKaspire: true,
                     version: '1.0.0',
@@ -974,7 +974,7 @@ object KaspaDappBridge {
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
                   }));
-                  installAlias('kastle', Object.freeze({
+                  if (!isBraidSwap) installAlias('kastle', Object.freeze({
                     ...requestProvider,
                     isKastle: true,
                     version: '1.0.0',
@@ -983,7 +983,7 @@ object KaspaDappBridge {
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
                   }));
-                  installAlias('kasware', Object.freeze({
+                  if (!isBraidSwap) installAlias('kasware', Object.freeze({
                     ...requestProvider,
                     isKasware: true,
                     version: '1.0.0',
@@ -1007,7 +1007,7 @@ object KaspaDappBridge {
                     get: () => window.ethereum
                   });
                   Object.freeze(kasperiaProvider);
-                  installAlias('kasperia', kasperiaProvider);
+                  if (!isBraidSwap) installAlias('kasperia', kasperiaProvider);
                   Object.defineProperty(window, 'kaspa', {
                     configurable: false, enumerable: true, writable: false, value: provider
                   });
@@ -1015,10 +1015,10 @@ object KaspaDappBridge {
                     configurable: false, enumerable: true, writable: false, value: browserProvider
                   });
                   Object.defineProperty(window, 'kaspabrowser', {
-                    configurable: false, enumerable: true, writable: false, value: browserProvider
+                    configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
                   });
                   Object.defineProperty(window, 'kaspabrowserProvider', {
-                    configurable: false, enumerable: true, writable: false, value: browserProvider
+                    configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
                   });
                   const walletNamespace = window.wallet && typeof window.wallet === 'object' ? window.wallet : {};
                   if (!Object.prototype.hasOwnProperty.call(walletNamespace, 'kaspa')) {
@@ -1042,13 +1042,15 @@ object KaspaDappBridge {
                     rdns: 'org.kaspa.browser'
                   });
                   const announce = () => {
-                    const detail = Object.freeze({ info, provider: requestProvider });
+                    const detail = Object.freeze({ info, provider: kaspaBrowserProvider });
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   announce();
-                  window.dispatchEvent(new Event('kasperia#initialized'));
-                  window.dispatchEvent(new Event('kaspire#initialized'));
+                  if (!isBraidSwap) {
+                    window.dispatchEvent(new Event('kasperia#initialized'));
+                    window.dispatchEvent(new Event('kaspire#initialized'));
+                  }
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
