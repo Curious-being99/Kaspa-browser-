@@ -147,7 +147,7 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
-          output: "${{ github.workspace }}/results/${{ matrix.language }}.sarif"
+          output: "${{ github.workspace }}/results"
           upload: false
 
       - name: Upload CodeQL SARIF reports as workflow artifact
