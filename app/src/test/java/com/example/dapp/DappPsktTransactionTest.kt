@@ -72,7 +72,7 @@ class DappPsktTransactionTest {
         val p2shHash = CryptoUtils.blake2b256(
             redeemScript.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
         ).joinToString("") { "%02x".format(it) }
-        val json = JSONObject(transactionJson())
+        val json = JSONObject(transactionJson(covenantSigScript = ""))
         val p2shInput = json.getJSONArray("inputs").getJSONObject(1)
         p2shInput.getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
             .put("script", "aa20" + p2shHash + "87")
