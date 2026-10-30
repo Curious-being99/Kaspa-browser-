@@ -143,6 +143,7 @@ data class Kcc20WalletToken(
     val marketPriceUsd: String?,
     val marketPriceSource: String?,
     val priceUpdatedAtMs: Long?,
+    val priceChange24hPercent: String?,
     val imageUrl: String?
 )
 
@@ -273,6 +274,45 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 }
             }
 
+            val liveFeed = try { getJson("../mainnet-live.json") } catch (_: Exception) { JSONObject() }
+            val currentDaa = liveFeed.optLong("tip_daa")
+            val tradeRows = try { getJson("token/$tokenId/trades?limit=100").optJSONArray("trades") ?: JSONArray() } catch (_: Exception) { JSONArray() }
+            var oldTradePrice: java.math.BigDecimal? = null
+            if (currentDaa > 0L) {
+                for (i in 0 until tradeRows.length()) {
+                    val trade = tradeRows.optJSONObject(i) ?: continue
+                    if (trade.has("market_recognized") && !trade.optBoolean("market_recognized")) continue
+                    val daa = trade.optLong("accepting_daa")
+                    if (daa <= 0L || daa > currentDaa - 864000L) continue
+                    val quote = trade.optString("quote_sompi").toBigDecimalOrNull() ?: continue
+                    val base = trade.optString("base_amount").toBigDecimalOrNull() ?: continue
+                    if (base.signum() <= 0) continue
+                    val scale = if (trade.has("display_decimals")) trade.optInt("display_decimals") else decimals
+                    oldTradePrice = quote.multiply(java.math.BigDecimal.TEN.pow(scale))
+                        .divide(base, 18, java.math.RoundingMode.HALF_UP)
+                    break
+                }
+            }
+            val currentPriceSompi = market?.let {
+                val numerator = it.optString("spot_num_sompi").toBigDecimalOrNull()
+                val denominator = it.optString("spot_den").toBigDecimalOrNull()
+                if (numerator != null && denominator != null && denominator.signum() > 0) {
+                    numerator.multiply(java.math.BigDecimal.TEN.pow(decimals))
+                        .divide(denominator, 18, java.math.RoundingMode.HALF_UP)
+                } else {
+                    val quote = it.optString("quote_sompi").toBigDecimalOrNull()
+                    val base = it.optString("base_amount").toBigDecimalOrNull()
+                    if (quote != null && base != null && base.signum() > 0) {
+                        quote.multiply(java.math.BigDecimal.TEN.pow(decimals))
+                            .divide(base, 18, java.math.RoundingMode.HALF_UP)
+                    } else null
+                }
+            }
+            val change24h = if (currentPriceSompi != null && oldTradePrice != null && oldTradePrice.signum() > 0) {
+                currentPriceSompi.subtract(oldTradePrice).multiply(java.math.BigDecimal("100"))
+                    .divide(oldTradePrice, 8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+            } else null
+
             val ticker = token.optString("claimed_ticker").ifBlank {
                 token.optJSONObject("fields")?.optString("tick", "")?.ifBlank { "KCC20" } ?: "KCC20"
             }
@@ -288,6 +328,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 marketPriceUsd = priceUsd,
                 marketPriceSource = priceSource,
                 priceUpdatedAtMs = priceUpdatedAt,
+                priceChange24hPercent = change24h,
                 imageUrl = token.optString("claimed_image").takeIf { it.startsWith("https://") }
             ))
         } catch (error: Exception) {
