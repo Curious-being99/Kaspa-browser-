@@ -977,15 +977,6 @@ object KaspaDappBridge {
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
                   });
                   const isBraidSwap = window.location.hostname === 'app.braidswap.com';
-                  if (!isBraidSwap) installAlias('kaspire', Object.freeze({
-                    ...requestProvider,
-                    isKaspire: true,
-                    version: '1.0.0',
-                    signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
-                    signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
-                    sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
-                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
-                  }));
                   if (!isBraidSwap) installAlias('kastle', Object.freeze({
                     ...requestProvider,
                     isKastle: true,
@@ -1061,7 +1052,6 @@ object KaspaDappBridge {
                   announce();
                   if (!isBraidSwap) {
                     window.dispatchEvent(new Event('kasperia#initialized'));
-                    window.dispatchEvent(new Event('kaspire#initialized'));
                   }
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
