@@ -43,6 +43,8 @@ import com.example.model.Krc20TokenBalance
 import com.example.model.Krc20TokenMetadata
 import com.example.model.Krc20TokenTransaction
 import com.example.network.kaspa.Krc20Service
+import com.example.network.kaspa.Kcc20KasivoService
+import com.example.network.kaspa.Kcc20WalletToken
 import com.example.model.UpdateStatus
 import com.example.network.AppUpdateManager
 import com.example.network.CryptoUtils
@@ -1134,6 +1136,14 @@ class DecentralViewModel(
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
     val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
+    private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
+    private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
+    val kcc20Tokens: StateFlow<List<Kcc20WalletToken>> = _kcc20Tokens.asStateFlow()
+    private val _isLoadingKcc20 = MutableStateFlow(false)
+    val isLoadingKcc20: StateFlow<Boolean> = _isLoadingKcc20.asStateFlow()
+    private val kcc20RefreshMutex = Mutex()
+    private val kcc20ContractIds = listOf("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
+
 
     private val _pinnedTokens = MutableStateFlow<List<Krc20TokenBalance>>(emptyList())
     val pinnedTokens: StateFlow<List<Krc20TokenBalance>> = _pinnedTokens.asStateFlow()
@@ -2132,9 +2142,42 @@ class DecentralViewModel(
         }
     }
 
+
+    fun refreshKcc20Tokens() {
+        viewModelScope.launch {
+            kcc20RefreshMutex.withLock {
+                val account = activeAccount.value ?: return@withLock
+                val network = _selectedNetwork.value
+                if (!network.contains("Mainnet", ignoreCase = true)) {
+                    _kcc20Tokens.value = emptyList()
+                    return@withLock
+                }
+                _isLoadingKcc20.value = true
+                try {
+                    val keyPair = withContext(Dispatchers.Default) {
+                        CryptoUtils.deriveKaspaKeyPair(account.seedPhrase, prefix = "kaspa")
+                    }
+                    try {
+                        val results = kcc20ContractIds.mapNotNull { id ->
+                            kcc20Service.fetchWalletToken(keyPair.publicKeyHex, id, "mainnet").getOrNull()
+                        }
+                        _kcc20Tokens.value = results
+                    } finally {
+                        keyPair.wipe()
+                    }
+                } catch (_: Exception) {
+                    // Preserve the last successful live indexer result on transient failures.
+                } finally {
+                    _isLoadingKcc20.value = false
+                }
+            }
+        }
+    }
+
     fun refreshTestnetWallet() {
         refreshKaspaWallet(testnetAddress.value)
         refreshKrc20Tokens()
+        refreshKcc20Tokens()
     }
 
     fun refreshKrc20Tokens() {

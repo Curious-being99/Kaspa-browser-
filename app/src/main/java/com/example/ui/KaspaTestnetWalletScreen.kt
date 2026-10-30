@@ -271,6 +271,7 @@ fun KaspaTestnetWalletScreen(
     var showSendScreen by remember { mutableStateOf(false) }
     var showReceiveScreen by remember { mutableStateOf(false) }
     var showManageScreen by remember { mutableStateOf(false) }
+    var showTransactionHistoryScreen by remember { mutableStateOf(false) }
     var showNetworkDetailsScreen by remember { mutableStateOf(false) }
     var showNetworkSwitchScreen by remember { mutableStateOf(false) }
     var showResultOverlay by remember { mutableStateOf(false) }
@@ -282,6 +283,8 @@ fun KaspaTestnetWalletScreen(
     // KRC-20 Pinned Tokens State
     val pinnedTokens by viewModel.pinnedTokens.collectAsState()
     val isLoadingKrc20 by viewModel.isLoadingKrc20.collectAsState()
+    val kcc20Tokens by viewModel.kcc20Tokens.collectAsState()
+    val isLoadingKcc20 by viewModel.isLoadingKcc20.collectAsState()
     var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
 
     // Send Form State
@@ -313,7 +316,9 @@ fun KaspaTestnetWalletScreen(
 
     // Handle Hardware/System Back -> Close overlays or Return to Browser Gateway
     BackHandler(enabled = true) {
-        if (showResultOverlay) {
+        if (showTransactionHistoryScreen) {
+            showTransactionHistoryScreen = false
+        } else if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
         } else if (selectedTokenForDetails != null) {
@@ -350,6 +355,16 @@ fun KaspaTestnetWalletScreen(
     LaunchedEffect(Unit) {
         viewModel.refreshTestnetWallet()
         viewModel.refreshNetworkFeeCondition()
+    }
+
+    LaunchedEffect(activeAccount?.did, selectedNetwork) {
+        if (activeAccount != null && selectedNetwork.contains("Mainnet", ignoreCase = true)) {
+            viewModel.refreshKcc20Tokens()
+            while (true) {
+                kotlinx.coroutines.delay(30_000L)
+                viewModel.refreshKcc20Tokens()
+            }
+        }
     }
 
     LaunchedEffect(testnetAddress) {
@@ -650,46 +665,170 @@ fun KaspaTestnetWalletScreen(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Section Header: Transaction History
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Transaction History",
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                }
-                if (walletState.recentTransactions.isNotEmpty()) {
-                    Text(
-                        text = "View Explorer",
-                        fontSize = 11.sp,
-                        color = KaspaTea,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { viewModel.openTestnetExplorer() }
-                    )
+            if (isLoadingKcc20 || kcc20Tokens.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .background(SurfaceCard, RoundedCornerShape(14.dp))
+                        .border(1.dp, SurfaceCardBorder, RoundedCornerShape(14.dp))
+                        .padding(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("KCC-20 Tokens", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (isLoadingKcc20) CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        else Text("LIVE", color = EmeraldMesh, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh KCC-20", tint = TextSecondary)
+                        }
+                    }
+                    if (kcc20Tokens.isEmpty() && isLoadingKcc20) {
+                        Text("Fetching on-chain token holdings…", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    kcc20Tokens.forEach { token ->
+                        HorizontalDivider(color = SurfaceCardBorder)
+                        Spacer(modifier = Modifier.height(9.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(token.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text("${token.ticker} · ${token.validationStatus}", color = TextSecondary, fontSize = 10.sp)
+                                val raw = token.balanceRaw.toBigDecimalOrNull()
+                                val shownBalance = raw?.movePointLeft(token.decimals)?.stripTrailingZeros()?.toPlainString() ?: "—"
+                                Text("$shownBalance ${token.ticker}", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 12.sp)
+                                val priceChange = token.priceChange24hPercent
+                                val priceChangeValue = priceChange?.toBigDecimalOrNull()
+                                val priceChangeLabel = if (priceChangeValue == null) {
+                                    "24h change unavailable"
+                                } else {
+                                    "${if (priceChangeValue.signum() >= 0) "+" else ""}${priceChangeValue.stripTrailingZeros().toPlainString()}% (24h)"
+                                }
+                                val priceChangeColor = when {
+                                    priceChangeValue == null -> TextSecondary
+                                    priceChangeValue.signum() >= 0 -> EmeraldMesh
+                                    else -> RedTamper
+                                }
+                                Text(priceChangeLabel, color = priceChangeColor, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                    Text("Balances and market data from Kascov. Unverified tokens are labelled; missing prices are not estimated.", color = TextSecondary, fontSize = 10.sp)
                 }
             }
 
-            // Transaction History List directly on Main Screen (pins dashboard up, no scroll cutoffs!)
-            Box(
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Surface(
+                onClick = { showTransactionHistoryScreen = true },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("open_transaction_history"),
+                shape = RoundedCornerShape(12.dp),
+                color = SurfaceCard,
+                border = BorderStroke(1.dp, SurfaceCardBorder)
             ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Transaction History",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${walletState.recentTransactions.size} transactions",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    if (walletState.recentTransactions.isNotEmpty()) {
+                        Text(
+                            text = "View Explorer",
+                            fontSize = 11.sp,
+                            color = KaspaTea,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clickable { viewModel.openTestnetExplorer() }
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open transaction history",
+                        tint = KaspaTea
+                    )
+                }
+            }
+        }
+
+        if (showTransactionHistoryScreen) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(ObsidianBg)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .testTag("wallet_transaction_history_page")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { showTransactionHistoryScreen = false },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to wallet",
+                            tint = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Transaction History",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "${walletState.recentTransactions.size} transactions",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    IconButton(onClick = { viewModel.refreshTestnetWallet() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh transactions",
+                            tint = KaspaTea
+                        )
+                    }
+                    IconButton(onClick = { viewModel.openTestnetExplorer() }) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInBrowser,
+                            contentDescription = "Open explorer",
+                            tint = KaspaTea
+                        )
+                    }
+                }
                 HistoryTabContent(
                     transactions = walletState.recentTransactions,
                     isLoading = walletState.isLoading,
                     onOpenTx = { tx -> selectedTransactionForDetails = tx },
                     onGetFaucetCoins = { viewModel.openTestnetFaucet(context) },
-                    onSendKaspa = { showSendScreen = true },
-                    onReceiveKaspa = { showReceiveScreen = true },
+                    onSendKaspa = { showTransactionHistoryScreen = false; showSendScreen = true },
+                    onReceiveKaspa = { showTransactionHistoryScreen = false; showReceiveScreen = true },
                     isMainnet = isMainnet,
                     selectedNetwork = selectedNetwork
                 )

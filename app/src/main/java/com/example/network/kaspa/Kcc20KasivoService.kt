@@ -118,6 +118,22 @@ data class ProtocolTaxonomySummary(
  * KCC-20 KasCov / Kasivo Service interfacing directly with Kaspa's RPC gateway and KasCov BlockDAG indexer endpoints (https://kascov.io).
  * Connects to live Mainnet network nodes for real-time balances, transaction execution, and covenant state.
  */
+data class Kcc20WalletToken(
+    val contractId: String,
+    val ticker: String,
+    val name: String,
+    val balanceRaw: String,
+    val decimals: Int,
+    val holderCount: Long?,
+    val validationStatus: String,
+    val marketPriceKas: String?,
+    val marketPriceUsd: String?,
+    val marketPriceSource: String?,
+    val priceUpdatedAtMs: Long?,
+    val priceChange24hPercent: String?,
+    val imageUrl: String?
+)
+
 class Kcc20KasivoService(private val context: Context? = null) {
 
     companion object {
@@ -136,6 +152,180 @@ class Kcc20KasivoService(private val context: Context? = null) {
     /**
      * Differentiate raw payload or metadata JSON into exact Kaspa Protocol Taxonomy.
      */
+    suspend fun fetchWalletToken(
+        publicKeyHex: String,
+        contractId: String,
+        network: String = "mainnet",
+        kasUsd: String? = null
+    ): Result<Kcc20WalletToken> = withContext(Dispatchers.IO) {
+        val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
+        val tokenId = contractId.trim().lowercase()
+        if (!owner.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("Wallet public key must be 32-byte x-only hex"))
+        }
+        if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("KCC-20 covenant ID must be 32-byte hex"))
+        }
+        if (network != "mainnet") {
+            return@withContext Result.failure(IllegalArgumentException("Kascov KCC-20 token directory is currently queried on mainnet"))
+        }
+        try {
+            fun getJson(path: String): JSONObject {
+                val connection = (URL("https://kascov.io/data/$network/$path").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 12000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0")
+                }
+                try {
+                    if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                        throw java.io.IOException("Kascov HTTP ${connection.responseCode} for $path")
+                    }
+                    return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                } finally {
+                    connection.disconnect()
+                }
+            }
+
+            val detail = getJson("token/$tokenId")
+            val token = detail.optJSONObject("token")
+                ?: throw java.io.IOException("Kascov did not return token metadata")
+            val balances = detail.optJSONArray("balances") ?: JSONArray()
+            var balanceRaw: String? = null
+            for (i in 0 until balances.length()) {
+                val row = balances.optJSONObject(i) ?: continue
+                if (row.optString("owner").trim().lowercase().removePrefix("0x") == owner) {
+                    balanceRaw = row.optString("balance_str").takeIf { it.isNotBlank() }
+                        ?: row.opt("balance")?.toString()
+                    break
+                }
+            }
+
+            if (balanceRaw == null) {
+                var afterBalance: String? = null
+                var afterOwner: String? = null
+                var matched = false
+                var pageCount = 0
+                do {
+                    val query = buildString {
+                        append("token/$tokenId/holders?limit=100")
+                        if (afterBalance != null && afterOwner != null) {
+                            append("&after_balance=").append(java.net.URLEncoder.encode(afterBalance, "UTF-8"))
+                            append("&after_owner=").append(java.net.URLEncoder.encode(afterOwner, "UTF-8"))
+                        }
+                    }
+                    val page = getJson(query)
+                    val rows = page.optJSONArray("holders") ?: JSONArray()
+                    for (i in 0 until rows.length()) {
+                        val row = rows.optJSONObject(i) ?: continue
+                        if (row.optString("owner").trim().lowercase().removePrefix("0x") == owner) {
+                            balanceRaw = row.optString("balance_str").takeIf { it.isNotBlank() }
+                                ?: row.opt("balance")?.toString()
+                            matched = true
+                            break
+                        }
+                    }
+                    if (matched) break
+                    afterBalance = page.optString("next_after_balance").takeIf { it.isNotBlank() && it != "null" }
+                    afterOwner = page.optString("next_after_owner").takeIf { it.isNotBlank() && it != "null" }
+                    pageCount++
+                } while (afterBalance != null && afterOwner != null && pageCount < 500)
+                if (balanceRaw == null && afterBalance != null && afterOwner != null) {
+                    throw java.io.IOException("Holder scan reached its safety limit; wallet balance is not confirmed")
+                }
+            }
+
+            val claimedDecimals = if (token.has("claimed_decimals") && !token.isNull("claimed_decimals")) token.optInt("claimed_decimals") else null
+            val displayDecimals = if (token.has("display_decimals") && !token.isNull("display_decimals")) token.optInt("display_decimals") else null
+            val decimals = claimedDecimals ?: displayDecimals ?: 0
+            val marketResponse = try { getJson("token/$tokenId/market") } catch (_: Exception) { null }
+            val market = marketResponse?.optJSONObject("market") ?: marketResponse
+            var priceKas: String? = null
+            var priceUsd: String? = null
+            var priceSource: String? = null
+            var priceUpdatedAt: Long? = null
+            if (market != null) {
+                val quote = market.optString("quote_sompi").toBigDecimalOrNull()
+                val base = market.optString("base_amount").toBigDecimalOrNull()
+                if (quote != null && base != null && base.signum() > 0) {
+                    val scale = java.math.BigDecimal.TEN.pow(decimals)
+                    val kas = quote.multiply(scale).divide(base, 18, java.math.RoundingMode.HALF_UP)
+                        .divide(java.math.BigDecimal("100000000"), 18, java.math.RoundingMode.HALF_UP)
+                    priceKas = kas.stripTrailingZeros().toPlainString()
+                    val usdRate = kasUsd?.toBigDecimalOrNull()
+                    if (usdRate != null) priceUsd = kas.multiply(usdRate).stripTrailingZeros().toPlainString()
+                    priceSource = market.optString("source").takeIf { it.isNotBlank() }
+                        ?: "Kascov verified market quote"
+                    priceUpdatedAt = market.optLong("updated_at_ms").takeIf { it > 0 }
+                }
+            }
+
+            val liveFeed = try {
+                val feedConnection = (URL("https://kascov.io/data/$network-live.json").openConnection() as HttpURLConnection).apply { connectTimeout = 8000; readTimeout = 10000 }
+                try { JSONObject(feedConnection.inputStream.bufferedReader().use { it.readText() }) } finally { feedConnection.disconnect() }
+            } catch (_: Exception) { JSONObject() }
+            val currentDaa = liveFeed.optLong("tip_daa")
+            val tradeRows = try { getJson("token/$tokenId/trades?limit=100").optJSONArray("trades") ?: JSONArray() } catch (_: Exception) { JSONArray() }
+            var oldTradePrice: java.math.BigDecimal? = null
+            if (currentDaa > 0L) {
+                for (i in 0 until tradeRows.length()) {
+                    val trade = tradeRows.optJSONObject(i) ?: continue
+                    if (trade.has("market_recognized") && !trade.optBoolean("market_recognized")) continue
+                    val daa = trade.optLong("accepting_daa", trade.optLong("daa"))
+                    if (daa <= 0L || daa > currentDaa - 864000L) continue
+                    val quote = trade.optString("quote_sompi").toBigDecimalOrNull() ?: continue
+                    val base = trade.optString("base_amount").toBigDecimalOrNull() ?: continue
+                    if (base.signum() <= 0) continue
+                    val scale = if (trade.has("display_decimals")) trade.optInt("display_decimals") else decimals
+                    oldTradePrice = quote.multiply(java.math.BigDecimal.TEN.pow(scale))
+                        .divide(base, 18, java.math.RoundingMode.HALF_UP)
+                    break
+                }
+            }
+            val currentPriceSompi = market?.let {
+                val numerator = it.optString("spot_num_sompi").toBigDecimalOrNull()
+                val denominator = it.optString("spot_den").toBigDecimalOrNull()
+                if (numerator != null && denominator != null && denominator.signum() > 0) {
+                    numerator.multiply(java.math.BigDecimal.TEN.pow(decimals))
+                        .divide(denominator, 18, java.math.RoundingMode.HALF_UP)
+                } else {
+                    val quote = it.optString("quote_sompi").toBigDecimalOrNull()
+                    val base = it.optString("base_amount").toBigDecimalOrNull()
+                    if (quote != null && base != null && base.signum() > 0) {
+                        quote.multiply(java.math.BigDecimal.TEN.pow(decimals))
+                            .divide(base, 18, java.math.RoundingMode.HALF_UP)
+                    } else null
+                }
+            }
+            val change24h = if (currentPriceSompi != null && oldTradePrice != null && oldTradePrice.signum() > 0) {
+                currentPriceSompi.subtract(oldTradePrice).multiply(java.math.BigDecimal("100"))
+                    .divide(oldTradePrice, 8, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+            } else null
+
+            val ticker = token.optString("claimed_ticker").ifBlank {
+                token.optJSONObject("fields")?.optString("tick", "")?.ifBlank { "KCC20" } ?: "KCC20"
+            }
+            Result.success(Kcc20WalletToken(
+                contractId = token.optString("covenant_id", tokenId),
+                ticker = ticker,
+                name = token.optString("claimed_name").ifBlank { token.optString("name", ticker) },
+                balanceRaw = balanceRaw ?: "0",
+                decimals = decimals,
+                holderCount = if (token.has("holders")) token.optLong("holders") else null,
+                validationStatus = if (token.optString("status") == "verified") "verified" else "unvalidated",
+                marketPriceKas = priceKas,
+                marketPriceUsd = priceUsd,
+                marketPriceSource = priceSource,
+                priceUpdatedAtMs = priceUpdatedAt,
+                priceChange24hPercent = change24h,
+                imageUrl = token.optString("claimed_image").takeIf { it.startsWith("https://") }
+            ))
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     fun classifyProtocol(rawPayload: String): KaspaProtocolType {
         return KaspaProtocolType.parseFromJson(rawPayload)
     }
