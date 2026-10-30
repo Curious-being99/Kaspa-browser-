@@ -283,6 +283,8 @@ fun KaspaTestnetWalletScreen(
     // KRC-20 Pinned Tokens State
     val pinnedTokens by viewModel.pinnedTokens.collectAsState()
     val isLoadingKrc20 by viewModel.isLoadingKrc20.collectAsState()
+    val kcc20Tokens by viewModel.kcc20Tokens.collectAsState()
+    val isLoadingKcc20 by viewModel.isLoadingKcc20.collectAsState()
     var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
 
     // Send Form State
@@ -353,6 +355,16 @@ fun KaspaTestnetWalletScreen(
     LaunchedEffect(Unit) {
         viewModel.refreshTestnetWallet()
         viewModel.refreshNetworkFeeCondition()
+    }
+
+    LaunchedEffect(activeAccount?.did, selectedNetwork) {
+        if (activeAccount != null && selectedNetwork.contains("Mainnet", ignoreCase = true)) {
+            viewModel.refreshKcc20Tokens()
+            while (true) {
+                kotlinx.coroutines.delay(30_000L)
+                viewModel.refreshKcc20Tokens()
+            }
+        }
     }
 
     LaunchedEffect(testnetAddress) {
@@ -650,6 +662,54 @@ fun KaspaTestnetWalletScreen(
                 onTogglePin = { tick -> viewModel.togglePinToken(tick) },
                 onOpenSwap = { tick -> viewModel.openSwapDapp() }
             )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            if (isLoadingKcc20 || kcc20Tokens.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .background(SurfaceCard, RoundedCornerShape(14.dp))
+                        .border(1.dp, SurfaceCardBorder, RoundedCornerShape(14.dp))
+                        .padding(14.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("KCC-20 Tokens", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (isLoadingKcc20) CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        else Text("LIVE", color = EmeraldMesh, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh KCC-20", tint = TextSecondary)
+                        }
+                    }
+                    if (kcc20Tokens.isEmpty() && isLoadingKcc20) {
+                        Text("Fetching on-chain token holdings…", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    kcc20Tokens.forEach { token ->
+                        HorizontalDivider(color = SurfaceCardBorder)
+                        Spacer(modifier = Modifier.height(9.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(token.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text("${token.ticker} · ${token.validationStatus}", color = TextSecondary, fontSize = 10.sp)
+                                val raw = token.balanceRaw.toBigDecimalOrNull()
+                                val shownBalance = raw?.movePointLeft(token.decimals)?.stripTrailingZeros()?.toPlainString() ?: "—"
+                                Text("$shownBalance ${token.ticker}", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(token.marketPriceKas?.let { "$it KAS" } ?: "Price unavailable", color = TextPrimary, fontSize = 12.sp)
+                                Text(
+                                    token.priceChange24hPercent?.let { "${if (it.toBigDecimalOrNull()?.signum() ?: 0 >= 0) "+" else ""}$it% (24h)" } ?: "24h change unavailable",
+                                    color = token.priceChange24hPercent?.toBigDecimalOrNull()?.let { if (it.signum() >= 0) EmeraldMesh else RedTamper } ?: TextSecondary,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
+                    Text("Balances and market data from Kascov. Unverified tokens are labelled; missing prices are not estimated.", color = TextSecondary, fontSize = 10.sp)
+                }
+            }
 
             Spacer(modifier = Modifier.height(6.dp))
 
