@@ -826,6 +826,18 @@ object KaspaDappBridge {
                       return Promise.reject(Object.assign(new Error('A wallet method is required'), { code: -32600 }));
                     }
                     const aliases = {
+                      'kaspa:connect': 'requestAccounts',
+                      'kaspa:requestAccounts': 'requestAccounts',
+                      'kaspa:getAccounts': 'getAccounts',
+                      'kaspa:getNetwork': 'getNetwork',
+                      'kaspa:getBalance': 'getBalance',
+                      'kaspa:getUtxoEntries': 'getUtxoEntries',
+                      'kaspa:getPublicKey': 'getPublicKey',
+                      'kaspa:signMessage': 'signMessage',
+                      'kaspa:signPskt': 'signPskt',
+                      'kaspa:submitTransaction': 'submitTransaction',
+                      'kaspa:disconnect': 'disconnect',
+                      connect: 'requestAccounts',
                       kaspa_requestAccounts: 'requestAccounts',
                       kaspa_getAccounts: 'getAccounts',
                       kaspa_getNetwork: 'getNetwork',
