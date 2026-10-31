@@ -23,6 +23,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
@@ -49,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +68,8 @@ import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 import java.math.BigDecimal
+import android.content.ClipData
+import android.content.ClipboardManager
 
 private const val KB_CONTRACT_ID = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
 
@@ -132,7 +136,23 @@ fun DappsScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        BoxLogoKB()
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF101A1C)).border(1.dp, KaspaTea.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val imageUrl = kb?.imageUrl?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                            if (imageUrl != null) {
+                                coil.compose.AsyncImage(
+                                    model = imageUrl,
+                                    contentDescription = "\$KB token logo",
+                                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            } else {
+                                BoxLogoKB()
+                            }
+                        }
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text("\$KB", color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                             Text("Kaspa Browser • KCC-20", color = TextSecondary, fontSize = 12.sp)
@@ -168,13 +188,33 @@ fun DappsScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("From wallet", color = TextSecondary, fontSize = 11.sp)
-                    Text(
-                        text = walletAddress.ifBlank { "No mainnet wallet connected" },
-                        color = TextPrimary,
-                        fontSize = 12.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    val context = LocalContext.current
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = walletAddress.takeIf { it.isNotBlank() }?.let(::middleClipAddress)
+                                ?: "No mainnet wallet connected",
+                            modifier = Modifier.weight(1f),
+                            color = TextPrimary,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip
+                        )
+                        if (walletAddress.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa wallet address", walletAddress))
+                                    android.widget.Toast.makeText(context, "Wallet address copied", android.widget.Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(36.dp).testTag("kb_copy_wallet_address")
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy wallet address", tint = KaspaTea, modifier = Modifier.size(17.dp))
+                            }
+                        }
+                    }
                     OutlinedTextField(
                         value = recipient,
                         onValueChange = { recipient = it.trim() },
@@ -207,8 +247,22 @@ fun DappsScreen(
                             disabledContentColor = TextMuted
                         )
                     ) {
-                        Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(17.dp))
-                        Text("  Transfer signing not yet available", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.size(7.dp))
+                            Text(
+                                "Signing not available yet",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
                     }
                 }
             }
@@ -244,6 +298,11 @@ fun DappsScreen(
             }
         }
     }
+}
+
+private fun middleClipAddress(address: String): String {
+    if (address.length <= 26) return address
+    return "${'${'}address.take(12)}…${'${'}address.takeLast(10)}"
 }
 
 @Composable
