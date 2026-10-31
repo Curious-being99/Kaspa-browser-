@@ -24,8 +24,8 @@ class Kcc20SigningUnitTest {
     private val testAddress = CryptoUtils.encodeRealKaspaAddress(CryptoUtils.hexToBytes(testPublicKeyHex), "kaspa")
 
     @Test
-    fun testRealKcc20CovenantSigning() {
-        // 1. Setup a mock KCC-20 purchase transaction (Buy Token)
+    fun testGenericPsktSignatureDoesNotClaimKcc20TransferValidation() {
+        // This is a generic KAS PSKT fixture with a covenant-script output, not a KCC-20 token transfer.
         // This transaction has 1 input (user KAS) and 2 outputs (covenant payment and change)
         val userScript = "20" + testPublicKeyHex + "ac"
         val covenantAddress = "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
@@ -84,7 +84,7 @@ class Kcc20SigningUnitTest {
             testPublicKeyHex
         )
 
-        // 3. Sign the transaction using the real Schnorr engine
+        // Sign the generic Kaspa PSKT input using the wallet Schnorr engine.
         val signedJsonStr = DappPsktTransaction.sign(prepared, testPrivateKey)
         val signedJson = JSONObject(signedJsonStr)
 
@@ -113,7 +113,7 @@ class Kcc20SigningUnitTest {
         // but we can trust that signSchnorr uses the private key provided.
         assertNotNull("Signature should be generated", extractedSig)
         
-        println("Successfully signed KCC-20 Covenant Buy Transaction")
+        println("Successfully signed generic Kaspa PSKT; KCC-20 state transition was not tested")
         println("TX ID: ${KaspaTransactionEngine.calcTransactionId(prepared.transaction)}")
         println("Signature: $extractedSig")
     }
