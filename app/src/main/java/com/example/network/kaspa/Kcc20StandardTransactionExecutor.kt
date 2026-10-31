@@ -318,6 +318,9 @@ class Kcc20StandardTransactionExecutor(
             }
             for (index in 0 until executed.length()) {
                 val row = executed.getJSONObject(index)
+                require(row.optInt("input_index", -1) == index) {
+                    "Preflight returned an unexpected input execution order"
+                }
                 require(row.optBoolean("pass", false)) {
                     "Kaspa consensus script engine rejected input " + row.optInt("input_index", index)
                 }
