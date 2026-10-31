@@ -622,24 +622,28 @@ class Kcc20KasivoService(
         val tokenStatus: String,
         val layout: String,
         val kcc: Int,
+        val specCommit: String,
         val review: String,
         val conformant: Boolean?,
         val artifact: String?,
         val templateHash: String,
         val viewTemplateHash: String,
         val dispatch: String,
+        val ownerSchemes: Set<String>,
         val nonconformities: List<String>
     ) {
         val safeForStandardTransfer: Boolean
             get() = tokenStatus == "verified" &&
                 layout == "kcc0020-112" &&
                 kcc == 20 &&
+                specCommit == "1ed87ae" &&
                 review == "reviewed" &&
                 conformant == true &&
                 artifact != "unpublished" &&
                 templateHash.equals(KbKcc20Protocol.TEMPLATE_HASH, true) &&
                 viewTemplateHash.equals(KbKcc20Protocol.VIEW_TEMPLATE_HASH, true) &&
                 dispatch in setOf("kcc1-tags", "silverc-selector", "custom-tags") &&
+                "p2pk-schnorr/v1" in ownerSchemes &&
                 nonconformities.isEmpty()
     }
 
@@ -672,6 +676,10 @@ class Kcc20KasivoService(
                     ?: root.optJSONObject("standard")
                     ?: throw java.io.IOException("Kascov did not publish the KCC-20 standard build verdict")
                 val nonconformitiesJson = standard.optJSONArray("nonconformities") ?: JSONArray()
+                val ownerSchemesJson = standard.optJSONArray("owner_schemes") ?: JSONArray()
+                val ownerSchemes = (0 until ownerSchemesJson.length()).mapNotNull { index ->
+                    ownerSchemesJson.optString(index).takeIf { it.isNotBlank() && it != "null" }
+                }.toSet()
                 val nonconformities = (0 until nonconformitiesJson.length()).mapNotNull { index ->
                     nonconformitiesJson.optString(index).takeIf { it.isNotBlank() && it != "null" }
                 }
@@ -680,6 +688,7 @@ class Kcc20KasivoService(
                         tokenStatus = token.optString("status"),
                         layout = token.optString("layout"),
                         kcc = standard.optInt("kcc", -1),
+                        specCommit = standard.optString("spec_commit"),
                         review = standard.optString("review"),
                         conformant = if (standard.has("conformant") && !standard.isNull("conformant")) {
                             standard.optBoolean("conformant")
@@ -688,6 +697,7 @@ class Kcc20KasivoService(
                         templateHash = standard.optString("template_hash"),
                         viewTemplateHash = standard.optString("view_template_hash"),
                         dispatch = standard.optString("dispatch"),
+                        ownerSchemes = ownerSchemes,
                         nonconformities = nonconformities
                     )
                 )
