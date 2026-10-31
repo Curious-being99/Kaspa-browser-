@@ -135,7 +135,10 @@ data class Kcc20WalletToken(
     val imageUrl: String?
 )
 
-class Kcc20KasivoService(private val context: Context? = null) {
+class Kcc20KasivoService(
+    private val context: Context? = null,
+    private val endpointBases: List<String> = KASCOV_ENDPOINTS
+) {
 
     companion object {
         const val KASCOV_PRIMARY_BASE = "https://kascov.io/v1/kcc20"
@@ -421,7 +424,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
         val identifier = tokenContractIdOrTicker.uppercase().trim()
         val known = KNOWN_KCC20_TOKENS[identifier]
 
-        for (baseEndpoint in KASCOV_ENDPOINTS) {
+        for (baseEndpoint in endpointBases) {
             try {
                 val endpointUrl = if (baseEndpoint.contains("kascov.io") || baseEndpoint.contains("kasivo.org")) {
                     "$baseEndpoint/address/$address/token/$identifier"
