@@ -29,6 +29,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -6294,6 +6295,7 @@ private fun BraidSpeedDialLogo(iconSize: Dp = 30.dp) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SpeedDialCircleItem(
     label: String,
