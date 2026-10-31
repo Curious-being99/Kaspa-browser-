@@ -636,7 +636,7 @@ class Kcc20KasivoService(
             get() = tokenStatus == "verified" &&
                 layout == "kcc0020-112" &&
                 kcc == 20 &&
-                specCommit == "1ed87ae" &&
+                specCommit.startsWith("1ed87ae") &&
                 review == "reviewed" &&
                 conformant == true &&
                 artifact != "unpublished" &&
