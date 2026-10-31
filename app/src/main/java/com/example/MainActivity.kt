@@ -21,6 +21,8 @@ class MainActivity : FragmentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
+    com.example.dapp.KaspaWalletConnectController.attach(this, viewModel)
+
     // Global crash handler to protect the app from background renderer, Chromium, and graphic driver crashes
     val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
