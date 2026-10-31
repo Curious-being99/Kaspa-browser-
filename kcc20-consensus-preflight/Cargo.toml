@@ -1,0 +1,12 @@
+[package]
+name = "kcc20-consensus-preflight"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+hex = "0.4"
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-hashes = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "01b532e8b553523216471682649693af92f0fd16" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa.git", rev = "01b532e8b553523216471682649693af92f0fd16" }
+serde_json = "1"
