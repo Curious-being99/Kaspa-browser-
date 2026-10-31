@@ -155,6 +155,7 @@ class Kcc20StandardTransactionExecutor(
             .asSequence()
             .filter { utxo ->
                 !utxo.utxoEntry.isCoinbase &&
+                    utxo.utxoEntry.covenantId == null &&
                     utxo.utxoEntry.amount > 0L &&
                     utxo.outpoint.transactionId.matches(Regex("[0-9a-fA-F]{64}")) &&
                     utxo.outpoint.index >= 0L &&
