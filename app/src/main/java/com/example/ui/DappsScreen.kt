@@ -67,6 +67,8 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
+import com.example.network.kaspa.KbKcc20TransferBuilder
+import com.example.network.kaspa.TransferGate
 import java.math.BigDecimal
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -83,6 +85,8 @@ fun DappsScreen(
     val tokens by viewModel.kcc20Tokens.collectAsState()
     val loading by viewModel.isLoadingKcc20.collectAsState()
     val walletAddress by viewModel.mainnetAddress.collectAsState()
+    val transferGate = remember { KbKcc20TransferBuilder.gateStatus() }
+    val signingAllowed = transferGate is TransferGate.Ready
     val kb = tokens.firstOrNull { it.contractId.equals(KB_CONTRACT_ID, ignoreCase = true) }
     val balance = remember(kb) {
         runCatching {
@@ -238,7 +242,7 @@ fun DappsScreen(
                     )
                     Button(
                         onClick = { },
-                        enabled = false,
+                        enabled = signingAllowed,
                         modifier = Modifier.fillMaxWidth().height(52.dp).testTag("kb_review_transaction_button"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -255,7 +259,7 @@ fun DappsScreen(
                             Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.size(7.dp))
                             Text(
-                                "Signing not available yet",
+                                if (signingAllowed) "Review transfer" else "Signing not available yet",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.sp,
                                 maxLines = 2,
@@ -278,7 +282,10 @@ fun DappsScreen(
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
                         Text("Wallet signing protection", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "The wallet's PSKT signer can sign validated Kaspa transactions, but this repository does not yet contain a verified KB KCC-20 covenant transfer builder. Sending is intentionally disabled rather than broadcasting a plain KAS payment as a token transfer.",
+                            when (val gate = transferGate) {
+                                is TransferGate.Blocked -> gate.reason
+                                TransferGate.Ready -> "The KB KCC-20 transfer gate is open. Review is available for the verified covenant transfer path."
+                            },
                             color = TextSecondary,
                             fontSize = 11.5.sp,
                             lineHeight = 17.sp
