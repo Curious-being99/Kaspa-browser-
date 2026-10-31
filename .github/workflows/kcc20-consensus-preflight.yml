@@ -1,0 +1,28 @@
+name: KCC20 Consensus Preflight Harness
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "kcc20-consensus-preflight/**"
+      - ".github/workflows/kcc20-consensus-preflight.yml"
+  push:
+    branches: [feat/reown-walletconnect-kasplex-igra]
+    paths:
+      - "kcc20-consensus-preflight/**"
+      - ".github/workflows/kcc20-consensus-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.91.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile consensus preflight harness
+        run: cargo check --manifest-path kcc20-consensus-preflight/Cargo.toml --locked
