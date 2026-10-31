@@ -217,7 +217,10 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     val balance = kotlinx.coroutines.runBlocking {
                         vm.walletService.fetchDappBalance(keyPair.kaspaAddress, "Kaspa Mainnet")
                     }
-                    respondResult(sessionRequest, balance.toString())
+                    val balanceSompi = balance.optString("balance").toBigDecimalOrNull()
+                        ?: throw IllegalStateException("Live Kaspa balance is malformed")
+                    val balanceKas = balanceSompi.movePointLeft(8).stripTrailingZeros().toPlainString()
+                    respondResult(sessionRequest, JSONObject.quote(balanceKas))
                 } catch (error: Throwable) {
                     respondError(sessionRequest, -32000, error.message ?: "Live balance query failed")
                 } finally {
@@ -225,10 +228,12 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 }
             }
             "kaspa_signPersonal" -> {
+                val requestedAddress = params.optString("address", keyPair.kaspaAddress).trim().lowercase()
                 val message = params.optString("message", params.optString("msg"))
-                if (message.isBlank() || message.length > 4096) {
+                if (requestedAddress != keyPair.kaspaAddress.lowercase() ||
+                    message.isBlank() || message.length > 4096) {
                     keyPair.wipe()
-                    respondError(sessionRequest, -32602, "A message of 1-4096 characters is required")
+                    respondError(sessionRequest, -32602, "The active account address and a message of 1-4096 characters are required")
                 } else {
                     confirm(currentActivity, "Sign Kaspa message?", "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\nAccount: ${keyPair.kaspaAddress}\n\nExact message:\n$message", {
                         executor.execute {
@@ -239,9 +244,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                 val signature = CryptoUtils.signKaspaPersonalMessage(
                                     keyPair.privateKey, message.toByteArray(Charsets.UTF_8)
                                 )
-                                respondResult(sessionRequest, JSONObject()
-                                    .put("address", keyPair.kaspaAddress)
-                                    .put("signature", signature).toString())
+                                respondResult(sessionRequest, JSONObject.quote(signature))
                             } catch (error: Throwable) {
                                 respondError(sessionRequest, -32603, error.message ?: "Message signing failed")
                             } finally {
@@ -305,19 +308,18 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 }
             }
             "kaspa_sendTransaction" -> {
-                val recipient = params.optString("to", params.optString("address")).trim()
-                val normalizedRecipient = recipient.lowercase()
-                val amount = params.optString("amount", params.optString("amountKas")).toBigDecimalOrNull()
-                val amountSompi = try {
-                    amount?.stripTrailingZeros()?.movePointRight(8)?.longValueExact()
-                } catch (_: ArithmeticException) { null }
-                if (!CryptoUtils.isValidKaspaAddress(normalizedRecipient, "kaspa") ||
-                    amount == null || amountSompi == null || amountSompi <= 0L ||
-                    amount > BigDecimal("29000000")) {
-                    respondError(sessionRequest, -32602, "A valid Kaspa Mainnet CashAddr and amount with at most 8 decimal places are required")
+                val requestedFrom = params.optString("from").trim().lowercase()
+                val recipient = params.optString("to").trim().lowercase()
+                val amountSompi = params.optString("amountSompi").toLongOrNull()
+                if (requestedFrom != keyPair.kaspaAddress.lowercase() ||
+                    !CryptoUtils.isValidKaspaAddress(recipient, "kaspa") ||
+                    amountSompi == null || amountSompi <= 0L ||
+                    amountSompi > 2_900_000_000_000_000L) {
+                    keyPair.wipe()
+                    respondError(sessionRequest, -32602, "A matching active from address, valid Kaspa Mainnet destination, and positive integer amountSompi are required")
                 } else {
-                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\n" +
-                        "Network: Kaspa Mainnet\nFrom: ${keyPair.kaspaAddress}\nTo: $normalizedRecipient\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS\n\n" +
+                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\\n" +
+                        "Network: Kaspa Mainnet\\nFrom: ${keyPair.kaspaAddress}\\nTo: $recipient\\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS ($amountSompi sompi)\\n\\n" +
                         "This will broadcast a real Kaspa L1 transaction."
                     confirm(currentActivity, "Review Kaspa payment", summary, {
                         executor.execute {
@@ -330,7 +332,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                         senderAddress = keyPair.kaspaAddress,
                                         senderSeed = vm.activeAccount.value?.seedPhrase
                                             ?: throw IllegalStateException("Active account changed"),
-                                        recipientAddress = normalizedRecipient,
+                                        recipientAddress = recipient,
                                         amountKas = amountSompi.toDouble() / 100_000_000.0
                                     )
                                 }
