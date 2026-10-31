@@ -33,7 +33,7 @@ class KbKcc20ProtocolTest {
 
     private fun liveProgramFixture(): ByteArray {
         val encoded = requireNotNull(
-            javaClass.classLoader?.getResourceAsStream("kb-live-cell-program.hex.gz.b64")
+            javaClass.classLoader?.getResourceAsStream("kb-live-cell-program.bin.gz.b64")
         ).bufferedReader().use { it.readText() }
         val compressed = Base64.getDecoder().decode(encoded)
         return GZIPInputStream(ByteArrayInputStream(compressed)).use { it.readBytes() }
