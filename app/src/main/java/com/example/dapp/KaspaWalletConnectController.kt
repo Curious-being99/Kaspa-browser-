@@ -12,12 +12,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigDecimal
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 object KaspaWalletConnectController : WalletKit.WalletDelegate {
     private const val CHAIN = "kaspa:mainnet"
     private const val TAG = "KaspaWalletConnect"
     private val main = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
+    private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var accountObserver: Job? = null
     private val supportedMethods = setOf(
         "kaspa_getAccounts",
         "kaspa_getNetwork",
@@ -36,12 +45,63 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
     fun attach(activity: Activity, viewModel: DecentralViewModel) {
         this.activity = activity
         this.viewModel = viewModel
+        accountObserver?.cancel()
+        accountObserver = observerScope.launch {
+            var previous: Pair<String?, Boolean>? = null
+            combine(viewModel.activeAccount, viewModel.selectedNetwork) { account, network ->
+                val isKaspaMainnet = network.contains("Mainnet", true) &&
+                    !network.contains("Kasplex", true) && !network.contains("Igra", true)
+                val address = account?.kaspaAddress?.takeIf {
+                    isKaspaMainnet && CryptoUtils.isValidKaspaAddress(it, "kaspa")
+                }
+                address to isKaspaMainnet
+            }.distinctUntilChanged().collect { current ->
+                if (previous != null && current != previous && current.second && current.first != null) {
+                    publishAccountsChanged(current.first!!)
+                }
+                previous = current
+            }
+        }
     }
 
     fun detach(activity: Activity) {
         if (this.activity === activity) {
+            accountObserver?.cancel()
+            accountObserver = null
             this.activity = null
             this.viewModel = null
+        }
+    }
+
+    private fun publishAccountsChanged(address: String) {
+        executor.execute {
+            try {
+                WalletKit.getListOfActiveSessions().forEach { session ->
+                    val namespace = session.namespaces["kaspa"] ?: return@forEach
+                    if (CHAIN !in namespace.chains.orEmpty() || "accountsChanged" !in namespace.events) {
+                        return@forEach
+                    }
+                    val updatedNamespaces = session.namespaces.toMutableMap().apply {
+                        put("kaspa", namespace.copy(accounts = listOf("$CHAIN:$address")))
+                    }
+                    WalletKit.updateSession(
+                        Wallet.Params.SessionUpdate(session.topic, updatedNamespaces),
+                        onSuccess = {
+                            WalletKit.emitSessionEvent(
+                                Wallet.Params.SessionEmit(
+                                    session.topic,
+                                    Wallet.Model.SessionEvent("accountsChanged", JSONArray().put(address).toString()),
+                                    CHAIN
+                                ),
+                                onError = { android.util.Log.w(TAG, "Account-change event failed", it.throwable) }
+                            )
+                        },
+                        onError = { android.util.Log.w(TAG, "Session account update failed", it.throwable) }
+                    )
+                }
+            } catch (error: Throwable) {
+                android.util.Log.w(TAG, "Account-change propagation failed", error)
+            }
         }
     }
 
@@ -113,7 +173,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             return
         }
         val unsupportedRequired = proposal.methods.filterNot { it in supportedMethods }
-        val unsupportedEvents = proposal.events
+        val unsupportedEvents = proposal.events.filterNot { it == "accountsChanged" }
         if (unsupportedRequired.isNotEmpty() || unsupportedEvents.isNotEmpty()) {
             reject(
                 sessionProposal,
@@ -148,7 +208,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                         chains = listOf(CHAIN),
                         accounts = listOf("$CHAIN:$accountAddress"),
                         methods = allowed.toList(),
-                        events = emptyList()
+                        events = proposal.events.filter { it == "accountsChanged" }
                     )
                     WalletKit.approveSession(
                         Wallet.Params.SessionApprove(
