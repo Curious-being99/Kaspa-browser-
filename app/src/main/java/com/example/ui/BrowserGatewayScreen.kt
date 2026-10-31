@@ -6613,7 +6613,6 @@ fun BrowserSpeedDial(
                 // Item 11: KaspaRocket
                 SpeedDialCircleItem(
                     label = "KaspaRocket",
-                    sublabel = "kasparocket.fun",
                     iconColor = Color(0xFF3CD9B8),
                     onClick = { onNavigate("https://kasparocket.fun") }
                 ) {
@@ -7409,7 +7408,7 @@ fun KaspaNewsSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val categories = listOf("All", "News", "YouTube", "Reddit", "GitHub")
+            val categories = listOf("News", "YouTube", "Reddit", "GitHub")
             items(categories) { cat ->
                 val isSelected = selectedFilter == cat
                 Surface(
@@ -7417,7 +7416,7 @@ fun KaspaNewsSection(
                     color = if (isSelected) EmeraldMesh else SurfaceCard,
                     border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) EmeraldMesh else SurfaceCardBorder),
                     modifier = Modifier.clickable {
-                        selectedFilter = cat
+                        selectedFilter = if (selectedFilter == cat) "All" else cat
                     }
                 ) {
                     Row(
