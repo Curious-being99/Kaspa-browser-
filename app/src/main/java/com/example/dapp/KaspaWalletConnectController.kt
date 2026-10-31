@@ -126,6 +126,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             return
         }
         val allowed = proposal.methods.filter { it in supportedMethods }.toSet()
+        val accountAddress = keyPair.kaspaAddress
+        keyPair.wipe()
         val peer = sessionProposal.name.ifBlank { sessionProposal.url }
         main.post {
             if (activity !== currentActivity || currentActivity.isFinishing) {
@@ -192,14 +194,24 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             "$CHAIN:${keyPair.kaspaAddress}" !in namespace.accounts ||
             sessionRequest.request.method !in namespace.methods
         ) {
+            keyPair?.wipe()
             respondError(sessionRequest, 4100, "Session account or method is not authorized")
             return
         }
         val params = parseParams(sessionRequest.request.params)
         when (sessionRequest.request.method) {
-            "kaspa_getAccounts" -> respondResult(sessionRequest, JSONArray().put(keyPair.kaspaAddress).toString())
-            "kaspa_getNetwork" -> respondResult(sessionRequest, JSONObject.quote("mainnet"))
-            "kaspa_getPublicKey" -> respondResult(sessionRequest, JSONObject.quote(keyPair.publicKeyHex))
+            "kaspa_getAccounts" -> {
+                respondResult(sessionRequest, JSONArray().put(keyPair.kaspaAddress).toString())
+                keyPair.wipe()
+            }
+            "kaspa_getNetwork" -> {
+                respondResult(sessionRequest, JSONObject.quote("mainnet"))
+                keyPair.wipe()
+            }
+            "kaspa_getPublicKey" -> {
+                respondResult(sessionRequest, JSONObject.quote(keyPair.publicKeyHex))
+                keyPair.wipe()
+            }
             "kaspa_getBalance" -> executor.execute {
                 try {
                     val balance = kotlinx.coroutines.runBlocking {
@@ -208,6 +220,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     respondResult(sessionRequest, balance.toString())
                 } catch (error: Throwable) {
                     respondError(sessionRequest, -32000, error.message ?: "Live balance query failed")
+                } finally {
+                    keyPair.wipe()
                 }
             }
             "kaspa_signPersonal" -> {
@@ -218,7 +232,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     confirm(currentActivity, "Sign Kaspa message?", "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\nAccount: ${keyPair.kaspaAddress}\n\nExact message:\n$message", {
                         executor.execute {
                             try {
-                                if (deriveActiveKey(vm)?.kaspaAddress != keyPair.kaspaAddress) {
+                                if (activeAddress(vm) != keyPair.kaspaAddress) {
                                     throw IllegalStateException("Active wallet changed; request cancelled")
                                 }
                                 val signature = CryptoUtils.signKaspaPersonalMessage(
@@ -229,9 +243,14 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                     .put("signature", signature).toString())
                             } catch (error: Throwable) {
                                 respondError(sessionRequest, -32603, error.message ?: "Message signing failed")
+                            } finally {
+                                keyPair.wipe()
                             }
                         }
-                    }, { respondError(sessionRequest, 4001, "User rejected message signature") })
+                    }, {
+                        keyPair.wipe()
+                        respondError(sessionRequest, 4001, "User rejected message signature")
+                    })
                 }
             }
             "kaspa_signPskt" -> {
@@ -247,6 +266,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                             redeemScript = options?.optString("redeemScript", "").orEmpty()
                         )
                     } catch (error: Throwable) {
+                        keyPair.wipe()
                         respondError(sessionRequest, -32602, error.message ?: "PSKT validation failed")
                         return@execute
                     }
@@ -270,10 +290,15 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                         respondResult(sessionRequest, signed.toString())
                                     } catch (error: Throwable) {
                                         respondError(sessionRequest, -32603, error.message ?: "PSKT signing failed")
+                                    } finally {
+                                        keyPair.wipe()
                                     }
                                 }
                             },
-                            { respondError(sessionRequest, 4001, "User rejected PSKT signature") }
+                            {
+                                keyPair.wipe()
+                                respondError(sessionRequest, 4001, "User rejected PSKT signature")
+                            }
                         )
                     }
                 }
@@ -315,9 +340,14 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                 }
                             } catch (error: Throwable) {
                                 respondError(sessionRequest, -32000, error.message ?: "Kaspa broadcast failed")
+                            } finally {
+                                keyPair.wipe()
                             }
                         }
-                    }, { respondError(sessionRequest, 4001, "User rejected payment") })
+                    }, {
+                        keyPair.wipe()
+                        respondError(sessionRequest, 4001, "User rejected payment")
+                    })
                 }
             }
             else -> respondError(sessionRequest, 4200, "Unsupported Kaspa method")
@@ -334,6 +364,11 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         return try {
             CryptoUtils.deriveKaspaKeyPair(CryptoUtils.getDecryptedSeed(seed), "kaspa")
         } catch (_: Throwable) { null }
+    }
+
+    private fun activeAddress(vm: DecentralViewModel): String? {
+        val keyPair = deriveActiveKey(vm) ?: return null
+        return try { keyPair.kaspaAddress } finally { keyPair.wipe() }
     }
 
     private fun parseParams(raw: String): JSONObject = try {
