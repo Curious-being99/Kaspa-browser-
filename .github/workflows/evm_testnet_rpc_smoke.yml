@@ -39,27 +39,24 @@ jobs:
           rpc() {
             local method="$1"
             local params="$2"
-            local error_file
-            local response
+            local response_file
             local curl_status
-            error_file="$(mktemp)"
-            if response="$(curl --fail --silent --show-error --max-time 20 \
+            response_file="$(mktemp)"
+            if curl --fail --silent --show-error --max-time 20 \
               -H 'content-type: application/json' \
               --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
-              "$RPC_URL" 2>"$error_file")"; then
-              if [[ -s "$error_file" ]]; then
-                cat "$error_file" >&2
-              fi
-              rm -f "$error_file"
-              printf '%s' "$response"
+              --output "$response_file" \
+              "$RPC_URL"; then
+              cat "$response_file"
+              rm -f "$response_file"
             else
               curl_status=$?
               echo "RPC request failed: method=$method url=$RPC_URL curl_exit=$curl_status" >&2
               echo "curl build and supported protocols:" >&2
               curl --version >&2 || true
-              echo "curl stderr:" >&2
-              cat "$error_file" >&2
-              rm -f "$error_file"
+              echo "Response body, if any:" >&2
+              cat "$response_file" >&2 || true
+              rm -f "$response_file"
               return "$curl_status"
             fi
           }
