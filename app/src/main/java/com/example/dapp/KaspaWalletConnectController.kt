@@ -8,13 +8,17 @@ import com.example.network.CryptoUtils
 import com.example.viewmodel.DecentralViewModel
 import com.reown.walletkit.client.Wallet
 import com.reown.walletkit.client.WalletKit
-import com.reown.sign.client.Sign
-import com.reown.sign.client.SignClient
 import org.json.JSONArray
 import org.json.JSONObject
-import org.json.JSONTokener
 import java.math.BigDecimal
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 object KaspaWalletConnectController : WalletKit.WalletDelegate {
     private const val CHAIN = "kaspa:mainnet"
@@ -26,9 +30,46 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         "kaspa_getNetwork",
         "kaspa_getBalance",
         "kaspa_getPublicKey",
+        "kaspa_switchNetwork",
         "kaspa_signPersonal",
+        "kaspa_signAuth",
         "kaspa_signPskt",
-        "kaspa_sendTransaction"
+        "kaspa_signVaultTransaction",
+        "kaspa_sendTransaction",
+        "kaspa_sendKcc20"
+    )
+    private val evmMethods = setOf(
+        "eth_accounts", "eth_requestAccounts", "eth_chainId", "net_version",
+        "eth_blockNumber", "eth_getBalance", "eth_getCode", "eth_call",
+        "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas",
+        "eth_getTransactionCount", "eth_getBlockByNumber", "eth_getBlockByHash",
+        "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+        "eth_feeHistory", "eth_getStorageAt", "web3_clientVersion",
+        "wallet_switchEthereumChain", "personal_sign", "eth_sign",
+        "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData",
+        "eth_sendTransaction", "eth_signTransaction"
+    )
+    private val evmReadMethods = setOf(
+        "eth_blockNumber", "eth_getBalance", "eth_getCode", "eth_call",
+        "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas",
+        "eth_getTransactionCount", "eth_getBlockByNumber", "eth_getBlockByHash",
+        "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getLogs",
+        "eth_feeHistory", "eth_getStorageAt", "eth_chainId", "net_version",
+        "web3_clientVersion"
+    )
+    private const val KB_COVENANT_ID = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
+    private val observerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var accountObserver: Job? = null
+    private data class AccountSnapshot(
+        val kaspaAddress: String?,
+        val evmAddress: String?,
+        val evmChainId: Long?
+    )
+    private data class EvmAccountContext(
+        val accountId: String,
+        val seedPhrase: String,
+        val passphrase: String,
+        val address: String
     )
     @Volatile private var activity: Activity? = null
     @Volatile private var viewModel: DecentralViewModel? = null
@@ -39,12 +80,135 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
     fun attach(activity: Activity, viewModel: DecentralViewModel) {
         this.activity = activity
         this.viewModel = viewModel
+        accountObserver?.cancel()
+        accountObserver = observerScope.launch {
+            var previous: AccountSnapshot? = null
+            combine(viewModel.activeAccount, viewModel.selectedNetwork, viewModel.isWalletLocked) { account, network, locked ->
+                val kaspaAddress = if (account != null && !locked) {
+                    runCatching {
+                        val seed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                        val key = CryptoUtils.deriveKaspaKeyPair(seed, "kaspa")
+                        try { key.kaspaAddress } finally { key.wipe() }
+                    }.getOrNull()
+                } else null
+                val evmAddress = if (account != null && !locked) {
+                    runCatching {
+                        val accountId = account.did.takeIf { it.isNotBlank() } ?: account.handle
+                        val passphrase = EvmPassphraseVault.load(activity, accountId)
+                        val standard = EvmWalletEngine.isStandardMnemonic(account.seedPhrase)
+                        val address = EvmWalletEngine.address(account.seedPhrase, passphrase)
+                        if (!standard && !EvmPassphraseVault.isLegacyPhraseConfirmed(activity, accountId, address)) {
+                            null
+                        } else address
+                    }.getOrNull()
+                } else null
+                val chainId = if (network.contains("Kasplex", true) || network.contains("Igra", true)) {
+                    runCatching { viewModel.getEvmChainIdForNetwork(network) }.getOrNull()
+                } else null
+                AccountSnapshot(kaspaAddress, evmAddress, chainId)
+            }.collect { current ->
+                val old = previous
+                if (old != null && old.kaspaAddress != current.kaspaAddress && current.kaspaAddress != null) {
+                    publishKaspaAccountsChanged(current.kaspaAddress)
+                }
+                if (old != null && old.evmAddress != current.evmAddress && current.evmAddress != null) {
+                    publishEvmAccountsChanged(current.evmAddress)
+                }
+                if (old != null && old.evmChainId != current.evmChainId && current.evmChainId != null) {
+                    publishEvmChainChanged(current.evmChainId)
+                }
+                previous = current
+            }
+        }
     }
 
     fun detach(activity: Activity) {
         if (this.activity === activity) {
+            accountObserver?.cancel()
+            accountObserver = null
             this.activity = null
             this.viewModel = null
+        }
+    }
+
+    private fun publishKaspaAccountsChanged(address: String) {
+        executor.execute {
+            runCatching {
+                WalletKit.getListOfActiveSessions().forEach { session ->
+                    val namespace = session.namespaces["kaspa"] ?: return@forEach
+                    if (CHAIN !in namespace.chains.orEmpty() || "accountsChanged" !in namespace.events) return@forEach
+                    val updated = session.namespaces.toMutableMap().apply {
+                        put("kaspa", namespace.copy(accounts = listOf("$CHAIN:$address")))
+                    }
+                    WalletKit.updateSession(
+                        Wallet.Params.SessionUpdate(session.topic, updated),
+                        onSuccess = {
+                            WalletKit.emitSessionEvent(
+                                Wallet.Params.SessionEmit(
+                                    session.topic,
+                                    Wallet.Model.SessionEvent("accountsChanged", JSONArray().put(address).toString()),
+                                    CHAIN
+                                ),
+                                onError = { android.util.Log.w(TAG, "Kaspa accountsChanged event failed", it.throwable) }
+                            )
+                        },
+                        onError = { android.util.Log.w(TAG, "Kaspa session account update failed", it.throwable) }
+                    )
+                }
+            }.onFailure { android.util.Log.w(TAG, "Kaspa account-change propagation failed", it) }
+        }
+    }
+
+    private fun publishEvmAccountsChanged(address: String) {
+        executor.execute {
+            runCatching {
+                WalletKit.getListOfActiveSessions().forEach { session ->
+                    val namespace = session.namespaces["eip155"] ?: return@forEach
+                    if ("accountsChanged" !in namespace.events) return@forEach
+                    val chains = namespace.chains.orEmpty().filter { it == "eip155:202555" || it == "eip155:38833" }
+                    if (chains.isEmpty()) return@forEach
+                    val updated = session.namespaces.toMutableMap().apply {
+                        put("eip155", namespace.copy(accounts = chains.map { "$it:$address" }))
+                    }
+                    WalletKit.updateSession(
+                        Wallet.Params.SessionUpdate(session.topic, updated),
+                        onSuccess = {
+                            chains.forEach { chain ->
+                                WalletKit.emitSessionEvent(
+                                    Wallet.Params.SessionEmit(
+                                        session.topic,
+                                        Wallet.Model.SessionEvent("accountsChanged", JSONArray().put(address).toString()),
+                                        chain
+                                    ),
+                                    onError = { android.util.Log.w(TAG, "EVM accountsChanged event failed", it.throwable) }
+                                )
+                            }
+                        },
+                        onError = { android.util.Log.w(TAG, "EVM session account update failed", it.throwable) }
+                    )
+                }
+            }.onFailure { android.util.Log.w(TAG, "EVM account-change propagation failed", it) }
+        }
+    }
+
+    private fun publishEvmChainChanged(chainId: Long) {
+        val chain = "eip155:$chainId"
+        val hex = EvmWalletEngine.network(chainId).chainIdHex
+        executor.execute {
+            runCatching {
+                WalletKit.getListOfActiveSessions().forEach { session ->
+                    val namespace = session.namespaces["eip155"] ?: return@forEach
+                    if (chain !in namespace.chains.orEmpty() || "chainChanged" !in namespace.events) return@forEach
+                    WalletKit.emitSessionEvent(
+                        Wallet.Params.SessionEmit(
+                            session.topic,
+                            Wallet.Model.SessionEvent("chainChanged", JSONObject.quote(hex)),
+                            chain
+                        ),
+                        onError = { android.util.Log.w(TAG, "EVM chainChanged event failed", it.throwable) }
+                    )
+                }
+            }.onFailure { android.util.Log.w(TAG, "EVM chain-change propagation failed", it) }
         }
     }
 
