@@ -239,7 +239,34 @@ class Kcc20StandardTransactionExecutor(
     }
 
     suspend fun verifyNodeMass(signed: SignedTransfer): Long {
-        val nodeMass = walletService.verifyTransactionMass(signed.transaction.toJson(), isTestnet = false)
+        val tx = signed.transaction
+        require(tx.inputs.size == signed.prepared.utxoEntries.size) {
+            "Transaction input and live UTXO metadata counts differ"
+        }
+        require(tx.inputs.map {
+            it.previousOutpoint.transactionId.lowercase() to it.previousOutpoint.index
+        }.distinct().size == tx.inputs.size) {
+            "Transaction contains duplicate input outpoints"
+        }
+        require(tx.inputs.all { it.signatureScript.isNotBlank() &&
+            it.signatureScript.length % 2 == 0 &&
+            it.signatureScript.matches(Regex("[0-9a-fA-F]+"))
+        }) { "Transaction contains an empty or malformed input signature script" }
+        val inputTotal = signed.prepared.utxoEntries.fold(0L) { total, entry ->
+            Math.addExact(total, entry.amount)
+        }
+        val outputTotal = tx.outputs.fold(0L) { total, output ->
+            require(output.amount > 0L) { "Transaction contains a non-positive output" }
+            Math.addExact(total, output.amount)
+        }
+        require(Math.subtractExact(inputTotal, outputTotal) == signed.feeSompi) {
+            "Transaction input/output conservation does not match the prepared fee"
+        }
+        require(tx.mass == signed.mass &&
+            signed.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS
+        ) { "Signed transaction mass is inconsistent or exceeds the standard limit" }
+
+        val nodeMass = walletService.verifyTransactionMass(tx.toJson(), isTestnet = false)
         require(nodeMass > 0L) {
             "Kaspa node mass endpoint did not return a valid mass estimate; refusing broadcast"
         }
@@ -269,12 +296,26 @@ class Kcc20StandardTransactionExecutor(
         val liveCellsByOutpoint = refreshedCells.associateBy {
             it.transactionId.lowercase() to it.index
         }
-        for (piece in signed.prepared.tokenPieces) {
+        for ((index, piece) in signed.prepared.tokenPieces.withIndex()) {
             val current = liveCellsByOutpoint[piece.transactionId.lowercase() to piece.index]
                 ?: throw IllegalStateException("A selected KCC-20 token cell is no longer unspent")
             require(current.valueSompi == piece.valueSompi && current.redeem.contentEquals(piece.redeem)) {
                 "A selected KCC-20 token cell changed; refresh and rebuild the transfer"
             }
+            val redeemHash = CryptoUtils.blake2b256(piece.redeem)
+            val p2shAddress = CryptoUtils.encodeP2shAddress(redeemHash, "kaspa")
+            val currentUtxo = walletService.fetchLiveUtxos(p2shAddress).firstOrNull {
+                it.outpoint.transactionId.equals(piece.transactionId, true) &&
+                    it.outpoint.index == piece.index.toLong()
+            } ?: throw IllegalStateException("Kaspa node no longer reports a selected token-cell UTXO")
+            val preparedEntry = signed.prepared.utxoEntries[index]
+            require(
+                currentUtxo.utxoEntry.amount == preparedEntry.amount &&
+                    currentUtxo.utxoEntry.scriptPublicKey.version == preparedEntry.scriptPublicKey.version &&
+                    currentUtxo.utxoEntry.scriptPublicKey.script.equals(preparedEntry.scriptPublicKey.script, true) &&
+                    currentUtxo.utxoEntry.blockDaaScore == preparedEntry.blockDaaScore &&
+                    currentUtxo.utxoEntry.isCoinbase == preparedEntry.isCoinbase
+            ) { "A selected KCC-20 token UTXO changed; rebuild the transaction" }
         }
 
         val refreshedFunding = walletService.fetchLiveUtxos(signed.prepared.senderAddress)
