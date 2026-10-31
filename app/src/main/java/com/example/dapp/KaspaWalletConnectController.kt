@@ -137,7 +137,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     val namespace = session.namespaces["kaspa"] ?: return@forEach
                     if (CHAIN !in namespace.chains.orEmpty() || "accountsChanged" !in namespace.events) return@forEach
                     val updated = session.namespaces.toMutableMap().apply {
-                        put("kaspa", namespace.copy(accounts = listOf("$CHAIN:$address")))
+                        put("kaspa", namespace.copy(accounts = listOf("$CHAIN:${address.removePrefix("kaspa:")}")))
                     }
                     WalletKit.updateSession(
                         Wallet.Params.SessionUpdate(session.topic, updated),
@@ -323,7 +323,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     val events = kaspaProposal.events.filter { it == "accountsChanged" }
                     approved["kaspa"] = Wallet.Model.Namespace.Session(
                         chains = validChains,
-                        accounts = validChains.map { "$it:$address" },
+                        accounts = validChains.map { "$it:${address.removePrefix("kaspa:")}" },
                         methods = methods,
                         events = events
                     )
@@ -445,7 +445,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         val namespace = session?.namespaces?.get("kaspa")
         val keyPair = deriveActiveKey(vm)
         if (namespace == null || keyPair == null ||
-            "$CHAIN:${keyPair.kaspaAddress}" !in namespace.accounts ||
+            "$CHAIN:${keyPair.kaspaAddress.removePrefix("kaspa:")}" !in namespace.accounts ||
             sessionRequest.request.method !in namespace.methods
         ) {
             keyPair?.wipe()
@@ -474,7 +474,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                 val kaspaNs = activeSession.namespaces["kaspa"]
                                     ?: throw IllegalStateException("Kaspa namespace is not approved")
                                 val updated = activeSession.namespaces.toMutableMap().apply {
-                                    put("kaspa", kaspaNs.copy(accounts = listOf("$CHAIN:$address")))
+                                    put("kaspa", kaspaNs.copy(accounts = listOf("$CHAIN:${address.removePrefix("kaspa:")}")))
                                 }
                                 WalletKit.updateSession(
                                     Wallet.Params.SessionUpdate(sessionRequest.topic, updated),
