@@ -83,8 +83,11 @@ object Kcc20StandardSigner {
                 "KCC-20 input index is outside the transaction"
             }
             val input = transaction.inputs[index]
-            require(input.signatureScript.isEmpty()) {
-                "KCC-20 token input already has a signature script"
+            require(
+                input.signatureScript.isEmpty() ||
+                    input.signatureScript.equals(KbKcc20ScriptCodec.bytesToHex(plan.seats[index].script), true)
+            ) {
+                "KCC-20 token input contains an unexpected pre-existing signature script"
             }
             require(input.previousOutpoint.transactionId.equals(piece.transactionId, true) &&
                 input.previousOutpoint.index == piece.index.toLong()
