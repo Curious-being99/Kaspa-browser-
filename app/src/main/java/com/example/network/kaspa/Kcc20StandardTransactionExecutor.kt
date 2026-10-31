@@ -372,8 +372,21 @@ class Kcc20StandardTransactionExecutor(
         require(senderAddress.trim().equals(signed.prepared.senderAddress, true)) {
             "Active sender address changed; KCC-20 broadcast cancelled"
         }
-        require(KbKcc20Protocol.reviewedConfig.conformant == true) {
-            "KB covenant conformance has not been verified; KCC-20 broadcast remains disabled"
+        val deployment = kcc20Service.fetchDeploymentConformance(
+            KbKcc20Protocol.TOKEN_COVENANT_ID
+        ).getOrElse {
+            throw IllegalStateException(
+                "Unable to verify the live KB deployment conformance; broadcast remains disabled",
+                it
+            )
+        }
+        require(deployment.safeForStandardTransfer) {
+            "Live KB deployment is not cleared for standard KCC-20 transfers: " +
+                "token=${deployment.tokenStatus}, layout=${deployment.layout}, " +
+                "review=${deployment.review}, conformant=${deployment.conformant}, " +
+                "artifact=${deployment.artifact ?: "published"}, dispatch=${deployment.dispatch}, " +
+                "template=${deployment.templateHash}, view=${deployment.viewTemplateHash}, " +
+                "nonconformities=${deployment.nonconformities.joinToString()}"
         }
         verifyNodeMass(signed)
 
