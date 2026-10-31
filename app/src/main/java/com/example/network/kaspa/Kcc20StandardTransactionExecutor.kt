@@ -317,14 +317,19 @@ class Kcc20StandardTransactionExecutor(
                 "Preflight executed " + executed.length() + " inputs; expected " +
                     signed.transaction.inputs.size
             }
+            val executedIndexes = mutableSetOf<Int>()
             for (index in 0 until executed.length()) {
                 val row = executed.getJSONObject(index)
-                require(row.optInt("input_index", -1) == index) {
-                    "Preflight returned an unexpected input execution order"
+                val inputIndex = row.optInt("input_index", -1)
+                require(inputIndex in signed.transaction.inputs.indices && executedIndexes.add(inputIndex)) {
+                    "Preflight returned a missing, duplicate or out-of-range input index"
                 }
                 require(row.optBoolean("pass", false)) {
-                    "Kaspa consensus script engine rejected input " + row.optInt("input_index", index)
+                    "Kaspa consensus script engine rejected input " + inputIndex
                 }
+            }
+            require(executedIndexes == signed.transaction.inputs.indices.toSet()) {
+                "Preflight did not execute every populated transaction input"
             }
             result
         } finally {
