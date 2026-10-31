@@ -159,6 +159,7 @@ import com.example.model.KaspaTransactionItem
 import com.example.model.Krc20TokenBalance
 import com.example.model.Krc20TokenMetadata
 import com.example.model.Krc20TokenTransaction
+import com.example.network.kaspa.Kcc20TransactionHistoryItem
 import com.example.network.CryptoUtils
 import com.example.ui.components.KaspaQrCodeView
 import com.example.ui.components.PinnedTokensSection
@@ -292,11 +293,13 @@ fun KaspaTestnetWalletScreen(
     val pinnedTokens by viewModel.pinnedTokens.collectAsState()
     val isLoadingKrc20 by viewModel.isLoadingKrc20.collectAsState()
     val kcc20Tokens by viewModel.kcc20Tokens.collectAsState()
+    val kcc20Transactions by viewModel.kcc20Transactions.collectAsState()
     val isLoadingKcc20 by viewModel.isLoadingKcc20.collectAsState()
     val liveKasUsdPrice by viewModel.liveKasUsdPrice.collectAsState()
     val liveKas24hChange by viewModel.liveKas24hChange.collectAsState()
     var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
     var selectedKcc20TokenForDetails by remember { mutableStateOf<com.example.network.kaspa.Kcc20WalletToken?>(null) }
+    var selectedKcc20TxForDetails by remember { mutableStateOf<Kcc20TransactionHistoryItem?>(null) }
 
     // Send Form State
     var recipientInput by remember { mutableStateOf("") }
@@ -340,6 +343,8 @@ fun KaspaTestnetWalletScreen(
             showCompoundDialog = false
         } else if (selectedTransactionForDetails != null) {
             selectedTransactionForDetails = null
+        } else if (selectedKcc20TxForDetails != null) {
+            selectedKcc20TxForDetails = null
         } else if (showConfirmSendDialog) {
             showConfirmSendDialog = false
         } else if (showRecoveryScreen) {
@@ -940,8 +945,10 @@ fun KaspaTestnetWalletScreen(
                 }
                 HistoryTabContent(
                     transactions = walletState.recentTransactions,
-                    isLoading = walletState.isLoading,
+                    kcc20Transactions = kcc20Transactions,
+                    isLoading = walletState.isLoading || isLoadingKcc20,
                     onOpenTx = { tx -> selectedTransactionForDetails = tx },
+                    onOpenKcc20Tx = { tx -> selectedKcc20TxForDetails = tx },
                     onGetFaucetCoins = { viewModel.openTestnetFaucet(context) },
                     onSendKaspa = { showTransactionHistoryScreen = false; showSendScreen = true },
                     onReceiveKaspa = { showTransactionHistoryScreen = false; showReceiveScreen = true },
@@ -1139,6 +1146,26 @@ fun KaspaTestnetWalletScreen(
                     viewModel.openTestnetTxExplorer(txId)
                 },
                 onDismiss = { selectedTransactionForDetails = null }
+            )
+        }
+
+        // KCC-20 Covenant Transaction Details Popup Dialog
+        if (selectedKcc20TxForDetails != null) {
+            Kcc20TransactionDetailDialog(
+                tx = selectedKcc20TxForDetails!!,
+                onCopyTxId = { txId ->
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("KCC-20 Transaction ID", txId))
+                    scope.launch {
+                        snackbarHostState.showSnackbar("KCC-20 Transaction ID copied to clipboard!")
+                    }
+                },
+                onViewOnExplorer = { txId ->
+                    selectedKcc20TxForDetails = null
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://kascov.io/tx/$txId"))
+                    context.startActivity(intent)
+                },
+                onDismiss = { selectedKcc20TxForDetails = null }
             )
         }
 
@@ -1609,8 +1636,10 @@ private fun QuickActionButton(
 @Composable
 private fun HistoryTabContent(
     transactions: List<KaspaTransactionItem>,
+    kcc20Transactions: List<Kcc20TransactionHistoryItem> = emptyList(),
     isLoading: Boolean,
     onOpenTx: (KaspaTransactionItem) -> Unit,
+    onOpenKcc20Tx: (Kcc20TransactionHistoryItem) -> Unit = {},
     onGetFaucetCoins: () -> Unit,
     onSendKaspa: (() -> Unit)? = null,
     onReceiveKaspa: (() -> Unit)? = null,
@@ -1625,8 +1654,8 @@ private fun HistoryTabContent(
         selectedNetwork.contains("Testnet", ignoreCase = true) && !isKasplex -> "tKAS"
         else -> "KAS"
     }
-    var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Sent, 2: Received
-    val filterTabs = listOf("All", "Sent", "Received")
+    var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: All, 1: Sent, 2: Received, 3: KCC-20
+    val filterTabs = listOf("All", "Sent", "Received", "KCC-20")
 
     val filteredTransactions = remember(transactions, selectedFilterIndex) {
         when (selectedFilterIndex) {
@@ -1637,41 +1666,46 @@ private fun HistoryTabContent(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Transaction History Filter Tabs: All, Sent, Received
+        // Transaction History Filter Tabs: All, Sent, Received, KCC-20
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             filterTabs.forEachIndexed { index, title ->
                 val isSelected = selectedFilterIndex == index
                 val count = when (index) {
                     1 -> transactions.count { it.type == "SENT" }
                     2 -> transactions.count { it.type == "RECEIVED" }
-                    else -> transactions.size
+                    3 -> kcc20Transactions.size
+                    else -> transactions.size + kcc20Transactions.size
                 }
                 val tabBorderColor = when {
                     isSelected && index == 1 -> RedTamper
                     isSelected && index == 2 -> KaspaTea
+                    isSelected && index == 3 -> KaspaTea
                     isSelected -> KaspaTea
                     else -> SurfaceCardBorder
                 }
                 val tabTextColor = when {
                     isSelected && index == 1 -> RedTamper
                     isSelected && index == 2 -> KaspaTea
+                    isSelected && index == 3 -> KaspaTea
                     isSelected -> KaspaTea
                     else -> TextSecondary
                 }
                 val badgeColor = when (index) {
                     1 -> RedTamper.copy(alpha = if (isSelected) 0.95f else 0.25f)
                     2 -> KaspaTea.copy(alpha = if (isSelected) 0.95f else 0.25f)
+                    3 -> KaspaTea.copy(alpha = if (isSelected) 0.95f else 0.25f)
                     else -> if (isSelected) KaspaTea else SurfaceCardBorder.copy(alpha = 0.7f)
                 }
                 val badgeTextColor = when {
                     isSelected -> SurfaceDark
                     index == 1 -> RedTamper
                     index == 2 -> KaspaTea
+                    index == 3 -> KaspaTea
                     else -> TextMuted
                 }
 
@@ -1683,24 +1717,25 @@ private fun HistoryTabContent(
                     modifier = Modifier
                         .weight(1f)
                         .height(36.dp)
+                        .testTag("history_tab_${title.lowercase()}")
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 4.dp),
+                            .padding(horizontal = 2.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = title,
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = tabTextColor,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
                         Surface(
                             shape = RoundedCornerShape(5.dp),
                             color = badgeColor
@@ -1711,7 +1746,7 @@ private fun HistoryTabContent(
                             ) {
                                 Text(
                                     text = "$count",
-                                    fontSize = 9.5.sp,
+                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = badgeTextColor,
                                     maxLines = 1,
@@ -1724,7 +1759,7 @@ private fun HistoryTabContent(
             }
         }
 
-        if (isLoading && transactions.isEmpty()) {
+        if (isLoading && transactions.isEmpty() && kcc20Transactions.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -1734,7 +1769,85 @@ private fun HistoryTabContent(
             return
         }
 
-        if (filteredTransactions.isEmpty()) {
+        // Dedicated KCC-20 Tab
+        if (selectedFilterIndex == 3) {
+            if (kcc20Transactions.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = SurfaceCard,
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Token,
+                                contentDescription = null,
+                                tint = KaspaTea,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "No KCC-20 Transactions",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "No KCC-20 covenant transactions recorded yet on the KasCov BlockDAG indexer for this wallet.",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                val groupedKcc20 = remember(kcc20Transactions) {
+                    kcc20Transactions.groupBy { tx ->
+                        val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        sdf.format(Date(if (tx.timestamp > 1000000000000L) tx.timestamp else tx.timestamp * 1000L))
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    groupedKcc20.forEach { (date, txs) ->
+                        item {
+                            Text(
+                                text = date,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                            )
+                        }
+                        items(txs, key = { it.txId }) { tx ->
+                            Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) {
+                                Kcc20TransactionCard(tx = tx, onClick = { onOpenKcc20Tx(tx) })
+                            }
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        // Standard Filter Tabs (All, Sent, Received)
+        val hasAnyItems = (selectedFilterIndex == 0 && (filteredTransactions.isNotEmpty() || kcc20Transactions.isNotEmpty())) ||
+            (selectedFilterIndex != 0 && filteredTransactions.isNotEmpty())
+
+        if (!hasAnyItems) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1862,6 +1975,57 @@ private fun HistoryTabContent(
                 contentPadding = PaddingValues(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
+                // If on "All" tab and there are KCC-20 transactions, show them in a prominent section
+                if (selectedFilterIndex == 0 && kcc20Transactions.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "KCC-20 COVENANT TRANSACTIONS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = KaspaTea,
+                                letterSpacing = 1.sp
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = KaspaTea.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "${kcc20Transactions.size}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = KaspaTea,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                    items(kcc20Transactions, key = { "kcc20_${it.txId}" }) { tx ->
+                        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) {
+                            Kcc20TransactionCard(tx = tx, onClick = { onOpenKcc20Tx(tx) })
+                        }
+                    }
+                    if (filteredTransactions.isNotEmpty()) {
+                        item {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "KASPA BLOCKDAG TRANSACTIONS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextMuted,
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
+
                 groupedTransactions.forEach { (date, txs) ->
                     item {
                         Text(
@@ -2010,6 +2174,386 @@ private fun TransactionCard(
                     fontFamily = FontFamily.Default,
                     color = if (isReceive) KaspaTea else AmberCentral
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun Kcc20TransactionCard(
+    tx: Kcc20TransactionHistoryItem,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val dateStr = remember(tx.timestamp) {
+        val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+        sdf.format(Date(if (tx.timestamp > 1000000000000L) tx.timestamp else tx.timestamp * 1000L))
+    }
+    val isAccepted = tx.status.contains("ACCEPT", true) || tx.status.contains("CONFIRM", true) || tx.status.contains("SUCCESS", true)
+    val statusBg = if (isAccepted) KaspaTea.copy(alpha = 0.15f) else AmberCentral.copy(alpha = 0.15f)
+    val statusColor = if (isAccepted) KaspaTea else AmberCentral
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceDark,
+        border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth().testTag("kcc20_tx_item_${tx.txId.take(8)}")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(KaspaTea.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Token,
+                            contentDescription = "KCC-20 Token",
+                            tint = KaspaTea,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${tx.operation} ${tx.ticker}",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = KaspaTea.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "KCC-20",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = KaspaTea,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = dateStr,
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "${if (tx.amount > 0) "+" else ""}%.4f %s".format(tx.amount, tx.ticker),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = KaspaTea,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Surface(
+                        color = statusBg,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = tx.status.uppercase(),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            HorizontalDivider(color = SurfaceCardBorder.copy(alpha = 0.25f), thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Tx: ${if (tx.txId.length > 18) "${tx.txId.take(10)}...${tx.txId.takeLast(6)}" else tx.txId}",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy Transaction ID",
+                        tint = KaspaTea.copy(alpha = 0.8f),
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clickable {
+                                clipboardManager.setText(AnnotatedString(tx.txId))
+                                android.widget.Toast.makeText(context, "TxID copied!", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                    )
+                }
+
+                Text(
+                    text = "Covenant Indexer",
+                    fontSize = 10.sp,
+                    color = TextMuted
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun Kcc20TransactionDetailDialog(
+    tx: Kcc20TransactionHistoryItem,
+    onCopyTxId: (String) -> Unit,
+    onViewOnExplorer: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val dateStr = remember(tx.timestamp) {
+        val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm:ss", Locale.getDefault())
+        sdf.format(Date(if (tx.timestamp > 1000000000000L) tx.timestamp else tx.timestamp * 1000L))
+    }
+    val isAccepted = tx.status.contains("ACCEPT", true) || tx.status.contains("CONFIRM", true) || tx.status.contains("SUCCESS", true)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(dismissOnClickOutside = true, dismissOnBackPress = true),
+        containerColor = SurfaceDark,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Token,
+                        contentDescription = null,
+                        tint = KaspaTea,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "KCC-20 Transaction",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
+                Surface(
+                    color = if (isAccepted) KaspaTea.copy(alpha = 0.15f) else AmberCentral.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = tx.status.uppercase(),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isAccepted) KaspaTea else AmberCentral,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SurfaceCard,
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "${tx.operation} ${tx.ticker}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "%.4f %s".format(tx.amount, tx.ticker),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = KaspaTea
+                        )
+                        Text(
+                            text = "Standard: KCC-20 Kaspa Covenant Token",
+                            fontSize = 10.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+
+                Kcc20DetailFieldItem(
+                    label = "TRANSACTION ID",
+                    value = tx.txId,
+                    isMonospace = true,
+                    onCopy = { onCopyTxId(tx.txId) }
+                )
+
+                Kcc20DetailFieldItem(
+                    label = "TIMESTAMP",
+                    value = "$dateStr (${tx.timestamp})",
+                    isMonospace = false
+                )
+
+                Kcc20DetailFieldItem(
+                    label = "STATUS",
+                    value = "${tx.status} • On-Chain BlockDAG Verified",
+                    isMonospace = false
+                )
+
+                if (tx.tokenContractId.isNotBlank()) {
+                    Kcc20DetailFieldItem(
+                        label = "COVENANT CONTRACT ID",
+                        value = tx.tokenContractId,
+                        isMonospace = true,
+                        onCopy = { onCopyTxId(tx.tokenContractId) }
+                    )
+                }
+
+                if (tx.fromAddress.isNotBlank()) {
+                    Kcc20DetailFieldItem(
+                        label = "FROM ADDRESS",
+                        value = tx.fromAddress,
+                        isMonospace = true,
+                        onCopy = { onCopyTxId(tx.fromAddress) }
+                    )
+                }
+
+                if (tx.toAddress.isNotBlank()) {
+                    Kcc20DetailFieldItem(
+                        label = "TO ADDRESS",
+                        value = tx.toAddress,
+                        isMonospace = true,
+                        onCopy = { onCopyTxId(tx.toAddress) }
+                    )
+                }
+
+                if (tx.rawJson.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = SurfaceCard,
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text("RAW COVENANT METADATA", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = TextMuted)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = tx.formattedJson(),
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextSecondary,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onViewOnExplorer(tx.txId) },
+                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("View on KasCov Explorer", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = TextSecondary)
+            }
+        }
+    )
+}
+
+@Composable
+private fun Kcc20DetailFieldItem(
+    label: String,
+    value: String,
+    isMonospace: Boolean = false,
+    onCopy: (() -> Unit)? = null
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceCard, RoundedCornerShape(10.dp))
+            .border(1.dp, SurfaceCardBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Text(label, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = TextMuted, letterSpacing = 0.5.sp)
+        Spacer(modifier = Modifier.height(3.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = value,
+                fontSize = 11.sp,
+                fontFamily = if (isMonospace) FontFamily.Monospace else FontFamily.Default,
+                color = TextPrimary,
+                modifier = Modifier.weight(1f),
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 3
+            )
+            if (onCopy != null) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(26.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy",
+                        tint = KaspaTea,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
         }
     }

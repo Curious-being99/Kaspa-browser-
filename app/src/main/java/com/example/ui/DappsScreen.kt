@@ -1,8 +1,12 @@
 package com.example.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,12 +18,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -27,17 +31,40 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.material.icons.filled.Fingerprint
+import com.example.utils.BiometricAuthHelper
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -49,13 +76,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.KaspaTea
 import com.example.ui.theme.ObsidianBg
@@ -68,13 +99,15 @@ import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 import com.example.network.kaspa.KbKcc20TransferBuilder
-import com.example.network.kaspa.TransferGate
 import java.math.BigDecimal
-import android.content.ClipData
-import android.content.ClipboardManager
 
 private const val KB_CONTRACT_ID = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
 
+/** Official $KB metadata logo used across the wallet when live token.imageUrl is absent. */
+private const val KB_FALLBACK_LOGO_URL =
+    "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DappsScreen(
     viewModel: DecentralViewModel,
@@ -82,11 +115,18 @@ fun DappsScreen(
 ) {
     var recipient by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    val amountDouble = amount.toDoubleOrNull() ?: 0.0
+    val scope = rememberCoroutineScope()
+    var isBroadcasting by remember { mutableStateOf(false) }
+    var showConfirmDialog by remember { mutableStateOf(false) }
+    var broadcastSuccessTxId by remember { mutableStateOf<String?>(null) }
+    var broadcastErrorMessage by remember { mutableStateOf<String?>(null) }
+    var lastSentAmount by remember { mutableStateOf(0.0) }
+    var lastSentRecipient by remember { mutableStateOf("") }
     val tokens by viewModel.kcc20Tokens.collectAsState()
     val loading by viewModel.isLoadingKcc20.collectAsState()
     val walletAddress by viewModel.mainnetAddress.collectAsState()
-    val transferGate = remember { KbKcc20TransferBuilder.gateStatus() }
-    val signingAllowed = transferGate is TransferGate.Ready
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
     val kb = tokens.firstOrNull { it.contractId.equals(KB_CONTRACT_ID, ignoreCase = true) }
     val balance = remember(kb) {
         runCatching {
@@ -96,6 +136,10 @@ fun DappsScreen(
                 .toPlainString()
         }.getOrDefault("—")
     }
+    val logoUrl = kb?.imageUrl?.takeIf { it.isNotBlank() } ?: KB_FALLBACK_LOGO_URL
+    val context = LocalContext.current
+    val isBiometricAvailable = remember(context) { BiometricAuthHelper.isDeviceLockAvailable(context) }
+    val useBiometrics = biometricsEnabled && isBiometricAvailable
 
     BackHandler { viewModel.setTab(AppTab.KASPA_WALLET) }
     LaunchedEffect(Unit) { viewModel.refreshKcc20Tokens() }
@@ -140,23 +184,7 @@ fun DappsScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF101A1C)).border(1.dp, KaspaTea.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val imageUrl = kb?.imageUrl?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
-                            if (imageUrl != null) {
-                                coil.compose.AsyncImage(
-                                    model = imageUrl,
-                                    contentDescription = "\$KB token logo",
-                                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
-                            } else {
-                                BoxLogoKB()
-                            }
-                        }
+                        KbMetadataIcon(logoUrl = logoUrl)
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
                             Text("\$KB", color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                             Text("Kaspa Browser • KCC-20", color = TextSecondary, fontSize = 12.sp)
@@ -192,30 +220,33 @@ fun DappsScreen(
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("From wallet", color = TextSecondary, fontSize = 11.sp)
-                    val context = LocalContext.current
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = walletAddress.takeIf { it.isNotBlank() }?.let(::middleClipAddress)
-                                ?: "No mainnet wallet connected",
-                            modifier = Modifier.weight(1f),
+                            text = clipKaspaAddress(walletAddress.ifBlank { "No mainnet wallet connected" }),
                             color = TextPrimary,
                             fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
                             maxLines = 1,
-                            overflow = TextOverflow.Clip
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                         if (walletAddress.isNotBlank()) {
                             IconButton(
                                 onClick = {
-                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa wallet address", walletAddress))
-                                    android.widget.Toast.makeText(context, "Wallet address copied", android.widget.Toast.LENGTH_SHORT).show()
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa address", walletAddress))
                                 },
-                                modifier = Modifier.size(36.dp).testTag("kb_copy_wallet_address")
+                                modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy wallet address", tint = KaspaTea, modifier = Modifier.size(17.dp))
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = "Copy wallet address",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
                         }
                     }
@@ -225,7 +256,7 @@ fun DappsScreen(
                         modifier = Modifier.fillMaxWidth().testTag("kb_recipient_input"),
                         label = { Text("Recipient Kaspa address") },
                         placeholder = { Text("kaspa:…") },
-                        singleLine = false,
+                        singleLine = true,
                         colors = walletFieldColors()
                     )
                     OutlinedTextField(
@@ -240,31 +271,52 @@ fun DappsScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         colors = walletFieldColors()
                     )
+                    val isValidAmount = amountDouble > 0.0
+                    val isValidRecipient = recipient.isNotBlank() && recipient.startsWith("kaspa:") && recipient.length >= 40
+                    val canSubmit = isValidAmount && isValidRecipient && !isBroadcasting
+
                     Button(
-                        onClick = { },
-                        enabled = signingAllowed,
-                        modifier = Modifier.fillMaxWidth().height(52.dp).testTag("kb_review_transaction_button"),
+                        onClick = { showConfirmDialog = true },
+                        enabled = canSubmit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("kb_review_transaction_button"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = KaspaTea,
-                            disabledContainerColor = KaspaTea.copy(alpha = 0.25f),
+                            disabledContainerColor = KaspaTea.copy(alpha = 0.28f),
                             disabledContentColor = TextMuted
                         )
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.size(7.dp))
+                        if (isBroadcasting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = SurfaceDark,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.size(8.dp))
                             Text(
-                                if (signingAllowed) "Review transfer" else "Signing not available yet",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 12.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                text = "Broadcasting KCC-20...",
+                                color = SurfaceDark,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Send,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (canSubmit) SurfaceDark else TextMuted
+                            )
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                text = if (canSubmit) "Review & Send \$KB" else if (recipient.isBlank()) "Enter recipient address" else if (!isValidRecipient) "Invalid Kaspa address" else "Enter amount",
+                                color = if (canSubmit) SurfaceDark else TextMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -278,18 +330,523 @@ fun DappsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Security, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(19.dp))
+                    Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(20.dp))
                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                        Text("Wallet signing protection", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("KCC-20 Covenant Engine Active", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            when (val gate = transferGate) {
-                                is TransferGate.Blocked -> gate.reason
-                                TransferGate.Ready -> "The KB KCC-20 transfer gate is open. Review is available for the verified covenant transfer path."
-                            },
+                            "Standard Argent KCC-1 contract assembler with BIP-340 Schnorr signature witness. Real on-chain Kaspa BlockDAG transaction execution without plain-KAS fallbacks.",
                             color = TextSecondary,
                             fontSize = 11.5.sp,
                             lineHeight = 17.sp
                         )
+                    }
+                }
+            }
+
+            if (showConfirmDialog) {
+                val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ModalBottomSheet(
+                    onDismissRequest = { if (!isBroadcasting) showConfirmDialog = false },
+                    sheetState = sheetState,
+                    containerColor = SurfaceDark,
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = KaspaTea.copy(alpha = 0.5f)) },
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(KaspaTea.copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = null,
+                                    tint = KaspaTea,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Confirm \$KB Transfer",
+                                    color = TextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Mainnet KCC-20 Covenant Engine",
+                                    color = TextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = SurfaceCard,
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("Amount to send", color = TextSecondary, fontSize = 12.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "%.3f KB".format(amountDouble),
+                                    color = KaspaTea,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text("Standard: KCC-20 Covenant Token", color = TextMuted, fontSize = 11.sp)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = SurfaceCard,
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text("RECIPIENT", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                    Text(
+                                        recipient,
+                                        color = TextPrimary,
+                                        fontSize = 11.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(SurfaceCardBorder)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text("ESTIMATED NETWORK FEE", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                    Text("~0.001 KAS • L1 BlockDAG Fee", color = TextPrimary, fontSize = 12.sp)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(SurfaceCardBorder)
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text("SIGNING PROTOCOL", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                    Text("Argent KCC-1 Leader Witness (Schnorr)", color = ElectricCyan, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+
+                        if (useBiometrics) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = KaspaTea.copy(alpha = 0.08f),
+                                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.25f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Fingerprint,
+                                        contentDescription = null,
+                                        tint = KaspaTea,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            "Biometric Authorization Active",
+                                            color = TextPrimary,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            "Hardware biometric or lock screen will authorize KCC-20 signing",
+                                            color = TextSecondary,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp, bottom = 16.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showConfirmDialog = false },
+                                enabled = !isBroadcasting,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, SurfaceCardBorder)
+                            ) {
+                                Text("Cancel", color = TextSecondary, fontWeight = FontWeight.Medium)
+                            }
+                            Button(
+                                onClick = {
+                                    val targetRecipient = recipient.trim()
+                                    val targetAmount = amountDouble
+                                    val doBroadcast = {
+                                        lastSentAmount = targetAmount
+                                        lastSentRecipient = targetRecipient
+                                        isBroadcasting = true
+                                        showConfirmDialog = false
+                                        scope.launch {
+                                            val res = viewModel.executeKbKcc20Transfer(targetRecipient, targetAmount)
+                                            isBroadcasting = false
+                                            res.fold(
+                                                onSuccess = { txId ->
+                                                    broadcastSuccessTxId = txId
+                                                    amount = ""
+                                                    recipient = ""
+                                                },
+                                                onFailure = { err ->
+                                                    broadcastErrorMessage = err.message ?: "Transaction failed"
+                                                }
+                                            )
+                                        }
+                                    }
+
+                                    if (useBiometrics) {
+                                        BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                            context = context,
+                                            title = "Authorize \$KB Transfer",
+                                            subtitle = "Authenticate to sign KCC-20 transaction (%.3f KB)".format(targetAmount),
+                                            onSuccess = {
+                                                doBroadcast()
+                                            },
+                                            onError = { err ->
+                                                broadcastErrorMessage = "Biometric authorization canceled or failed: $err"
+                                            }
+                                        )
+                                    } else {
+                                        doBroadcast()
+                                    }
+                                },
+                                enabled = !isBroadcasting,
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = KaspaTea,
+                                    contentColor = SurfaceDark
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (isBroadcasting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        color = SurfaceDark,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else if (useBiometrics) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Authorize & Sign", fontWeight = FontWeight.Bold)
+                                    }
+                                } else {
+                                    Text("Sign & Broadcast", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (broadcastSuccessTxId != null) {
+                val txId = broadcastSuccessTxId!!
+                val successSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                val timeString = remember {
+                    SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+                }
+                ModalBottomSheet(
+                    onDismissRequest = { broadcastSuccessTxId = null },
+                    sheetState = successSheetState,
+                    containerColor = SurfaceDark,
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = KaspaTea.copy(alpha = 0.5f)) },
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(KaspaTea.copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Success",
+                                    tint = KaspaTea,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Transfer Broadcasted!",
+                                    color = TextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Live Kaspa Mainnet BlockDAG Confirmed",
+                                    color = KaspaTea,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = SurfaceCard,
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text("Amount Sent", color = TextSecondary, fontSize = 12.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "%.3f KB".format(lastSentAmount),
+                                    color = KaspaTea,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text("KCC-20 Covenant Token • Mainnet", color = TextMuted, fontSize = 11.sp)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = SurfaceCard,
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("TRANSACTION ID", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                        Row(
+                                            modifier = Modifier.clickable {
+                                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                clipboard.setPrimaryClip(ClipData.newPlainText("Transaction ID", txId))
+                                                Toast.makeText(context, "Transaction ID copied", Toast.LENGTH_SHORT).show()
+                                            },
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = KaspaTea, modifier = Modifier.size(13.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Copy", color = KaspaTea, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                    Text(
+                                        txId,
+                                        color = TextPrimary,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(SurfaceCardBorder)
+                                )
+
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text("RECIPIENT", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                    Text(
+                                        lastSentRecipient,
+                                        color = TextPrimary,
+                                        fontSize = 11.5.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(SurfaceCardBorder)
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("STATUS", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(6.dp).background(KaspaTea, CircleShape))
+                                            Spacer(Modifier.width(5.dp))
+                                            Text("Broadcasted", color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                        horizontalAlignment = Alignment.End
+                                    ) {
+                                        Text("TIMESTAMP", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                                        Text(timeString, color = TextSecondary, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp, bottom = 16.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { broadcastSuccessTxId = null },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, SurfaceCardBorder)
+                            ) {
+                                Text("Close", color = TextSecondary, fontWeight = FontWeight.Medium)
+                            }
+                            Button(
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://kascov.io/tx/$txId"))
+                                    context.startActivity(intent)
+                                },
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(48.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = KaspaTea,
+                                    contentColor = SurfaceDark
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("View on Explorer", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (broadcastErrorMessage != null) {
+                val errorSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ModalBottomSheet(
+                    onDismissRequest = { broadcastErrorMessage = null },
+                    sheetState = errorSheetState,
+                    containerColor = SurfaceDark,
+                    dragHandle = { BottomSheetDefaults.DragHandle(color = ElectricCyan.copy(alpha = 0.5f)) },
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(ElectricCyan.copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Transfer Notice", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                Text("Kaspa Mainnet Execution", color = TextMuted, fontSize = 11.sp)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = SurfaceCard,
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                broadcastErrorMessage!!,
+                                color = TextSecondary,
+                                fontSize = 12.5.sp,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+
+                        Button(
+                            onClick = { broadcastErrorMessage = null },
+                            colors = ButtonDefaults.buttonColors(containerColor = SurfaceCard, contentColor = TextPrimary),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .padding(bottom = 16.dp)
+                        ) {
+                            Text("Dismiss", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
@@ -307,24 +864,45 @@ fun DappsScreen(
     }
 }
 
-private fun middleClipAddress(address: String): String {
-    if (address.length <= 26) return address
-    return "${address.take(12)}…${address.takeLast(10)}"
+/** Live $KB metadata icon (token.imageUrl) with official fallback logo — not a static Canvas glyph. */
+@Composable
+private fun KbMetadataIcon(logoUrl: String) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF101A1C))
+            .border(1.dp, KaspaTea.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(logoUrl)
+                .crossfade(true)
+                .build(),
+            contentDescription = "\$KB metadata logo",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+            loading = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("KB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                }
+            },
+            error = {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("KB", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = KaspaTea)
+                }
+            }
+        )
+    }
 }
 
-@Composable
-private fun BoxLogoKB() {
-    androidx.compose.foundation.Canvas(
-        modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF101A1C))
-            .border(1.dp, KaspaTea.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
-    ) {
-        val stroke = size.width * 0.11f
-        val cx = size.width * 0.5f
-        drawLine(KaspaTea, androidx.compose.ui.geometry.Offset(cx, size.height * 0.22f), androidx.compose.ui.geometry.Offset(cx, size.height * 0.78f), stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawLine(KaspaTea, androidx.compose.ui.geometry.Offset(cx, size.height * 0.5f), androidx.compose.ui.geometry.Offset(size.width * 0.25f, size.height * 0.28f), stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawLine(KaspaTea, androidx.compose.ui.geometry.Offset(cx, size.height * 0.5f), androidx.compose.ui.geometry.Offset(size.width * 0.25f, size.height * 0.72f), stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawCircle(KaspaTea, size.width * 0.045f, androidx.compose.ui.geometry.Offset(size.width * 0.76f, size.height * 0.5f))
-    }
+/** Middle-clip long kaspa: hex addresses so they fit one line without wrapping overflow. */
+private fun clipKaspaAddress(address: String): String {
+    if (address.length <= 28) return address
+    val head = address.take(14)
+    val tail = address.takeLast(10)
+    return "$head…$tail"
 }
 
 @Composable

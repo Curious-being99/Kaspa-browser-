@@ -581,4 +581,70 @@ class Kcc20KasivoService(
             primaryProtocol = if (kcc20Balances.any { it.balance > 0 }) KaspaProtocolType.KCC20_COVENANT else KaspaProtocolType.L1_KASPA
         )
     }
+
+    /**
+     * Fetch live KCC-20 covenant token cells (UTXOs with redeem bytecode) owned by a wallet pubkey.
+     * Maps directly to [KbKcc20StandardAssembler.SpendPiece] for real on-chain covenant spending.
+     */
+    suspend fun fetchLiveTokenCells(
+        contractId: String,
+        publicKeyHex: String,
+        walletAddress: String? = null
+    ): Result<List<KbKcc20StandardAssembler.SpendPiece>> = withContext(Dispatchers.IO) {
+        val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
+        val tokenId = contractId.trim().lowercase()
+        val normalizedAddress = walletAddress?.trim()?.lowercase()
+        try {
+            val url = URL("https://kascov.io/data/mainnet/token/$tokenId/cells")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8000
+                readTimeout = 12000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0 (kascov.io)")
+            }
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                return@withContext Result.failure(java.io.IOException("Kascov HTTP ${conn.responseCode} for cells"))
+            }
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val root = JSONObject(text)
+            val cellsArray = root.optJSONArray("cells") ?: JSONArray()
+            val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
+
+            for (i in 0 until cellsArray.length()) {
+                val c = cellsArray.optJSONObject(i) ?: continue
+                val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
+                val scheme = c.optString("owner_scheme").trim()
+
+                val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
+                              (cellOwner == owner) ||
+                              (normalizedAddress != null && c.optString("owner_address").equals(normalizedAddress, ignoreCase = true))
+
+                if (isMatch) {
+                    val outpoint = c.optString("outpoint", "")
+                    val parts = outpoint.split(":")
+                    if (parts.size == 2) {
+                        val txid = parts[0]
+                        val idx = parts[1].toIntOrNull() ?: 0
+                        val valueSompi = c.optLong("value_sompi", 20000000L)
+                        val programHex = c.optString("program", "")
+                        if (programHex.isNotBlank()) {
+                            val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
+                            pieces.add(
+                                KbKcc20StandardAssembler.SpendPiece(
+                                    transactionId = txid,
+                                    index = idx,
+                                    valueSompi = valueSompi,
+                                    redeem = redeem
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            Result.success(pieces)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

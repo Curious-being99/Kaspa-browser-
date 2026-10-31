@@ -120,6 +120,64 @@ object KbKcc20Protocol {
         )
     }
 
+    /** Little-endian 8-byte amount encoding matching [decodeState]. */
+    fun encodeAmount(amount: BigInteger): ByteArray {
+        require(amount.signum() >= 0) { "KCC-20 token amount cannot be negative" }
+        val raw = amount.toByteArray() // big-endian two's complement
+        // Strip sign byte if present and pad/trim to 8 little-endian bytes
+        val positive = if (raw.isNotEmpty() && raw[0] == 0.toByte()) raw.copyOfRange(1, raw.size) else raw
+        require(positive.size <= AMOUNT_SIZE) { "Amount does not fit in 8 bytes" }
+        val le = ByteArray(AMOUNT_SIZE)
+        for (i in positive.indices) {
+            le[i] = positive[positive.size - 1 - i]
+        }
+        require((le[7].toInt() and 0x80) == 0) { "KCC-20 token amount cannot be negative" }
+        return le
+    }
+
+    /** Canonical 112-byte KCC-20 state encoding (inverse of [decodeState]). */
+    fun encodeState(state: KbKcc20State): ByteArray {
+        require(state.owner.size == 32) { "Owner must be 32 bytes" }
+        require(state.borrowGuard.size == 32) { "Borrow guard must be 32 bytes" }
+        require(state.extensionCommitment.size == 32) { "Extension commitment must be 32 bytes" }
+        require(state.ownerScheme in supportedOwnerSchemes) {
+            "Unsupported KB owner scheme: ${state.ownerScheme}"
+        }
+        require(state.borrowScheme in supportedBorrowSchemes) {
+            "Unsupported KB borrow scheme: ${state.borrowScheme}"
+        }
+        // Always derive from amountBaseUnits so a stale/mismatched amountEncoding cannot lie.
+        val amount = encodeAmount(state.amountBaseUnits)
+        if (state.amountEncoding.isNotEmpty()) {
+            require(state.amountEncoding.size == AMOUNT_SIZE) {
+                "amountEncoding must be exactly $AMOUNT_SIZE bytes when provided"
+            }
+            require(state.amountEncoding.contentEquals(amount)) {
+                "amountEncoding does not match amountBaseUnits"
+            }
+        }
+        require((amount[7].toInt() and 0x80) == 0) { "KCC-20 token amount cannot be negative" }
+
+        val out = ByteArray(ENCODED_STATE_SIZE)
+        var o = 0
+        fun writePush(data: ByteArray) {
+            out[o++] = data.size.toByte()
+            System.arraycopy(data, 0, out, o, data.size)
+            o += data.size
+        }
+        writePush(amount)
+        writePush(state.owner)
+        writePush(byteArrayOf(state.ownerScheme.toByte()))
+        writePush(byteArrayOf(state.borrowScheme.toByte()))
+        writePush(state.borrowGuard)
+        writePush(state.extensionCommitment)
+        require(o == ENCODED_STATE_SIZE) { "Encoded state size mismatch: $o" }
+        // Round-trip guard
+        val decoded = decodeState(out)
+        require(decoded.amountBaseUnits == state.amountBaseUnits) { "Amount round-trip failed" }
+        return out
+    }
+
     fun templateHash(prefix: ByteArray, suffix: ByteArray): ByteArray {
         val framed = ByteBuffer.allocate(8 + prefix.size + 8 + suffix.size)
             .order(ByteOrder.LITTLE_ENDIAN)

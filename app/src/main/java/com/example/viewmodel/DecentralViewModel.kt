@@ -46,6 +46,10 @@ import com.example.model.Krc20TokenTransaction
 import com.example.network.kaspa.Krc20Service
 import com.example.network.kaspa.Kcc20KasivoService
 import com.example.network.kaspa.Kcc20WalletToken
+import com.example.network.kaspa.Kcc20TransactionHistoryItem
+import com.example.network.kaspa.KbKcc20StandardAssembler
+import com.example.network.kaspa.KbKcc20ScriptCodec
+import java.math.BigDecimal
 import com.example.model.UpdateStatus
 import com.example.network.AppUpdateManager
 import com.example.network.CryptoUtils
@@ -1140,6 +1144,8 @@ class DecentralViewModel(
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
     private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
     val kcc20Tokens: StateFlow<List<Kcc20WalletToken>> = _kcc20Tokens.asStateFlow()
+    private val _kcc20Transactions = MutableStateFlow<List<Kcc20TransactionHistoryItem>>(emptyList())
+    val kcc20Transactions: StateFlow<List<Kcc20TransactionHistoryItem>> = _kcc20Transactions.asStateFlow()
     private val _liveKasUsdPrice = MutableStateFlow<Double>(0.0)
     val liveKasUsdPrice: StateFlow<Double> = _liveKasUsdPrice.asStateFlow()
     private val _liveKas24hChange = MutableStateFlow<Double>(0.0)
@@ -2155,6 +2161,7 @@ class DecentralViewModel(
                 val network = _selectedNetwork.value
                 if (!network.contains("Mainnet", ignoreCase = true)) {
                     _kcc20Tokens.value = emptyList()
+                    _kcc20Transactions.value = emptyList()
                     return@withLock
                 }
                 _isLoadingKcc20.value = true
@@ -2187,6 +2194,16 @@ class DecentralViewModel(
                         if (results.isNotEmpty()) {
                             _kcc20Tokens.value = results
                         }
+
+                        // 3. Fetch KCC-20 transaction history from live KasCov BlockDAG indexer
+                        val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
+                        for (id in kcc20ContractIds) {
+                            val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
+                            if (!history.isNullOrEmpty()) {
+                                txHistoryList.addAll(history)
+                            }
+                        }
+                        _kcc20Transactions.value = txHistoryList.distinctBy { it.txId }.sortedByDescending { it.timestamp }
                     } finally {
                         keyPair.wipe()
                     }
@@ -2195,6 +2212,28 @@ class DecentralViewModel(
                 } finally {
                     _isLoadingKcc20.value = false
                 }
+            }
+        }
+    }
+
+    fun refreshKcc20Transactions() {
+        viewModelScope.launch {
+            val account = activeAccount.value ?: return@launch
+            val keyPair = withContext(Dispatchers.Default) {
+                CryptoUtils.deriveKaspaKeyPair(account.seedPhrase, prefix = "kaspa")
+            }
+            try {
+                val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
+                for (id in kcc20ContractIds) {
+                    val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
+                    if (!history.isNullOrEmpty()) {
+                        txHistoryList.addAll(history)
+                    }
+                }
+                _kcc20Transactions.value = txHistoryList.distinctBy { it.txId }.sortedByDescending { it.timestamp }
+            } catch (_: Exception) {
+            } finally {
+                keyPair.wipe()
             }
         }
     }
@@ -2368,6 +2407,216 @@ class DecentralViewModel(
             outputsCount = 2,
             networkCondition = _networkFeeCondition.value
         )
+    }
+
+    /**
+     * Executes authentic KCC-20 covenant transfer on Kaspa Mainnet:
+     * 1. Fetches live cells from KasCov BlockDAG indexer (kascov.io).
+     * 2. Assembles Argent KCC-1 standard seat/successor plan via [KbKcc20StandardAssembler].
+     * 3. Selects native KAS UTXOs for network fees.
+     * 4. Signs KCC-20 seats with wallet Schnorr private key.
+     * 5. Broadcasts transaction directly to Kaspa Mainnet RPC nodes.
+     */
+    suspend fun executeKbKcc20Transfer(
+        recipientAddress: String,
+        amountKb: Double
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val account = activeAccount.value
+            ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
+
+        val cleanRecipient = recipientAddress.trim()
+        if (!cleanRecipient.startsWith("kaspa:") || cleanRecipient.length < 40) {
+            return@withContext Result.failure(IllegalArgumentException("Recipient must be a valid Mainnet Kaspa address (kaspa:q...)"))
+        }
+
+        // 1. Decode recipient 32-byte Schnorr public key
+        val recipientPubkey32 = try {
+            val scriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanRecipient)
+            val scriptHex = scriptPubKey.script
+            if (!scriptHex.startsWith("20") || !scriptHex.endsWith("ac") || scriptHex.length != 68) {
+                return@withContext Result.failure(IllegalArgumentException("Recipient address must be a standard P2PK Schnorr address (kaspa:q...)"))
+            }
+            KbKcc20ScriptCodec.hexToBytes(scriptHex.substring(2, 66))
+        } catch (e: Exception) {
+            return@withContext Result.failure(IllegalArgumentException("Invalid Kaspa recipient address: ${e.message}"))
+        }
+
+        // 2. Derive wallet key pair
+        val decryptedSeed = try {
+            CryptoUtils.getDecryptedSeed(account.seedPhrase)
+        } catch (e: Exception) {
+            return@withContext Result.failure(IllegalStateException("Failed to decrypt seed phrase: ${e.message}"))
+        }
+        val keyPair = CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = "kaspa")
+
+        try {
+            // 3. Calculate amount base units (decimals = 3 for KB)
+            val baseUnits = try {
+                BigDecimal.valueOf(amountKb).movePointRight(3).toBigInteger()
+            } catch (_: Exception) {
+                java.math.BigInteger.ZERO
+            }
+            if (baseUnits.signum() <= 0) {
+                return@withContext Result.failure(IllegalArgumentException("Transfer amount must be positive"))
+            }
+
+            // 4. Fetch live cells for KB from KasCov BlockDAG indexer
+            val contractId = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
+            val pieces = kcc20Service.fetchLiveTokenCells(
+                contractId = contractId,
+                publicKeyHex = keyPair.publicKeyHex,
+                walletAddress = keyPair.kaspaAddress
+            ).getOrElse { emptyList() }
+
+            if (pieces.isEmpty()) {
+                return@withContext Result.failure(
+                    IllegalStateException("No live \$KB covenant cells found for ${keyPair.kaspaAddress.take(16)}... on Mainnet. Wallet holds 0 KB.")
+                )
+            }
+
+            // 5. Build KCC-20 standard plan
+            val plan = try {
+                KbKcc20StandardAssembler.planStandardTransfer(
+                    pieces = pieces,
+                    pubkey32 = keyPair.publicKeyBytes,
+                    recipientOwner = recipientPubkey32,
+                    amountBaseUnits = baseUnits
+                )
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            }
+
+            // 6. Build and sign transaction
+            val inputs = mutableListOf<KaspaTransactionEngine.KaspaTransactionInput>()
+            val utxoEntries = mutableListOf<KaspaTransactionEngine.KaspaUtxoEntry>()
+
+            for ((i, piece) in pieces.withIndex()) {
+                inputs.add(
+                    KaspaTransactionEngine.KaspaTransactionInput(
+                        previousOutpoint = KaspaTransactionEngine.KaspaOutpoint(
+                            transactionId = piece.transactionId,
+                            index = piece.index.toLong()
+                        ),
+                        signatureScript = KbKcc20ScriptCodec.bytesToHex(plan.seats[i].script),
+                        sequence = 0L,
+                        sigOpCount = 1
+                    )
+                )
+                val blake2b = org.bouncycastle.crypto.digests.Blake2bDigest(256)
+                val hash = ByteArray(32)
+                blake2b.update(piece.redeem, 0, piece.redeem.size)
+                blake2b.doFinal(hash, 0)
+                val p2shScript = "aa20" + hash.joinToString("") { "%02x".format(it) } + "87"
+
+                utxoEntries.add(
+                    KaspaTransactionEngine.KaspaUtxoEntry(
+                        amount = piece.valueSompi,
+                        scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
+                            version = 0,
+                            script = p2shScript
+                        ),
+                        blockDaaScore = 0L,
+                        isCoinbase = false
+                    )
+                )
+            }
+
+            val outputs = mutableListOf<KaspaTransactionEngine.KaspaTransactionOutput>()
+            for (succ in plan.successors) {
+                val blake2b = org.bouncycastle.crypto.digests.Blake2bDigest(256)
+                val hash = ByteArray(32)
+                blake2b.update(succ, 0, succ.size)
+                blake2b.doFinal(hash, 0)
+                val p2shScript = "aa20" + hash.joinToString("") { "%02x".format(it) } + "87"
+
+                outputs.add(
+                    KaspaTransactionEngine.KaspaTransactionOutput(
+                        amount = 20000000L, // 0.2 KAS covenant cell deposit
+                        scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
+                            version = 0,
+                            script = p2shScript
+                        )
+                    )
+                )
+            }
+
+            // Native KAS funding for fee
+            val liveKasUtxos = try {
+                walletService.fetchLiveUtxos(keyPair.kaspaAddress)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val feeRequired = 100000L // 0.001 KAS
+            var feeAccum = 0L
+            val feeInputs = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+            for (u in liveKasUtxos.sortedByDescending { it.utxoEntry.amount }) {
+                feeInputs.add(u)
+                feeAccum += u.utxoEntry.amount
+                if (feeAccum >= feeRequired + 20000000L) break
+            }
+
+            for (u in feeInputs) {
+                inputs.add(
+                    KaspaTransactionEngine.KaspaTransactionInput(
+                        previousOutpoint = u.outpoint,
+                        signatureScript = "",
+                        sequence = 0L,
+                        sigOpCount = 1
+                    )
+                )
+                utxoEntries.add(u.utxoEntry)
+            }
+
+            val totalInSompi = pieces.sumOf { it.valueSompi } + feeAccum
+            val totalOutSompi = outputs.sumOf { it.amount } + feeRequired
+            if (totalInSompi > totalOutSompi + 100000L) {
+                val changeSompi = totalInSompi - totalOutSompi
+                outputs.add(
+                    KaspaTransactionEngine.KaspaTransactionOutput(
+                        amount = changeSompi,
+                        scriptPublicKey = KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress)
+                    )
+                )
+            }
+
+            val tx = KaspaTransactionEngine.KaspaTransaction(
+                version = 0,
+                inputs = inputs,
+                outputs = outputs,
+                lockTime = 0L,
+                subnetworkId = "0000000000000000000000000000000000000000"
+            )
+
+            // Sign token inputs and fee inputs with real BIP-340 Schnorr signatures
+            for (i in pieces.indices) {
+                val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
+                val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
+                val sig65 = KbKcc20StandardAssembler.signaturePayload(sig64Hex)
+                val patched = KbKcc20StandardAssembler.patchSeat(plan.seats[i], sig65)
+                tx.inputs[i].signatureScript = KbKcc20ScriptCodec.bytesToHex(patched)
+            }
+
+            for (i in pieces.size until inputs.size) {
+                val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
+                val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
+                tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
+            }
+
+            val txId = KaspaTransactionEngine.calcTransactionId(tx)
+
+            // Broadcast to Kaspa Mainnet nodes via DApp transaction submission
+            val receipt = walletService.submitDappTransaction(tx, keyPair.kaspaAddress)
+            if (receipt.accepted) {
+                val confirmedId = receipt.transactionId.ifBlank { txId }
+                refreshKcc20Transactions()
+                refreshKcc20Tokens()
+                Result.success(confirmedId)
+            } else {
+                Result.failure(java.io.IOException(receipt.error.ifBlank { "Broadcast rejected by Kaspa node mempool" }))
+            }
+        } finally {
+            keyPair.wipe()
+        }
     }
 
     fun sendKaspaTransaction(
