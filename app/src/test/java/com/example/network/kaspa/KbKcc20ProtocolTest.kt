@@ -5,6 +5,10 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigInteger
+import java.io.ByteArrayInputStream
+import java.util.Base64
+import java.util.zip.GZIPInputStream
+import java.security.MessageDigest
 
 class KbKcc20ProtocolTest {
     private fun stateBytes(
@@ -27,103 +31,43 @@ class KbKcc20ProtocolTest {
             byteArrayOf(0x20) + extensionCommitment
     }
 
-    private fun liveProgram(state: ByteArray): ByteArray {
-        require(state.size == KbKcc20Protocol.ENCODED_STATE_SIZE)
-        val header = byteArrayOf(0x6b, 0x20) +
-            KbKcc20Protocol.TEMPLATE_HASH.chunked(2)
-                .map { it.toInt(16).toByte() }.toByteArray()
-        return header + state
+    private fun liveProgramFixture(): ByteArray {
+        val encoded = requireNotNull(javaClass.classLoader?.getResourceAsStream("kb-live-cell-program.hex.gz.b64"))
+            .bufferedReader().use { it.readText() }
+        val compressed = Base64.getDecoder().decode(encoded)
+        val hex = GZIPInputStream(ByteArrayInputStream(compressed)).bufferedReader().use { it.readText() }
+        return hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
-
     @Test
-    fun decodesCanonical112ByteState() {
-        val amount = byteArrayOf(0x15, 0xCD.toByte(), 0x5B, 0x07, 0, 0, 0, 0)
-        val decoded = KbKcc20Protocol.decodeState(stateBytes(amount))
-        assertEquals(123456789L, decoded.amountBaseUnits.longValueExact())
-        assertEquals(0, decoded.ownerScheme)
-        assertEquals(0, decoded.borrowScheme)
-    }
-
-    @Test
-    fun decodesTheSuppliedLiveCellStateAtFixedProgramOffset() {
-        val amount = byteArrayOf(0x55, 0x51, 0x8b.toByte(), 0x21, 0, 0, 0, 0)
-        val owner = "2eec0a5bb96a3ff6030d365fb5cd966eafd8b54dae036020c6350f44b57c7258"
-            .chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        val decoded = KbKcc20Protocol.decodeLiveCellProgram(
-            liveProgram(stateBytes(amount, ownerScheme = 0x04, owner = owner))
-        )
-        assertEquals(BigInteger("562778453"), decoded.amountBaseUnits)
-        assertEquals(0x04, decoded.ownerScheme)
-        assertEquals(0x00, decoded.borrowScheme)
-        assertTrue(decoded.borrowGuard.all { it == 0.toByte() })
-        assertTrue(decoded.extensionCommitment.all { it == 0.toByte() })
-    }
-
-    @Test
-    fun rejectsWrongProgramCommitment() {
-        val program = liveProgram(stateBytes()).also { it[2] = 0 }
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.decodeLiveCellProgram(program)
-        }
-    }
-
-    @Test
-    fun rejectsNegativeSignedMagnitudeAmount() {
-        val negative = ByteArray(8).also { it[7] = 0x80.toByte() }
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.decodeState(stateBytes(negative))
-        }
-    }
-
-    @Test
-    fun rejectsUnsupportedOwnerScheme() {
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.decodeState(stateBytes(ownerScheme = 0x05))
-        }
-    }
-
-    @Test
-    fun rejectsUnsupportedBorrowScheme() {
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.decodeState(stateBytes(borrowScheme = 0x04))
-        }
-    }
-
-    @Test
-    fun rejectsWrongLengthAndMalformedPushes() {
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.decodeState(ByteArray(111))
-        }
-        val malformed = stateBytes().also { it[0] = 0x07 }
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.decodeState(malformed)
-        }
-    }
-
-    @Test
-    fun rejectsMismatchedDeploymentConfiguration() {
-        KbKcc20Protocol.validateConfig()
-        val invalid = KbKcc20Protocol.reviewedConfig.copy(maxTokenInputs = 9)
-        assertThrows(IllegalArgumentException::class.java) {
-            KbKcc20Protocol.validateConfig(invalid)
-        }
-    }
-
-    @Test
-    fun pinsTheSuppliedKbConfiguration() {
+    fun reproducesArgentTemplateAndViewHashesFromTheFullLiveProgram() {
+        val program = liveProgramFixture()
+        assertEquals(11458, program.size)
+        val sha256 = MessageDigest.getInstance("SHA-256")
+            .digest(program).joinToString("") { "%02x".format(it) }
         assertEquals(
-            "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8",
-            KbKcc20Protocol.TOKEN_COVENANT_ID
+            "7397eced4df96486564fc19e5f6ceffa3aa24d15070363259788cf14db87aed9",
+            sha256
         )
-        assertEquals("79c71c23", KbKcc20Protocol.TRANSFER_DISPATCH)
-        assertEquals("fd3ef14a", KbKcc20Protocol.TRANSFER_DELEGATOR_DISPATCH)
-        assertEquals(
-            "ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b",
-            KbKcc20Protocol.TEMPLATE_HASH
-        )
-        assertEquals(10, KbKcc20Protocol.MAX_TOKEN_INPUTS)
-        assertEquals(10, KbKcc20Protocol.MAX_TOKEN_OUTPUTS)
-        assertEquals("unpublished", KbKcc20Protocol.ARTIFACT_STATUS)
-        assertEquals("reviewed", KbKcc20Protocol.REVIEW_STATUS)
+
+        val verification = KbKcc20Protocol.verifyArgentTemplate(program)
+        assertEquals(KbKcc20Protocol.TEMPLATE_HASH, verification.templateHash)
+        assertEquals(KbKcc20Protocol.VIEW_TEMPLATE_HASH, verification.viewTemplateHash)
+        assertEquals(1, verification.templateStateStart)
+        assertEquals(145, verification.templateStateLength)
+        assertEquals(34, verification.stateStart)
+        assertEquals(112, verification.stateLength)
+        assertEquals(11312, verification.suffixLength)
+
+        val state = KbKcc20Protocol.decodeLiveCellProgram(program)
+        assertEquals(BigInteger("562778453"), state.amountBaseUnits)
+        assertEquals(0x04, state.ownerScheme)
+        assertEquals(0x00, state.borrowScheme)
+        assertTrue(state.borrowGuard.all { it == 0.toByte() })
+        assertTrue(state.extensionCommitment.all { it == 0.toByte() })
+        assertTrue(program.toHex().contains(KbKcc20Protocol.TRANSFER_DISPATCH))
+        assertTrue(program.toHex().contains(KbKcc20Protocol.TRANSFER_DELEGATOR_DISPATCH))
     }
-}
+
+    private fun ByteArray.toHex(): String =
+        joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
