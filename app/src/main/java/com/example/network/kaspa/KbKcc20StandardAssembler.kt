@@ -14,11 +14,8 @@ import java.math.BigInteger
  * - transfer argument encoding + leader/delegator signatureScript seats
  * - patch real Schnorr signatures into seats
  *
- * Still required before opening the UI gate:
- * - live cell discovery
- * - funding UTXO selection + full tx mass/fee
- * - script-engine preflight
- * - broadcast
+ * Live cell discovery, funding, script-engine preflight and node submission are
+ * handled by the separate Kcc20StandardTransactionExecutor.
  */
 object KbKcc20StandardAssembler {
 

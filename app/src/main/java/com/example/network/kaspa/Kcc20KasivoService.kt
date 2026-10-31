@@ -618,6 +618,97 @@ class Kcc20KasivoService(
      * Fetch live KCC-20 covenant token cells (UTXOs with redeem bytecode) owned by a wallet pubkey.
      * Maps directly to [KbKcc20StandardAssembler.SpendPiece] for real on-chain covenant spending.
      */
+    data class DeploymentConformance(
+        val tokenStatus: String,
+        val layout: String,
+        val kcc: Int,
+        val specCommit: String,
+        val review: String,
+        val conformant: Boolean?,
+        val artifact: String?,
+        val templateHash: String,
+        val viewTemplateHash: String,
+        val dispatch: String,
+        val ownerSchemes: Set<String>,
+        val nonconformities: List<String>
+    ) {
+        val safeForStandardTransfer: Boolean
+            get() = tokenStatus == "verified" &&
+                layout == "kcc0020-112" &&
+                kcc == 20 &&
+                specCommit.startsWith("1ed87ae") &&
+                review == "reviewed" &&
+                conformant == true &&
+                artifact != "unpublished" &&
+                templateHash.equals(KbKcc20Protocol.TEMPLATE_HASH, true) &&
+                viewTemplateHash.equals(KbKcc20Protocol.VIEW_TEMPLATE_HASH, true) &&
+                dispatch in setOf("kcc1-tags", "silverc-selector", "custom-tags") &&
+                "p2pk-schnorr/v1" in ownerSchemes &&
+                nonconformities.isEmpty()
+    }
+
+    suspend fun fetchDeploymentConformance(
+        contractId: String
+    ): Result<DeploymentConformance> = withContext(Dispatchers.IO) {
+        val tokenId = contractId.trim().lowercase()
+        if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("KCC-20 covenant ID must be 32-byte hex"))
+        }
+        try {
+            val url = URL("https://kascov.io/data/mainnet/token/$tokenId")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8_000
+                readTimeout = 12_000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0")
+            }
+            try {
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw java.io.IOException(
+                        "Kascov token conformance endpoint returned HTTP ${connection.responseCode}"
+                    )
+                }
+                val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                val token = root.optJSONObject("token") ?: root
+                val standard = token.optJSONObject("standard")
+                    ?: root.optJSONObject("standard")
+                    ?: throw java.io.IOException("Kascov did not publish the KCC-20 standard build verdict")
+                val nonconformitiesJson = standard.optJSONArray("nonconformities") ?: JSONArray()
+                val ownerSchemesJson = standard.optJSONArray("owner_schemes") ?: JSONArray()
+                val ownerSchemes = (0 until ownerSchemesJson.length()).mapNotNull { index ->
+                    ownerSchemesJson.optString(index).takeIf { it.isNotBlank() && it != "null" }
+                }.toSet()
+                val nonconformities = (0 until nonconformitiesJson.length()).mapNotNull { index ->
+                    nonconformitiesJson.optString(index).takeIf { it.isNotBlank() && it != "null" }
+                }
+                Result.success(
+                    DeploymentConformance(
+                        tokenStatus = token.optString("status"),
+                        layout = token.optString("layout"),
+                        kcc = standard.optInt("kcc", -1),
+                        specCommit = standard.optString("spec_commit"),
+                        review = standard.optString("review"),
+                        conformant = if (standard.has("conformant") && !standard.isNull("conformant")) {
+                            standard.optBoolean("conformant")
+                        } else null,
+                        artifact = standard.optString("artifact").takeIf { it.isNotBlank() && it != "null" },
+                        templateHash = standard.optString("template_hash"),
+                        viewTemplateHash = standard.optString("view_template_hash"),
+                        dispatch = standard.optString("dispatch"),
+                        ownerSchemes = ownerSchemes,
+                        nonconformities = nonconformities
+                    )
+                )
+            } finally {
+                connection.disconnect()
+            }
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     suspend fun fetchLiveTokenCells(
         contractId: String,
         publicKeyHex: String,
@@ -625,68 +716,93 @@ class Kcc20KasivoService(
     ): Result<List<KbKcc20StandardAssembler.SpendPiece>> = withContext(Dispatchers.IO) {
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
-        val normalizedAddress = walletAddress?.trim()?.lowercase()
+        if (!owner.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("Wallet public key must be 32-byte x-only hex"))
+        }
+        if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("KCC-20 covenant ID must be 32-byte hex"))
+        }
         try {
             val url = URL("https://kascov.io/data/mainnet/token/$tokenId/cells")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                connectTimeout = 8000
-                readTimeout = 12000
+                connectTimeout = 8_000
+                readTimeout = 12_000
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("Cache-Control", "no-cache")
                 setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0 (kascov.io)")
             }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext Result.failure(java.io.IOException("Kascov HTTP ${conn.responseCode} for cells"))
-            }
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val root = JSONObject(text)
-            val cellsArray = root.optJSONArray("cells") ?: JSONArray()
-            val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
-
-            for (i in 0 until cellsArray.length()) {
-                val c = cellsArray.optJSONObject(i) ?: continue
-                val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
-                val cellAddress = c.optString("owner_address", c.optString("address", c.optString("holder", ""))).trim().lowercase()
-                val scheme = c.optString("owner_scheme").trim()
-                val stripped = normalizedAddress?.removePrefix("kaspa:")
-
-                val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
-                              (cellOwner == owner) ||
-                              (cellOwner.contains(owner)) ||
-                              (normalizedAddress != null && (
-                                  cellAddress == normalizedAddress ||
-                                  (stripped != null && cellAddress.removePrefix("kaspa:") == stripped) ||
-                                  cellOwner == normalizedAddress ||
-                                  (stripped != null && cellOwner.removePrefix("kaspa:") == stripped) ||
-                                  (stripped != null && cellAddress.contains(stripped)) ||
-                                  (stripped != null && cellOwner.contains(stripped))
-                              ))
-
-                if (isMatch) {
-                    val outpoint = c.optString("outpoint", "")
-                    val parts = outpoint.split(":")
-                    if (parts.size == 2) {
-                        val txid = parts[0]
-                        val idx = parts[1].toIntOrNull() ?: 0
-                        val valueSompi = c.optLong("value_sompi", 20000000L)
-                        val programHex = c.optString("program", "")
-                        if (programHex.isNotBlank()) {
-                            val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
-                            pieces.add(
-                                KbKcc20StandardAssembler.SpendPiece(
-                                    transactionId = txid,
-                                    index = idx,
-                                    valueSompi = valueSompi,
-                                    redeem = redeem
-                                )
-                            )
-                        }
-                    }
+            try {
+                if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw java.io.IOException("Kascov HTTP ${conn.responseCode} for token cells")
                 }
+                val root = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                val responseTokenId = root.optString("covenant_id", root.optString("token_id"))
+                    .trim().lowercase()
+                require(responseTokenId.isBlank() || responseTokenId == tokenId) {
+                    "Kascov returned cells for a different covenant"
+                }
+                val cellsArray = root.optJSONArray("cells")
+                    ?: throw java.io.IOException("Kascov response has no proven cells array")
+                val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
+                val seen = mutableSetOf<Pair<String, Int>>()
+
+                for (i in 0 until cellsArray.length()) {
+                    val cell = cellsArray.optJSONObject(i)
+                        ?: throw java.io.IOException("Kascov returned a malformed token cell at index $i")
+                    val ownerScheme = cell.optString("owner_scheme").trim().lowercase()
+                    if (ownerScheme != "00") continue
+                    val cellOwner = cell.optString(
+                        "owner",
+                        cell.optString("owner_identifier")
+                    ).trim().lowercase().removePrefix("0x")
+                    if (cellOwner != owner) continue
+
+                    val outpoint = cell.optString("outpoint").trim().lowercase()
+                    val separator = outpoint.lastIndexOf(':')
+                    require(separator == 64) { "Kascov returned a malformed token-cell outpoint" }
+                    val txid = outpoint.substring(0, separator)
+                    require(txid.matches(Regex("[0-9a-f]{64}"))) {
+                        "Kascov returned an invalid token-cell transaction ID"
+                    }
+                    val outputIndex = outpoint.substring(separator + 1).toIntOrNull()
+                        ?: throw IllegalArgumentException("Kascov returned an invalid token-cell output index")
+                    require(outputIndex >= 0) { "Kascov returned a negative token-cell output index" }
+                    require(seen.add(txid to outputIndex)) {
+                        "Kascov returned a duplicate token-cell outpoint"
+                    }
+
+                    val value = cell.opt("value_sompi")
+                        ?: throw IllegalArgumentException("Kascov token cell has no exact value_sompi")
+                    val valueSompi = when (value) {
+                        is Number -> value.toLong()
+                        is String -> value.toLongOrNull()
+                            ?: throw IllegalArgumentException("Kascov token cell value_sompi is not an integer")
+                        else -> throw IllegalArgumentException("Kascov token cell value_sompi has an invalid type")
+                    }
+                    require(valueSompi > 0L) { "Kascov token cell has a non-positive KAS value" }
+
+                    val programHex = cell.optString("program").trim().lowercase()
+                    require(programHex.isNotEmpty() && programHex.length % 2 == 0 &&
+                        programHex.matches(Regex("[0-9a-f]+"))
+                    ) { "Kascov did not provide a complete, valid revealed program for a proven token cell" }
+                    val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
+                    require(CryptoUtils.blake2b256(redeem).size == 32) {
+                        "KCC-20 program hash is not a 32-byte BLAKE2b commitment"
+                    }
+                    pieces += KbKcc20StandardAssembler.SpendPiece(
+                        transactionId = txid,
+                        index = outputIndex,
+                        valueSompi = valueSompi,
+                        redeem = redeem
+                    )
+                }
+                Result.success(pieces)
+            } finally {
+                conn.disconnect()
             }
-            Result.success(pieces)
-        } catch (e: Exception) {
-            Result.failure(e)
+        } catch (error: Exception) {
+            Result.failure(error)
         }
     }
 }

@@ -76,13 +76,15 @@ object KaspaTransactionEngine {
         val amount: Long,
         val scriptPublicKey: KaspaScriptPublicKey,
         val blockDaaScore: Long = 0L,
-        val isCoinbase: Boolean = false
+        val isCoinbase: Boolean = false,
+        val covenantId: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount.toString())
             put("scriptPublicKey", scriptPublicKey.toJson())
             put("blockDaaScore", blockDaaScore.toString())
             put("isCoinbase", isCoinbase)
+            covenantId?.let { put("covenantId", it) }
         }
 
         companion object {
@@ -100,7 +102,16 @@ object KaspaTransactionEngine {
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))
-                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase)
+                val covenantObject = json.optJSONObject("covenant")
+                val covenantId = json.optString(
+                    "covenantId",
+                    json.optString(
+                        "covenant_id",
+                        covenantObject?.optString("covenantId",
+                            covenantObject?.optString("covenant_id", "")) ?: ""
+                    )
+                ).trim().lowercase().takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase, covenantId)
             }
         }
     }
