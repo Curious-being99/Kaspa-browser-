@@ -696,8 +696,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     confirm(currentActivity, "Review Kaspa payment", summary, {
                         executor.execute {
                             try {
-                                if (deriveActiveKey(vm)?.kaspaAddress != keyPair.kaspaAddress) {
-                                    throw IllegalStateException("Active wallet changed; payment cancelled")
+                                if (activeAddress(vm) != keyPair.kaspaAddress) {
+                                    throw IllegalStateException("Active wallet changed or locked; payment cancelled")
                                 }
                                 val receipt = kotlinx.coroutines.runBlocking {
                                     vm.walletService.sendKaspa(
@@ -1025,25 +1025,17 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
 
     private fun deriveActiveKey(vm: DecentralViewModel): CryptoUtils.KaspaKeyPair? {
         if (vm.isWalletLocked.value) return null
-        if (!vm.selectedNetwork.value.contains("Mainnet", true) ||
-            vm.selectedNetwork.value.contains("Kasplex", true) ||
-            vm.selectedNetwork.value.contains("Igra", true)
-        ) return null
         val seed = vm.activeAccount.value?.seedPhrase ?: return null
         return try {
-            CryptoUtils.deriveKaspaKeyPair(CryptoUtils.getDecryptedSeed(seed), "kaspa")
+            CryptoUtils.deriveKaspaKeyPair(seed, "kaspa")
         } catch (_: Throwable) { null }
     }
 
     private fun activeAddress(vm: DecentralViewModel): String? {
         if (vm.isWalletLocked.value) return null
-        if (!vm.selectedNetwork.value.contains("Mainnet", true) ||
-            vm.selectedNetwork.value.contains("Kasplex", true) ||
-            vm.selectedNetwork.value.contains("Igra", true)
-        ) return null
-        val encryptedSeed = vm.activeAccount.value?.seedPhrase ?: return null
+        val seed = vm.activeAccount.value?.seedPhrase ?: return null
         val keyPair = try {
-            CryptoUtils.deriveKaspaKeyPair(encryptedSeed, "kaspa")
+            CryptoUtils.deriveKaspaKeyPair(seed, "kaspa")
         } catch (_: Throwable) { return null }
         return try { keyPair.kaspaAddress } finally { keyPair.wipe() }
     }
