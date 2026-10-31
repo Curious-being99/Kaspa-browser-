@@ -431,8 +431,13 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             respondError(sessionRequest, 4100, "Wallet is not available")
             return
         }
-        if (sessionRequest.chainId != CHAIN) {
-            respondError(sessionRequest, 4901, "Unsupported chain; only kaspa:mainnet is enabled")
+        val requestChain = sessionRequest.chainId.orEmpty()
+        if (requestChain.startsWith("eip155:")) {
+            handleEvmSessionRequest(vm, currentActivity, sessionRequest, requestChain)
+            return
+        }
+        if (requestChain != CHAIN) {
+            respondError(sessionRequest, 4901, "Unsupported chain; only approved Kaspa Mainnet and Kasplex/Igra chains are enabled")
             return
         }
         val session = try {
