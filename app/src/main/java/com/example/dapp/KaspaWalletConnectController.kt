@@ -316,7 +316,15 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 .setTitle(title)
                 .setMessage(message)
                 .setNegativeButton("Reject") { _, _ -> reject() }
-                .setPositiveButton("Approve") { _, _ -> approve() }
+                .setPositiveButton("Continue to biometric approval") { _, _ ->
+                    com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                        activity,
+                        title = "Authorize Kaspa request",
+                        subtitle = "Confirm with fingerprint, face, or device PIN",
+                        onSuccess = approve,
+                        onError = { reject() }
+                    )
+                }
                 .setOnCancelListener { reject() }
                 .show()
         }
