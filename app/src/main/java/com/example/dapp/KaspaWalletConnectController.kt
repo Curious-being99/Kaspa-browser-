@@ -373,7 +373,14 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
     }
 
     private fun activeAddress(vm: DecentralViewModel): String? {
-        val keyPair = deriveActiveKey(vm) ?: return null
+        if (!vm.selectedNetwork.value.contains("Mainnet", true) ||
+            vm.selectedNetwork.value.contains("Kasplex", true) ||
+            vm.selectedNetwork.value.contains("Igra", true)
+        ) return null
+        val encryptedSeed = vm.activeAccount.value?.seedPhrase ?: return null
+        val keyPair = try {
+            CryptoUtils.deriveKaspaKeyPair(encryptedSeed, "kaspa")
+        } catch (_: Throwable) { return null }
         return try { keyPair.kaspaAddress } finally { keyPair.wipe() }
     }
 
