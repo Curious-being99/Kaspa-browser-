@@ -174,6 +174,7 @@ secrets {
 
 dependencies {
   implementation("com.reown:walletkit:1.6.13")
+  implementation("com.reown:sign:1.6.13")
   implementation("org.web3j:core:4.12.3-android")
   implementation("org.web3j:abi:4.12.3") {
     exclude(group = "org.web3j", module = "utils")
