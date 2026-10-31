@@ -238,7 +238,7 @@ class Kcc20StandardTransactionExecutor(
         )
     }
 
-    suspend fun preflight(signed: SignedTransfer): Long {
+    suspend fun verifyNodeMass(signed: SignedTransfer): Long {
         val nodeMass = walletService.verifyTransactionMass(signed.transaction.toJson(), isTestnet = false)
         require(nodeMass > 0L) {
             "Kaspa node mass endpoint did not return a valid mass estimate; refusing broadcast"
@@ -254,7 +254,10 @@ class Kcc20StandardTransactionExecutor(
         require(senderAddress.trim().equals(signed.prepared.senderAddress, true)) {
             "Active sender address changed; KCC-20 broadcast cancelled"
         }
-        preflight(signed)
+        require(KbKcc20Protocol.reviewedConfig.conformant == true) {
+            "KB covenant conformance has not been verified; KCC-20 broadcast remains disabled"
+        }
+        verifyNodeMass(signed)
 
         val refreshedCells = kcc20Service.fetchLiveTokenCells(
             contractId = KbKcc20Protocol.TOKEN_COVENANT_ID,
