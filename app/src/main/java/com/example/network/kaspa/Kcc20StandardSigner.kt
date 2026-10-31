@@ -52,11 +52,16 @@ object Kcc20StandardSigner {
             )
         }) { "KCC-20 successor programs do not match the planned next states" }
         for (successor in plan.successors) {
-            require(transaction.outputs.count { output ->
+            val matchingOutputs = transaction.outputs.filter { output ->
                 isMatchingP2sh(output.scriptPublicKey.script, successor)
-            } == 1) {
+            }
+            require(matchingOutputs.size == 1) {
                 "Transaction outputs do not contain each planned KCC-20 successor exactly once"
             }
+            val outputCovenantId = matchingOutputs.single().covenant?.covenantId
+            require(outputCovenantId == null ||
+                outputCovenantId.equals(KbKcc20Protocol.TOKEN_COVENANT_ID, true)
+            ) { "KCC-20 successor output is bound to a different covenant" }
         }
         require(transaction.inputs.size >= pieces.size) {
             "Transaction is missing KCC-20 token inputs"
