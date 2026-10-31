@@ -116,9 +116,9 @@ fn parse_fixture(root: &Value) -> Result<(Transaction, Vec<UtxoEntry>, String), 
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let path = env::args().nth(1).ok_or(
-        "usage: kcc20-consensus-preflight <fixture.json> (fixture contains transaction + exact populated UTXO entries)"
-    )?;
+    let path = env::var("KCC20_PREFLIGHT_FIXTURE").map_err(|_| {
+        "set KCC20_PREFLIGHT_FIXTURE to a fixture containing the transaction and exact populated UTXO entries"
+    })?;
     let root: Value = serde_json::from_str(&fs::read_to_string(path)?)?;
     let (tx, entries, required_covenant_id) = parse_fixture(&root)?;
 
