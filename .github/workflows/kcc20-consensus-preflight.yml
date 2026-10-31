@@ -24,5 +24,7 @@ jobs:
         with:
           toolchain: 1.91.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kcc20-consensus-preflight -> target
       - name: Compile consensus preflight harness
-        run: cargo check --manifest-path kcc20-consensus-preflight/Cargo.toml --locked
+        run: cargo check --manifest-path kcc20-consensus-preflight/Cargo.toml
