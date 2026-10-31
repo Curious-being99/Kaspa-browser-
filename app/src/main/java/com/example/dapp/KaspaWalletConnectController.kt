@@ -679,7 +679,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 val requestedFrom = params.optString("from").trim().lowercase()
                 val recipient = params.optString("to").trim().lowercase()
                 val amountSompi = params.optString("amountSompi").toLongOrNull()
-                if (requestedFrom != keyPair.kaspaAddress.lowercase() ||
+                if ((requestedFrom.isNotBlank() && requestedFrom != keyPair.kaspaAddress.lowercase()) ||
                     !CryptoUtils.isValidKaspaAddress(recipient, "kaspa") ||
                     amountSompi == null || amountSompi <= 0L ||
                     amountSompi > 2_900_000_000_000_000L) {
