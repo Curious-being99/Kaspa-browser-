@@ -250,8 +250,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     amount > BigDecimal("29000000")) {
                     respondError(sessionRequest, -32602, "A valid Kaspa Mainnet CashAddr and amount with at most 8 decimal places are required")
                 } else {
-                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\\n" +
-                        "Network: Kaspa Mainnet\\nFrom: ${keyPair.kaspaAddress}\\nTo: $normalizedRecipient\\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS\\n\\n" +
+                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\n" +
+                        "Network: Kaspa Mainnet\nFrom: ${keyPair.kaspaAddress}\nTo: $normalizedRecipient\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS\n\n" +
                         "This will broadcast a real Kaspa L1 transaction."
                     confirm(currentActivity, "Review Kaspa payment", summary, {
                         executor.execute {
