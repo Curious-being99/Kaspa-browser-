@@ -205,7 +205,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             Wallet.Model.Validation.INVALID -> "Origin verification failed"
             Wallet.Model.Validation.UNKNOWN -> "Origin not verified"
         }
-        val scamWarning = if (verifyContext.isScam == true) "\\nWarning: Reown has flagged this origin as suspicious" else ""
+        val scamWarning = if (verifyContext.isScam == true) "\nWarning: Reown has flagged this origin as suspicious" else ""
         main.post {
             if (activity !== currentActivity || currentActivity.isFinishing) {
                 reject(sessionProposal, "Wallet is not available")
