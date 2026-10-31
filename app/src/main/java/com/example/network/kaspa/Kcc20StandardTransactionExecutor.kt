@@ -3,6 +3,12 @@ package com.example.network.kaspa
 import com.example.network.CryptoUtils
 import com.example.network.KaspaWalletService
 import java.math.BigInteger
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 class Kcc20StandardTransactionExecutor(
     private val walletService: KaspaWalletService,
@@ -247,6 +253,81 @@ class Kcc20StandardTransactionExecutor(
         )
     }
 
+    suspend fun verifyConsensusScriptEngine(signed: SignedTransfer): JSONObject = withContext(Dispatchers.IO) {
+        val request = signed.transaction.toJson()
+        val inputs = request.getJSONArray("inputs")
+        require(inputs.length() == signed.prepared.utxoEntries.size) {
+            "Consensus preflight requires exact populated UTXO metadata for every input"
+        }
+        for (index in 0 until inputs.length()) {
+            val entry = signed.prepared.utxoEntries[index]
+            inputs.getJSONObject(index).put("utxo", entry.toJson().apply {
+                put("amount", entry.amount)
+                entry.covenantId?.let { put("covenantId", it) }
+            })
+        }
+
+        val outputs = request.getJSONArray("outputs")
+        for (index in 0 until outputs.length()) {
+            val output = outputs.getJSONObject(index)
+            output.put("value", output.optLong("amount"))
+            output.remove("amount")
+        }
+
+        val connection = (URL("https://kascov.io/data/mainnet/preflight")
+            .openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10_000
+            readTimeout = 25_000
+            doOutput = true
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Cache-Control", "no-store")
+        }
+
+        try {
+            connection.outputStream.use { stream ->
+                stream.write(request.toString().toByteArray(Charsets.UTF_8))
+            }
+            val status = connection.responseCode
+            val body = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader()?.use { it.readText() }.orEmpty()
+            require(status in 200..299) {
+                "Kascov consensus preflight unavailable (HTTP $status): " +
+                    body.take(500).ifBlank { "empty response" }
+            }
+            val result = JSONObject(body)
+            require(result.optBoolean("ok", false)) {
+                "Kascov consensus preflight did not complete: " +
+                    result.optString("error", result.optString("verdict", "unknown result"))
+            }
+            require(result.optString("verdict") == "ready") {
+                val findings = result.optJSONArray("findings") ?: JSONArray()
+                val details = (0 until findings.length()).joinToString("; ") { i ->
+                    val finding = findings.optJSONObject(i) ?: JSONObject()
+                    finding.optString("code") + ": " + finding.optString("message")
+                }
+                "Kaspa consensus script-engine preflight rejected or could not validate this transaction: " +
+                    details.ifBlank { result.optString("verdict", "not ready") }
+            }
+            val executed = result.optJSONArray("executed")
+                ?: throw IllegalStateException("Preflight did not return per-input script-engine results")
+            require(executed.length() == signed.transaction.inputs.size) {
+                "Preflight executed " + executed.length() + " inputs; expected " +
+                    signed.transaction.inputs.size
+            }
+            for (index in 0 until executed.length()) {
+                val row = executed.getJSONObject(index)
+                require(row.optBoolean("pass", false)) {
+                    "Kaspa consensus script engine rejected input " + row.optInt("input_index", index)
+                }
+            }
+            result
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     suspend fun verifyNodeMass(signed: SignedTransfer): Long {
         val tx = signed.transaction
         require(tx.inputs.size == signed.prepared.utxoEntries.size) {
@@ -283,6 +364,7 @@ class Kcc20StandardTransactionExecutor(
             "Local transaction mass (" + signed.mass + ") differs from Kaspa node mass (" +
                 nodeMass + "); refusing broadcast"
         }
+        verifyConsensusScriptEngine(signed)
         return nodeMass
     }
 
@@ -323,7 +405,8 @@ class Kcc20StandardTransactionExecutor(
                     currentUtxo.utxoEntry.scriptPublicKey.version == preparedEntry.scriptPublicKey.version &&
                     currentUtxo.utxoEntry.scriptPublicKey.script.equals(preparedEntry.scriptPublicKey.script, true) &&
                     currentUtxo.utxoEntry.blockDaaScore == preparedEntry.blockDaaScore &&
-                    currentUtxo.utxoEntry.isCoinbase == preparedEntry.isCoinbase
+                    currentUtxo.utxoEntry.isCoinbase == preparedEntry.isCoinbase &&
+                    currentUtxo.utxoEntry.covenantId.equals(preparedEntry.covenantId, true)
             ) { "A selected KCC-20 token UTXO changed; rebuild the transaction" }
         }
 
