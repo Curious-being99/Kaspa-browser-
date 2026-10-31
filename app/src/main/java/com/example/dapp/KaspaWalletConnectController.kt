@@ -146,10 +146,10 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         try {
             WalletKit.pair(
                 Wallet.Params.Pair(uri),
-                onError = { onError(it.throwable.message ?: "Pairing failed") }
+                onError = { onError("WalletConnect pairing failed; check the connection and try again") }
             )
-        } catch (error: Throwable) {
-            onError(error.message ?: "WalletConnect is not ready")
+        } catch (_: Throwable) {
+            onError("WalletConnect is not ready; try pairing again")
         }
     }
 
@@ -200,6 +200,12 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         val accountAddress = keyPair.kaspaAddress
         keyPair.wipe()
         val peer = sessionProposal.name.ifBlank { sessionProposal.url }
+        val verification = when (verifyContext.validation) {
+            Wallet.Model.Validation.VALID -> "Verified origin"
+            Wallet.Model.Validation.INVALID -> "Origin verification failed"
+            Wallet.Model.Validation.UNKNOWN -> "Origin not verified"
+        }
+        val scamWarning = if (verifyContext.isScam == true) "\\nWarning: Reown has flagged this origin as suspicious" else ""
         main.post {
             if (activity !== currentActivity || currentActivity.isFinishing) {
                 reject(sessionProposal, "Wallet is not available")
