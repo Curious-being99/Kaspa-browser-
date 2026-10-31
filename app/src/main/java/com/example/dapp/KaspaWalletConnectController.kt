@@ -240,14 +240,18 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             }
             "kaspa_sendTransaction" -> {
                 val recipient = params.optString("to", params.optString("address")).trim()
+                val normalizedRecipient = recipient.lowercase()
                 val amount = params.optString("amount", params.optString("amountKas")).toBigDecimalOrNull()
-                if (!recipient.startsWith("kaspa:") || recipient.length > 128 ||
-                    amount == null || amount <= BigDecimal.ZERO || amount.scale() > 8 ||
-                    amount > BigDecimal("1000000000")) {
-                    respondError(sessionRequest, -32602, "Valid recipient and KAS amount are required")
+                val amountSompi = try {
+                    amount?.stripTrailingZeros()?.movePointRight(8)?.longValueExact()
+                } catch (_: ArithmeticException) { null }
+                if (!CryptoUtils.isValidKaspaAddress(normalizedRecipient, "kaspa") ||
+                    amount == null || amountSompi == null || amountSompi <= 0L ||
+                    amount > BigDecimal("29000000")) {
+                    respondError(sessionRequest, -32602, "A valid Kaspa Mainnet CashAddr and amount with at most 8 decimal places are required")
                 } else {
-                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\n" +
-                        "Network: Kaspa Mainnet\nFrom: ${keyPair.kaspaAddress}\nTo: $recipient\nAmount: $amount KAS\n\n" +
+                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\\n" +
+                        "Network: Kaspa Mainnet\\nFrom: ${keyPair.kaspaAddress}\\nTo: $normalizedRecipient\\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS\\n\\n" +
                         "This will broadcast a real Kaspa L1 transaction."
                     confirm(currentActivity, "Review Kaspa payment", summary, {
                         executor.execute {
@@ -260,8 +264,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                         senderAddress = keyPair.kaspaAddress,
                                         senderSeed = vm.activeAccount.value?.seedPhrase
                                             ?: throw IllegalStateException("Active account changed"),
-                                        recipientAddress = recipient,
-                                        amountKas = amount.toDouble()
+                                        recipientAddress = normalizedRecipient,
+                                        amountKas = amountSompi.toDouble() / 100_000_000.0
                                     )
                                 }
                                 if (receipt.isSuccess) {
