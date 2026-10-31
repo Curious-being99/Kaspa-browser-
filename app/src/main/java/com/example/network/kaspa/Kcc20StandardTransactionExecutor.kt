@@ -343,6 +343,20 @@ class Kcc20StandardTransactionExecutor(
         return BroadcastReceipt(receipt.transactionId, submittedToNode = true)
     }
 
+    suspend fun awaitDagAcceptance(
+        signed: SignedTransfer,
+        timeoutMs: Long = 60_000L
+    ): KaspaWalletService.ConfirmationResult {
+        require(timeoutMs in 1_000L..300_000L) {
+            "DAG acceptance timeout must be between 1 and 300 seconds"
+        }
+        return walletService.waitForAcceptance(
+            txId = signed.transactionId,
+            networkName = "Kaspa Mainnet",
+            timeoutMs = timeoutMs
+        )
+    }
+
     private data class Candidate(
         val transaction: KaspaTransactionEngine.KaspaTransaction,
         val feeSompi: Long,
