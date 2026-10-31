@@ -777,8 +777,8 @@ class Kcc20KasivoService(
                         programHex.matches(Regex("[0-9a-f]+"))
                     ) { "Kascov did not provide a complete, valid revealed program for a proven token cell" }
                     val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
-                    require(CryptoUtils.blake2b256(redeem).isNotEmpty()) {
-                        "Unable to hash the revealed KCC-20 program"
+                    require(CryptoUtils.blake2b256(redeem).size == 32) {
+                        "KCC-20 program hash is not a 32-byte BLAKE2b commitment"
                     }
                     pieces += KbKcc20StandardAssembler.SpendPiece(
                         transactionId = txid,
