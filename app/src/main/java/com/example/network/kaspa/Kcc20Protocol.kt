@@ -184,3 +184,44 @@ object KbKcc20Protocol {
 
     private fun ByteArray.toHex(): String =
         joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+}
+
+data class KbKcc20DeploymentConfig(
+    val covenantId: String,
+    val stateLayout: String,
+    val supplyBaseUnits: String,
+    val templateHash: String,
+    val viewTemplateHash: String,
+    val transferDispatch: String,
+    val transferDelegatorDispatch: String,
+    val kccVersion: Int,
+    val ownerSchemes: Set<Int>,
+    val borrowSchemes: Set<Int>,
+    val maxTokenInputs: Int,
+    val maxTokenOutputs: Int,
+    val artifactStatus: String,
+    val reviewStatus: String,
+    val conformant: Boolean?
+)
+
+data class KbKcc20State(
+    val amountBaseUnits: BigInteger,
+    val amountEncoding: ByteArray,
+    val owner: ByteArray,
+    val ownerScheme: Int,
+    val borrowScheme: Int,
+    val borrowGuard: ByteArray,
+    val extensionCommitment: ByteArray
+)
+
+data class KbKcc20TemplateVerification(
+    val templateHash: String,
+    val viewTemplateHash: String,
+    val stateStart: Int,
+    val stateLength: Int,
+    val templateStateStart: Int,
+    val templateStateLength: Int,
+    val prefixLength: Int,
+    val suffixLength: Int
+)
