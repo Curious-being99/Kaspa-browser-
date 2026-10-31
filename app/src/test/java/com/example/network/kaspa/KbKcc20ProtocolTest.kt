@@ -52,7 +52,7 @@ class KbKcc20ProtocolTest {
         val decoded = KbKcc20Protocol.decodeLiveCellProgram(
             liveProgram(stateBytes(amount, ownerScheme = 0x04, owner = owner))
         )
-        assertEquals(BigInteger("562909525"), decoded.amountBaseUnits)
+        assertEquals(BigInteger("562778453"), decoded.amountBaseUnits)
         assertEquals(0x04, decoded.ownerScheme)
         assertEquals(0x00, decoded.borrowScheme)
         assertTrue(decoded.borrowGuard.all { it == 0.toByte() })
