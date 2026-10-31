@@ -21,7 +21,7 @@ object KbKcc20Protocol {
     const val TEMPLATE_HASH =
         "ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b"
     const val VIEW_TEMPLATE_HASH =
-        "3d689d6273b7631e69e672d5ca744cb266ae997b04974196439858675cc04fe1"
+        "3d689d6273b7631e69f672d5ca744cb266ae997b04974196439858675cc04fe1"
 
     const val ENCODED_STATE_SIZE = 112
     const val AMOUNT_SIZE = 8
@@ -69,9 +69,13 @@ object KbKcc20Protocol {
             "Unsupported KB borrow scheme: $borrowScheme"
         }
 
-        // KCC-1 amount is an eight-byte little-endian unsigned base-unit value.
+        // KCC-1 state integers are eight-byte little-endian signed-magnitude.
+        // The sign bit is the high bit of the final byte; negative values and
+        // negative zero are invalid for token quantities.
+        require((amountBytes[7].toInt() and 0x80) == 0) {
+            "KCC-20 token amount cannot be negative"
+        }
         val amount = BigInteger(1, amountBytes.reversedArray())
-        require(amount.signum() >= 0) { "Token amount cannot be negative" }
 
         return KbKcc20State(
             amountBaseUnits = amount,
@@ -88,8 +92,12 @@ object KbKcc20Protocol {
      * Fail-closed gate. Program bytes must be supplied from the proven on-chain
      * issuer/covenant source; no program bytes are embedded in this config.
      */
-    fun verifyProgramTemplateHash(programBytes: ByteArray, hashFunction: (ByteArray) -> ByteArray): Boolean {
-        val actual = hashFunction(programBytes).joinToString("") { "%02x".format(it) }
+    fun verifyTemplateHash(
+        prefix: ByteArray,
+        suffix: ByteArray,
+        hashTemplate: (prefix: ByteArray, suffix: ByteArray) -> ByteArray
+    ): Boolean {
+        val actual = hashTemplate(prefix, suffix).joinToString("") { "%02x".format(it) }
         return actual.equals(TEMPLATE_HASH, ignoreCase = true)
     }
 }
