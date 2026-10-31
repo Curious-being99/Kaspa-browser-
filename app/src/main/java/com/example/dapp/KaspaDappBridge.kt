@@ -377,7 +377,14 @@ object KaspaDappBridge {
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
                         val rawTxJson = paramsObj.optString("txJsonString", paramsObj.optString("transaction", ""))
-                        val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KCC-20 / KRC-20"
+                        if (method.contains("kcc", ignoreCase = true)) {
+                            respond(
+                                errorCode = -32601,
+                                errorMessage = "KCC-20 covenant transfer signing is unavailable until a protocol-specific KB covenant builder and validator is integrated. Generic PSKT signing is not sufficient proof of a valid token transfer. No KAS fallback payment was sent."
+                            )
+                            return@addWebMessageListener
+                        }
+                        val protocolLabel = "KRC-20"
 
                         AlertDialog.Builder(context)
                             .setTitle("Review $protocolLabel $tick Transaction")
