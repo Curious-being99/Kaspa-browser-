@@ -1,9 +1,7 @@
 package com.example.network.kaspa
 
 import com.example.network.CryptoUtils
-import org.bouncycastle.crypto.digests.RIPEMD160Digest
 import java.math.BigInteger
-import java.security.MessageDigest
 
 object Kcc20StandardSigner {
     data class SignedTransfer(
@@ -106,17 +104,13 @@ object Kcc20StandardSigner {
 
     private fun isMatchingP2sh(lockingScriptHex: String, redeemProgram: ByteArray): Boolean {
         val lockingScript = KbKcc20ScriptCodec.hexToBytes(lockingScriptHex)
-        if (lockingScript.size != 23 ||
+        if (lockingScript.size != 35 ||
             lockingScript[0] != 0xaa.toByte() ||
             lockingScript[1] != 0x20.toByte() ||
-            lockingScript[22] != 0x87.toByte()
+            lockingScript[34] != 0x87.toByte()
         ) return false
 
-        val sha256 = MessageDigest.getInstance("SHA-256").digest(redeemProgram)
-        val digest = RIPEMD160Digest()
-        digest.update(sha256, 0, sha256.size)
-        val hash160 = ByteArray(20)
-        digest.doFinal(hash160, 0)
-        return hash160.contentEquals(lockingScript.copyOfRange(2, 22))
+        val redeemHash = CryptoUtils.blake2b256(redeemProgram)
+        return redeemHash.contentEquals(lockingScript.copyOfRange(2, 34))
     }
 }
