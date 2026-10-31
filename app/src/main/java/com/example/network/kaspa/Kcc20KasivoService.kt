@@ -639,7 +639,7 @@ class Kcc20KasivoService(
                 artifact != "unpublished" &&
                 templateHash.equals(KbKcc20Protocol.TEMPLATE_HASH, true) &&
                 viewTemplateHash.equals(KbKcc20Protocol.VIEW_TEMPLATE_HASH, true) &&
-                dispatch == "kcc1-tags" &&
+                dispatch in setOf("kcc1-tags", "silverc-selector", "custom-tags") &&
                 nonconformities.isEmpty()
     }
 
