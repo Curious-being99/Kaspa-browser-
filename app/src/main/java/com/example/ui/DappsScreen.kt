@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,9 +14,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -62,7 +66,6 @@ import com.example.ui.theme.TextSecondary
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 import java.math.BigDecimal
-import java.math.RoundingMode
 
 private const val KB_CONTRACT_ID = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
 
@@ -118,7 +121,7 @@ fun DappsScreen(
     ) { insets ->
         Column(
             modifier = Modifier.fillMaxSize().padding(insets).navigationBarsPadding()
-                .background(ObsidianBg).padding(horizontal = 18.dp, vertical = 12.dp),
+                .background(ObsidianBg).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Card(
