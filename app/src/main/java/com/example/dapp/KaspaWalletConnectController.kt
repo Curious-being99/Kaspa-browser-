@@ -32,9 +32,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         "kaspa_getPublicKey",
         "kaspa_switchNetwork",
         "kaspa_signPersonal",
-        "kaspa_signAuth",
         "kaspa_signPskt",
-        "kaspa_signVaultTransaction",
         "kaspa_sendTransaction",
         "kaspa_sendKcc20"
     )
@@ -455,6 +453,124 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         }
         val params = parseParams(sessionRequest.request.params)
         when (sessionRequest.request.method) {
+            "kaspa_switchNetwork" -> {
+                val requested = params.optString("network", params.optString("chainId", "mainnet")).lowercase()
+                if (requested !in setOf("mainnet", "kaspa:mainnet", "kaspa")) {
+                    keyPair.wipe()
+                    respondError(sessionRequest, 4902, "Only Kaspa Mainnet is currently enabled for this native namespace")
+                } else {
+                    confirm(
+                        currentActivity,
+                        "Switch to Kaspa Mainnet?",
+                        "Connected dApp: \${sessionRequest.peerMetaData?.name ?: "Unknown"}\nThis changes the wallet's active network to Kaspa Mainnet.",
+                        {
+                            try {
+                                vm.selectNetwork("Kaspa Mainnet")
+                                val address = activeAddress(vm)
+                                    ?: throw IllegalStateException("Kaspa Mainnet account is unavailable after switching")
+                                val activeSession = WalletKit.getListOfActiveSessions().firstOrNull { it.topic == sessionRequest.topic }
+                                    ?: throw IllegalStateException("WalletConnect session is no longer active")
+                                val kaspaNs = activeSession.namespaces["kaspa"]
+                                    ?: throw IllegalStateException("Kaspa namespace is not approved")
+                                val updated = activeSession.namespaces.toMutableMap().apply {
+                                    put("kaspa", kaspaNs.copy(accounts = listOf("$CHAIN:$address")))
+                                }
+                                WalletKit.updateSession(
+                                    Wallet.Params.SessionUpdate(sessionRequest.topic, updated),
+                                    onSuccess = {
+                                        WalletKit.emitSessionEvent(
+                                            Wallet.Params.SessionEmit(
+                                                sessionRequest.topic,
+                                                Wallet.Model.SessionEvent("accountsChanged", JSONArray().put(address).toString()),
+                                                CHAIN
+                                            ),
+                                            onError = { android.util.Log.w(TAG, "Kaspa accountsChanged event failed", it.throwable) }
+                                        )
+                                        respondResult(sessionRequest, "null")
+                                    },
+                                    onError = { respondError(sessionRequest, -32000, "Failed to update approved Kaspa session account") }
+                                )
+                            } catch (error: Throwable) {
+                                respondError(sessionRequest, -32000, error.message ?: "Kaspa network switch failed")
+                            } finally {
+                                keyPair.wipe()
+                            }
+                        },
+                        {
+                            keyPair.wipe()
+                            respondError(sessionRequest, 4001, "User rejected Kaspa network switch")
+                        }
+                    )
+                }
+            }
+            "kaspa_sendKcc20" -> {
+                val from = params.optString("from").trim()
+                val to = params.optString("to").trim()
+                val covenantId = params.optString("covenantId").lowercase()
+                val rawAmount = params.optString("amount")
+                val amountBaseUnits = rawAmount.toBigIntegerOrNull()
+                val amountKb = amountBaseUnits?.let { BigDecimal(it).movePointLeft(3).toDouble() }
+                val exactBaseUnits = amountKb?.let {
+                    runCatching { BigDecimal.valueOf(it).movePointRight(3).toBigIntegerExact() }.getOrNull()
+                }
+                if (!from.equals(keyPair.kaspaAddress, true) ||
+                    !CryptoUtils.isValidKaspaAddress(to, "kaspa") ||
+                    covenantId != KB_COVENANT_ID ||
+                    amountBaseUnits == null || amountBaseUnits.signum() <= 0 ||
+                    amountKb == null || exactBaseUnits != amountBaseUnits
+                ) {
+                    keyPair.wipe()
+                    respondError(
+                        sessionRequest,
+                        -32602,
+                        "Only the verified KB KCC20 covenant is currently supported. Provide matching from, valid Kaspa Mainnet to, the exact covenant ID, and an exact positive integer base-unit amount."
+                    )
+                } else {
+                    val review = "DApp: \${sessionRequest.peerMetaData?.name ?: "Unknown"}\nOrigin: \${sessionRequest.peerMetaData?.url ?: "Unknown"}\nStandard: KCC20\nAsset: KB\nCovenant: $covenantId\nFrom: \${keyPair.kaspaAddress}\nTo: $to\nAmount: $rawAmount base units (\${BigDecimal(amountBaseUnits).movePointLeft(3).stripTrailingZeros().toPlainString()} KB)\n\nThis uses live KB covenant cells and the existing KB KCC20 transaction engine. A real Mainnet transaction will be broadcast."
+                    confirm(
+                        currentActivity,
+                        "Review KB KCC20 transfer",
+                        review,
+                        {
+                            executor.execute {
+                                try {
+                                    require(activeAddress(vm) == keyPair.kaspaAddress) {
+                                        "Active wallet changed or locked; KCC20 transfer cancelled"
+                                    }
+                                    val result = kotlinx.coroutines.runBlocking {
+                                        vm.executeKbKcc20Transfer(to, amountKb)
+                                    }
+                                    result.fold(
+                                        onSuccess = { txId ->
+                                            respondResult(
+                                                sessionRequest,
+                                                JSONObject()
+                                                    .put("transactionId", txId)
+                                                    .put("covenantId", KB_COVENANT_ID)
+                                                    .put("ticker", "KB")
+                                                    .put("amount", rawAmount)
+                                                    .put("validation", "existing-wallet-engine")
+                                                    .toString()
+                                            )
+                                        },
+                                        onFailure = { error ->
+                                            respondError(sessionRequest, -32000, error.message ?: "KB KCC20 transfer failed")
+                                        }
+                                    )
+                                } catch (error: Throwable) {
+                                    respondError(sessionRequest, -32000, error.message ?: "KB KCC20 transfer failed")
+                                } finally {
+                                    keyPair.wipe()
+                                }
+                            }
+                        },
+                        {
+                            keyPair.wipe()
+                            respondError(sessionRequest, 4001, "User rejected KB KCC20 transfer")
+                        }
+                    )
+                }
+            }
             "kaspa_getAccounts" -> {
                 respondResult(sessionRequest, JSONArray().put(keyPair.kaspaAddress).toString())
                 keyPair.wipe()
@@ -920,6 +1036,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
     }
 
     private fun activeAddress(vm: DecentralViewModel): String? {
+        if (vm.isWalletLocked.value) return null
         if (!vm.selectedNetwork.value.contains("Mainnet", true) ||
             vm.selectedNetwork.value.contains("Kasplex", true) ||
             vm.selectedNetwork.value.contains("Igra", true)
@@ -960,7 +1077,10 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                         activity,
                         title = "Authorize Kaspa request",
                         subtitle = "Confirm with fingerprint, face, or device PIN",
-                        onSuccess = approve,
+                        onSuccess = {
+                            viewModel?.unlockWalletWithBiometric()
+                            approve()
+                        },
                         onError = { reject() }
                     )
                 }
