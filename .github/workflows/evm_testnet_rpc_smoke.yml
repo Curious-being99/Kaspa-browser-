@@ -39,10 +39,29 @@ jobs:
           rpc() {
             local method="$1"
             local params="$2"
-            curl --fail --silent --show-error --max-time 20 \
+            local error_file
+            local response
+            local curl_status
+            error_file="$(mktemp)"
+            if response="$(curl --fail --silent --show-error --max-time 20 \
               -H 'content-type: application/json' \
               --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
-              "$RPC_URL"
+              "$RPC_URL" 2>"$error_file")"; then
+              if [[ -s "$error_file" ]]; then
+                cat "$error_file" >&2
+              fi
+              rm -f "$error_file"
+              printf '%s' "$response"
+            else
+              curl_status=$?
+              echo "RPC request failed: method=$method url=$RPC_URL curl_exit=$curl_status" >&2
+              echo "curl build and supported protocols:" >&2
+              curl --version >&2 || true
+              echo "curl stderr:" >&2
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              return "$curl_status"
+            fi
           }
           chain_response="$(rpc eth_chainId '[]')"
           actual_chain_id="$(jq -er '.result | strings' <<< "$chain_response")"
