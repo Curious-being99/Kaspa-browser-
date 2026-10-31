@@ -120,6 +120,11 @@ class Kcc20StandardTransactionExecutor(
             require(liveEntry.utxoEntry.scriptPublicKey.script.equals(expectedScript, true)) {
                 "Live Kaspa UTXO locking script does not match the KCC-20 redeem program"
             }
+            require(liveEntry.utxoEntry.covenantId?.equals(
+                KbKcc20Protocol.TOKEN_COVENANT_ID, true
+            ) == true) {
+                "Live token-cell UTXO is missing the exact KB covenant ID; consensus preflight is unavailable"
+            }
             liveEntry.utxoEntry
         }
         val successorOutputs = plan.successors.map { successor ->
@@ -129,6 +134,10 @@ class Kcc20StandardTransactionExecutor(
                 scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
                     version = 0,
                     script = "aa20" + KbKcc20ScriptCodec.bytesToHex(hash) + "87"
+                ),
+                covenant = KaspaTransactionEngine.KaspaCovenantBinding(
+                    authorizingInput = 0,
+                    covenantId = KbKcc20Protocol.TOKEN_COVENANT_ID
                 )
             )
         }
