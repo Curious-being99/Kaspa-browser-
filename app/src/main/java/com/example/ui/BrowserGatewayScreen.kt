@@ -29,6 +29,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -6275,6 +6276,27 @@ fun CustomShortcutLogo(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
+private fun BraidSpeedDialLogo(iconSize: Dp = 30.dp) {
+    Box(
+        modifier = Modifier.size(iconSize).clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF0F1117))
+            .border(1.dp, Color(0xFF2E3440), RoundedCornerShape(6.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize().padding(3.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = w * 0.12f
+            val radius = w * 0.26f
+            drawCircle(Color(0xFFF59E0B), radius, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.36f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawCircle(Color(0xFFFBBF24), radius, androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.64f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawCircle(Color(0xFFEAB308), radius, androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.64f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 fun SpeedDialCircleItem(
     label: String,
     iconColor: Color,
@@ -6461,6 +6483,15 @@ fun BrowserSpeedDial(
                     KaspaLogoIcon(iconSize = 36.dp)
                 }
 
+
+                SpeedDialCircleItem(
+                    label = "Braid",
+                    iconColor = Color(0xFFFBBF24),
+                    sublabel = "app.braidswap.com",
+                    onClick = { onNavigate("https://app.braidswap.com") }
+                ) {
+                    BraidSpeedDialLogo(iconSize = 30.dp)
+                }
 
                 // Item 3: Kaspa.com
                 SpeedDialCircleItem(

@@ -31,16 +31,18 @@ class Kcc20KasivoServiceUnitTest {
     }
 
     @Test
-    fun testKcc20BalanceFetchKnownToken() = runBlocking {
-        val service = Kcc20KasivoService()
-        val result = service.fetchKcc20Balance("kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7", "KASDEX")
+    fun testUnknownKcc20TokenFailsClosedWhenNoIndexerIsConfigured() = runBlocking {
+        val service = Kcc20KasivoService(endpointBases = emptyList())
+        val result = service.fetchKcc20Balance(
+            "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7",
+            "KASDEX"
+        )
 
-        assertTrue(result.isSuccess)
-        val balanceItem = result.getOrNull()
-        assertNotNull(balanceItem)
-        assertEquals("KASDEX", balanceItem?.ticker)
-        assertEquals(KaspaProtocolType.KCC20_COVENANT, balanceItem?.protocolType)
-        assertTrue(balanceItem?.formattedBalance()?.contains("KASDEX") == true)
+        assertTrue(result.isFailure)
+        assertEquals(
+            "KCC-20 balance is unavailable from the configured indexers",
+            result.exceptionOrNull()?.message
+        )
     }
 
     @Test

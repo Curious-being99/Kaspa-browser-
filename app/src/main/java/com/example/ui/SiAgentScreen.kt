@@ -160,6 +160,12 @@ private const val KASCOV_URL = "https://kascov.io/data/price.json"
 
 private val SI_AGENT_COMMANDS = listOf(
     SiCommandItem(
+        command = "/kb",
+        title = "Kaspa Browser token intelligence",
+        description = "Wallet balance, indexed KCC-20 price and contract status",
+        icon = Icons.Default.AutoAwesome
+    ),
+    SiCommandItem(
         command = "/wallet",
         title = "Kaspa live wallet & balance",
         description = "Live Kaspa node balance & UTXOs",
@@ -185,8 +191,8 @@ private val SI_AGENT_COMMANDS = listOf(
     ),
     SiCommandItem(
         command = "/swap",
-        title = "Kaspa DEX Aggregator",
-        description = "Instant DEX asset swap via BraidSwap",
+        title = "Native KB wallet tools",
+        description = "Open the native Kaspa Browser dApp command center",
         icon = Icons.Default.SwapHoriz
     ),
     SiCommandItem(
@@ -282,7 +288,7 @@ fun SiAgentScreen(
 
     val isSlashMode = inputText.startsWith("/") || showCommandPicker
 
-    val initialGreeting = "🤖 Si Bot\n\nCommands: /wallet  /send  /receive  /history  /swap  /help"
+    val initialGreeting = "🤖 SI Agent\n\nLive wallet and Kaspa intelligence. Commands: /wallet  /kb  /send  /receive  /history  /help"
 
     val initialButtons = listOf(
         InlineBotButton("Wallet", Icons.Default.AccountBalanceWallet, "OPEN_WALLET"),
@@ -350,8 +356,12 @@ fun SiAgentScreen(
                 InlineBotButton("Compose Send", Icons.Default.Send, "OPEN_SEND"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
+            lower.contains("kb") || lower.contains("kcc20") || lower.contains("kaspa browser token") -> listOf(
+                InlineBotButton("Open \$KB Center", Icons.Default.AutoAwesome, "OPEN_SWAP"),
+                InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
+            )
             lower.contains("swap") || lower.contains("dapp") -> listOf(
-                InlineBotButton("Dapps", Icons.Default.SwapHoriz, "OPEN_SWAP"),
+                InlineBotButton("Open \$KB Center", Icons.Default.SwapHoriz, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("send") -> listOf(
@@ -495,7 +505,8 @@ fun SiAgentScreen(
                 kasBalance = walletState.balanceKas,
                 utxoCount = walletState.utxosCount,
                 recentTransactions = walletState.recentTransactions,
-                selectedNetwork = viewModel.selectedNetwork.value
+                selectedNetwork = viewModel.selectedNetwork.value,
+                kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) }
             )
             val isJsonProposal = responseText.trim().startsWith("{")
             val actionType = when {
@@ -521,9 +532,7 @@ fun SiAgentScreen(
         when (actionKey) {
             "OPEN_SEND" -> showSendSheet = true
             "OPEN_RECEIVE" -> showReceiveSheet = true
-            "OPEN_SWAP" -> {
-                viewModel.openSwapDapp()
-            }
+            "OPEN_SWAP" -> viewModel.setTab(AppTab.DAPPS)
             "OPEN_WALLET", "CREATE_WALLET", "IMPORT_WALLET" -> viewModel.setTab(AppTab.KASPA_WALLET)
             "OPEN_HISTORY" -> executeMessage("/history")
             "COPY_ADDRESS" -> {
@@ -1490,9 +1499,22 @@ suspend fun executeSiAgentCommand(
     kasBalance: Double,
     utxoCount: Int,
     recentTransactions: List<com.example.model.KaspaTransactionItem> = emptyList(),
-    selectedNetwork: String = ""
+    selectedNetwork: String = "",
+    kbToken: com.example.network.kaspa.Kcc20WalletToken? = null
 ): String {
     val trimmed = input.trim()
+    val localCommand = trimmed.lowercase().removePrefix("/")
+    if (localCommand == "kb" || localCommand.startsWith("kb ") ||
+        localCommand == "kcc20" || localCommand.contains("kaspa browser token")) {
+        val token = kbToken
+        if (token == null) {
+            return "KB / KCC-20\n• Wallet token record: unavailable\n• Price: unavailable\n• No estimate is substituted for missing indexer data.\n• Use /kb again after the wallet refreshes its KCC-20 token data."
+        }
+        val tokenBalance = runCatching {
+            java.math.BigDecimal(token.balanceRaw).movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
+        }.getOrDefault("Unavailable")
+        return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: unavailable until a protocol-specific KB covenant builder and validator are integrated; no plain-KAS fallback is allowed."
+    }
     val kascovUrl = KASCOV_URL
     var finalPrompt = trimmed
 
@@ -1611,15 +1633,8 @@ suspend fun executeSiAgentCommand(
             }
         }
 
-        lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") -> {
-            "⚡ BraidSwap Kaspa Mainnet DEX Aggregator (https://app.braidswap.com)\n\n" +
-            "• Platform: BraidSwap (The premier self-custody Kaspa token aggregator)\n" +
-            "• Network: Kaspa Mainnet (Production BlockDAG, No Simulation)\n" +
-            "• Direct Link: https://app.braidswap.com\n" +
-            "• Best Route Guarantee: Aggregates liquidity across native Kaspa Mainnet DEXes and Igra Layer 2\n" +
-            "• Self-Custody: Non-custodial covenant execution with automatic refund protection\n" +
-            "• Performance Fee: Zero base fee — only shares in positive trade savings\n" +
-            "• Wallets: Integrated with Kaspa Browser, KasWare, Kastle, Kaspire, & Web3 EVM bridge"
+        lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") || lower.contains("dapp") -> {
+            "Kaspa Browser dApp Command Center\n• Native destination: \$KB KCC-20 wallet tools\n• Live indexed token data: /kb\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
         }
 
         lower.contains("price") -> {
@@ -1637,7 +1652,7 @@ suspend fun executeSiAgentCommand(
 
         lower.contains("security") || lower.contains("audit") || lower.contains("ssl") || lower.contains("safe") || lower.contains("privacy") -> {
             val target = if (activeUrl.isNotBlank()) activeUrl else "kasparocket.fun"
-            "🛡️ Security Audit\n• Target: $target\n• SSL: TLS 1.3 Verified\n• DNS: Encrypted Dual-Stack\n• Shields: 0 Trackers\n• Rating: Grade A+ (Secure)"
+            "🛡️ Security Audit\n• Target: $target\n• SSL: Not independently verified by this command\n• DNS: Encrypted Dual-Stack\n• Shields: 0 Trackers\n• Rating: Not assigned — run a live certificate and policy check"
         }
 
         lower.contains("blockdag") || lower.contains("dag") || lower.contains("ghostdag") || lower.contains("bps") -> {
@@ -1659,11 +1674,11 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.startsWith("help") || lower.startsWith("command") || lower.startsWith("menu") || lower.isEmpty() -> {
-            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/swap — BraidSwap Aggregator\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/clear — Clear chat"
+            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kb — Live KB KCC-20 balance and indexed price\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/clear — Clear chat"
         }
 
         else -> {
-            "🤖 Command: $trimmed\n• Status: Executed\n• Tip: Send /help for commands"
+            "🤖 Command: $trimmed\n• Status: No action taken — this request has no verified command handler.\n• Tip: Send /help for supported commands"
         }
     }
 }

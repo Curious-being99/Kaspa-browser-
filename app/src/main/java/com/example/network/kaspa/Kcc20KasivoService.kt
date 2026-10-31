@@ -135,7 +135,10 @@ data class Kcc20WalletToken(
     val imageUrl: String?
 )
 
-class Kcc20KasivoService(private val context: Context? = null) {
+class Kcc20KasivoService(
+    private val context: Context? = null,
+    private val endpointBases: List<String> = KASCOV_ENDPOINTS
+) {
 
     companion object {
         const val KASCOV_PRIMARY_BASE = "https://kascov.io/v1/kcc20"
@@ -304,12 +307,6 @@ class Kcc20KasivoService(private val context: Context? = null) {
                     .divide(spotDen, 18, java.math.RoundingMode.HALF_UP)
             } else null
 
-            // Fallback for KB price if indexer market data is missing
-            if (currentPriceSompi == null && isKb) {
-                // KB ecosystem valuation fallback (~1.5 KAS per full token)
-                currentPriceSompi = java.math.BigDecimal("150000000") 
-            }
-
             if (currentPriceSompi != null) {
                 val kas = currentPriceSompi.divide(java.math.BigDecimal("100000000"), 18, java.math.RoundingMode.HALF_UP)
                 priceKas = kas.stripTrailingZeros().toPlainString()
@@ -339,10 +336,9 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 if (liveKasUsd != null && liveKasUsd.signum() > 0) {
                     priceUsd = kas.multiply(liveKasUsd).setScale(4, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
                 }
-                priceSource = if (isKb && spotNumSompi == null) "Ecosystem Oracle" else "Kascov live spot quote"
+                priceSource = "Kascov live spot quote"
                 priceUpdatedAt = market?.optLong("last_time_ms")?.takeIf { it > 0 }
                     ?: market?.optLong("updated_at_ms")?.takeIf { it > 0 }
-                    ?: System.currentTimeMillis()
             }
 
             val change24hBps = parseJsonBigDecimal(market, "change_24h_bps")
@@ -377,25 +373,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 imageUrl = resolvedImage
             ))
         } catch (error: Throwable) {
-            if (tokenId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", ignoreCase = true)) {
-                Result.success(Kcc20WalletToken(
-                    contractId = tokenId,
-                    ticker = "KB",
-                    name = "Kaspa Browser",
-                    balanceRaw = "0",
-                    decimals = 3,
-                    holderCount = 1200L,
-                    validationStatus = "verified",
-                    marketPriceKas = null,
-                    marketPriceUsd = null,
-                    marketPriceSource = "Fallback Oracle",
-                    priceUpdatedAtMs = System.currentTimeMillis(),
-                    priceChange24hPercent = "0.0",
-                    imageUrl = "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
-                ))
-            } else {
-                Result.failure(error)
-            }
+            Result.failure(error)
         }
     }
 
@@ -419,12 +397,12 @@ class Kcc20KasivoService(private val context: Context? = null) {
                         return@withContext Result.success(rate)
                     }
                 }
-                Result.success(0.12)
+                Result.failure(IllegalStateException("KAS/USD oracle did not return a valid price"))
             } finally {
                 conn.disconnect()
             }
         } catch (e: Exception) {
-            Result.success(0.12)
+            Result.failure(e)
         }
     }
 
@@ -446,7 +424,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
         val identifier = tokenContractIdOrTicker.uppercase().trim()
         val known = KNOWN_KCC20_TOKENS[identifier]
 
-        for (baseEndpoint in KASCOV_ENDPOINTS) {
+        for (baseEndpoint in endpointBases) {
             try {
                 val endpointUrl = if (baseEndpoint.contains("kascov.io") || baseEndpoint.contains("kasivo.org")) {
                     "$baseEndpoint/address/$address/token/$identifier"
@@ -498,25 +476,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
             return@withContext Result.success(known)
         }
 
-        Result.success(
-            Kcc20TokenBalanceResult(
-                tokenContractId = identifier,
-                ticker = identifier,
-                balance = 0.0,
-                balanceRaw = "0",
-                decimals = 8,
-                protocolType = KaspaProtocolType.KCC20_COVENANT,
-                contractState = "active",
-                holderCount = 0L,
-                rawMetadataJson = JSONObject().apply {
-                    put("p", "kcc-20")
-                    put("indexer", "https://kascov.io")
-                    put("contractId", identifier)
-                    put("tick", identifier)
-                    put("status", "unindexed")
-                }.toString(2)
-            )
-        )
+        Result.failure(IllegalStateException("KCC-20 balance is unavailable from the configured indexers"))
     }
 
     /**

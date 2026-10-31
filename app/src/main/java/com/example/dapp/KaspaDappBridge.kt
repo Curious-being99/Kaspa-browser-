@@ -377,11 +377,18 @@ object KaspaDappBridge {
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
                         val rawTxJson = paramsObj.optString("txJsonString", paramsObj.optString("transaction", ""))
-                        val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KCC-20 / KRC-20"
+                        if (method.contains("kcc", ignoreCase = true)) {
+                            respond(
+                                errorCode = -32601,
+                                errorMessage = "KCC-20 covenant transfer signing is unavailable until a protocol-specific KB covenant builder and validator is integrated. Generic PSKT signing is not sufficient proof of a valid token transfer. No KAS fallback payment was sent."
+                            )
+                            return@addWebMessageListener
+                        }
+                        val protocolLabel = "KRC-20"
 
                         AlertDialog.Builder(context)
                             .setTitle("Review $protocolLabel $tick Transaction")
-                            .setMessage("DApp: $origin\nNetwork: $network\nStandard: $protocolLabel (Kaspa Mainnet L1)\nAction: ${op.uppercase()} $tick\nAmount: $amtStr\nDestination: ${if (toAddr.isNotBlank()) toAddr else "Kaspa Inscription / DEX Router"}\n\nThis will sign and broadcast a real transaction to the Kaspa BlockDAG with your active wallet keys.")
+                            .setMessage("DApp: $origin\nNetwork: $network\nStandard: $protocolLabel\nAction: ${op.uppercase()} $tick\nAmount: $amtStr\nDestination: ${if (toAddr.isNotBlank()) toAddr else "Encoded in transaction"}\n\nReview the actual transaction outputs and covenant data before approving. Only the wallet-owned inputs will be signed.")
                             .setNegativeButton("Reject") { _, _ ->
                                 respond(errorCode = 4001, errorMessage = "User rejected $protocolLabel transaction")
                             }
@@ -401,6 +408,12 @@ object KaspaDappBridge {
                                             val signedJson = try {
                                                 DappPsktTransaction.sign(prepared, keyPair.privateKey)
                                             } catch (_: Throwable) { null }
+                                            if (signedJson == null) {
+                                                mainHandler.post {
+                                                    respond(errorCode = -32603, errorMessage = "Transaction signing failed; nothing was broadcast")
+                                                }
+                                                return@execute
+                                            }
 
                                             val receipt = try {
                                                 kotlinx.coroutines.runBlocking {
@@ -414,33 +427,55 @@ object KaspaDappBridge {
                                             val realTxId = receipt?.transactionId?.takeIf { it.isNotBlank() }
                                                 ?: com.example.network.kaspa.KaspaTransactionEngine.calcTransactionId(prepared.transaction)
 
-                                            val amtDouble = amtStr.toDoubleOrNull() ?: 1.0
-                                            viewModel.recordAndPinToken(
-                                                tick = tick,
-                                                op = op.uppercase(),
-                                                amount = amtDouble,
-                                                txId = realTxId,
-                                                rawJson = signedJson ?: rawTxJson
-                                            )
+                                            if (receipt?.accepted == true) {
+                                                val amtDouble = amtStr.toDoubleOrNull()
+                                                if (amtDouble != null && amtDouble > 0.0) {
+                                                    viewModel.recordAndPinToken(
+                                                        tick = tick,
+                                                        op = op.uppercase(),
+                                                        amount = amtDouble,
+                                                        txId = realTxId,
+                                                        rawJson = signedJson
+                                                    )
+                                                }
+                                            }
 
                                             mainHandler.post {
-                                                respond(
-                                                    JSONObject()
-                                                        .put("commitTxId", realTxId)
-                                                        .put("revealTxId", realTxId)
-                                                        .put("transactionId", realTxId)
-                                                        .put("status", if (receipt?.accepted == true) "accepted" else "signed")
-                                                        .put("tick", tick)
-                                                        .put("op", op)
-                                                        .put("amt", amtStr)
-                                                        .put("signedTxJson", signedJson ?: rawTxJson)
-                                                )
+                                                if (receipt?.accepted == true) {
+                                                    respond(
+                                                        JSONObject()
+                                                            .put("commitTxId", realTxId)
+                                                            .put("revealTxId", realTxId)
+                                                            .put("transactionId", realTxId)
+                                                            .put("status", "accepted")
+                                                            .put("tick", tick)
+                                                            .put("op", op)
+                                                            .put("amt", amtStr)
+                                                            .put("signedTxJson", signedJson)
+                                                    )
+                                                } else {
+                                                    respond(
+                                                        errorCode = -32000,
+                                                        errorMessage = receipt?.error?.takeIf { it.isNotBlank() }
+                                                            ?: "Kaspa node did not accept the transaction; it was not recorded as a successful token transfer"
+                                                    )
+                                                }
                                             }
                                             return@execute
                                         }
                                     }
 
-                                    // Case B: Real on-chain broadcast to destination or token router
+                                    if (method.contains("kcc", ignoreCase = true)) {
+                                        mainHandler.post {
+                                            respond(
+                                                errorCode = -32602,
+                                                errorMessage = "KCC-20 transfer requires a valid protocol-built covenant PSKT. No generic KAS payment fallback is permitted."
+                                            )
+                                        }
+                                        return@execute
+                                    }
+
+                                    // KRC-20 fallback path remains separate from KCC-20 covenant transfers.
                                     val destination = if (toAddr.isNotBlank() && (toAddr.startsWith("kaspa:") || toAddr.startsWith("kaspatest:"))) {
                                         toAddr
                                     } else {
