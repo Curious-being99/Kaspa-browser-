@@ -257,6 +257,23 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         }
     }
 
+    private fun evmAccountContext(vm: DecentralViewModel, currentActivity: Activity): EvmAccountContext? {
+        if (vm.isWalletLocked.value) return null
+        val account = vm.activeAccount.value ?: return null
+        val accountId = account.did.takeIf { it.isNotBlank() } ?: account.handle
+        return try {
+            val passphrase = EvmPassphraseVault.load(currentActivity, accountId)
+            val standardMnemonic = EvmWalletEngine.isStandardMnemonic(account.seedPhrase)
+            val address = EvmWalletEngine.address(account.seedPhrase, passphrase)
+            if (!standardMnemonic &&
+                !EvmPassphraseVault.isLegacyPhraseConfirmed(currentActivity, accountId, address)
+            ) return null
+            EvmAccountContext(accountId, account.seedPhrase, passphrase, address)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     override fun onSessionProposal(
         sessionProposal: Wallet.Model.SessionProposal,
         verifyContext: Wallet.Model.VerifyContext
@@ -267,49 +284,108 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             reject(sessionProposal, "Wallet is not available")
             return
         }
-        if (vm.selectedNetwork.value.contains("Kasplex", true) ||
-            vm.selectedNetwork.value.contains("Igra", true) ||
-            !vm.selectedNetwork.value.contains("Mainnet", true)
-        ) {
-            reject(sessionProposal, "Switch the wallet to Kaspa Mainnet before connecting")
-            return
-        }
-        val unsupportedRequiredNamespaces = sessionProposal.requiredNamespaces.keys.filter { it != "kaspa" }
+        val supportedNamespaces = setOf("kaspa", "eip155")
+        val unsupportedRequiredNamespaces = sessionProposal.requiredNamespaces.keys.filterNot { it in supportedNamespaces }
         if (unsupportedRequiredNamespaces.isNotEmpty()) {
-            reject(
-                sessionProposal,
-                "This wallet controller only approves native Kaspa L1; required namespaces are unsupported: ${unsupportedRequiredNamespaces.joinToString()}"
-            )
+            reject(sessionProposal, "Unsupported required namespaces: ${unsupportedRequiredNamespaces.joinToString()}")
             return
         }
-        val proposal = sessionProposal.requiredNamespaces["kaspa"] ?: sessionProposal.optionalNamespaces["kaspa"]
-        if (proposal == null || proposal.chains.orEmpty().isNotEmpty() && CHAIN !in proposal.chains.orEmpty()) {
-            reject(sessionProposal, "This proposal does not request kaspa:mainnet")
+
+        val approved = linkedMapOf<String, Wallet.Model.Namespace.Session>()
+        val reviewLines = mutableListOf<String>()
+
+        val kaspaProposal = sessionProposal.requiredNamespaces["kaspa"]
+            ?: sessionProposal.optionalNamespaces["kaspa"]
+        if (kaspaProposal != null) {
+            val requestedChains = kaspaProposal.chains.orEmpty().ifEmpty { listOf(CHAIN) }
+            val requiredKaspa = "kaspa" in sessionProposal.requiredNamespaces
+            val validChains = requestedChains.filter { it == CHAIN }
+            val unsupportedChains = requestedChains - validChains.toSet()
+            val unsupportedMethods = kaspaProposal.methods.filterNot { it in supportedMethods }
+            val unsupportedEvents = kaspaProposal.events.filterNot { it == "accountsChanged" }
+            if (requiredKaspa && (unsupportedChains.isNotEmpty() || unsupportedMethods.isNotEmpty() || unsupportedEvents.isNotEmpty())) {
+                reject(
+                    sessionProposal,
+                    "Unsupported required Kaspa capabilities: ${(unsupportedChains + unsupportedMethods + unsupportedEvents).joinToString()}"
+                )
+                return
+            }
+            if (validChains.isNotEmpty()) {
+                val keyPair = deriveActiveKey(vm)
+                if (keyPair == null) {
+                    if (requiredKaspa) {
+                        reject(sessionProposal, "Unlock the wallet and select Kaspa Mainnet before connecting")
+                        return
+                    }
+                } else {
+                    val address = keyPair.kaspaAddress
+                    keyPair.wipe()
+                    val methods = kaspaProposal.methods.filter { it in supportedMethods }
+                    val events = kaspaProposal.events.filter { it == "accountsChanged" }
+                    approved["kaspa"] = Wallet.Model.Namespace.Session(
+                        chains = validChains,
+                        accounts = validChains.map { "$it:$address" },
+                        methods = methods,
+                        events = events
+                    )
+                    reviewLines += "Kaspa Mainnet L1: $address"
+                    reviewLines += "Kaspa methods: ${methods.joinToString()}"
+                }
+            }
+        }
+
+        val evmProposal = sessionProposal.requiredNamespaces["eip155"]
+            ?: sessionProposal.optionalNamespaces["eip155"]
+        if (evmProposal != null) {
+            val requestedChains = evmProposal.chains.orEmpty()
+            val validChains = requestedChains.filter { it in setOf("eip155:202555", "eip155:38833") }
+            val unsupportedChains = requestedChains - validChains.toSet()
+            val unsupportedMethods = evmProposal.methods.filterNot { it in evmMethods }
+            val unsupportedEvents = evmProposal.events.filterNot { it in setOf("accountsChanged", "chainChanged") }
+            val requiredEvm = "eip155" in sessionProposal.requiredNamespaces
+            if (requiredEvm && (validChains.isEmpty() || unsupportedChains.isNotEmpty() ||
+                    unsupportedMethods.isNotEmpty() || unsupportedEvents.isNotEmpty())
+            ) {
+                reject(
+                    sessionProposal,
+                    "Unsupported required EVM capabilities: ${(unsupportedChains + unsupportedMethods + unsupportedEvents).joinToString()}"
+                )
+                return
+            }
+            if (validChains.isNotEmpty()) {
+                val evmAccount = evmAccountContext(vm, currentActivity)
+                if (evmAccount == null) {
+                    if (requiredEvm) {
+                        reject(sessionProposal, "The active account has no verified EVM derivation or its saved passphrase is unavailable")
+                        return
+                    }
+                } else {
+                    val methods = evmProposal.methods.filter { it in evmMethods }
+                    val events = evmProposal.events.filter { it in setOf("accountsChanged", "chainChanged") }
+                    approved["eip155"] = Wallet.Model.Namespace.Session(
+                        chains = validChains,
+                        accounts = validChains.map { "$it:${evmAccount.address}" },
+                        methods = methods,
+                        events = events
+                    )
+                    reviewLines += "Kasplex / Igra EVM: ${evmAccount.address}"
+                    reviewLines += "EVM chains: ${validChains.joinToString()}"
+                    reviewLines += "EVM methods: ${methods.joinToString()}"
+                }
+            }
+        }
+
+        if (approved.isEmpty()) {
+            reject(sessionProposal, "No supported, authorized namespace was requested")
             return
         }
-        val unsupportedRequired = proposal.methods.filterNot { it in supportedMethods }
-        val unsupportedEvents = proposal.events
-        if (unsupportedRequired.isNotEmpty() || unsupportedEvents.isNotEmpty()) {
-            reject(
-                sessionProposal,
-                "Unsupported required Kaspa capabilities: ${(unsupportedRequired + unsupportedEvents).joinToString()}"
-            )
-            return
-        }
-        val keyPair = deriveActiveKey(vm) ?: run {
-            reject(sessionProposal, "No usable active Kaspa Mainnet account")
-            return
-        }
-        val allowed = proposal.methods.filter { it in supportedMethods }.toSet()
-        val accountAddress = keyPair.kaspaAddress
-        keyPair.wipe()
         val peer = sessionProposal.name.ifBlank { sessionProposal.url }
         val verification = when (verifyContext.validation) {
             Wallet.Model.Validation.VALID -> "Verified origin"
             Wallet.Model.Validation.INVALID -> "Origin verification failed"
             Wallet.Model.Validation.UNKNOWN -> "Origin not verified"
         }
-        val scamWarning = if (verifyContext.isScam == true) "\nWarning: Reown has flagged this origin as suspicious" else ""
+        val scamWarning = if (verifyContext.isScam == true) "\\nWarning: Reown has flagged this origin as suspicious" else ""
         main.post {
             if (activity !== currentActivity || currentActivity.isFinishing) {
                 reject(sessionProposal, "Wallet is not available")
@@ -318,23 +394,16 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             AlertDialog.Builder(currentActivity)
                 .setTitle("Connect to $peer?")
                 .setMessage(
-                    "Kaspa Mainnet (L1)\nAccount: ${accountAddress}\n\n" +
-                    "Requested permissions:\n${allowed.joinToString("\n")}\n\n" +
-                    "Connecting only shares the address and approved read methods. " +
-                    "Every signature and payment will require a separate confirmation."
+                    "Origin: ${sessionProposal.url}\\n$verification$scamWarning\\n\\n" +
+                    reviewLines.joinToString("\\n") +
+                    "\\n\\nEvery signature and payment requires a separate review and biometric/device approval."
                 )
                 .setNegativeButton("Reject") { _, _ -> reject(sessionProposal, "User rejected connection") }
                 .setPositiveButton("Connect") { _, _ ->
-                    val namespace = Wallet.Model.Namespace.Session(
-                        chains = listOf(CHAIN),
-                        accounts = listOf("$CHAIN:$accountAddress"),
-                        methods = allowed.toList(),
-                        events = emptyList()
-                    )
                     WalletKit.approveSession(
                         Wallet.Params.SessionApprove(
                             proposerPublicKey = sessionProposal.proposerPublicKey,
-                            namespaces = mapOf("kaspa" to namespace),
+                            namespaces = approved,
                             relayProtocol = sessionProposal.relayProtocol
                         ),
                         onError = { android.util.Log.e(TAG, "Session approval failed", it.throwable) }
