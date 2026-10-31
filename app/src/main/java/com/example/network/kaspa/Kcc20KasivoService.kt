@@ -370,25 +370,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 imageUrl = resolvedImage
             ))
         } catch (error: Throwable) {
-            if (tokenId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", ignoreCase = true)) {
-                Result.success(Kcc20WalletToken(
-                    contractId = tokenId,
-                    ticker = "KB",
-                    name = "Kaspa Browser",
-                    balanceRaw = "0",
-                    decimals = 3,
-                    holderCount = 1200L,
-                    validationStatus = "verified",
-                    marketPriceKas = null,
-                    marketPriceUsd = null,
-                    marketPriceSource = "Fallback Oracle",
-                    priceUpdatedAtMs = System.currentTimeMillis(),
-                    priceChange24hPercent = "0.0",
-                    imageUrl = "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
-                ))
-            } else {
-                Result.failure(error)
-            }
+            Result.failure(error)
         }
     }
 
@@ -412,12 +394,12 @@ class Kcc20KasivoService(private val context: Context? = null) {
                         return@withContext Result.success(rate)
                     }
                 }
-                Result.success(0.12)
+                Result.failure(IllegalStateException("KAS/USD oracle did not return a valid price"))
             } finally {
                 conn.disconnect()
             }
         } catch (e: Exception) {
-            Result.success(0.12)
+            Result.failure(e)
         }
     }
 
@@ -491,25 +473,7 @@ class Kcc20KasivoService(private val context: Context? = null) {
             return@withContext Result.success(known)
         }
 
-        Result.success(
-            Kcc20TokenBalanceResult(
-                tokenContractId = identifier,
-                ticker = identifier,
-                balance = 0.0,
-                balanceRaw = "0",
-                decimals = 8,
-                protocolType = KaspaProtocolType.KCC20_COVENANT,
-                contractState = "active",
-                holderCount = 0L,
-                rawMetadataJson = JSONObject().apply {
-                    put("p", "kcc-20")
-                    put("indexer", "https://kascov.io")
-                    put("contractId", identifier)
-                    put("tick", identifier)
-                    put("status", "unindexed")
-                }.toString(2)
-            )
-        )
+        Result.failure(IllegalStateException("KCC-20 balance is unavailable from the configured indexers"))
     }
 
     /**
