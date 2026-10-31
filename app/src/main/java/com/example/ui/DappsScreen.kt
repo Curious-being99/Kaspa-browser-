@@ -103,7 +103,7 @@ fun DappsScreen(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Kaspa Browser", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("KCC-20 • $KB command center", color = TextSecondary, fontSize = 12.sp)
+                    Text("KCC-20 • \\$KB command center", color = TextSecondary, fontSize = 12.sp)
                 }
                 Row(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark)
@@ -131,7 +131,7 @@ fun DappsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BoxLogoKB()
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text("\\$KB", color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Text("\$KB", color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                             Text("Kaspa Browser • KCC-20", color = TextSecondary, fontSize = 12.sp)
                         }
                         IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
@@ -155,7 +155,7 @@ fun DappsScreen(
                 }
             }
 
-            Text("SEND $KB", color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("SEND \\$KB", color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
