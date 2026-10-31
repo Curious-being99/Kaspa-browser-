@@ -106,15 +106,21 @@ class Kcc20StandardTransactionExecutor(
         }
         val tokenEntries = normalizedPieces.map { piece ->
             val redeemHash = CryptoUtils.blake2b256(piece.redeem)
-            KaspaTransactionEngine.KaspaUtxoEntry(
-                amount = piece.valueSompi,
-                scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
-                    version = 0,
-                    script = "aa20" + KbKcc20ScriptCodec.bytesToHex(redeemHash) + "87"
-                ),
-                blockDaaScore = 0L,
-                isCoinbase = false
+            val cellAddress = CryptoUtils.encodeP2shAddress(redeemHash, "kaspa")
+            val liveEntry = walletService.fetchLiveUtxos(cellAddress).firstOrNull { utxo ->
+                utxo.outpoint.transactionId.equals(piece.transactionId, true) &&
+                    utxo.outpoint.index == piece.index.toLong()
+            } ?: throw IllegalStateException(
+                "Kaspa node did not return the selected live KCC-20 cell UTXO; refusing to invent its consensus metadata"
             )
+            require(liveEntry.utxoEntry.amount == piece.valueSompi) {
+                "KasCov cell amount differs from the live Kaspa UTXO amount"
+            }
+            val expectedScript = "aa20" + KbKcc20ScriptCodec.bytesToHex(redeemHash) + "87"
+            require(liveEntry.utxoEntry.scriptPublicKey.script.equals(expectedScript, true)) {
+                "Live Kaspa UTXO locking script does not match the KCC-20 redeem program"
+            }
+            liveEntry.utxoEntry
         }
         val successorOutputs = plan.successors.map { successor ->
             val hash = CryptoUtils.blake2b256(successor)
@@ -208,8 +214,7 @@ class Kcc20StandardTransactionExecutor(
                 signed, index, KaspaTransactionEngine.SIGHASH_ALL, prepared.utxoEntries[index]
             )
             val signatureHex = CryptoUtils.signSchnorr(privateKey, sighash)
-            val signatureBytes = KbKcc20ScriptCodec.hexToBytes(signatureHex)
-            require(CryptoUtils.verifySchnorrSignature(signatureBytes, sighash, pubkey32)) {
+            require(CryptoUtils.verifySchnorrSignature(signatureHex, sighash, pubkey32)) {
                 "Funding-input Schnorr signature failed local verification"
             }
             signed.inputs[index].signatureScript = "41" + signatureHex + "01"
@@ -236,7 +241,7 @@ class Kcc20StandardTransactionExecutor(
     suspend fun preflight(signed: SignedTransfer): Long {
         val nodeMass = walletService.verifyTransactionMass(signed.transaction.toJson(), isTestnet = false)
         require(nodeMass > 0L) {
-            "Kaspa node mass endpoint did not validate the signed transaction; refusing broadcast"
+            "Kaspa node mass endpoint did not return a valid mass estimate; refusing broadcast"
         }
         require(nodeMass == signed.mass) {
             "Local transaction mass (" + signed.mass + ") differs from Kaspa node mass (" +
