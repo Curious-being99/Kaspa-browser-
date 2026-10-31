@@ -35,6 +35,21 @@ object Kcc20StandardSigner {
         require(plan.inputSum == plan.outputSum) {
             "KCC-20 transfer plan violates token amount conservation"
         }
+        require(plan.successors.size == plan.nextStates.size && plan.successors.isNotEmpty()) {
+            "KCC-20 transfer plan has incomplete successor programs"
+        }
+        require(plan.inputSum == plan.consumed.fold(BigInteger.ZERO) { sum, state ->
+            sum + state.amountBaseUnits
+        } && plan.outputSum == plan.nextStates.fold(BigInteger.ZERO) { sum, state ->
+            sum + state.amountBaseUnits
+        }) { "KCC-20 transfer plan state totals are inconsistent" }
+        for (successor in plan.successors) {
+            require(transaction.outputs.count { output ->
+                isMatchingP2sh(output.scriptPublicKey.script, successor)
+            } == 1) {
+                "Transaction outputs do not contain each planned KCC-20 successor exactly once"
+            }
+        }
         require(transaction.inputs.size >= pieces.size) {
             "Transaction is missing KCC-20 token inputs"
         }
@@ -64,8 +79,10 @@ object Kcc20StandardSigner {
             require(utxoEntries[index].amount == piece.valueSompi) {
                 "KCC-20 UTXO value changed; refresh live cells"
             }
-            require(plan.consumed[index].amountBaseUnits ==
-                KbKcc20Protocol.decodeLiveCellProgram(piece.redeem).amountBaseUnits
+            val liveState = KbKcc20Protocol.decodeLiveCellProgram(piece.redeem)
+            require(
+                KbKcc20Protocol.encodeState(plan.consumed[index])
+                    .contentEquals(KbKcc20Protocol.encodeState(liveState))
             ) { "KCC-20 plan input state no longer matches the selected live cell" }
             require(isMatchingP2sh(utxoEntries[index].scriptPublicKey.script, piece.redeem)) {
                 "KCC-20 redeem program does not match the input P2SH locking script"
