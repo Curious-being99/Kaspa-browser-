@@ -357,11 +357,11 @@ fun SiAgentScreen(
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("kb") || lower.contains("kcc20") || lower.contains("kaspa browser token") -> listOf(
-                InlineBotButton("Open \\$KB Center", Icons.Default.AutoAwesome, "OPEN_SWAP"),
+                InlineBotButton("Open \$KB Center", Icons.Default.AutoAwesome, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("swap") || lower.contains("dapp") -> listOf(
-                InlineBotButton("Open \\$KB Center", Icons.Default.SwapHoriz, "OPEN_SWAP"),
+                InlineBotButton("Open \$KB Center", Icons.Default.SwapHoriz, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("send") -> listOf(
@@ -1513,7 +1513,7 @@ suspend fun executeSiAgentCommand(
         val tokenBalance = runCatching {
             java.math.BigDecimal(token.balanceRaw).movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
         }.getOrDefault("Unavailable")
-        return "Kaspa Browser Token (\\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: use the wallet's reviewed protocol-specific covenant transaction path; unsupported requests fail closed."
+        return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: use the wallet's reviewed protocol-specific covenant transaction path; unsupported requests fail closed."
     }
     val kascovUrl = KASCOV_URL
     var finalPrompt = trimmed
@@ -1634,7 +1634,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") || lower.contains("dapp") -> {
-            "Kaspa Browser dApp Command Center\n• Native destination: \\$KB KCC-20 wallet tools\n• Live indexed token data: /kb\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
+            "Kaspa Browser dApp Command Center\n• Native destination: \$KB KCC-20 wallet tools\n• Live indexed token data: /kb\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
         }
 
         lower.contains("price") -> {
