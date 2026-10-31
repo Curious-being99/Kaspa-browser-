@@ -302,7 +302,7 @@ fun DappsScreen(
 
 private fun middleClipAddress(address: String): String {
     if (address.length <= 26) return address
-    return "${'${'}address.take(12)}…${'${'}address.takeLast(10)}"
+    return "${address.take(12)}…${address.takeLast(10)}"
 }
 
 @Composable
