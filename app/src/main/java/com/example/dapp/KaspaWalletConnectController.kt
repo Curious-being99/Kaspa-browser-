@@ -639,17 +639,17 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 val originHost = runCatching {
                     java.net.URI(sessionRequest.peerMetaData?.url.orEmpty()).host?.lowercase()
                 }.getOrNull()
-                val issued = runCatching { java.time.Instant.parse(issuedAt) }.getOrNull()
-                val expires = runCatching { java.time.Instant.parse(expirationTime) }.getOrNull()
-                val now = java.time.Instant.now()
+                val issued = parseIsoTimestamp(issuedAt)
+                val expires = parseIsoTimestamp(expirationTime)
+                val now = System.currentTimeMillis()
                 val validChallenge = requestedAddress.equals(keyPair.kaspaAddress, true) &&
                     originHost != null && domain == originHost &&
                     nonce.matches(Regex("[A-Za-z0-9_-]{8,128}")) &&
                     issued != null && expires != null &&
-                    !issued.isAfter(now.plusSeconds(60)) &&
-                    !issued.isBefore(now.minusSeconds(600)) &&
-                    expires.isAfter(now) &&
-                    !expires.isAfter(issued.plusSeconds(600)) &&
+                    issued <= now + 60_000L &&
+                    issued >= now - 600_000L &&
+                    expires > now &&
+                    expires <= issued + 600_000L &&
                     message.isNotBlank() && message.length <= 4096 &&
                     message.contains(domain, true) &&
                     message.contains(nonce) &&
@@ -795,6 +795,23 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 respondError(sessionRequest, 4200, "Unsupported Kaspa method")
             }
         }
+    }
+
+    private fun parseIsoTimestamp(value: String): Long? {
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX"
+        )
+        for (pattern in patterns) {
+            val formatter = java.text.SimpleDateFormat(pattern, java.util.Locale.US).apply {
+                isLenient = false
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }
+            val position = java.text.ParsePosition(0)
+            val parsed = formatter.parse(value, position)
+            if (parsed != null && position.index == value.length) return parsed.time
+        }
+        return null
     }
 
     private fun jsonParams(raw: String): JSONArray = try {
