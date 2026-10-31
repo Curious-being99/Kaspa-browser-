@@ -137,7 +137,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             AlertDialog.Builder(currentActivity)
                 .setTitle("Connect to $peer?")
                 .setMessage(
-                    "Kaspa Mainnet (L1)\nAccount: ${keyPair.kaspaAddress}\n\n" +
+                    "Kaspa Mainnet (L1)\nAccount: ${accountAddress}\n\n" +
                     "Requested permissions:\n${allowed.joinToString("\n")}\n\n" +
                     "Connecting only shares the address and approved read methods. " +
                     "Every signature and payment will require a separate confirmation."
