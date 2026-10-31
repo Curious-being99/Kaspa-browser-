@@ -43,6 +43,14 @@ object Kcc20StandardSigner {
         } && plan.outputSum == plan.nextStates.fold(BigInteger.ZERO) { sum, state ->
             sum + state.amountBaseUnits
         }) { "KCC-20 transfer plan state totals are inconsistent" }
+        require(plan.successors.indices.all { index ->
+            plan.successors[index].contentEquals(
+                KbKcc20StandardAssembler.successorProgram(
+                    pieces.first().redeem,
+                    plan.nextStates[index]
+                )
+            )
+        }) { "KCC-20 successor programs do not match the planned next states" }
         for (successor in plan.successors) {
             require(transaction.outputs.count { output ->
                 isMatchingP2sh(output.scriptPublicKey.script, successor)
@@ -84,6 +92,25 @@ object Kcc20StandardSigner {
                 KbKcc20Protocol.encodeState(plan.consumed[index])
                     .contentEquals(KbKcc20Protocol.encodeState(liveState))
             ) { "KCC-20 plan input state no longer matches the selected live cell" }
+            require(liveState.ownerScheme == 0x00 && liveState.owner.contentEquals(pubkey32)) {
+                "KCC-20 input is not controlled by the approved Schnorr wallet key"
+            }
+            val expectedSeat = if (index == 0) {
+                val witness = KbKcc20StandardAssembler.ownerWitnessPlaceholder(
+                    liveState, pubkey32, leader = true
+                )
+                KbKcc20StandardAssembler.encodeLeaderSeat(
+                    index, plan.nextStates, witness, piece.redeem
+                )
+            } else {
+                val witness = KbKcc20StandardAssembler.ownerWitnessPlaceholder(
+                    liveState, pubkey32, leader = false
+                )
+                KbKcc20StandardAssembler.encodeDelegatorSeat(index, witness, piece.redeem)
+            }
+            require(seat.sigOffset == expectedSeat.sigOffset &&
+                seat.script.contentEquals(expectedSeat.script)
+            ) { "KCC-20 authorization seat does not match the verified transfer plan" }
             require(isMatchingP2sh(utxoEntries[index].scriptPublicKey.script, piece.redeem)) {
                 "KCC-20 redeem program does not match the input P2SH locking script"
             }
