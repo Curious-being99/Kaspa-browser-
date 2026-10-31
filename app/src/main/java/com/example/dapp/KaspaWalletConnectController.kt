@@ -67,7 +67,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             reject(sessionProposal, "Switch the wallet to Kaspa Mainnet before connecting")
             return
         }
-        val proposal = sessionProposal.requiredNamespaces["kaspa"]
+        val proposal = sessionProposal.requiredNamespaces["kaspa"] ?: sessionProposal.optionalNamespaces["kaspa"]
         if (proposal == null || proposal.chains.orEmpty().isNotEmpty() && CHAIN !in proposal.chains.orEmpty()) {
             reject(sessionProposal, "This proposal does not request kaspa:mainnet")
             return
@@ -159,9 +159,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         when (sessionRequest.request.method) {
             "kaspa_getAccounts" -> respondResult(sessionRequest, JSONArray().put(keyPair.kaspaAddress).toString())
             "kaspa_getNetwork" -> respondResult(sessionRequest, JSONObject.quote("mainnet"))
-            "kaspa_getPublicKey" -> respondResult(sessionRequest, JSONObject()
-                .put("publicKey", keyPair.publicKeyHex)
-                .put("address", keyPair.kaspaAddress).toString())
+            "kaspa_getPublicKey" -> respondResult(sessionRequest, JSONObject.quote(keyPair.publicKeyHex))
             "kaspa_getBalance" -> executor.execute {
                 try {
                     val balance = kotlinx.coroutines.runBlocking {
