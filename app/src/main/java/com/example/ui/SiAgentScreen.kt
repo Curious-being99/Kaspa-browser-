@@ -1513,7 +1513,7 @@ suspend fun executeSiAgentCommand(
         val tokenBalance = runCatching {
             java.math.BigDecimal(token.balanceRaw).movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
         }.getOrDefault("Unavailable")
-        return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: use the wallet's reviewed protocol-specific covenant transaction path; unsupported requests fail closed."
+        return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: unavailable until a protocol-specific KB covenant builder and validator are integrated; no plain-KAS fallback is allowed."
     }
     val kascovUrl = KASCOV_URL
     var finalPrompt = trimmed
@@ -1652,7 +1652,7 @@ suspend fun executeSiAgentCommand(
 
         lower.contains("security") || lower.contains("audit") || lower.contains("ssl") || lower.contains("safe") || lower.contains("privacy") -> {
             val target = if (activeUrl.isNotBlank()) activeUrl else "kasparocket.fun"
-            "🛡️ Security Audit\n• Target: $target\n• SSL: TLS 1.3 Verified\n• DNS: Encrypted Dual-Stack\n• Shields: 0 Trackers\n• Rating: Grade A+ (Secure)"
+            "🛡️ Security Audit\n• Target: $target\n• SSL: Not independently verified by this command\n• DNS: Encrypted Dual-Stack\n• Shields: 0 Trackers\n• Rating: Not assigned — run a live certificate and policy check"
         }
 
         lower.contains("blockdag") || lower.contains("dag") || lower.contains("ghostdag") || lower.contains("bps") -> {
@@ -1678,7 +1678,7 @@ suspend fun executeSiAgentCommand(
         }
 
         else -> {
-            "🤖 Command: $trimmed\n• Status: Executed\n• Tip: Send /help for commands"
+            "🤖 Command: $trimmed\n• Status: No action taken — this request has no verified command handler.\n• Tip: Send /help for supported commands"
         }
     }
 }
