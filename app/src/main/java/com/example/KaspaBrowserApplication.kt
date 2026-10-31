@@ -42,9 +42,13 @@ class KaspaBrowserApplication : Application() {
             Wallet.Params.Init(core = CoreClient),
             onSuccess = {
                 WalletKit.setWalletDelegate(com.example.dapp.KaspaWalletConnectController)
+                com.example.dapp.KaspaWalletConnectController.onWalletKitInitialized()
                 android.util.Log.i("ReownWalletKit", "WalletKit initialized")
             },
             onError = { error ->
+                com.example.dapp.KaspaWalletConnectController.onWalletKitInitializationFailed(
+                    error.throwable.message ?: "WalletKit initialization failed"
+                )
                 android.util.Log.e(
                     "ReownWalletKit",
                     "WalletKit initialization failed",
