@@ -237,6 +237,11 @@ class MainActivity : FragmentActivity() {
     handleIncomingIntent(intent)
   }
 
+  override fun onDestroy() {
+    com.example.dapp.KaspaWalletConnectController.detach(this)
+    super.onDestroy()
+  }
+
   override fun onTrimMemory(level: Int) {
     super.onTrimMemory(level)
     try {
@@ -319,8 +324,30 @@ class MainActivity : FragmentActivity() {
     return null
   }
 
+  private fun handleWalletConnectIntent(intent: Intent): Boolean {
+    val data = intent.data ?: return false
+    val scheme = data.scheme?.lowercase()
+    val pairingUri = when (scheme) {
+      "wc" -> data.toString()
+      "kaspabrowser" -> data.getQueryParameter("uri")
+        ?: data.getQueryParameter("wc_uri")
+        ?: data.getQueryParameter("pairing")
+      else -> null
+    }?.trim()
+    if (pairingUri.isNullOrBlank()) return false
+    if (!pairingUri.startsWith("wc:") || pairingUri.length > 4096) return false
+
+    com.example.dapp.KaspaWalletConnectController.pair(pairingUri) { error ->
+      Log.w("KaspaWalletConnect", "Pairing request failed: $error")
+    }
+    setIntent(Intent(this, MainActivity::class.java).apply { action = Intent.ACTION_MAIN })
+    return true
+  }
+
   private fun handleIncomingIntent(intent: Intent?) {
     if (intent == null) return
+
+    if (handleWalletConnectIntent(intent)) return
 
     // 1. If launched from recent apps history after being away for a long time,
     // Android re-delivers the original launch intent with FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY.
