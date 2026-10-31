@@ -146,7 +146,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 .setPositiveButton("Connect") { _, _ ->
                     val namespace = Wallet.Model.Namespace.Session(
                         chains = listOf(CHAIN),
-                        accounts = listOf("$CHAIN:${keyPair.kaspaAddress}"),
+                        accounts = listOf("$CHAIN:$accountAddress"),
                         methods = allowed.toList(),
                         events = emptyList()
                     )
@@ -227,6 +227,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             "kaspa_signPersonal" -> {
                 val message = params.optString("message", params.optString("msg"))
                 if (message.isBlank() || message.length > 4096) {
+                    keyPair.wipe()
                     respondError(sessionRequest, -32602, "A message of 1-4096 characters is required")
                 } else {
                     confirm(currentActivity, "Sign Kaspa message?", "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\nAccount: ${keyPair.kaspaAddress}\n\nExact message:\n$message", {
@@ -350,7 +351,10 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     })
                 }
             }
-            else -> respondError(sessionRequest, 4200, "Unsupported Kaspa method")
+            else -> {
+                keyPair.wipe()
+                respondError(sessionRequest, 4200, "Unsupported Kaspa method")
+            }
         }
     }
 
