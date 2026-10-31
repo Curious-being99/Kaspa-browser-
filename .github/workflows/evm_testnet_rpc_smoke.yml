@@ -54,7 +54,7 @@ jobs:
               http_status="$(sed -n '1p' "$metadata_file")"
               content_type="$(sed -n '2p' "$metadata_file")"
               size_download="$(sed -n '3p' "$metadata_file")"
-              echo "RPC HTTP diagnostics: method=$method status=$http_status content_type=$content_type bytes=$size_download"
+              echo "RPC HTTP diagnostics: method=$method status=$http_status content_type=$content_type bytes=$size_download" >&2
               if [[ "$http_status" != "200" ]]; then
                 echo "RPC returned non-200 HTTP status; response body follows:" >&2
                 cat "$response_file" >&2
