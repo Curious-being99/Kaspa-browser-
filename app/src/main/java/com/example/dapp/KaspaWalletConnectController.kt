@@ -318,8 +318,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     keyPair.wipe()
                     respondError(sessionRequest, -32602, "A matching active from address, valid Kaspa Mainnet destination, and positive integer amountSompi are required")
                 } else {
-                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\\n" +
-                        "Network: Kaspa Mainnet\\nFrom: ${keyPair.kaspaAddress}\\nTo: $recipient\\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS ($amountSompi sompi)\\n\\n" +
+                    val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\n" +
+                        "Network: Kaspa Mainnet\nFrom: ${keyPair.kaspaAddress}\nTo: $recipient\nAmount: ${BigDecimal.valueOf(amountSompi, 8)} KAS ($amountSompi sompi)\n\n" +
                         "This will broadcast a real Kaspa L1 transaction."
                     confirm(currentActivity, "Review Kaspa payment", summary, {
                         executor.execute {
