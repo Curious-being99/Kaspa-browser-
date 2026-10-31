@@ -32,6 +32,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         "kaspa_getPublicKey",
         "kaspa_switchNetwork",
         "kaspa_signPersonal",
+        "kaspa_signAuth",
         "kaspa_signPskt",
         "kaspa_sendTransaction",
         "kaspa_sendKcc20"
@@ -626,6 +627,70 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                         keyPair.wipe()
                         respondError(sessionRequest, 4001, "User rejected message signature")
                     })
+                }
+            }
+            "kaspa_signAuth" -> {
+                val requestedAddress = params.optString("address").trim()
+                val domain = params.optString("domain").trim().lowercase()
+                val nonce = params.optString("nonce").trim()
+                val issuedAt = params.optString("issuedAt").trim()
+                val expirationTime = params.optString("expirationTime").trim()
+                val message = params.optString("message")
+                val originHost = runCatching {
+                    java.net.URI(sessionRequest.peerMetaData?.url.orEmpty()).host?.lowercase()
+                }.getOrNull()
+                val issued = runCatching { java.time.Instant.parse(issuedAt) }.getOrNull()
+                val expires = runCatching { java.time.Instant.parse(expirationTime) }.getOrNull()
+                val now = java.time.Instant.now()
+                val validChallenge = requestedAddress.equals(keyPair.kaspaAddress, true) &&
+                    originHost != null && domain == originHost &&
+                    nonce.matches(Regex("[A-Za-z0-9_-]{8,128}")) &&
+                    issued != null && expires != null &&
+                    !issued.isAfter(now.plusSeconds(60)) &&
+                    !issued.isBefore(now.minusSeconds(600)) &&
+                    expires.isAfter(now) &&
+                    !expires.isAfter(issued.plusSeconds(600)) &&
+                    message.isNotBlank() && message.length <= 4096 &&
+                    message.contains(domain, true) &&
+                    message.contains(nonce) &&
+                    message.contains(requestedAddress, true) &&
+                    message.contains(issuedAt) &&
+                    message.contains(expirationTime)
+                if (!validChallenge) {
+                    keyPair.wipe()
+                    respondError(
+                        sessionRequest,
+                        -32602,
+                        "Authentication challenge must bind the active address, exact dApp domain, nonce, issuedAt, expirationTime and message; timestamps must be valid and short-lived."
+                    )
+                } else {
+                    confirm(
+                        currentActivity,
+                        "Review Kaspa authentication",
+                        "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\\nOrigin: ${sessionRequest.peerMetaData?.url ?: "Unknown"}\\nDomain: $domain\\nAccount: ${keyPair.kaspaAddress}\\nNonce: $nonce\\nIssued: $issuedAt\\nExpires: $expirationTime\\n\\nExact challenge:\\n$message",
+                        {
+                            executor.execute {
+                                try {
+                                    require(activeAddress(vm) == keyPair.kaspaAddress) {
+                                        "Active wallet changed or locked; authentication cancelled"
+                                    }
+                                    val signature = CryptoUtils.signKaspaPersonalMessage(
+                                        keyPair.privateKey,
+                                        message.toByteArray(Charsets.UTF_8)
+                                    )
+                                    respondResult(sessionRequest, JSONObject.quote(signature))
+                                } catch (error: Throwable) {
+                                    respondError(sessionRequest, -32603, error.message ?: "Kaspa authentication signing failed")
+                                } finally {
+                                    keyPair.wipe()
+                                }
+                            }
+                        },
+                        {
+                            keyPair.wipe()
+                            respondError(sessionRequest, 4001, "User rejected Kaspa authentication")
+                        }
+                    )
                 }
             }
             "kaspa_signPskt" -> {
