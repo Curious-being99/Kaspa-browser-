@@ -304,12 +304,6 @@ class Kcc20KasivoService(private val context: Context? = null) {
                     .divide(spotDen, 18, java.math.RoundingMode.HALF_UP)
             } else null
 
-            // Fallback for KB price if indexer market data is missing
-            if (currentPriceSompi == null && isKb) {
-                // KB ecosystem valuation fallback (~1.5 KAS per full token)
-                currentPriceSompi = java.math.BigDecimal("150000000") 
-            }
-
             if (currentPriceSompi != null) {
                 val kas = currentPriceSompi.divide(java.math.BigDecimal("100000000"), 18, java.math.RoundingMode.HALF_UP)
                 priceKas = kas.stripTrailingZeros().toPlainString()
@@ -339,10 +333,9 @@ class Kcc20KasivoService(private val context: Context? = null) {
                 if (liveKasUsd != null && liveKasUsd.signum() > 0) {
                     priceUsd = kas.multiply(liveKasUsd).setScale(4, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
                 }
-                priceSource = if (isKb && spotNumSompi == null) "Ecosystem Oracle" else "Kascov live spot quote"
+                priceSource = "Kascov live spot quote"
                 priceUpdatedAt = market?.optLong("last_time_ms")?.takeIf { it > 0 }
                     ?: market?.optLong("updated_at_ms")?.takeIf { it > 0 }
-                    ?: System.currentTimeMillis()
             }
 
             val change24hBps = parseJsonBigDecimal(market, "change_24h_bps")
