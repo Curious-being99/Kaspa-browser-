@@ -167,6 +167,14 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             reject(sessionProposal, "Switch the wallet to Kaspa Mainnet before connecting")
             return
         }
+        val unsupportedRequiredNamespaces = sessionProposal.requiredNamespaces.keys.filter { it != "kaspa" }
+        if (unsupportedRequiredNamespaces.isNotEmpty()) {
+            reject(
+                sessionProposal,
+                "This wallet controller only approves native Kaspa L1; required namespaces are unsupported: ${unsupportedRequiredNamespaces.joinToString()}"
+            )
+            return
+        }
         val proposal = sessionProposal.requiredNamespaces["kaspa"] ?: sessionProposal.optionalNamespaces["kaspa"]
         if (proposal == null || proposal.chains.orEmpty().isNotEmpty() && CHAIN !in proposal.chains.orEmpty()) {
             reject(sessionProposal, "This proposal does not request kaspa:mainnet")
