@@ -48,7 +48,7 @@ fn parse_spk(value: &Value) -> Result<kaspa_consensus_core::tx::ScriptPublicKey,
     Ok(kaspa_consensus_core::tx::ScriptPublicKey::from_vec(version, script))
 }
 
-fn parse_fixture(root: &Value) -> Result<(Transaction, Vec<UtxoEntry>, String), Box<dyn Error>> {
+fn parse_fixture(root: &Value) -> Result<(Transaction, Vec<UtxoEntry>, String, Vec<usize>, Vec<usize>), Box<dyn Error>> {
     let tx_json = root.get("transaction").ok_or("missing transaction object")?;
     let inputs_json = tx_json.get("inputs").and_then(Value::as_array).ok_or("transaction.inputs must be an array")?;
     let outputs_json = tx_json.get("outputs").and_then(Value::as_array).ok_or("transaction.outputs must be an array")?;
@@ -112,7 +112,17 @@ fn parse_fixture(root: &Value) -> Result<(Transaction, Vec<UtxoEntry>, String), 
 
     let required_id = root.get("requiredCovenantId").or_else(|| root.get("required_covenant_id"))
         .and_then(Value::as_str).unwrap_or("").to_owned();
-    Ok((tx, entries, required_id))
+    let covenant_input_indexes = root.get("covenantInputIndexes")
+        .or_else(|| root.get("covenant_input_indexes"))
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_u64).map(|n| n as usize).collect())
+        .unwrap_or_default();
+    let covenant_output_indexes = root.get("covenantOutputIndexes")
+        .or_else(|| root.get("covenant_output_indexes"))
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_u64).map(|n| n as usize).collect())
+        .unwrap_or_default();
+    Ok((tx, entries, required_id, covenant_input_indexes, covenant_output_indexes))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -120,13 +130,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         "set KCC20_PREFLIGHT_FIXTURE to a fixture containing the transaction and exact populated UTXO entries"
     })?;
     let root: Value = serde_json::from_str(&fs::read_to_string(path)?)?;
-    let (tx, entries, required_covenant_id) = parse_fixture(&root)?;
+    let (tx, entries, required_covenant_id, covenant_input_indexes, covenant_output_indexes) = parse_fixture(&root)?;
 
     if !required_covenant_id.is_empty() {
         let expected = parse_hash(&required_covenant_id)?;
-        for (index, entry) in entries.iter().enumerate() {
+        if covenant_input_indexes.is_empty() || covenant_output_indexes.is_empty() {
+            return Err("requiredCovenantId requires covenantInputIndexes and covenantOutputIndexes".into());
+        }
+        for index in covenant_input_indexes {
+            let entry = entries.get(index).ok_or("covenant input index is out of range")?;
             if entry.covenant_id != Some(expected) {
                 return Err(format!("input {index} does not carry required covenant id {required_covenant_id}").into());
+            }
+        }
+        for index in covenant_output_indexes {
+            let output = tx.outputs.get(index).ok_or("covenant output index is out of range")?;
+            let binding = output.covenant.as_ref().ok_or("required covenant output has no KIP-20 binding")?;
+            if binding.covenant_id != expected || binding.authorizing_input != 0 {
+                return Err(format!("output {index} has an invalid covenant id or authorizing input").into());
             }
         }
     }
