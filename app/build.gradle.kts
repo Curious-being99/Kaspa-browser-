@@ -71,6 +71,7 @@ android {
     versionName = resolvedVersionName
     
     buildConfigField("String", "GROQ_API_KEY", "\"\"")
+    buildConfigField("String", "REOWN_PROJECT_ID", "\"961db2f57cc0c28d26ff89548c793b3b\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -172,6 +173,7 @@ secrets {
 }
 
 dependencies {
+  implementation("com.reown:walletkit:1.6.13")
   implementation("org.web3j:core:4.12.3-android")
   implementation("org.web3j:abi:4.12.3") {
     exclude(group = "org.web3j", module = "utils")
