@@ -87,6 +87,16 @@ jobs:
               echo "RPC returned invalid JSON for $method: $response" >&2
               return 1
             fi
+            if jq -e 'has("error")' >/dev/null <<< "$response"; then
+              local rpc_error_code rpc_error_message
+              rpc_error_code="$(jq -r '.error.code // "unknown"' <<< "$response")"
+              rpc_error_message="$(jq -r '.error.message // "unspecified JSON-RPC error"' <<< "$response")"
+              echo "JSON-RPC upstream error for $method: code=$rpc_error_code message=$rpc_error_message" >&2
+              if [[ "$rpc_error_message" == *"connect: connection refused"* ]]; then
+                echo "Kasplex RPC proxy is reachable, but its configured upstream node is refusing connections. This requires RPC operator remediation; no alternate chain or success fallback will be used." >&2
+              fi
+              return 1
+            fi
             if ! result="$(jq -er '.result | strings' <<< "$response")"; then
               echo "RPC JSON did not contain a string result for $method: $response" >&2
               return 1
