@@ -12,7 +12,7 @@ class Kcc20StandardTransactionExecutor(
         const val TOKEN_CELL_DEPOSIT_SOMPI = 20_000_000L
         const val MAX_FUNDING_INPUTS = 20
         private const val CHANGE_ITERATIONS = 12
-        private const val SIGNATURE_PLACEHOLDER = "41" + "00".repeat(64) + "01"
+        private val SIGNATURE_PLACEHOLDER = "41" + "00".repeat(64) + "01"
     }
 
     data class PreparedTransfer internal constructor(
