@@ -103,7 +103,7 @@ fun DappsScreen(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Kaspa Browser", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("KCC-20 • \\$KB command center", color = TextSecondary, fontSize = 12.sp)
+                    Text("KCC-20 • \$KB command center", color = TextSecondary, fontSize = 12.sp)
                 }
                 Row(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark)
@@ -145,7 +145,7 @@ fun DappsScreen(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("USD price", color = TextMuted, fontSize = 11.sp)
-                        Text(kb?.marketPriceUsd?.let { "\\$it" } ?: "Unavailable", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(kb?.marketPriceUsd?.let { "\$$it" } ?: "Unavailable", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Text(
                         text = if (kb?.marketPriceKas != null) "Price source: ${kb.marketPriceSource ?: "Kascov"}" else "Live market quote unavailable — no estimated price is substituted.",
@@ -155,7 +155,7 @@ fun DappsScreen(
                 }
             }
 
-            Text("SEND \\$KB", color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text("SEND \$KB", color = KaspaTea, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
