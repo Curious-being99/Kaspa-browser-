@@ -40,38 +40,75 @@ jobs:
             local method="$1"
             local params="$2"
             local response_file
+            local metadata_file
             local curl_status
             response_file="$(mktemp)"
-            if curl --fail --silent --show-error --max-time 20 \
+            metadata_file="$(mktemp)"
+            if curl --silent --show-error --max-time 20 \
               -H 'content-type: application/json' \
               --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
               --output "$response_file" \
-              "$RPC_URL"; then
+              --write-out '%{http_code}\n%{content_type}\n%{size_download}\n' \
+              "$RPC_URL" >"$metadata_file"; then
+              local http_status content_type size_download
+              http_status="$(sed -n '1p' "$metadata_file")"
+              content_type="$(sed -n '2p' "$metadata_file")"
+              size_download="$(sed -n '3p' "$metadata_file")"
+              echo "RPC HTTP diagnostics: method=$method status=$http_status content_type=$content_type bytes=$size_download"
+              if [[ "$http_status" != "200" ]]; then
+                echo "RPC returned non-200 HTTP status; response body follows:" >&2
+                cat "$response_file" >&2
+                rm -f "$response_file" "$metadata_file"
+                return 1
+              fi
+              if [[ ! "$size_download" =~ ^[0-9]+$ ]] || (( size_download == 0 )); then
+                echo "RPC returned an empty response body for $method" >&2
+                rm -f "$response_file" "$metadata_file"
+                return 1
+              fi
               cat "$response_file"
-              rm -f "$response_file"
+              rm -f "$response_file" "$metadata_file"
             else
               curl_status=$?
-              echo "RPC request failed: method=$method url=$RPC_URL curl_exit=$curl_status" >&2
+              echo "RPC transport failed: method=$method url=$RPC_URL curl_exit=$curl_status" >&2
               echo "curl build and supported protocols:" >&2
               curl --version >&2 || true
-              echo "Response body, if any:" >&2
+              echo "Partial response body, if any:" >&2
               cat "$response_file" >&2 || true
-              rm -f "$response_file"
+              rm -f "$response_file" "$metadata_file"
               return "$curl_status"
             fi
           }
+          validate_rpc_result() {
+            local method="$1"
+            local response="$2"
+            local result
+            if ! jq -e . >/dev/null 2>&1 <<< "$response"; then
+              echo "RPC returned invalid JSON for $method: $response" >&2
+              return 1
+            fi
+            if ! result="$(jq -er '.result | strings' <<< "$response")"; then
+              echo "RPC JSON did not contain a string result for $method: $response" >&2
+              return 1
+            fi
+            printf '%s' "$result"
+          }
           chain_response="$(rpc eth_chainId '[]')"
-          actual_chain_id="$(jq -er '.result | strings' <<< "$chain_response")"
+          actual_chain_id="$(validate_rpc_result eth_chainId "$chain_response")"
           if [[ "${actual_chain_id,,}" != "${EXPECTED_CHAIN_ID,,}" ]]; then
             echo "Chain ID mismatch: expected $EXPECTED_CHAIN_ID, got $actual_chain_id"
             exit 1
           fi
           block_response="$(rpc eth_blockNumber '[]')"
-          block_number="$(jq -er '.result | strings' <<< "$block_response")"
+          block_number="$(validate_rpc_result eth_blockNumber "$block_response")"
           if [[ ! "$block_number" =~ ^0x[0-9a-fA-F]+$ ]] || (( 16#${block_number#0x} < 1 )); then
             echo "Invalid or unavailable block height: $block_number"
             exit 1
           fi
           balance_response="$(rpc eth_getBalance '["0x0000000000000000000000000000000000000000","latest"]')"
-          jq -e '.result | strings | test("^0x[0-9a-fA-F]+$")' <<< "$balance_response" >/dev/null
+          balance_result="$(validate_rpc_result eth_getBalance "$balance_response")"
+          if [[ ! "$balance_result" =~ ^0x[0-9a-fA-F]+$ ]]; then
+            echo "Invalid eth_getBalance result: $balance_result"
+            exit 1
+          fi
           echo "Verified chain ID $actual_chain_id, block height $block_number, and eth_getBalance response."
