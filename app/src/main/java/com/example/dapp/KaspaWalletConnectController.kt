@@ -29,6 +29,9 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
     )
     @Volatile private var activity: Activity? = null
     @Volatile private var viewModel: DecentralViewModel? = null
+    @Volatile private var walletKitReady = false
+    private val pairingLock = Any()
+    private val pendingPairings = mutableListOf<Pair<String, (String) -> Unit>>()
 
     fun attach(activity: Activity, viewModel: DecentralViewModel) {
         this.activity = activity
@@ -42,12 +45,49 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         }
     }
 
+    fun onWalletKitInitialized() {
+        val pending = synchronized(pairingLock) {
+            walletKitReady = true
+            pendingPairings.toList().also { pendingPairings.clear() }
+        }
+        pending.forEach { (uri, onError) -> pairNow(uri, onError) }
+    }
+
+    fun onWalletKitInitializationFailed(reason: String) {
+        val pending = synchronized(pairingLock) {
+            walletKitReady = false
+            pendingPairings.toList().also { pendingPairings.clear() }
+        }
+        pending.forEach { (_, onError) -> onError(reason) }
+    }
+
     fun pair(uri: String, onError: (String) -> Unit = {}) {
         if (!uri.startsWith("wc:") || uri.length > 4096) {
             onError("Invalid WalletConnect pairing URI")
             return
         }
-        WalletKit.pair(Wallet.Params.Pair(uri), onError = { onError(it.throwable.message ?: "Pairing failed") })
+        val shouldQueue = synchronized(pairingLock) {
+            if (walletKitReady) false else {
+                if (pendingPairings.size >= 5) {
+                    onError("Too many WalletConnect pairing requests are pending")
+                    return
+                }
+                pendingPairings.add(uri to onError)
+                true
+            }
+        }
+        if (!shouldQueue) pairNow(uri, onError)
+    }
+
+    private fun pairNow(uri: String, onError: (String) -> Unit) {
+        try {
+            WalletKit.pair(
+                Wallet.Params.Pair(uri),
+                onError = { onError(it.throwable.message ?: "Pairing failed") }
+            )
+        } catch (error: Throwable) {
+            onError(error.message ?: "WalletConnect is not ready")
+        }
     }
 
     override fun onSessionProposal(
@@ -73,7 +113,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             return
         }
         val unsupportedRequired = proposal.methods.filterNot { it in supportedMethods }
-        val unsupportedEvents = proposal.events.filterNot { it == "accountsChanged" }
+        val unsupportedEvents = proposal.events
         if (unsupportedRequired.isNotEmpty() || unsupportedEvents.isNotEmpty()) {
             reject(
                 sessionProposal,
@@ -106,7 +146,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                         chains = listOf(CHAIN),
                         accounts = listOf("$CHAIN:${keyPair.kaspaAddress}"),
                         methods = allowed.toList(),
-                        events = proposal.events.filter { it == "accountsChanged" }
+                        events = emptyList()
                     )
                     WalletKit.approveSession(
                         Wallet.Params.SessionApprove(
