@@ -131,7 +131,7 @@ fun DappsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BoxLogoKB()
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text("$KB", color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Text("\\$KB", color = TextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
                             Text("Kaspa Browser • KCC-20", color = TextSecondary, fontSize = 12.sp)
                         }
                         IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
@@ -145,7 +145,7 @@ fun DappsScreen(
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("USD price", color = TextMuted, fontSize = 11.sp)
-                        Text(kb?.marketPriceUsd?.let { "$$it" } ?: "Unavailable", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(kb?.marketPriceUsd?.let { "\\$it" } ?: "Unavailable", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Text(
                         text = if (kb?.marketPriceKas != null) "Price source: ${kb.marketPriceSource ?: "Kascov"}" else "Live market quote unavailable — no estimated price is substituted.",
