@@ -977,6 +977,10 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                         respondError(request, -32602, "Transaction sender does not match the approved EVM account")
                         return
                     }
+                    if (!tx.optString("to").matches(Regex("0x[0-9a-fA-F]{40}"))) {
+                        respondError(request, -32602, "Only standard EVM destination addresses are supported")
+                        return
+                    }
                     if (tx.has("chainId") && evmQuantity(tx.opt("chainId")) != BigInteger.valueOf(chainId)) {
                         respondError(request, 4901, "Transaction chain ID does not match the approved request chain")
                         return
@@ -1020,7 +1024,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                             require(balance >= maximumCost) {
                                 "Insufficient ${network.currency}: maximum required is ${java.math.BigDecimal(maximumCost).movePointLeft(18).stripTrailingZeros().toPlainString()} including value and network fee"
                             }
-                            val review = "DApp: ${request.peerMetaData?.name ?: "Unknown"}\\nOrigin: ${request.peerMetaData?.url ?: "Unknown"}\\nNetwork: ${network.name}\\nAccount: ${account.address}\\nTo: ${tx.optString("to")}\\nValue: ${tx.optString("value", "0x0")} wei\\nGas limit: $gas\\nMaximum fee: ${maximumCost} wei\\n\\nContract calls can transfer tokens/NFTs or change permissions. Review the destination and calldata carefully."
+                            val review = "DApp: ${request.peerMetaData?.name ?: "Unknown"}\\nOrigin: ${request.peerMetaData?.url ?: "Unknown"}\\nNetwork: ${network.name}\\nAccount: ${account.address}\\nTo: ${tx.optString("to")}\\nValue: ${tx.optString("value", "0x0")} wei\\nGas limit: $gas\\nMaximum fee: ${maximumCost} wei\\nCalldata: ${tx.optString("data", tx.optString("input", "0x"))}\\n\\nContract calls can transfer tokens/NFTs or change permissions. Review the destination and calldata carefully."
                             main.post {
                                 confirm(
                                     currentActivity,
