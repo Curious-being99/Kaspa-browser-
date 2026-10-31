@@ -73,8 +73,12 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             return
         }
         val unsupportedRequired = proposal.methods.filterNot { it in supportedMethods }
-        if (unsupportedRequired.isNotEmpty()) {
-            reject(sessionProposal, "Unsupported required Kaspa methods: ${unsupportedRequired.joinToString()}")
+        val unsupportedEvents = proposal.events.filterNot { it == "accountsChanged" }
+        if (unsupportedRequired.isNotEmpty() || unsupportedEvents.isNotEmpty()) {
+            reject(
+                sessionProposal,
+                "Unsupported required Kaspa capabilities: ${(unsupportedRequired + unsupportedEvents).joinToString()}"
+            )
             return
         }
         val keyPair = deriveActiveKey(vm) ?: run {
@@ -154,7 +158,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         val params = parseParams(sessionRequest.request.params)
         when (sessionRequest.request.method) {
             "kaspa_getAccounts" -> respondResult(sessionRequest, JSONArray().put(keyPair.kaspaAddress).toString())
-            "kaspa_getNetwork" -> respondResult(sessionRequest, JSONObject().put("network", "mainnet").toString())
+            "kaspa_getNetwork" -> respondResult(sessionRequest, JSONObject.quote("mainnet"))
             "kaspa_getPublicKey" -> respondResult(sessionRequest, JSONObject()
                 .put("publicKey", keyPair.publicKeyHex)
                 .put("address", keyPair.kaspaAddress).toString())
@@ -176,6 +180,9 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     confirm(currentActivity, "Sign Kaspa message?", "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\nAccount: ${keyPair.kaspaAddress}\n\nExact message:\n$message", {
                         executor.execute {
                             try {
+                                if (deriveActiveKey(vm)?.kaspaAddress != keyPair.kaspaAddress) {
+                                    throw IllegalStateException("Active wallet changed; request cancelled")
+                                }
                                 val signature = CryptoUtils.signKaspaPersonalMessage(
                                     keyPair.privateKey, message.toByteArray(Charsets.UTF_8)
                                 )
@@ -199,7 +206,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     val prepared = try {
                         DappPsktTransaction.prepareForSigning(
                             txJson, signInputs, keyPair.publicKeyHex,
-                            redeemScript = options.optString("redeemScript", "")
+                            redeemScript = options?.optString("redeemScript", "").orEmpty()
                         )
                     } catch (error: Throwable) {
                         respondError(sessionRequest, -32602, error.message ?: "PSKT validation failed")
@@ -218,8 +225,11 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                             {
                                 executor.execute {
                                     try {
+                                        if (deriveActiveKey(vm)?.kaspaAddress != keyPair.kaspaAddress) {
+                                            throw IllegalStateException("Active wallet changed; request cancelled")
+                                        }
                                         val signed = DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey)
-                                        respondResult(sessionRequest, JSONObject.quote(signed))
+                                        respondResult(sessionRequest, signed.toString())
                                     } catch (error: Throwable) {
                                         respondError(sessionRequest, -32603, error.message ?: "PSKT signing failed")
                                     }
@@ -233,7 +243,9 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
             "kaspa_sendTransaction" -> {
                 val recipient = params.optString("to", params.optString("address")).trim()
                 val amount = params.optString("amount", params.optString("amountKas")).toBigDecimalOrNull()
-                if (recipient.isBlank() || amount == null || amount <= BigDecimal.ZERO || amount.scale() > 8) {
+                if (!recipient.startsWith("kaspa:") || recipient.length > 128 ||
+                    amount == null || amount <= BigDecimal.ZERO || amount.scale() > 8 ||
+                    amount > BigDecimal("1000000000")) {
                     respondError(sessionRequest, -32602, "Valid recipient and KAS amount are required")
                 } else {
                     val summary = "DApp: ${sessionRequest.peerMetaData?.name ?: "Unknown"}\n" +
@@ -242,6 +254,9 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     confirm(currentActivity, "Review Kaspa payment", summary, {
                         executor.execute {
                             try {
+                                if (deriveActiveKey(vm)?.kaspaAddress != keyPair.kaspaAddress) {
+                                    throw IllegalStateException("Active wallet changed; payment cancelled")
+                                }
                                 val receipt = kotlinx.coroutines.runBlocking {
                                     vm.walletService.sendKaspa(
                                         senderAddress = keyPair.kaspaAddress,
