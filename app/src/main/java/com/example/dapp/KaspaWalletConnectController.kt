@@ -868,14 +868,6 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                             try {
                                 vm.selectNetwork(target.name)
                                 respondResult(request, "null")
-                                WalletKit.emitSessionEvent(
-                                    Wallet.Params.SessionEmit(
-                                        request.topic,
-                                        Wallet.Model.SessionEvent("chainChanged", JSONObject.quote(target.chainIdHex)),
-                                        targetChain
-                                    ),
-                                    onError = { android.util.Log.w(TAG, "EVM chainChanged event failed", it.throwable) }
-                                )
                             } catch (error: Throwable) {
                                 respondError(request, -32000, error.message ?: "Network switch failed")
                             }
