@@ -14,13 +14,16 @@ object KbKcc20TransferBuilder {
         if (
             config.covenantId != KbKcc20Protocol.TOKEN_COVENANT_ID ||
             config.stateLayout != KbKcc20Protocol.STATE_LAYOUT ||
+            config.supplyBaseUnits != KbKcc20Protocol.TOKEN_SUPPLY_BASE_UNITS ||
             config.templateHash != KbKcc20Protocol.TEMPLATE_HASH ||
             config.viewTemplateHash != KbKcc20Protocol.VIEW_TEMPLATE_HASH ||
             config.transferDispatch != KbKcc20Protocol.TRANSFER_DISPATCH ||
             config.transferDelegatorDispatch != KbKcc20Protocol.TRANSFER_DELEGATOR_DISPATCH ||
             config.kccVersion != KbKcc20Protocol.KCC_VERSION ||
             config.ownerSchemes != KbKcc20Protocol.supportedOwnerSchemes ||
-            config.borrowSchemes != KbKcc20Protocol.supportedBorrowSchemes
+            config.borrowSchemes != KbKcc20Protocol.supportedBorrowSchemes ||
+            config.maxTokenInputs != KbKcc20Protocol.MAX_TOKEN_INPUTS ||
+            config.maxTokenOutputs != KbKcc20Protocol.MAX_TOKEN_OUTPUTS
         ) {
             return TransferGate.Blocked(
                 "KB transfer blocked: pinned covenant configuration or template hashes do not match."
