@@ -73,9 +73,10 @@ object KaspaDappBridge {
                 fun currentKeyPair(): CryptoUtils.KaspaKeyPair? {
                     val active = account ?: return null
                     return try {
-                        CryptoUtils.deriveKaspaKeyPair(active.seedPhrase, prefix)
+                        val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
+                        CryptoUtils.deriveKaspaKeyPair(seed, prefix)
                     } catch (_: Throwable) {
-                        null
+                        try { CryptoUtils.deriveKaspaKeyPair(active.seedPhrase, prefix) } catch (_: Throwable) { null }
                     }
                 }
 
@@ -329,16 +330,16 @@ object KaspaDappBridge {
                                     }
                                     .setPositiveButton("Sign selected inputs") { _, _ ->
                                         cryptoExecutor.execute {
-                                            val signedJson = try {
-                                                DappPsktTransaction.sign(prepared, keyPair.privateKey)
+                                            val signedResult = try {
+                                                DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey)
                                             } catch (error: Throwable) {
                                                 null
                                             }
                                             mainHandler.post {
-                                                if (signedJson == null) {
+                                                if (signedResult == null) {
                                                     respond(errorCode = -32603, errorMessage = "Transaction signing failed")
                                                 } else {
-                                                    respond(signedJson)
+                                                    respond(signedResult)
                                                 }
                                             }
                                         }
@@ -372,19 +373,12 @@ object KaspaDappBridge {
                             is String -> try { JSONObject(params) } catch (_: Exception) { JSONObject() }
                             else -> JSONObject()
                         }
-                        val tick = paramsObj.optString("tick", paramsObj.optString("ticker", "NACHO")).uppercase()
+                        val tick = paramsObj.optString("tick", paramsObj.optString("ticker", paramsObj.optString("symbol", "KAS"))).uppercase()
                         val op = paramsObj.optString("op", paramsObj.optString("type", "transfer")).lowercase()
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
                         val rawTxJson = paramsObj.optString("txJsonString", paramsObj.optString("transaction", ""))
-                        if (method.contains("kcc", ignoreCase = true)) {
-                            respond(
-                                errorCode = -32601,
-                                errorMessage = "KCC-20 covenant transfer signing is unavailable until a protocol-specific KB covenant builder and validator is integrated. Generic PSKT signing is not sufficient proof of a valid token transfer. No KAS fallback payment was sent."
-                            )
-                            return@addWebMessageListener
-                        }
-                        val protocolLabel = "KRC-20"
+                        val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KRC-20"
 
                         AlertDialog.Builder(context)
                             .setTitle("Review $protocolLabel $tick Transaction")
@@ -466,11 +460,39 @@ object KaspaDappBridge {
                                     }
 
                                     if (method.contains("kcc", ignoreCase = true)) {
-                                        mainHandler.post {
-                                            respond(
-                                                errorCode = -32602,
-                                                errorMessage = "KCC-20 transfer requires a valid protocol-built covenant PSKT. No generic KAS payment fallback is permitted."
-                                            )
+                                        val amtDouble = amtStr.toDoubleOrNull() ?: 0.0
+                                        if (toAddr.isNotBlank() && amtDouble > 0.0) {
+                                            val res = kotlinx.coroutines.runBlocking {
+                                                viewModel.executeKbKcc20Transfer(toAddr, amtDouble)
+                                            }
+                                            mainHandler.post {
+                                                res.fold(
+                                                    onSuccess = { txId ->
+                                                        respond(
+                                                            JSONObject()
+                                                                .put("transactionId", txId)
+                                                                .put("status", "accepted")
+                                                                .put("tick", "KB")
+                                                                .put("op", "transfer")
+                                                                .put("amt", amtStr)
+                                                                .put("to", toAddr)
+                                                        )
+                                                    },
+                                                    onFailure = { err ->
+                                                        respond(
+                                                            errorCode = -32000,
+                                                            errorMessage = err.message ?: "KCC-20 transfer failed"
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        } else {
+                                            mainHandler.post {
+                                                respond(
+                                                    errorCode = -32602,
+                                                    errorMessage = "KCC-20 transfer requires recipient address and amount > 0."
+                                                )
+                                            }
                                         }
                                         return@execute
                                     }
@@ -761,27 +783,62 @@ object KaspaDappBridge {
                   window.__kaspaBrowserProviderInstalled = true;
                   const pending = new Map();
                   let nextId = 1;
-                  const channel = window.$BRIDGE_NAME;
-                  if (!channel || typeof channel.postMessage !== 'function') return;
-                  channel.addEventListener('message', event => {
-                    let response;
-                    try { response = JSON.parse(event.data); } catch (_) { return; }
-                    const entry = pending.get(String(response.id));
-                    if (!entry) return;
-                    pending.delete(String(response.id));
-                    if (response.error) {
-                      const error = new Error(response.error.message || 'Wallet request failed');
-                      error.code = response.error.code;
-                      entry.reject(error);
-                    } else {
-                      entry.resolve(response.result);
+                  const getChannel = () => window.$BRIDGE_NAME || window.kaspaDappPort || window.kaspaBridgePort;
+                  const bindChannelListener = () => {
+                    const ch = getChannel();
+                    if (ch && typeof ch.addEventListener === 'function' && !window.__kaspaChannelBound) {
+                      window.__kaspaChannelBound = true;
+                      try {
+                        ch.addEventListener('message', event => {
+                          let response;
+                          try { response = JSON.parse(event.data); } catch (_) { return; }
+                          const entry = pending.get(String(response.id));
+                          if (!entry) return;
+                          pending.delete(String(response.id));
+                          if (response.error) {
+                            const error = new Error(response.error.message || 'Wallet request failed');
+                            error.code = response.error.code;
+                            entry.reject(error);
+                          } else {
+                            entry.resolve(response.result);
+                          }
+                        });
+                      } catch (_) {}
                     }
-                  });
+                  };
+                  bindChannelListener();
+
+                  const sendMsg = (ch, msgObj, resolve, reject) => {
+                    try {
+                      ch.postMessage(JSON.stringify(msgObj));
+                    } catch (err) {
+                      reject(err);
+                    }
+                  };
+
                   const request = (method, params) => new Promise((resolve, reject) => {
                     const id = String(nextId++);
                     pending.set(id, { resolve, reject });
-                    try { channel.postMessage(JSON.stringify({ id, method, params })); }
-                    catch (error) { pending.delete(id); reject(error); }
+                    bindChannelListener();
+                    const ch = getChannel();
+                    if (ch && typeof ch.postMessage === 'function') {
+                      sendMsg(ch, { id, method, params }, resolve, reject);
+                    } else {
+                      let attempts = 0;
+                      const timer = setInterval(() => {
+                        attempts++;
+                        bindChannelListener();
+                        const activeCh = getChannel();
+                        if (activeCh && typeof activeCh.postMessage === 'function') {
+                          clearInterval(timer);
+                          sendMsg(activeCh, { id, method, params }, resolve, reject);
+                        } else if (attempts >= 20) {
+                          clearInterval(timer);
+                          pending.delete(id);
+                          reject(Object.assign(new Error('Wallet communication channel unavailable'), { code: -32603 }));
+                        }
+                      }, 50);
+                    }
                   });
                   const listeners = new Map();
                   const emit = (event, value) => {
@@ -853,7 +910,15 @@ object KaspaDappBridge {
                       return { address: accounts[0] || '', accounts };
                     }
                   });
-                  const requestCompat = ({ method, params } = {}) => {
+                  const requestCompat = (firstArg, secondArg) => {
+                    let method, params;
+                    if (typeof firstArg === 'string') {
+                      method = firstArg;
+                      params = secondArg;
+                    } else if (firstArg && typeof firstArg === 'object') {
+                      method = firstArg.method;
+                      params = firstArg.params;
+                    }
                     if (typeof method !== 'string' || !method) {
                       return Promise.reject(Object.assign(new Error('A wallet method is required'), { code: -32600 }));
                     }
@@ -954,13 +1019,16 @@ object KaspaDappBridge {
                         return request('signMessage', message);
                       }
                       case 'signPskt': {
-                        const payload = value && typeof value === 'object' ? value : {};
-                        if (typeof payload.txJsonString !== 'string' || !payload.options || !Array.isArray(payload.options.signInputs)) {
+                        const payload = (params && typeof params === 'object') ? params : (value && typeof value === 'object' ? value : {});
+                        const txJson = payload.txJsonString || payload.psktTransactionJson || payload.signedTxJson || '';
+                        const options = payload.options || { signInputs: payload.signInputs || payload.signInputIndexes || [] };
+                        const signInputs = options.signInputs || payload.signInputs;
+                        if (typeof txJson !== 'string' || !txJson || !Array.isArray(signInputs)) {
                           return Promise.reject(Object.assign(new Error('signPskt requires txJsonString and options.signInputs'), { code: -32602 }));
                         }
                         return request('signPskt', {
-                          txJsonString: payload.txJsonString,
-                          options: payload.options,
+                          txJsonString: txJson,
+                          options: { ...options, signInputs },
                           sender: payload.sender
                         });
                       }
@@ -1026,15 +1094,18 @@ object KaspaDappBridge {
                     isInstalled: true,
                     type: 'extension',
                     version: '1.2.0',
-                    requestAccounts: () => requestCompat({ method: 'kaspa:requestAccounts' }),
-                    getAccounts: () => requestCompat({ method: 'kaspa:getAccounts' }),
-                    getNetwork: () => requestCompat({ method: 'kaspa:getNetwork' }),
-                    getPublicKey: () => requestCompat({ method: 'kaspa:getPublicKey' }),
-                    getBalance: () => requestCompat({ method: 'kaspa:getBalance' }),
+                    request: requestCompat,
+                    requestAccounts: () => requestCompat({ method: 'requestAccounts' }),
+                    getAccounts: () => requestCompat({ method: 'getAccounts' }),
+                    getNetwork: () => requestCompat({ method: 'getNetwork' }),
+                    getPublicKey: () => requestCompat({ method: 'getPublicKey' }),
+                    getBalance: () => requestCompat({ method: 'getBalance' }),
+                    signPskt: payload => requestCompat({ method: 'signPskt', params: payload }),
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
-                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
+                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload }),
+                    disconnect: () => requestCompat({ method: 'disconnect' })
                   });
                   installAlias('kastle', Object.freeze({
                     ...requestProvider,
@@ -1076,39 +1147,40 @@ object KaspaDappBridge {
                   });
                   Object.freeze(kasperiaProvider);
                   installAlias('kasperia', kasperiaProvider);
-                  const kaspireProvider = {
-                    ...requestProvider,
+                  const kaspireProvider = Object.freeze({
+                    ...kaspaBrowserProvider,
                     id: 'kaspire',
                     name: 'Kaspire',
                     provider: 'kaspire',
                     isKaspire: true,
+                    isKaspabrowser: true,
+                    isKaspaBrowser: true,
                     isInstalled: true,
                     isKaspa: true,
                     type: 'extension',
                     version: '1.2.5'
-                  };
-                  Object.defineProperty(kaspireProvider, 'ethereum', {
-                    configurable: false,
-                    enumerable: true,
-                    get: () => window.ethereum
                   });
-                  Object.freeze(kaspireProvider);
                   window.kaspire = kaspireProvider;
                   window.isKaspire = true;
                   installAlias('kaspire', kaspireProvider);
 
-                  Object.defineProperty(window, 'kaspa', {
-                    configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
-                  });
-                  Object.defineProperty(window, 'kaspaBrowser', {
-                    configurable: false, enumerable: true, writable: false, value: browserProvider
-                  });
-                  Object.defineProperty(window, 'kaspabrowser', {
-                    configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
-                  });
-                  Object.defineProperty(window, 'kaspabrowserProvider', {
-                    configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
-                  });
+                  window.kaspabrowser = kaspaBrowserProvider;
+                  window.kaspabrowserProvider = kaspaBrowserProvider;
+                  try {
+                    Object.defineProperty(window, 'kaspabrowser', {
+                      configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
+                    });
+                    Object.defineProperty(window, 'kaspabrowserProvider', {
+                      configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
+                    });
+                    Object.defineProperty(window, 'kaspa', {
+                      configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
+                    });
+                    Object.defineProperty(window, 'kaspaBrowser', {
+                      configurable: true, enumerable: true, writable: true, value: browserProvider
+                    });
+                  } catch (_) {}
+
                   window.isKasware = true;
                   window.isKaspa = true;
 
@@ -1151,10 +1223,23 @@ object KaspaDappBridge {
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
-            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+            webView.post {
+                try { webView.evaluateJavascript(script, null) } catch (_: Throwable) {}
+            }
         } catch (_: Throwable) {
             // Provider remains unavailable if the secure WebView messaging features cannot be installed.
         }
+    }
+
+    fun injectProviderScript(webView: WebView) {
+        try {
+            webView.post {
+                try {
+                    webView.evaluateJavascript("if (typeof window.kaspabrowser === 'undefined') { window.dispatchEvent(new Event('kaspabrowser#requestProvider')); }", null)
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun networkId(network: String): String = when {

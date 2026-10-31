@@ -198,16 +198,21 @@ class Kcc20KasivoService(
                 ?: throw java.io.IOException("Kascov did not return token metadata")
             val balances = detail.optJSONArray("balances") ?: JSONArray()
             val normalizedAddress = walletAddress?.trim()?.lowercase()
+            val strippedAddress = normalizedAddress?.removePrefix("kaspa:")
             fun isWalletOwner(row: JSONObject): Boolean {
                 val rowOwner = row.optString("owner").trim().lowercase().removePrefix("0x")
-                val rowAddress = row.optString("owner_address").trim().lowercase()
+                val rowAddress = row.optString("owner_address", row.optString("address", row.optString("holder", ""))).trim().lowercase()
                 val schemeName = row.optString("owner_scheme_name").trim().lowercase()
                 val scheme = row.optString("owner_scheme").trim().lowercase()
-                val directPublicKeyMatch = rowOwner == owner
-                val addressMatch = normalizedAddress != null &&
-                    normalizedAddress.isNotBlank() &&
-                    rowAddress.isNotBlank() &&
-                    rowAddress == normalizedAddress
+                val directPublicKeyMatch = rowOwner == owner || rowOwner.contains(owner)
+                val addressMatch = normalizedAddress != null && normalizedAddress.isNotBlank() && (
+                    rowAddress == normalizedAddress ||
+                    (strippedAddress != null && rowAddress.removePrefix("kaspa:") == strippedAddress) ||
+                    rowOwner == normalizedAddress ||
+                    (strippedAddress != null && rowOwner.removePrefix("kaspa:") == strippedAddress) ||
+                    (strippedAddress != null && rowAddress.contains(strippedAddress)) ||
+                    (strippedAddress != null && rowOwner.contains(strippedAddress))
+                )
                 val isSchnorrKeyHashOwner =
                     rowOwner.startsWith("p2pkh:") &&
                     (schemeName == "p2pkh-schnorr/v1" || scheme == "p2pkh-schnorr/v1" || schemeName.isBlank() || scheme.isBlank())
@@ -226,6 +231,10 @@ class Kcc20KasivoService(
             }
             fun exactBalance(row: JSONObject): String? {
                 return row.optString("balance_str").takeIf { it.isNotBlank() && it != "null" }
+                    ?: row.optString("balance").takeIf { it.isNotBlank() && it != "null" }
+                    ?: row.optString("amount").takeIf { it.isNotBlank() && it != "null" }
+                    ?: row.optString("value").takeIf { it.isNotBlank() && it != "null" }
+                    ?: row.optString("total_balance").takeIf { it.isNotBlank() && it != "null" }
                     ?: row.opt("balance")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
             }
             var balanceRaw: String? = null
@@ -251,8 +260,31 @@ class Kcc20KasivoService(
                         }
                     }
                 } catch (_: Exception) {
-                    // Failover gracefully to 0 balance without interrupting live price streaming
+                    // Failover gracefully
                 }
+            }
+            if ((balanceRaw == null || balanceRaw == "0") && !walletAddress.isNullOrBlank()) {
+                try {
+                    val historyRes = fetchKcc20History(walletAddress, tokenId).getOrNull()
+                    if (!historyRes.isNullOrEmpty()) {
+                        var netBaseUnits = 0L
+                        val cleanTarget = walletAddress.trim().lowercase().removePrefix("kaspa:")
+                        for (item in historyRes) {
+                            val itemTo = item.toAddress.trim().lowercase().removePrefix("kaspa:")
+                            val itemFrom = item.fromAddress.trim().lowercase().removePrefix("kaspa:")
+                            val rawAmt = item.amountRaw.toLongOrNull() ?: (item.amount * 1000.0).toLong()
+                            if (itemTo == cleanTarget) {
+                                netBaseUnits += rawAmt
+                            }
+                            if (itemFrom == cleanTarget) {
+                                netBaseUnits -= rawAmt
+                            }
+                        }
+                        if (netBaseUnits > 0) {
+                            balanceRaw = netBaseUnits.toString()
+                        }
+                    }
+                } catch (_: Exception) {}
             }
             if (balanceRaw == null) {
                 balanceRaw = "0"
@@ -614,11 +646,21 @@ class Kcc20KasivoService(
             for (i in 0 until cellsArray.length()) {
                 val c = cellsArray.optJSONObject(i) ?: continue
                 val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
+                val cellAddress = c.optString("owner_address", c.optString("address", c.optString("holder", ""))).trim().lowercase()
                 val scheme = c.optString("owner_scheme").trim()
+                val stripped = normalizedAddress?.removePrefix("kaspa:")
 
                 val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
                               (cellOwner == owner) ||
-                              (normalizedAddress != null && c.optString("owner_address").equals(normalizedAddress, ignoreCase = true))
+                              (cellOwner.contains(owner)) ||
+                              (normalizedAddress != null && (
+                                  cellAddress == normalizedAddress ||
+                                  (stripped != null && cellAddress.removePrefix("kaspa:") == stripped) ||
+                                  cellOwner == normalizedAddress ||
+                                  (stripped != null && cellOwner.removePrefix("kaspa:") == stripped) ||
+                                  (stripped != null && cellAddress.contains(stripped)) ||
+                                  (stripped != null && cellOwner.contains(stripped))
+                              ))
 
                 if (isMatch) {
                     val outpoint = c.optString("outpoint", "")

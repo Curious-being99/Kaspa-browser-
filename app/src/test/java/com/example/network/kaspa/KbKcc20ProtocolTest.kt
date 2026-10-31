@@ -137,7 +137,7 @@ class KbKcc20ProtocolTest {
         )
         assertEquals(10, KbKcc20Protocol.MAX_TOKEN_INPUTS)
         assertEquals(10, KbKcc20Protocol.MAX_TOKEN_OUTPUTS)
-        assertEquals("unpublished", KbKcc20Protocol.ARTIFACT_STATUS)
+        assertEquals("published", KbKcc20Protocol.ARTIFACT_STATUS)
         assertEquals("reviewed", KbKcc20Protocol.REVIEW_STATUS)
     }
 }

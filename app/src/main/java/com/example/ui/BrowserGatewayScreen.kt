@@ -2812,9 +2812,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         webViewClient = object : WebViewClient() {
                                             override fun onPageStarted(wv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                                                 super.onPageStarted(wv, url, favicon)
-                                                 if (wv != null && url != null) {
-                                                     com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(wv, url)
-                                                 }
+                                                if (wv != null) {
+                                                    if (url != null) {
+                                                        com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(wv, url)
+                                                    }
+                                                    com.example.dapp.KaspaDappBridge.injectProviderScript(wv)
+                                                }
                                                 val target = url ?: return
                                                 handleTargetUrl(wv, target, isUserGesture)
                                             }
@@ -5547,6 +5550,64 @@ fun BraidSwapLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
 }
 
 @Composable
+fun KaspaRocketLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 30.dp) {
+    Box(
+        modifier = modifier
+            .size(iconSize)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF3CD9B8)),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(3.dp)
+        ) {
+            val w = size.width
+            val h = size.height
+            val strokeW = w * 0.11f
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = strokeW,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+            val black = Color(0xFF0F0F0F)
+
+            // Rocket body
+            val rocketBody = Path().apply {
+                moveTo(w * 0.38f, h * 0.58f)
+                cubicTo(w * 0.38f, h * 0.36f, w * 0.56f, h * 0.18f, w * 0.78f, h * 0.22f)
+                cubicTo(w * 0.82f, h * 0.44f, w * 0.64f, h * 0.62f, w * 0.42f, h * 0.62f)
+                close()
+            }
+            drawPath(path = rocketBody, color = black, style = stroke)
+
+            // Top-left fin
+            val topFin = Path().apply {
+                moveTo(w * 0.42f, h * 0.42f)
+                cubicTo(w * 0.26f, h * 0.42f, w * 0.26f, h * 0.54f, w * 0.40f, h * 0.56f)
+            }
+            drawPath(path = topFin, color = black, style = stroke)
+
+            // Bottom-right fin
+            val bottomFin = Path().apply {
+                moveTo(w * 0.58f, h * 0.60f)
+                cubicTo(w * 0.60f, h * 0.74f, w * 0.48f, h * 0.74f, w * 0.44f, h * 0.60f)
+            }
+            drawPath(path = bottomFin, color = black, style = stroke)
+
+            // Exhaust flame drop at bottom-left
+            val flame = Path().apply {
+                moveTo(w * 0.30f, h * 0.64f)
+                cubicTo(w * 0.18f, h * 0.68f, w * 0.20f, h * 0.82f, w * 0.28f, h * 0.80f)
+                cubicTo(w * 0.34f, h * 0.76f, w * 0.34f, h * 0.68f, w * 0.30f, h * 0.64f)
+            }
+            drawPath(path = flame, color = black, style = stroke)
+        }
+    }
+}
+
+@Composable
 fun KaspaComLogoIcon(modifier: Modifier = Modifier, iconSize: Dp = 24.dp) {
     Canvas(modifier = modifier.size(iconSize)) {
         val w = size.width
@@ -6277,22 +6338,7 @@ fun CustomShortcutLogo(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BraidSpeedDialLogo(iconSize: Dp = 30.dp) {
-    Box(
-        modifier = Modifier.size(iconSize).clip(RoundedCornerShape(6.dp))
-            .background(Color(0xFF0F1117))
-            .border(1.dp, Color(0xFF2E3440), RoundedCornerShape(6.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(Modifier.fillMaxSize().padding(3.dp)) {
-            val w = size.width
-            val h = size.height
-            val stroke = w * 0.12f
-            val radius = w * 0.26f
-            drawCircle(Color(0xFFF59E0B), radius, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.36f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-            drawCircle(Color(0xFFFBBF24), radius, androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.64f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-            drawCircle(Color(0xFFEAB308), radius, androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.64f), style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-        }
-    }
+    BraidSwapLogoIcon(iconSize = iconSize)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -6487,10 +6533,9 @@ fun BrowserSpeedDial(
                 SpeedDialCircleItem(
                     label = "Braid",
                     iconColor = Color(0xFFFBBF24),
-                    sublabel = "app.braidswap.com",
                     onClick = { onNavigate("https://app.braidswap.com") }
                 ) {
-                    BraidSpeedDialLogo(iconSize = 30.dp)
+                    BraidSwapLogoIcon(iconSize = 30.dp)
                 }
 
                 // Item 3: Kaspa.com
@@ -6563,6 +6608,16 @@ fun BrowserSpeedDial(
                     onClick = { onNavigate("https://kasmap.org") }
                 ) {
                     KasmapLogoIcon(iconSize = 36.dp)
+                }
+
+                // Item 11: KaspaRocket
+                SpeedDialCircleItem(
+                    label = "KaspaRocket",
+                    sublabel = "kasparocket.fun",
+                    iconColor = Color(0xFF3CD9B8),
+                    onClick = { onNavigate("https://kasparocket.fun") }
+                ) {
+                    KaspaRocketLogoIcon(iconSize = 30.dp)
                 }
 
 

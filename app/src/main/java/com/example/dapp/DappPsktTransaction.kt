@@ -144,6 +144,23 @@ internal object DappPsktTransaction {
         return signedRoot.toString()
     }
 
+    fun signAndFormat(prepared: Prepared, privateKey: BigInteger): JSONObject {
+        val signedJsonString = sign(prepared, privateKey)
+        val inputsArray = JSONArray()
+        for (request in prepared.signInputs) {
+            val input = prepared.transaction.inputs[request.index]
+            inputsArray.put(
+                JSONObject()
+                    .put("index", request.index)
+                    .put("signatureScript", input.signatureScript)
+            )
+        }
+        return JSONObject()
+            .put("inputs", inputsArray)
+            .put("psktTransactionJson", signedJsonString)
+            .put("signedTxJson", signedJsonString)
+    }
+
     private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>, redeemScript: String): Prepared {
         require(txJsonString.isNotBlank() && txJsonString.length <= MAX_TRANSACTION_JSON_CHARS) {
             "Transaction JSON is empty or too large"

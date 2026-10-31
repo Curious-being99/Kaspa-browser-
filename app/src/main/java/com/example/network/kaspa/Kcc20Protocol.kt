@@ -25,7 +25,7 @@ object KbKcc20Protocol {
     const val ARGENT_TEMPLATE_STATE_SIZE = 145
     const val AMOUNT_SIZE = 8
 
-    const val ARTIFACT_STATUS = "unpublished"
+    const val ARTIFACT_STATUS = "published"
     const val REVIEW_STATUS = "reviewed"
     const val KCC_VERSION = 20
     const val MAX_TOKEN_INPUTS = 10

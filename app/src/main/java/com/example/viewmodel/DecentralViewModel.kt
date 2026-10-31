@@ -2178,7 +2178,8 @@ class DecentralViewModel(
 
                     // 2. Fetch KB live spot price and token metadata
                     val keyPair = withContext(Dispatchers.Default) {
-                        CryptoUtils.deriveKaspaKeyPair(account.seedPhrase, prefix = "kaspa")
+                        val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
+                        CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = "kaspa")
                     }
                     try {
                         val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
@@ -2220,7 +2221,8 @@ class DecentralViewModel(
         viewModelScope.launch {
             val account = activeAccount.value ?: return@launch
             val keyPair = withContext(Dispatchers.Default) {
-                CryptoUtils.deriveKaspaKeyPair(account.seedPhrase, prefix = "kaspa")
+                val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
+                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = "kaspa")
             }
             try {
                 val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
@@ -2462,7 +2464,7 @@ class DecentralViewModel(
 
             // 4. Fetch live cells for KB from KasCov BlockDAG indexer
             val contractId = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
-            val pieces = kcc20Service.fetchLiveTokenCells(
+            var pieces = kcc20Service.fetchLiveTokenCells(
                 contractId = contractId,
                 publicKeyHex = keyPair.publicKeyHex,
                 walletAddress = keyPair.kaspaAddress
@@ -2470,7 +2472,7 @@ class DecentralViewModel(
 
             if (pieces.isEmpty()) {
                 return@withContext Result.failure(
-                    IllegalStateException("No live \$KB covenant cells found for ${keyPair.kaspaAddress.take(16)}... on Mainnet. Wallet holds 0 KB.")
+                    IllegalStateException("No live \$KB covenant cells found for ${keyPair.kaspaAddress.take(16)}... on Kaspa Mainnet. Please ensure the sender wallet holds \$KB covenant token cells.")
                 )
             }
 
