@@ -618,6 +618,87 @@ class Kcc20KasivoService(
      * Fetch live KCC-20 covenant token cells (UTXOs with redeem bytecode) owned by a wallet pubkey.
      * Maps directly to [KbKcc20StandardAssembler.SpendPiece] for real on-chain covenant spending.
      */
+    data class DeploymentConformance(
+        val tokenStatus: String,
+        val layout: String,
+        val kcc: Int,
+        val review: String,
+        val conformant: Boolean?,
+        val artifact: String?,
+        val templateHash: String,
+        val viewTemplateHash: String,
+        val dispatch: String,
+        val nonconformities: List<String>
+    ) {
+        val safeForStandardTransfer: Boolean
+            get() = tokenStatus == "verified" &&
+                layout == "kcc0020-112" &&
+                kcc == 20 &&
+                review == "reviewed" &&
+                conformant == true &&
+                artifact != "unpublished" &&
+                templateHash.equals(KbKcc20Protocol.TEMPLATE_HASH, true) &&
+                viewTemplateHash.equals(KbKcc20Protocol.VIEW_TEMPLATE_HASH, true) &&
+                dispatch == "kcc1-tags" &&
+                nonconformities.isEmpty()
+    }
+
+    suspend fun fetchDeploymentConformance(
+        contractId: String
+    ): Result<DeploymentConformance> = withContext(Dispatchers.IO) {
+        val tokenId = contractId.trim().lowercase()
+        if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("KCC-20 covenant ID must be 32-byte hex"))
+        }
+        try {
+            val url = URL("https://kascov.io/data/mainnet/token/$tokenId")
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 8_000
+                readTimeout = 12_000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0")
+            }
+            try {
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw java.io.IOException(
+                        "Kascov token conformance endpoint returned HTTP ${connection.responseCode}"
+                    )
+                }
+                val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                val token = root.optJSONObject("token") ?: root
+                val standard = token.optJSONObject("standard")
+                    ?: root.optJSONObject("standard")
+                    ?: throw java.io.IOException("Kascov did not publish the KCC-20 standard build verdict")
+                val nonconformitiesJson = standard.optJSONArray("nonconformities") ?: JSONArray()
+                val nonconformities = (0 until nonconformitiesJson.length()).mapNotNull { index ->
+                    nonconformitiesJson.optString(index).takeIf { it.isNotBlank() && it != "null" }
+                }
+                Result.success(
+                    DeploymentConformance(
+                        tokenStatus = token.optString("status"),
+                        layout = token.optString("layout"),
+                        kcc = standard.optInt("kcc", -1),
+                        review = standard.optString("review"),
+                        conformant = if (standard.has("conformant") && !standard.isNull("conformant")) {
+                            standard.optBoolean("conformant")
+                        } else null,
+                        artifact = standard.optString("artifact").takeIf { it.isNotBlank() && it != "null" },
+                        templateHash = standard.optString("template_hash"),
+                        viewTemplateHash = standard.optString("view_template_hash"),
+                        dispatch = standard.optString("dispatch"),
+                        nonconformities = nonconformities
+                    )
+                )
+            } finally {
+                connection.disconnect()
+            }
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
     suspend fun fetchLiveTokenCells(
         contractId: String,
         publicKeyHex: String,
