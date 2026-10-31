@@ -11,6 +11,22 @@ object KbKcc20TransferBuilder {
     fun gateStatus(
         config: KbKcc20DeploymentConfig = KbKcc20Protocol.reviewedConfig
     ): TransferGate {
+        if (
+            config.covenantId != KbKcc20Protocol.TOKEN_COVENANT_ID ||
+            config.stateLayout != KbKcc20Protocol.STATE_LAYOUT ||
+            config.templateHash != KbKcc20Protocol.TEMPLATE_HASH ||
+            config.viewTemplateHash != KbKcc20Protocol.VIEW_TEMPLATE_HASH ||
+            config.transferDispatch != KbKcc20Protocol.TRANSFER_DISPATCH ||
+            config.transferDelegatorDispatch != KbKcc20Protocol.TRANSFER_DELEGATOR_DISPATCH ||
+            config.kccVersion != KbKcc20Protocol.KCC_VERSION ||
+            config.ownerSchemes != KbKcc20Protocol.supportedOwnerSchemes ||
+            config.borrowSchemes != KbKcc20Protocol.supportedBorrowSchemes
+        ) {
+            return TransferGate.Blocked(
+                "KB transfer blocked: pinned covenant configuration or template hashes do not match."
+            )
+        }
+
         if (config.artifactStatus != PUBLISHED_STATUS) {
             return TransferGate.Blocked(
                 "KB transfer blocked: the covenant artifact is unpublished; no verified assembler is available."
