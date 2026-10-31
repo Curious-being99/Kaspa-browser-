@@ -262,6 +262,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                 val options = params.optJSONObject("options")
                 val signInputs = options?.optJSONArray("signInputs")
                 if (txJson.isBlank() || signInputs == null) {
+                    keyPair.wipe()
                     respondError(sessionRequest, -32602, "signPskt requires txJsonString and options.signInputs")
                 } else executor.execute {
                     val prepared = try {
@@ -287,7 +288,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                             {
                                 executor.execute {
                                     try {
-                                        if (deriveActiveKey(vm)?.kaspaAddress != keyPair.kaspaAddress) {
+                                        if (activeAddress(vm) != keyPair.kaspaAddress) {
                                             throw IllegalStateException("Active wallet changed; request cancelled")
                                         }
                                         val signed = DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey)
