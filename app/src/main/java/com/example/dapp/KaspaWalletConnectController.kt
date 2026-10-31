@@ -283,6 +283,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
     }
 
     private fun deriveActiveKey(vm: DecentralViewModel): CryptoUtils.KaspaKeyPair? {
+        if (vm.isWalletLocked.value) return null
         if (!vm.selectedNetwork.value.contains("Mainnet", true) ||
             vm.selectedNetwork.value.contains("Kasplex", true) ||
             vm.selectedNetwork.value.contains("Igra", true)
