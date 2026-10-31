@@ -1,6 +1,9 @@
 package com.example.network.kaspa
 
+import com.example.network.Blake3
 import java.math.BigInteger
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 object KbKcc20Protocol {
     const val TOKEN_COVENANT_ID =
@@ -18,6 +21,8 @@ object KbKcc20Protocol {
 
     const val ENCODED_STATE_SIZE = 112
     const val PROGRAM_STATE_OFFSET = 34
+    const val ARGENT_TEMPLATE_STATE_OFFSET = 1
+    const val ARGENT_TEMPLATE_STATE_SIZE = 145
     const val AMOUNT_SIZE = 8
 
     const val ARTIFACT_STATUS = "unpublished"
@@ -115,17 +120,60 @@ object KbKcc20Protocol {
         )
     }
 
+    fun templateHash(prefix: ByteArray, suffix: ByteArray): ByteArray {
+        val framed = ByteBuffer.allocate(8 + prefix.size + 8 + suffix.size)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .putLong(prefix.size.toLong())
+            .put(prefix)
+            .putLong(suffix.size.toLong())
+            .put(suffix)
+            .array()
+        return Blake3.hash(framed)
+    }
+
+    fun verifyArgentTemplate(program: ByteArray): KbKcc20TemplateVerification {
+        require(program.size >= ARGENT_TEMPLATE_STATE_OFFSET + ARGENT_TEMPLATE_STATE_SIZE) {
+            "KB Argent program is too short"
+        }
+        require(program[0] == 0x6b.toByte()) { "Unexpected Argent template prefix opcode" }
+        require(program[1] == 0x20.toByte()) { "Missing 32-byte Argent template slot" }
+
+        val stateEnd = ARGENT_TEMPLATE_STATE_OFFSET + ARGENT_TEMPLATE_STATE_SIZE
+        val prefix = program.copyOfRange(0, ARGENT_TEMPLATE_STATE_OFFSET)
+        val suffix = program.copyOfRange(stateEnd, program.size)
+        val computedTemplateHash = templateHash(prefix, suffix)
+        val embeddedTemplateHash = program.copyOfRange(2, 34)
+        require(computedTemplateHash.contentEquals(embeddedTemplateHash)) {
+            "Argent KCC-1 template hash mismatch"
+        }
+        require(computedTemplateHash.toHex() == TEMPLATE_HASH) {
+            "Argent KCC-1 template hash does not match the pinned KB build"
+        }
+
+        val viewPrefix = program.copyOfRange(0, PROGRAM_STATE_OFFSET)
+        val viewSuffix = program.copyOfRange(
+            PROGRAM_STATE_OFFSET + ENCODED_STATE_SIZE,
+            program.size
+        )
+        val computedViewHash = templateHash(viewPrefix, viewSuffix)
+        require(computedViewHash.toHex() == VIEW_TEMPLATE_HASH) {
+            "KB KCC-20 state-view template hash mismatch"
+        }
+
+        return KbKcc20TemplateVerification(
+            templateHash = computedTemplateHash.toHex(),
+            viewTemplateHash = computedViewHash.toHex(),
+            stateStart = PROGRAM_STATE_OFFSET,
+            stateLength = ENCODED_STATE_SIZE,
+            templateStateStart = ARGENT_TEMPLATE_STATE_OFFSET,
+            templateStateLength = ARGENT_TEMPLATE_STATE_SIZE,
+            prefixLength = prefix.size,
+            suffixLength = suffix.size
+        )
+    }
+
     fun decodeLiveCellProgram(program: ByteArray): KbKcc20State {
-        require(program.size >= PROGRAM_STATE_OFFSET + ENCODED_STATE_SIZE) {
-            "KB cell program is too short to contain the state window"
-        }
-        require(program[0] == 0x6b.toByte() && program[1] == 0x20.toByte()) {
-            "Unexpected KB Argent commitment header"
-        }
-        val embeddedHash = program.copyOfRange(2, 34).toHex()
-        require(embeddedHash == TEMPLATE_HASH) {
-            "KB program commitment does not match the pinned template hash"
-        }
+        verifyArgentTemplate(program)
         return decodeState(
             program.copyOfRange(
                 PROGRAM_STATE_OFFSET,
@@ -134,40 +182,5 @@ object KbKcc20Protocol {
         )
     }
 
-    fun verifyTemplateHash(
-        prefix: ByteArray,
-        suffix: ByteArray,
-        hashTemplate: (prefix: ByteArray, suffix: ByteArray) -> ByteArray
-    ): Boolean = hashTemplate(prefix, suffix).toHex() == TEMPLATE_HASH
-
     private fun ByteArray.toHex(): String =
         joinToString("") { "%02x".format(it.toInt() and 0xff) }
-}
-
-data class KbKcc20DeploymentConfig(
-    val covenantId: String,
-    val stateLayout: String,
-    val supplyBaseUnits: String,
-    val templateHash: String,
-    val viewTemplateHash: String,
-    val transferDispatch: String,
-    val transferDelegatorDispatch: String,
-    val kccVersion: Int,
-    val ownerSchemes: Set<Int>,
-    val borrowSchemes: Set<Int>,
-    val maxTokenInputs: Int,
-    val maxTokenOutputs: Int,
-    val artifactStatus: String,
-    val reviewStatus: String,
-    val conformant: Boolean?
-)
-
-data class KbKcc20State(
-    val amountBaseUnits: BigInteger,
-    val amountEncoding: ByteArray,
-    val owner: ByteArray,
-    val ownerScheme: Int,
-    val borrowScheme: Int,
-    val borrowGuard: ByteArray,
-    val extensionCommitment: ByteArray
-)
