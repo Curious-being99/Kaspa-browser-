@@ -8,8 +8,11 @@ import com.example.network.CryptoUtils
 import com.example.viewmodel.DecentralViewModel
 import com.reown.walletkit.client.Wallet
 import com.reown.walletkit.client.WalletKit
+import com.reown.sign.client.Sign
+import com.reown.sign.client.SignClient
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.math.BigDecimal
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
@@ -491,14 +494,32 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         }
     }
 
+    private fun decodeJsonRpcValue(value: Any?): Any? {
+        if (value === JSONObject.NULL) return null
+        return when (value) {
+            is JSONObject -> value.keys().asSequence().associateWith { key ->
+                decodeJsonRpcValue(value.get(key))
+            }
+            is JSONArray -> (0 until value.length()).map { index ->
+                decodeJsonRpcValue(value.get(index))
+            }
+            else -> value
+        }
+    }
+
     private fun respondResult(request: Wallet.Model.SessionRequest, result: String) {
-        WalletKit.respondSessionRequest(
-            Wallet.Params.SessionRequestResponse(
-                request.topic,
-                Wallet.Model.JsonRpcResponse.JsonRpcResult(request.request.id, result)
-            ),
-            onError = { android.util.Log.e(TAG, "Request response failed", it.throwable) }
-        )
+        try {
+            val typedResult = decodeJsonRpcValue(JSONTokener(result).nextValue())
+            SignClient.respond(
+                Sign.Params.Response(
+                    request.topic,
+                    Sign.Model.JsonRpcResponse.JsonRpcResult(request.request.id, typedResult)
+                ),
+                onError = { android.util.Log.e(TAG, "Request response failed", it.throwable) }
+            )
+        } catch (error: Throwable) {
+            respondError(request, -32603, error.message ?: "Unable to encode JSON-RPC result")
+        }
     }
 
     private fun respondError(request: Wallet.Model.SessionRequest, code: Int, message: String) {
