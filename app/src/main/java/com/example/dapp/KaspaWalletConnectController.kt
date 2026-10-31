@@ -34,8 +34,7 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
         "kaspa_signPersonal",
         "kaspa_signAuth",
         "kaspa_signPskt",
-        "kaspa_sendTransaction",
-        "kaspa_sendKcc20"
+        "kaspa_sendTransaction"
     )
     private val evmMethods = setOf(
         "eth_accounts", "eth_requestAccounts", "eth_chainId", "net_version",
@@ -504,74 +503,6 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                     )
                 }
             }
-            "kaspa_sendKcc20" -> {
-                val from = params.optString("from").trim()
-                val to = params.optString("to").trim()
-                val covenantId = params.optString("covenantId").lowercase()
-                val rawAmount = params.optString("amount")
-                val amountBaseUnits = rawAmount.toBigIntegerOrNull()
-                val amountKb = amountBaseUnits?.let { BigDecimal(it).movePointLeft(3).toDouble() }
-                val exactBaseUnits = amountKb?.let {
-                    runCatching { BigDecimal.valueOf(it).movePointRight(3).toBigIntegerExact() }.getOrNull()
-                }
-                if (!from.equals(keyPair.kaspaAddress, true) ||
-                    !CryptoUtils.isValidKaspaAddress(to, "kaspa") ||
-                    covenantId != KB_COVENANT_ID ||
-                    amountBaseUnits == null || amountBaseUnits.signum() <= 0 ||
-                    amountKb == null || exactBaseUnits != amountBaseUnits
-                ) {
-                    keyPair.wipe()
-                    respondError(
-                        sessionRequest,
-                        -32602,
-                        "Only the verified KB KCC20 covenant is currently supported. Provide matching from, valid Kaspa Mainnet to, the exact covenant ID, and an exact positive integer base-unit amount."
-                    )
-                } else {
-                    val review = "DApp: \${sessionRequest.peerMetaData?.name ?: "Unknown"}\nOrigin: \${sessionRequest.peerMetaData?.url ?: "Unknown"}\nStandard: KCC20\nAsset: KB\nCovenant: $covenantId\nFrom: \${keyPair.kaspaAddress}\nTo: $to\nAmount: $rawAmount base units (\${BigDecimal(amountBaseUnits).movePointLeft(3).stripTrailingZeros().toPlainString()} KB)\n\nThis uses live KB covenant cells and the existing KB KCC20 transaction engine. A real Mainnet transaction will be broadcast."
-                    confirm(
-                        currentActivity,
-                        "Review KB KCC20 transfer",
-                        review,
-                        {
-                            executor.execute {
-                                try {
-                                    require(activeAddress(vm) == keyPair.kaspaAddress) {
-                                        "Active wallet changed or locked; KCC20 transfer cancelled"
-                                    }
-                                    val result = kotlinx.coroutines.runBlocking {
-                                        vm.executeKbKcc20Transfer(to, amountKb)
-                                    }
-                                    result.fold(
-                                        onSuccess = { txId ->
-                                            respondResult(
-                                                sessionRequest,
-                                                JSONObject()
-                                                    .put("transactionId", txId)
-                                                    .put("covenantId", KB_COVENANT_ID)
-                                                    .put("ticker", "KB")
-                                                    .put("amount", rawAmount)
-                                                    .put("validation", "existing-wallet-engine")
-                                                    .toString()
-                                            )
-                                        },
-                                        onFailure = { error ->
-                                            respondError(sessionRequest, -32000, error.message ?: "KB KCC20 transfer failed")
-                                        }
-                                    )
-                                } catch (error: Throwable) {
-                                    respondError(sessionRequest, -32000, error.message ?: "KB KCC20 transfer failed")
-                                } finally {
-                                    keyPair.wipe()
-                                }
-                            }
-                        },
-                        {
-                            keyPair.wipe()
-                            respondError(sessionRequest, 4001, "User rejected KB KCC20 transfer")
-                        }
-                    )
-                }
-            }
             "kaspa_getAccounts" -> {
                 respondResult(sessionRequest, JSONArray().put(keyPair.kaspaAddress).toString())
                 keyPair.wipe()
@@ -727,8 +658,8 @@ object KaspaWalletConnectController : WalletKit.WalletDelegate {
                                         if (activeAddress(vm) != keyPair.kaspaAddress) {
                                             throw IllegalStateException("Active wallet changed; request cancelled")
                                         }
-                                        val signed = DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey)
-                                        respondResult(sessionRequest, signed.toString())
+                                        val signed = DappPsktTransaction.sign(prepared, keyPair.privateKey)
+                                        respondResult(sessionRequest, JSONObject.quote(signed))
                                     } catch (error: Throwable) {
                                         respondError(sessionRequest, -32603, error.message ?: "PSKT signing failed")
                                     } finally {
