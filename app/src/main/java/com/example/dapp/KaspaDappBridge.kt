@@ -197,10 +197,12 @@ object KaspaDappBridge {
                                     accountHandle = account?.handle.orEmpty(),
                                     balanceKas = balanceKasStr,
                                     onApprove = {
-                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                            .edit().putBoolean(origin, true).apply()
                                         viewModel.dappPromptState.value = null
-                                        ensureUnlocked(onSuccess = onSuccess)
+                                        ensureUnlocked(onSuccess = {
+                                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                                .edit().putBoolean(origin, true).apply()
+                                            onSuccess()
+                                        })
                                     },
                                     onReject = {
                                         respond(errorCode = 4001, errorMessage = onRejectMsg)
@@ -441,10 +443,7 @@ object KaspaDappBridge {
                                         mainHandler.post {
                                             if (signature == null) respond(errorCode = -32603, errorMessage = "Message signing failed")
                                             else {
-                                                val resultObj = JSONObject()
-                                                    .put("address", keyPair.kaspaAddress)
-                                                    .put("signature", signature)
-                                                respond(resultObj)
+                                                respond(signature)
                                             }
                                         }
                                     }
@@ -478,8 +477,8 @@ object KaspaDappBridge {
                         val txJson = paramsObject?.optString("txJsonString", "").orEmpty()
                         val options = paramsObject?.optJSONObject("options")
                         val signInputs = options?.optJSONArray("signInputs")
-                        if (txJson.isBlank() || signInputs == null) {
-                            respond(errorCode = -32602, errorMessage = "signPskt requires txJsonString and options.signInputs")
+                        if (txJson.isBlank() || signInputs == null || signInputs.length() == 0) {
+                            respond(errorCode = -32602, errorMessage = "signPskt requires txJsonString and a non-empty options.signInputs array")
                             return@addWebMessageListener
                         }
                         cryptoExecutor.execute {
@@ -521,7 +520,7 @@ object KaspaDappBridge {
                                                 if (signedResult == null) {
                                                     respond(errorCode = -32603, errorMessage = "Transaction signing failed")
                                                 } else {
-                                                    respond(signedResult)
+                                                    respond(signedResult.optString("psktTransactionJson"))
                                                 }
                                             }
                                         }
@@ -588,7 +587,8 @@ object KaspaDappBridge {
                                         val prepared = try {
                                             val options = paramsObj.optJSONObject("options")
                                             val signInputs = options?.optJSONArray("signInputs")
-                                                ?: org.json.JSONArray().put(JSONObject().put("index", 0).put("sighashType", com.example.network.kaspa.KaspaTransactionEngine.SIGHASH_ALL))
+                                                ?: throw IllegalArgumentException("KCC-20 PSKT requires explicit options.signInputs")
+                                            require(signInputs.length() > 0) { "KCC-20 PSKT requires at least one explicitly selected input" }
                                             DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex)
                                         } catch (e: Throwable) {
                                             null
