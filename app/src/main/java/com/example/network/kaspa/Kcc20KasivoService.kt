@@ -709,6 +709,42 @@ class Kcc20KasivoService(
         }
     }
 
+    internal fun cellOwnerMatchesWallet(
+        cellOwnerValue: String,
+        cellAddressValue: String,
+        ownerSchemeValue: String,
+        publicKeyHex: String,
+        walletAddress: String?
+    ): Boolean {
+        val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
+        if (!owner.matches(Regex("[0-9a-f]{64}"))) return false
+        val cellOwner = cellOwnerValue.trim().lowercase().removePrefix("0x")
+        val cellAddress = cellAddressValue.trim().lowercase()
+        val address = walletAddress?.trim()?.lowercase().orEmpty()
+        val addressNoPrefix = address.removePrefix("kaspa:")
+        val scheme = ownerSchemeValue.trim().lowercase()
+
+        val exactKey = cellOwner == owner
+        val exactAddress = address.isNotBlank() && (
+            cellAddress == address ||
+                cellAddress.removePrefix("kaspa:") == addressNoPrefix ||
+                cellOwner == address ||
+                cellOwner.removePrefix("kaspa:") == addressNoPrefix
+        )
+        val p2pkhSchnorr = cellOwner.startsWith("p2pkh:") &&
+            scheme in setOf("01", "1", "p2pkh-schnorr/v1")
+        val p2pkhHashMatch = if (p2pkhSchnorr) {
+            val keyBytes = owner.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            val digest = Blake3Digest()
+            val hash = ByteArray(32)
+            digest.update(keyBytes, 0, keyBytes.size)
+            digest.doFinal(hash, 0)
+            cellOwner == "p2pkh:" + hash.joinToString("") { "%02x".format(it) }
+        } else false
+
+        return exactKey || exactAddress || p2pkhHashMatch
+    }
+
     suspend fun fetchLiveTokenCells(
         contractId: String,
         publicKeyHex: String,
@@ -750,13 +786,22 @@ class Kcc20KasivoService(
                 for (i in 0 until cellsArray.length()) {
                     val cell = cellsArray.optJSONObject(i)
                         ?: throw java.io.IOException("Kascov returned a malformed token cell at index $i")
-                    val ownerScheme = cell.optString("owner_scheme").trim().lowercase()
-                    if (ownerScheme != "00") continue
+                    val ownerScheme = cell.optString(
+                        "owner_scheme",
+                        cell.optString("owner_scheme_name")
+                    ).trim().lowercase()
                     val cellOwner = cell.optString(
                         "owner",
-                        cell.optString("owner_identifier")
-                    ).trim().lowercase().removePrefix("0x")
-                    if (cellOwner != owner) continue
+                        cell.optString("owner_identifier", cell.optString("owner_key"))
+                    )
+                    val cellAddress = cell.optString(
+                        "owner_address",
+                        cell.optString("address", cell.optString("holder"))
+                    )
+                    if (!cellOwnerMatchesWallet(
+                            cellOwner, cellAddress, ownerScheme, owner, walletAddress
+                        )
+                    ) continue
 
                     val outpoint = cell.optString("outpoint").trim().lowercase()
                     val separator = outpoint.lastIndexOf(':')
