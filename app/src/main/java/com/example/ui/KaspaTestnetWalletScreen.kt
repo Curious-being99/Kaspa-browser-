@@ -3757,8 +3757,13 @@ private fun TransactionResultOverlay(
                     .heightIn(max = maxHeight * 0.94f)
                     .background(SurfaceCard, RoundedCornerShape(24.dp))
                     .border(1.dp, if (isSuccess) KaspaTea.copy(alpha = 0.5f) else RedTamper.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
             Box(
@@ -3863,11 +3868,13 @@ private fun TransactionResultOverlay(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             TextButton(
                 onClick = onClose,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             ) {
-                Text("Close", color = TextSecondary)
+                Text("Dismiss", color = TextSecondary)
             }
             }
         }
