@@ -10,7 +10,7 @@ class Kcc20CellOwnerMatchTest {
 
     @Test
     fun matchesExactXOnlyPublicKey() {
-        assertTrue(service.cellOwnerMatchesWallet(key, "", "00", key, null))
+        assertTrue(Kcc20KasivoService.cellOwnerMatchesWallet(key, "", "00", key, null))
     }
 
     @Test
