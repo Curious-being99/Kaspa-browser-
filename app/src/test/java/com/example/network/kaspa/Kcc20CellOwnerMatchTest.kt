@@ -5,11 +5,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Kcc20CellOwnerMatchTest {
+    private val service = Kcc20KasivoService(endpointBases = emptyList())
     private val key = "e7f7369478ebdbfadbb8e802af6cbf4ee1ee5ce43c0c0b6d3df115ddb1b96037"
 
     @Test
     fun matchesExactXOnlyPublicKey() {
-        assertTrue(Kcc20KasivoService.cellOwnerMatchesWallet(key, "", "00", key, null))
+        assertTrue(service.cellOwnerMatchesWallet(key, "", "00", key, null))
     }
 
     @Test
