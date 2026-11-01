@@ -51,10 +51,15 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0 emulator'
-      - name: Accept SDK licenses and install emulator image
+      - name: Install emulator and API 35 image
         run: |
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager "system-images;android-35;google_apis;x86_64"
+          sdkmanager "emulator" "system-images;android-35;google_apis;x86_64"
+          echo "${ANDROID_HOME}/emulator" >> "$GITHUB_PATH"
+          echo "${ANDROID_HOME}/platform-tools" >> "$GITHUB_PATH"
+          test -x "${ANDROID_HOME}/emulator/emulator"
+          "${ANDROID_HOME}/emulator/emulator" -version
+          adb version
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '9.3.1'
@@ -65,52 +70,49 @@ jobs:
         timeout-minutes: 45
         run: |
           set -Eeuo pipefail
-          adb start-server
-          emulator -avd kaspa-api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -no-metrics -gpu swiftshader_indirect -memory 4096 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          EMULATOR="${ANDROID_HOME}/emulator/emulator"
+          ADB="${ANDROID_HOME}/platform-tools/adb"
+          test -x "$EMULATOR"
+          "$ADB" start-server
+          "$EMULATOR" -avd kaspa-api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -wipe-data -no-metrics -gpu swiftshader_indirect -memory 4096 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
-            adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
+            "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true
             kill "$EMULATOR_PID" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          echo "Waiting up to 180 seconds for the emulator transport..."
-          if ! timeout 180s adb -s emulator-5554 wait-for-device; then
-            echo "ADB never saw emulator-5554. Emulator process state:"
+          echo "Waiting up to 180 seconds for emulator ADB transport..."
+          if ! timeout 180s "$ADB" -s emulator-5554 wait-for-device; then
+            echo "ADB did not detect emulator; executable: $EMULATOR"
             ps -p "$EMULATOR_PID" -o pid,stat,etime,cmd || true
-            echo "Emulator startup log:"
             cat "$RUNNER_TEMP/emulator.log" || true
-            adb devices -l || true
+            "$ADB" devices -l || true
             exit 1
           fi
-          echo "ADB transport connected; waiting up to 15 minutes for Android boot."
+          echo "Waiting up to 15 minutes for Android boot completion..."
           deadline=$((SECONDS + 900))
           booted=0
           while (( SECONDS < deadline )); do
             if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
-              echo "Emulator process exited before Android boot completed."
+              echo "Emulator process exited before boot completed."
               cat "$RUNNER_TEMP/emulator.log" || true
-              adb devices -l || true
+              "$ADB" devices -l || true
               exit 1
             fi
-            state="$(timeout 15s adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-            if [[ "$state" == "1" ]]; then
-              booted=1
-              break
-            fi
+            state="$(timeout 15s "$ADB" -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [[ "$state" == "1" ]]; then booted=1; break; fi
             sleep 5
           done
           if [[ "$booted" != "1" ]]; then
-            echo "Android did not complete boot within 15 minutes."
+            echo "Android boot timed out."
             cat "$RUNNER_TEMP/emulator.log" || true
-            timeout 30s adb -s emulator-5554 logcat -d -t 500 || true
+            timeout 30s "$ADB" -s emulator-5554 logcat -d -t 500 || true
             exit 1
           fi
-          echo "Emulator boot completed:"
-          adb devices -l
-          adb -s emulator-5554 shell settings put global window_animation_scale 0
-          adb -s emulator-5554 shell settings put global transition_animation_scale 0
-          adb -s emulator-5554 shell settings put global animator_duration_scale 0
-          echo "Starting connectedDebugAndroidTest."
+          "$ADB" -s emulator-5554 shell settings put global window_animation_scale 0
+          "$ADB" -s emulator-5554 shell settings put global transition_animation_scale 0
+          "$ADB" -s emulator-5554 shell settings put global animator_duration_scale 0
+          echo "Emulator ready; starting instrumentation tests."
           gradle connectedDebugAndroidTest --no-daemon --stacktrace
       - name: Upload instrumentation reports and emulator diagnostics
         if: always()
