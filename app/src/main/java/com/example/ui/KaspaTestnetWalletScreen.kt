@@ -28,6 +28,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -3741,17 +3745,22 @@ private fun TransactionResultOverlay(
             .fillMaxSize()
             .background(ObsidianBg.copy(alpha = 0.95f))
             .clickable(enabled = false) {}
-            .testTag("transaction_result_overlay"),
+            .testTag("transaction_result_overlay")
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .background(SurfaceCard, RoundedCornerShape(24.dp))
-                .border(1.dp, if (isSuccess) KaspaTea.copy(alpha = 0.5f) else RedTamper.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .heightIn(max = maxHeight * 0.94f)
+                    .background(SurfaceCard, RoundedCornerShape(24.dp))
+                    .border(1.dp, if (isSuccess) KaspaTea.copy(alpha = 0.5f) else RedTamper.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             Box(
                 modifier = Modifier
                     .size(64.dp)
@@ -3859,6 +3868,7 @@ private fun TransactionResultOverlay(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Close", color = TextSecondary)
+            }
             }
         }
     }
