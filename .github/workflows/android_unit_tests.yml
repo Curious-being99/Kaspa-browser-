@@ -51,6 +51,11 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0 emulator'
+      - name: Install Linux libraries required by Android Emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libpulse0
+          ldconfig -p | grep -F 'libpulse.so.0'
       - name: Install emulator and API 35 image
         run: |
           yes | sdkmanager --licenses >/dev/null
