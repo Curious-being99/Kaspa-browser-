@@ -615,13 +615,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             JSON.stringify({
                 page: location.href,
                 readyState: document.readyState,
+                providerInstallMarker: window.__kaspaBrowserProviderInstalled === true,
+                bridgeChannel: typeof window.kaspaDappBridge,
                 kaspabrowser: typeof window.kaspabrowser,
                 kaspabrowserFlag: window.kaspabrowser?.isKaspabrowser === true,
                 requestFunction: typeof window.kaspabrowser?.request,
                 kaspire: typeof window.kaspire,
                 kaspireFlag: window.kaspire?.isKaspire === true,
                 kaspaAlias: typeof window.kaspa,
-                kaspaBrowserAlias: typeof window.kaspaBrowser
+                kaspaBrowserAlias: typeof window.kaspaBrowser,
+                providerDescriptor: Object.getOwnPropertyDescriptor(window, 'kaspabrowser')?.configurable ?? null
             })
         """.trimIndent()
         try {
@@ -2004,7 +2007,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Provider Diagnostics", color = TextPrimary) },
+                                    text = { Text("Dev Console", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
@@ -2206,7 +2209,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 if (showProviderDiagnostics) {
                     AlertDialog(
                         onDismissRequest = { showProviderDiagnostics = false },
-                        title = { Text("Kaspa Provider Diagnostics", color = TextPrimary) },
+                        title = { Text("Kaspa Dev Console", color = TextPrimary) },
                         text = {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
