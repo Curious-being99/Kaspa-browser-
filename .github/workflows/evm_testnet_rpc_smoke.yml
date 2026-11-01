@@ -3,7 +3,7 @@ name: EVM Testnet RPC Smoke Checks
 on:
   push:
     branches:
-      - draft/evm-kasplex-igra-provider-clean
+      - feat/reown-walletconnect-kasplex-igra
   pull_request:
     branches:
       - main
@@ -23,7 +23,7 @@ jobs:
       matrix:
         include:
           - network: Kasplex Testnet
-            rpc_urls: "https://rpc.kasplextest.xyz http://54.154.73.46:28545"
+            rpc_url: https://rpc.kasplextest.xyz
             expected_chain_id: "0x28c64"
           - network: Igra Galleon Testnet
             rpc_url: https://galleon-testnet.igralabs.com:8545
@@ -31,7 +31,8 @@ jobs:
     steps:
       - name: Verify chain ID, block height, and read-only account query
         env:
-          RPC_URLS: ${{ matrix.rpc_urls || matrix.rpc_url }}
+          RPC_URLS: ${{ matrix.rpc_url }}
+          KASPLEX_TESTNET_RPC_FALLBACK: ${{ matrix.network == 'Kasplex Testnet' && secrets.KASPLEX_TESTNET_RPC_URL || '' }}
           EXPECTED_CHAIN_ID: ${{ matrix.expected_chain_id }}
         shell: bash
         run: |
@@ -107,14 +108,18 @@ jobs:
           }
           selected_rpc=""
           actual_chain_id=""
-          for candidate in $RPC_URLS; do
-            echo "Probing Kasplex testnet RPC candidate: $candidate"
+          candidates="$RPC_URLS"
+          if [[ -n "${KASPLEX_TESTNET_RPC_FALLBACK:-}" ]]; then
+            candidates="$candidates $KASPLEX_TESTNET_RPC_FALLBACK"
+          fi
+          for candidate in $candidates; do
+            echo "Probing configured testnet RPC candidate: $candidate"
             if ! candidate_response="$(rpc "$candidate" eth_chainId '[]')"; then
-              echo "Candidate unavailable; trying the next configured Kasplex testnet endpoint." >&2
+              echo "Candidate unavailable; trying the next configured testnet endpoint, if present." >&2
               continue
             fi
             if ! candidate_chain_id="$(validate_rpc_result eth_chainId "$candidate_response")"; then
-              echo "Candidate returned an invalid JSON-RPC response; trying the next endpoint." >&2
+              echo "Candidate returned an invalid JSON-RPC response; trying the next endpoint, if present." >&2
               continue
             fi
             if [[ "${candidate_chain_id,,}" != "${EXPECTED_CHAIN_ID,,}" ]]; then
@@ -127,6 +132,9 @@ jobs:
           done
           if [[ -z "$selected_rpc" ]]; then
             echo "No configured RPC endpoint passed the expected chain-ID check." >&2
+            if [[ "$EXPECTED_CHAIN_ID" == "0x28c64" ]]; then
+              echo "If Kasplex has supplied an authorised replacement endpoint, add it as the repository Actions secret KASPLEX_TESTNET_RPC_URL. Do not use the mainnet RPC or an unverified node address." >&2
+            fi
             exit 1
           fi
           echo "Selected verified network endpoint: $selected_rpc"
