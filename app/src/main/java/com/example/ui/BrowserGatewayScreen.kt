@@ -530,6 +530,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val backgroundPlaybackEnabled by viewModel.backgroundPlaybackEnabled.collectAsState()
     var showTabSwitcher by remember { mutableStateOf(false) }
     var showBrowserMenu by remember { mutableStateOf(false) }
+    var showProviderDiagnostics by remember { mutableStateOf(false) }
+    var providerDiagnosticsText by remember { mutableStateOf("Not run yet. Tap Refresh to inspect this page.") }
 
     val themePrefs = remember { context.getSharedPreferences("kaspa_browser_theme", android.content.Context.MODE_PRIVATE) }
     var browserTheme by remember { mutableStateOf(themePrefs.getString("selected_theme", "classic_dark") ?: "classic_dark") }
@@ -593,6 +595,46 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var customVideoCallback by remember { mutableStateOf<android.webkit.WebChromeClient.CustomViewCallback?>(null) }
     var isInputFocused by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+
+    fun refreshProviderDiagnostics() {
+        val supportsMessageListener = androidx.webkit.WebViewFeature.isFeatureSupported(
+            androidx.webkit.WebViewFeature.WEB_MESSAGE_LISTENER
+        )
+        val supportsDocumentStartScript = androidx.webkit.WebViewFeature.isFeatureSupported(
+            androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT
+        )
+        val featureSummary = "WEB_MESSAGE_LISTENER: ${if (supportsMessageListener) "SUPPORTED" else "UNSUPPORTED"}\n" +
+            "DOCUMENT_START_SCRIPT: ${if (supportsDocumentStartScript) "SUPPORTED" else "UNSUPPORTED"}"
+        val currentWebView = webViewInstance
+        if (currentWebView == null) {
+            providerDiagnosticsText = "$featureSummary\nNo active browser WebView is available."
+            return
+        }
+        providerDiagnosticsText = "$featureSummary\nChecking current page..."
+        val diagnosticScript = """
+            JSON.stringify({
+                page: location.href,
+                readyState: document.readyState,
+                kaspabrowser: typeof window.kaspabrowser,
+                kaspabrowserFlag: window.kaspabrowser?.isKaspabrowser === true,
+                requestFunction: typeof window.kaspabrowser?.request,
+                kaspire: typeof window.kaspire,
+                kaspireFlag: window.kaspire?.isKaspire === true,
+                kaspaAlias: typeof window.kaspa,
+                kaspaBrowserAlias: typeof window.kaspaBrowser
+            })
+        """.trimIndent()
+        try {
+            currentWebView.evaluateJavascript(diagnosticScript) { rawResult ->
+                val pageResult = runCatching {
+                    org.json.JSONTokener(rawResult).nextValue() as? String
+                }.getOrNull() ?: rawResult
+                providerDiagnosticsText = "$featureSummary\n\n$pageResult"
+            }
+        } catch (error: Throwable) {
+            providerDiagnosticsText = "$featureSummary\n\nJavaScript inspection failed: ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
     var lastDownloadedUrl by remember { mutableStateOf<String?>(null) }
     var lastDownloadTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var lastSuccessfulWebUrl by remember { mutableStateOf("") }
@@ -1962,6 +2004,15 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Provider Diagnostics", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        showProviderDiagnostics = true
+                                        refreshProviderDiagnostics()
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Desktop site", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = if (desktopModeEnabled) ElectricCyan else TextMuted) },
                                     trailingIcon = {
@@ -2150,6 +2201,45 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
                     }
+                }
+
+                if (showProviderDiagnostics) {
+                    AlertDialog(
+                        onDismissRequest = { showProviderDiagnostics = false },
+                        title = { Text("Kaspa Provider Diagnostics", color = TextPrimary) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "Read-only check of the current page. It does not connect a wallet, request permissions, or sign transactions.",
+                                    color = TextSecondary,
+                                    fontSize = 12.sp
+                                )
+                                Surface(
+                                    color = SurfaceDark,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = providerDiagnosticsText,
+                                        color = TextPrimary,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { refreshProviderDiagnostics() }) {
+                                Text("Refresh", color = ElectricCyan)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showProviderDiagnostics = false }) {
+                                Text("Close", color = TextMuted)
+                            }
+                        },
+                        containerColor = SurfaceCard
+                    )
                 }
 
                 // Find in Page Bar
