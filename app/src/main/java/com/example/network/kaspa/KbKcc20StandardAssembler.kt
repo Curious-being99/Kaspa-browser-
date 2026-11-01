@@ -216,6 +216,37 @@ object KbKcc20StandardAssembler {
     }
 
     /**
+     * Select the smallest number of verified live token cells that can cover the transfer.
+     * Larger cells are considered first to avoid adding unnecessary covenant inputs and mass.
+     */
+    fun selectMinimalSpendPieces(
+        pieces: List<SpendPiece>,
+        amountBaseUnits: BigInteger,
+        requireArgentTemplate: Boolean = true
+    ): List<SpendPiece> {
+        require(amountBaseUnits.signum() > 0) { "amount must be positive" }
+        require(pieces.isNotEmpty()) { "need at least one token cell" }
+        val eligible = pieces.map { piece ->
+            require(piece.valueSompi > 0L) { "token cell has invalid KAS value" }
+            piece to splitProgram(piece.redeem, requireArgentTemplate).state.amountBaseUnits
+        }.sortedWith(compareByDescending<Pair<SpendPiece, BigInteger>> { it.second }
+            .thenBy { it.first.transactionId }
+            .thenBy { it.first.index })
+        val selected = mutableListOf<SpendPiece>()
+        var total = BigInteger.ZERO
+        for ((piece, tokenAmount) in eligible) {
+            if (selected.size == KbKcc20Protocol.MAX_TOKEN_INPUTS) break
+            selected += piece
+            total += tokenAmount
+            if (total >= amountBaseUnits) return selected
+        }
+        throw IllegalArgumentException(
+            "Insufficient spendable KB cells: selected ${selected.size} of ${pieces.size}, " +
+                "available $total base units, required $amountBaseUnits"
+        )
+    }
+
+    /**
      * Plan a standard transfer from one or more live cells owned by [pubkey32].
      * [amountBaseUnits] is the amount to send to [recipientOwner] (p2pk-schnorr).
      * Change (if any) returns to the leader cell's owner/borrow policy.

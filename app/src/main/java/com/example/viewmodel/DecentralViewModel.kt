@@ -2567,10 +2567,20 @@ class DecentralViewModel(
                 )
             }
 
-            // 5. Build KCC-20 standard plan
+            // 5. Select only the minimum verified token cells needed for this transfer.
+            val selectedPieces = try {
+                KbKcc20StandardAssembler.selectMinimalSpendPieces(
+                    pieces = pieces,
+                    amountBaseUnits = baseUnits
+                )
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            }
+
+            // 6. Build the KCC-20 standard plan from the selected live cells only.
             val plan = try {
                 KbKcc20StandardAssembler.planStandardTransfer(
-                    pieces = pieces,
+                    pieces = selectedPieces,
                     pubkey32 = keyPair.publicKeyBytes,
                     recipientOwner = recipientPubkey32,
                     amountBaseUnits = baseUnits
@@ -2583,7 +2593,7 @@ class DecentralViewModel(
             val inputs = mutableListOf<KaspaTransactionEngine.KaspaTransactionInput>()
             val utxoEntries = mutableListOf<KaspaTransactionEngine.KaspaUtxoEntry>()
 
-            for ((i, piece) in pieces.withIndex()) {
+            for ((i, piece) in selectedPieces.withIndex()) {
                 inputs.add(
                     KaspaTransactionEngine.KaspaTransactionInput(
                         previousOutpoint = KaspaTransactionEngine.KaspaOutpoint(
@@ -2681,7 +2691,7 @@ class DecentralViewModel(
             )
 
             // Sign token inputs and fee inputs with real BIP-340 Schnorr signatures
-            for (i in pieces.indices) {
+            for (i in selectedPieces.indices) {
                 val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
                 val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
                 val sig65 = KbKcc20StandardAssembler.signaturePayload(sig64Hex)
@@ -2689,12 +2699,23 @@ class DecentralViewModel(
                 tx.inputs[i].signatureScript = KbKcc20ScriptCodec.bytesToHex(patched)
             }
 
-            for (i in pieces.size until inputs.size) {
+            for (i in selectedPieces.size until inputs.size) {
                 val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
                 val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
                 tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
             }
 
+            // Include real input amounts so KIP-9 storage mass is not omitted.
+            tx.mass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+            if (tx.mass > KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                return@withContext Result.failure(
+                    IllegalStateException(
+                        "KCC-20 transfer requires mass ${tx.mass}, above the standard mempool limit " +
+                            "${KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS}. " +
+                            "The selected live covenant cells cannot be submitted as a standard transaction."
+                    )
+                )
+            }
             val txId = KaspaTransactionEngine.calcTransactionId(tx)
 
             // Broadcast to Kaspa Mainnet nodes via DApp transaction submission

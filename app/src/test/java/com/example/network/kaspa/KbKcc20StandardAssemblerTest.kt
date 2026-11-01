@@ -70,6 +70,37 @@ class KbKcc20StandardAssemblerTest {
     }
 
     @Test
+    fun selectsOnlyMinimumNumberOfCellsNeededForTransfer() {
+        val pk = owner(0x33)
+        fun piece(id: String, amount: Long): KbKcc20StandardAssembler.SpendPiece {
+            val value = BigInteger.valueOf(amount)
+            val state = KbKcc20State(
+                amountBaseUnits = value,
+                amountEncoding = KbKcc20Protocol.encodeAmount(value),
+                owner = pk,
+                ownerScheme = 0x00,
+                borrowScheme = 0x00,
+                borrowGuard = ByteArray(32),
+                extensionCommitment = ByteArray(32) { 0x05 }
+            )
+            return KbKcc20StandardAssembler.SpendPiece(
+                transactionId = id.repeat(64),
+                index = 0,
+                valueSompi = 20_000_000L,
+                redeem = syntheticProgram(state)
+            )
+        }
+        val cells = listOf(piece("a", 2), piece("b", 7), piece("c", 5), piece("d", 1))
+        val selected = KbKcc20StandardAssembler.selectMinimalSpendPieces(
+            pieces = cells,
+            amountBaseUnits = BigInteger.valueOf(8),
+            requireArgentTemplate = false
+        )
+        assertEquals(2, selected.size)
+        assertEquals(listOf("b".repeat(64), "c".repeat(64)), selected.map { it.transactionId })
+    }
+
+    @Test
     fun planRejectsSyntheticProgramWithoutArgentTemplate() {
         // Production planning requires verifyArgentTemplate; synthetic layout blobs must not pass.
         val pk = owner(0x33)
