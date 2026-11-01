@@ -822,6 +822,12 @@ object KaspaDappBridge {
             val script = """
                 (() => {
                   if (window.__kaspaBrowserProviderInstalled) return;
+                  const nativeChannel = window.$BRIDGE_NAME || window.kaspaDappPort || window.kaspaBridgePort;
+                  if (!nativeChannel || typeof nativeChannel.postMessage !== 'function') {
+                    window.__kaspaBrowserProviderInstallError = 'native-channel-unavailable';
+                    return;
+                  }
+                  try { delete window.__kaspaBrowserProviderInstallError; } catch (_) {}
                   window.__kaspaBrowserProviderInstalled = true;
                   const pending = new Map();
                   let nextId = 1;
@@ -1267,7 +1273,7 @@ object KaspaDappBridge {
 
             if (!isInstalled(webView)) {
                 try {
-                    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+                    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
                     Log.i(LOG_TAG, "Provider document-start script registered for WebView ${System.identityHashCode(webView)}")
                     markInstalled(webView)
                 } catch (error: Throwable) {
