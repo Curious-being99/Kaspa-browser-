@@ -45,7 +45,7 @@ object KaspaDappBridge {
     }
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
-        if (isInstalled(webView)) return
+        if (isInstalled(webView) && hasListener(webView)) return
         val supportsWebMessageListener =
             WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
         val supportsDocumentStartScript =
@@ -1265,17 +1265,31 @@ object KaspaDappBridge {
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
-            try {
-                WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
-                Log.i(LOG_TAG, "Provider document-start script registered")
-            } catch (error: Throwable) {
-                Log.e(LOG_TAG, "Provider document-start script registration failed", error)
-                throw error
+            if (!isInstalled(webView)) {
+                try {
+                    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+                    Log.i(LOG_TAG, "Provider document-start script registered for WebView ${System.identityHashCode(webView)}")
+                    markInstalled(webView)
+                } catch (error: Throwable) {
+                    Log.e(
+                        LOG_TAG,
+                        "Provider document-start script registration failed for WebView ${System.identityHashCode(webView)}: ${error.javaClass.name}: ${error.message}",
+                        error
+                    )
+                    throw error
+                }
             }
             webView.post {
-                try { webView.evaluateJavascript(script, null) } catch (_: Throwable) {}
+                try {
+                    webView.evaluateJavascript(script, null)
+                } catch (error: Throwable) {
+                    Log.e(
+                        LOG_TAG,
+                        "Current-page provider injection failed for WebView ${System.identityHashCode(webView)}: ${error.javaClass.name}: ${error.message}",
+                        error
+                    )
+                }
             }
-            markInstalled(webView)
         } catch (error: Throwable) {
             Log.e(LOG_TAG, "Provider installation failed while configuring WebView messaging or script injection", error)
         }
