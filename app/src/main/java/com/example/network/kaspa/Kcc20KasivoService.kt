@@ -148,6 +148,27 @@ class Kcc20KasivoService(
             "https://api.kaspanet.io"
         )
 
+        /**
+         * KB standard-transfer ownership is restricted to the deployed P2PK Schnorr
+         * owner tuple: scheme 0x00 and an exact 32-byte x-only key.
+         * Address text and guessed P2PKH hash derivations are not ownership proofs.
+         */
+        fun cellOwnerMatchesWallet(
+            cellOwner: String,
+            cellAddress: String,
+            ownerScheme: String,
+            publicKeyHex: String,
+            walletAddress: String?
+        ): Boolean {
+            val scheme = ownerScheme.trim().lowercase().removePrefix("0x")
+            if (scheme != "00" && scheme != "p2pk-schnorr/v1") return false
+            val key = publicKeyHex.trim().lowercase().removePrefix("0x")
+            if (!key.matches(Regex("[0-9a-f]{64}"))) return false
+            val owner = cellOwner.trim().lowercase().removePrefix("0x")
+            if (!owner.matches(Regex("[0-9a-f]{64}"))) return false
+            return owner == key
+        }
+
         // Well-known KCC-20 Kaspa Covenant Token Definitions
         val KNOWN_KCC20_TOKENS = emptyMap<String, Kcc20TokenBalanceResult>()
     }
@@ -749,13 +770,22 @@ class Kcc20KasivoService(
                 for (i in 0 until cellsArray.length()) {
                     val cell = cellsArray.optJSONObject(i)
                         ?: throw java.io.IOException("Kascov returned a malformed token cell at index $i")
-                    val ownerScheme = cell.optString("owner_scheme").trim().lowercase()
-                    if (ownerScheme != "00") continue
+                    val ownerScheme = cell.optString(
+                        "owner_scheme",
+                        cell.optString("owner_scheme_name")
+                    ).trim().lowercase()
                     val cellOwner = cell.optString(
                         "owner",
                         cell.optString("owner_identifier")
                     ).trim().lowercase().removePrefix("0x")
-                    if (cellOwner != owner) continue
+                    val cellAddress = cell.optString(
+                        "owner_address",
+                        cell.optString("address")
+                    )
+                    if (!cellOwnerMatchesWallet(
+                            cellOwner, cellAddress, ownerScheme, owner, walletAddress
+                        )
+                    ) continue
 
                     val outpoint = cell.optString("outpoint").trim().lowercase()
                     val separator = outpoint.lastIndexOf(':')
