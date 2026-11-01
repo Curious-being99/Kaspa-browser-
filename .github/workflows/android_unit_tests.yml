@@ -21,7 +21,7 @@ jobs:
           java-version: '21'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
@@ -48,18 +48,25 @@ jobs:
           java-version: '21'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '9.3.1'
-      - uses: reactivecircus/android-emulator-runner@v2
+      - name: Run WebView instrumentation tests on stable API 35 emulator
+        uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 36
+          api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          channel: stable
+          cores: 2
+          heap-size: 2048M
+          disk-size: 6G
+          emulator-boot-timeout: 900
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader
           disable-animations: true
           script: gradle connectedDebugAndroidTest --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
