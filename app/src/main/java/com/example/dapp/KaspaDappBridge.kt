@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -19,15 +20,25 @@ import java.util.concurrent.Executors
 
 object KaspaDappBridge {
     private const val BRIDGE_NAME = "kaspaDappBridge"
+    private const val LOG_TAG = "KaspaDappBridge"
     private const val PREFS = "dapp_wallet_permissions"
     private const val MAX_MESSAGE_LENGTH = 4096
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cryptoExecutor = Executors.newSingleThreadExecutor()
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) ||
-            !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
-        ) return
+        val supportsWebMessageListener =
+            WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+        val supportsDocumentStartScript =
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        if (!supportsWebMessageListener || !supportsDocumentStartScript) {
+            Log.w(
+                LOG_TAG,
+                "Provider installation skipped: WEB_MESSAGE_LISTENER=$supportsWebMessageListener, " +
+                    "DOCUMENT_START_SCRIPT=$supportsDocumentStartScript. Update Android System WebView or Chrome."
+            )
+            return
+        }
 
         try {
             WebViewCompat.addWebMessageListener(
@@ -1227,8 +1238,8 @@ object KaspaDappBridge {
             webView.post {
                 try { webView.evaluateJavascript(script, null) } catch (_: Throwable) {}
             }
-        } catch (_: Throwable) {
-            // Provider remains unavailable if the secure WebView messaging features cannot be installed.
+        } catch (error: Throwable) {
+            Log.e(LOG_TAG, "Provider installation failed while configuring WebView messaging or script injection", error)
         }
     }
 
