@@ -289,7 +289,7 @@ class DecentralViewModel(
             val origin: String,
             val reason: String = "Unlock wallet to complete dApp request",
             val onAuthenticatePassword: (String, (Boolean) -> Unit) -> Unit,
-            val onAuthenticateBiometric: (() -> Unit)? = null,
+            val onAuthenticateBiometric: (((Boolean) -> Unit) -> Unit)? = null,
             val onUnlocked: () -> Unit,
             val onReject: () -> Unit
         ) : DappPromptState()

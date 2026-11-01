@@ -645,6 +645,8 @@ fun DappPromptBottomSheet(
                     var passwordVisible by remember { mutableStateOf(false) }
                     var passwordError by remember { mutableStateOf<String?>(null) }
                     var isVerifying by remember { mutableStateOf(false) }
+                    var isAuthenticatingBiometric by remember { mutableStateOf(false) }
+                    var biometricError by remember { mutableStateOf<String?>(null) }
 
                     Box(
                         modifier = Modifier
@@ -754,21 +756,39 @@ fun DappPromptBottomSheet(
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = {
-                                prompt.onAuthenticateBiometric.invoke()
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onUnlocked() }
+                                if (isAuthenticatingBiometric) return@OutlinedButton
+                                isAuthenticatingBiometric = true
+                                biometricError = null
+                                prompt.onAuthenticateBiometric.invoke { success ->
+                                    isAuthenticatingBiometric = false
+                                    if (success) {
+                                        scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onUnlocked() }
+                                    } else {
+                                        biometricError = "Authentication cancelled or not verified. Wallet remains locked."
+                                    }
+                                }
                             },
+                            enabled = !isAuthenticatingBiometric,
                             modifier = Modifier.fillMaxWidth().height(44.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Fingerprint,
-                                contentDescription = "Biometric",
-                                tint = ElectricCyan,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            if (isAuthenticatingBiometric) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = ElectricCyan, strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = "Biometric",
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Unlock with Biometrics", color = ElectricCyan, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (biometricError != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(biometricError!!, color = RedTamper, fontSize = 12.sp, textAlign = TextAlign.Center)
                         }
                     }
 
