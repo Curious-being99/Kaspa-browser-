@@ -15,6 +15,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.util.Locale
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -25,8 +27,17 @@ object KaspaDappBridge {
     private const val MAX_MESSAGE_LENGTH = 4096
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cryptoExecutor = Executors.newSingleThreadExecutor()
+    private val installedWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
+
+    private fun isInstalled(webView: WebView): Boolean =
+        synchronized(installedWebViews) { installedWebViews.contains(webView) }
+
+    private fun markInstalled(webView: WebView) {
+        synchronized(installedWebViews) { installedWebViews.add(webView) }
+    }
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
+        if (isInstalled(webView)) return
         val supportsWebMessageListener =
             WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
         val supportsDocumentStartScript =
@@ -1238,6 +1249,7 @@ object KaspaDappBridge {
             webView.post {
                 try { webView.evaluateJavascript(script, null) } catch (_: Throwable) {}
             }
+            markInstalled(webView)
         } catch (error: Throwable) {
             Log.e(LOG_TAG, "Provider installation failed while configuring WebView messaging or script injection", error)
         }
