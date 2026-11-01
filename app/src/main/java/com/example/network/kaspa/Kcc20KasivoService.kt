@@ -731,18 +731,11 @@ class Kcc20KasivoService(
                 cellOwner == address ||
                 cellOwner.removePrefix("kaspa:") == addressNoPrefix
         )
-        val p2pkhSchnorr = cellOwner.startsWith("p2pkh:") &&
-            scheme in setOf("01", "1", "p2pkh-schnorr/v1")
-        val p2pkhHashMatch = if (p2pkhSchnorr) {
-            val keyBytes = owner.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-            val digest = Blake3Digest()
-            val hash = ByteArray(32)
-            digest.update(keyBytes, 0, keyBytes.size)
-            digest.doFinal(hash, 0)
-            cellOwner == "p2pkh:" + hash.joinToString("") { "%02x".format(it) }
-        } else false
+        // Do not derive a P2PKH owner hash here: KCC's exact P2PKHHash
+        // encoding must be verified against the deployed covenant specification.
+        val p2pkhHashMatch = false
 
-        return exactKey || exactAddress || p2pkhHashMatch
+        return exactKey || exactAddress
     }
 
     suspend fun fetchLiveTokenCells(
