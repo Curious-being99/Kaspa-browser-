@@ -2694,30 +2694,60 @@ class DecentralViewModel(
                 subnetworkId = "0000000000000000000000000000000000000000"
             )
 
-            // Sign token inputs and fee inputs with real BIP-340 Schnorr signatures
-            for (i in selectedPieces.indices) {
-                val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
-                val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
-                val sig65 = KbKcc20StandardAssembler.signaturePayload(sig64Hex)
-                val patched = KbKcc20StandardAssembler.patchSeat(plan.seats[i], sig65)
-                tx.inputs[i].signatureScript = KbKcc20ScriptCodec.bytesToHex(patched)
-            }
+            // Re-sign every input after any output adjustment: all signatures use SIGHASH_ALL.
+            val changeScript = KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress)
+            var changeOutputIndex = tx.outputs.indexOfLast { it.scriptPublicKey == changeScript }
+            var feeConverged = false
+            for (feePass in 0 until 4) {
+                for (i in selectedPieces.indices) {
+                    val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
+                    val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
+                    val sig65 = KbKcc20StandardAssembler.signaturePayload(sig64Hex)
+                    val patched = KbKcc20StandardAssembler.patchSeat(plan.seats[i], sig65)
+                    tx.inputs[i].signatureScript = KbKcc20ScriptCodec.bytesToHex(patched)
+                }
+                for (i in selectedPieces.size until inputs.size) {
+                    val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
+                    val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
+                    tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
+                }
 
-            for (i in selectedPieces.size until inputs.size) {
-                val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(tx, i, KaspaTransactionEngine.SIGHASH_ALL, utxoEntries[i])
-                val sig64Hex = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
-                tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
-            }
+                tx.mass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+                val requiredFeeSompis = maxOf(
+                    KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                    KaspaTransactionEngine.calculateFeeForMass(tx.mass, feeRateSompiPerGram),
+                    KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+                )
+                val actualFeeSompis = totalInSompi - tx.outputs.sumOf { it.amount }
+                if (actualFeeSompis >= requiredFeeSompis) {
+                    feeConverged = true
+                    break
+                }
 
+                val deficitSompis = requiredFeeSompis - actualFeeSompis
+                if (changeOutputIndex < 0 || changeOutputIndex !in tx.outputs.indices) {
+                    return@withContext Result.failure(IllegalStateException("KCC-20 dynamic-fee preflight needs an additional ${deficitSompis} sompi, but no adjustable KAS change output remains. No transaction was broadcast."))
+                }
+                val adjustedChange = tx.outputs[changeOutputIndex].amount - deficitSompis
+                if (adjustedChange >= minimumChangeSompis) {
+                    tx.outputs[changeOutputIndex] = tx.outputs[changeOutputIndex].copy(amount = adjustedChange)
+                } else {
+                    tx.outputs.removeAt(changeOutputIndex)
+                    changeOutputIndex = -1
+                }
+            }
+            if (!feeConverged) {
+                return@withContext Result.failure(IllegalStateException("KCC-20 dynamic-fee adjustment did not converge within four signed passes. No transaction was broadcast."))
+            }
             tx.mass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
-            val requiredFeeSompis = maxOf(
+            val finalRequiredFeeSompis = maxOf(
                 KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
                 KaspaTransactionEngine.calculateFeeForMass(tx.mass, feeRateSompiPerGram),
                 KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
             )
-            val actualFeeSompis = totalInSompi - outputs.sumOf { it.amount }
-            if (actualFeeSompis < requiredFeeSompis) {
-                return@withContext Result.failure(IllegalStateException("KCC-20 dynamic-fee preflight failed: needs ${requiredFeeSompis} sompi at ${feeRateSompiPerGram} sompi/gram, has ${actualFeeSompis}. No transaction was broadcast."))
+            val finalActualFeeSompis = totalInSompi - tx.outputs.sumOf { it.amount }
+            if (finalActualFeeSompis < finalRequiredFeeSompis) {
+                return@withContext Result.failure(IllegalStateException("KCC-20 final dynamic-fee preflight failed after signing: needs ${finalRequiredFeeSompis} sompi, has ${finalActualFeeSompis}. No transaction was broadcast."))
             }
             if (tx.mass > KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
                 return@withContext Result.failure(IllegalStateException("KCC-20 transaction mass ${tx.mass} exceeds the standard mempool limit ${KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS}. No transaction was broadcast."))
