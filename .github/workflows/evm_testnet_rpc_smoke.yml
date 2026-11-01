@@ -44,7 +44,7 @@ jobs:
             local curl_status
             response_file="$(mktemp)"
             metadata_file="$(mktemp)"
-            if curl --silent --show-error --max-time 20 \
+            if curl --silent --show-error --max-time 20 --retry 3 --retry-all-errors --retry-delay 2 --retry-max-time 45 \
               -H 'content-type: application/json' \
               --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
               --output "$response_file" \
@@ -56,6 +56,7 @@ jobs:
               size_download="$(sed -n '3p' "$metadata_file")"
               echo "RPC HTTP diagnostics: method=$method status=$http_status content_type=$content_type bytes=$size_download" >&2
               if [[ "$http_status" != "200" ]]; then
+                echo "RPC returned non-200 HTTP status after retry policy; the upstream endpoint remains unavailable. No alternate chain or fabricated success response will be used." >&2
                 echo "RPC returned non-200 HTTP status; response body follows:" >&2
                 cat "$response_file" >&2
                 rm -f "$response_file" "$metadata_file"
