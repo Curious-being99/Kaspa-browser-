@@ -2536,7 +2536,11 @@ class DecentralViewModel(
         } catch (e: Exception) {
             return@withContext Result.failure(IllegalStateException("Failed to decrypt seed phrase: ${e.message}"))
         }
-        val keyPair = CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = "kaspa")
+        val keyPair = try {
+            CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = "kaspa")
+        } catch (e: Exception) {
+            return@withContext Result.failure(IllegalStateException("Failed to derive wallet keys for KCC-20 transfer: ${e.message}", e))
+        }
 
         try {
             // 3. Calculate amount base units (decimals = 3 for KB)
@@ -2703,6 +2707,15 @@ class DecentralViewModel(
             } else {
                 Result.failure(java.io.IOException(receipt.error.ifBlank { "Broadcast rejected by Kaspa node mempool" }))
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(
+                IllegalStateException(
+                    "KCC-20 transfer failed safely: ${e.message ?: e.javaClass.simpleName}",
+                    e
+                )
+            )
         } finally {
             keyPair.wipe()
         }
