@@ -2730,9 +2730,9 @@ class DecentralViewModel(
                 }
                 val adjustedChange = tx.outputs[changeOutputIndex].amount - deficitSompis
                 if (adjustedChange >= minimumChangeSompis) {
-                    tx.outputs[changeOutputIndex] = tx.outputs[changeOutputIndex].copy(amount = adjustedChange)
+                    outputs[changeOutputIndex] = outputs[changeOutputIndex].copy(amount = adjustedChange)
                 } else {
-                    tx.outputs.removeAt(changeOutputIndex)
+                    outputs.removeAt(changeOutputIndex)
                     changeOutputIndex = -1
                 }
             }
