@@ -618,6 +618,44 @@ class Kcc20KasivoService(
      * Fetch live KCC-20 covenant token cells (UTXOs with redeem bytecode) owned by a wallet pubkey.
      * Maps directly to [KbKcc20StandardAssembler.SpendPiece] for real on-chain covenant spending.
      */
+    internal fun cellOwnerMatchesWallet(
+        cellOwnerValue: String,
+        cellAddressValue: String,
+        ownerSchemeValue: String,
+        publicKeyHex: String,
+        walletAddress: String?
+    ): Boolean {
+        val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
+        if (!owner.matches(Regex("[0-9a-f]{64}"))) return false
+        val cellOwner = cellOwnerValue.trim().lowercase().removePrefix("0x")
+        val cellAddress = cellAddressValue.trim().lowercase()
+        val normalizedAddress = walletAddress?.trim()?.lowercase().orEmpty()
+        val addressWithoutPrefix = normalizedAddress.removePrefix("kaspa:")
+        val ownerScheme = ownerSchemeValue.trim().lowercase()
+        val directKeyMatch = cellOwner == owner
+        val addressMatch = normalizedAddress.isNotBlank() && (
+            cellAddress == normalizedAddress ||
+            cellAddress.removePrefix("kaspa:") == addressWithoutPrefix ||
+            cellOwner == normalizedAddress ||
+            cellOwner.removePrefix("kaspa:") == addressWithoutPrefix
+        )
+        val isP2pkhSchnorr = cellOwner.startsWith("p2pkh:") &&
+            (ownerScheme == "01" || ownerScheme == "1" ||
+                ownerScheme == "p2pkh-schnorr/v1" || ownerScheme.isBlank())
+        val p2pkhMatch = if (isP2pkhSchnorr) {
+            val publicKeyBytes = owner.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            val digest = Blake3Digest()
+            val hash = ByteArray(32)
+            digest.update(publicKeyBytes, 0, publicKeyBytes.size)
+            digest.doFinal(hash, 0)
+            cellOwner == "p2pkh:" + hash.joinToString("") { "%02x".format(it) }
+        } else false
+        if (cellOwner.startsWith("p2pkh-ecdsa:") || ownerScheme == "p2pkh-ecdsa/v1") {
+            return addressMatch
+        }
+        return directKeyMatch || p2pkhMatch || addressMatch
+    }
+
     suspend fun fetchLiveTokenCells(
         contractId: String,
         publicKeyHex: String,
@@ -625,64 +663,81 @@ class Kcc20KasivoService(
     ): Result<List<KbKcc20StandardAssembler.SpendPiece>> = withContext(Dispatchers.IO) {
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
-        val normalizedAddress = walletAddress?.trim()?.lowercase()
+        if (!owner.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("Wallet public key must be 32-byte x-only hex"))
+        }
+        if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("KCC-20 covenant ID must be 32-byte hex"))
+        }
         try {
-            val url = URL("https://kascov.io/data/mainnet/token/$tokenId/cells")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = (URL("https://kascov.io/data/mainnet/token/$tokenId/cells").openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 8000
                 readTimeout = 12000
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0 (kascov.io)")
             }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext Result.failure(java.io.IOException("Kascov HTTP ${conn.responseCode} for cells"))
-            }
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val root = JSONObject(text)
-            val cellsArray = root.optJSONArray("cells") ?: JSONArray()
-            val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
-
-            for (i in 0 until cellsArray.length()) {
-                val c = cellsArray.optJSONObject(i) ?: continue
-                val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
-                val cellAddress = c.optString("owner_address", c.optString("address", c.optString("holder", ""))).trim().lowercase()
-                val scheme = c.optString("owner_scheme").trim()
-                val stripped = normalizedAddress?.removePrefix("kaspa:")
-
-                val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
-                              (cellOwner == owner) ||
-                              (cellOwner.contains(owner)) ||
-                              (normalizedAddress != null && (
-                                  cellAddress == normalizedAddress ||
-                                  (stripped != null && cellAddress.removePrefix("kaspa:") == stripped) ||
-                                  cellOwner == normalizedAddress ||
-                                  (stripped != null && cellOwner.removePrefix("kaspa:") == stripped) ||
-                                  (stripped != null && cellAddress.contains(stripped)) ||
-                                  (stripped != null && cellOwner.contains(stripped))
-                              ))
-
-                if (isMatch) {
-                    val outpoint = c.optString("outpoint", "")
-                    val parts = outpoint.split(":")
-                    if (parts.size == 2) {
-                        val txid = parts[0]
-                        val idx = parts[1].toIntOrNull() ?: 0
-                        val valueSompi = c.optLong("value_sompi", 20000000L)
-                        val programHex = c.optString("program", "")
-                        if (programHex.isNotBlank()) {
-                            val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
-                            pieces.add(
-                                KbKcc20StandardAssembler.SpendPiece(
-                                    transactionId = txid,
-                                    index = idx,
-                                    valueSompi = valueSompi,
-                                    redeem = redeem
-                                )
-                            )
-                        }
-                    }
+            val root = try {
+                if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw java.io.IOException("Kascov HTTP ${conn.responseCode} for token cells")
                 }
+                JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            } finally {
+                conn.disconnect()
+            }
+            val cellsArray = root.optJSONArray("cells") ?: root.optJSONArray("utxos") ?: JSONArray()
+            val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
+            val malformedOwnedCells = mutableListOf<String>()
+            for (i in 0 until cellsArray.length()) {
+                val cell = cellsArray.optJSONObject(i) ?: continue
+                val cellOwner = cell.optString("owner", cell.optString("owner_key", ""))
+                val cellAddress = cell.optString("owner_address", cell.optString("address", cell.optString("holder", "")))
+                val scheme = cell.optString("owner_scheme", cell.optString("owner_scheme_name", ""))
+                if (!cellOwnerMatchesWallet(cellOwner, cellAddress, scheme, owner, walletAddress)) continue
+
+                val outpoint = cell.optString("outpoint").ifBlank {
+                    val txid = cell.optString("transaction_id", cell.optString("txid", ""))
+                    val index = if (cell.has("output_index")) cell.optString("output_index") else cell.optString("index", "")
+                    if (txid.isNotBlank() && index.isNotBlank()) "$txid:$index" else ""
+                }
+                val parts = outpoint.split(":")
+                val txid = parts.getOrNull(0)?.lowercase().orEmpty()
+                val outputIndex = parts.getOrNull(1)?.toIntOrNull()
+                val amountValue = when (val raw = cell.opt("value_sompi")) {
+                    is Number -> raw.toLong()
+                    is String -> raw.toLongOrNull()
+                    else -> null
+                } ?: when (val raw = cell.opt("amount_sompi")) {
+                    is Number -> raw.toLong()
+                    is String -> raw.toLongOrNull()
+                    else -> null
+                }
+                val programHex = cell.optString("program").ifBlank {
+                    cell.optString("redeem_script").ifBlank { cell.optString("redeemScript") }
+                }.trim().lowercase()
+
+                if (!txid.matches(Regex("[0-9a-f]{64}")) || outputIndex == null || outputIndex < 0 ||
+                    amountValue == null || amountValue <= 0L || programHex.isBlank() ||
+                    !programHex.matches(Regex("(?:[0-9a-f]{2})+"))) {
+                    malformedOwnedCells += outpoint.ifBlank { "cell#$i" }
+                    continue
+                }
+                val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
+                val decoded = runCatching { KbKcc20StandardAssembler.splitProgram(redeem) }.getOrElse {
+                    malformedOwnedCells += outpoint
+                    continue
+                }
+                pieces.add(KbKcc20StandardAssembler.SpendPiece(
+                    transactionId = txid,
+                    index = outputIndex,
+                    valueSompi = amountValue,
+                    redeem = decoded.full
+                ))
+            }
+            if (pieces.isEmpty() && malformedOwnedCells.isNotEmpty()) {
+                return@withContext Result.failure(java.io.IOException(
+                    "KB cells were found for this wallet but their live outpoint, value or covenant program data was incomplete"
+                ))
             }
             Result.success(pieces)
         } catch (e: Exception) {
