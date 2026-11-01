@@ -723,7 +723,9 @@ class Kcc20KasivoService(
                     continue
                 }
                 val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
-                val decoded = runCatching { KbKcc20StandardAssembler.splitProgram(redeem) }.getOrElse {
+                val decoded = try {
+                    KbKcc20StandardAssembler.splitProgram(redeem)
+                } catch (_: Exception) {
                     malformedOwnedCells += outpoint
                     continue
                 }
