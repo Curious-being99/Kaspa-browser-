@@ -130,6 +130,24 @@ class DappPsktTransactionTest {
         assertEquals("", inspected.transaction.inputs[1].signatureScript)
     }
 
+    @Test
+    fun acceptsOutpointAliasAndPreservesTransactionIdAndIndex() {
+        val json = JSONObject(transactionJson())
+        val inputs = json.getJSONArray("inputs")
+        for (i in 0 until inputs.length()) {
+            val input = inputs.getJSONObject(i)
+            input.put("outpoint", input.getJSONObject("previousOutpoint"))
+            input.remove("previousOutpoint")
+        }
+        val prepared = DappPsktTransaction.prepareForSigning(
+            json.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        assertEquals("01".repeat(32), prepared.transaction.inputs[0].previousOutpoint.transactionId)
+        assertEquals(0L, prepared.transaction.inputs[0].previousOutpoint.index)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsDuplicateOutpointsBeforeSigning() {
         val json = JSONObject(transactionJson())

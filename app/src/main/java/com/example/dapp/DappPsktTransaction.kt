@@ -207,7 +207,8 @@ internal object DappPsktTransaction {
                 ?: throw IllegalArgumentException("Transaction input $index is malformed")
             val outpoint = item.optJSONObject("previousOutpoint")
                 ?: item.optJSONObject("previous_outpoint")
-                ?: throw IllegalArgumentException("Input $index is missing its previous outpoint")
+                ?: item.optJSONObject("outpoint")
+                ?: throw IllegalArgumentException("Input $index is missing its previous outpoint (expected previousOutpoint, previous_outpoint, or outpoint)")
             val txId = outpoint.optString("transactionId", outpoint.optString("transaction_id", ""))
             require(txId.matches(Regex("[0-9a-fA-F]{64}"))) { "Input $index has an invalid transaction id" }
             val outIndex = outpoint.optLong("index", -1L)
