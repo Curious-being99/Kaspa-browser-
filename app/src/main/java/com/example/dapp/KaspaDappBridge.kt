@@ -45,7 +45,6 @@ object KaspaDappBridge {
     }
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
-        if (isInstalled(webView) && hasListener(webView)) return
         val supportsWebMessageListener =
             WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
         val supportsDocumentStartScript =
