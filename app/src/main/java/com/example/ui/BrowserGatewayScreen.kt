@@ -3126,6 +3126,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
+                                    if (view != null && url?.startsWith("https://", ignoreCase = true) == true) {
+                                        com.example.dapp.KaspaDappBridge.install(
+                                            context = view.context,
+                                            webView = view,
+                                            viewModel = viewModel
+                                        )
+                                    }
                                     // Soft Keyboard Focus Auto-Scroll Helper: Ensures input fields are never covered by keyboard
                                     view?.evaluateJavascript("""
                                         (function() {
