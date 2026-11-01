@@ -61,11 +61,12 @@ object KaspaDappBridge {
 
         try {
             if (!hasListener(webView)) {
-                WebViewCompat.addWebMessageListener(
-                    webView,
-                    BRIDGE_NAME,
-                    setOf("https://*")
-                ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+                try {
+                    WebViewCompat.addWebMessageListener(
+                        webView,
+                        BRIDGE_NAME,
+                        setOf("https://*")
+                    ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                 val origin = normalizeOrigin(sourceOrigin.toString())
                 val currentOrigin = normalizeOrigin(view.url.orEmpty())
                 if (!isMainFrame || origin == null || origin != currentOrigin) return@addWebMessageListener
@@ -806,8 +807,16 @@ object KaspaDappBridge {
 
                     else -> respond(errorCode = 4200, errorMessage = "Unsupported Kaspa wallet method")
                 }
+                    }
+                    markListenerRegistered(webView)
+                    Log.i(LOG_TAG, "Native message listener registered for WebView ${System.identityHashCode(webView)}")
+                } catch (error: Throwable) {
+                    Log.e(
+                        LOG_TAG,
+                        "Native message listener registration failed for WebView ${System.identityHashCode(webView)}: ${error.javaClass.name}: ${error.message}",
+                        error
+                    )
                 }
-                markListenerRegistered(webView)
             }
 
             val script = """
