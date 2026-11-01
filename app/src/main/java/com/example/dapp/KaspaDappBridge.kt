@@ -28,12 +28,20 @@ object KaspaDappBridge {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cryptoExecutor = Executors.newSingleThreadExecutor()
     private val installedWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
+    private val listenerRegisteredWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
 
     private fun isInstalled(webView: WebView): Boolean =
         synchronized(installedWebViews) { installedWebViews.contains(webView) }
 
     private fun markInstalled(webView: WebView) {
         synchronized(installedWebViews) { installedWebViews.add(webView) }
+    }
+
+    private fun hasListener(webView: WebView): Boolean =
+        synchronized(listenerRegisteredWebViews) { listenerRegisteredWebViews.contains(webView) }
+
+    private fun markListenerRegistered(webView: WebView) {
+        synchronized(listenerRegisteredWebViews) { listenerRegisteredWebViews.add(webView) }
     }
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
@@ -52,11 +60,12 @@ object KaspaDappBridge {
         }
 
         try {
-            WebViewCompat.addWebMessageListener(
-                webView,
-                BRIDGE_NAME,
-                setOf("https://*")
-            ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+            if (!hasListener(webView)) {
+                WebViewCompat.addWebMessageListener(
+                    webView,
+                    BRIDGE_NAME,
+                    setOf("https://*")
+                ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                 val origin = normalizeOrigin(sourceOrigin.toString())
                 val currentOrigin = normalizeOrigin(view.url.orEmpty())
                 if (!isMainFrame || origin == null || origin != currentOrigin) return@addWebMessageListener
@@ -797,6 +806,8 @@ object KaspaDappBridge {
 
                     else -> respond(errorCode = 4200, errorMessage = "Unsupported Kaspa wallet method")
                 }
+                }
+                markListenerRegistered(webView)
             }
 
             val script = """
@@ -1245,7 +1256,13 @@ object KaspaDappBridge {
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
-            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+            try {
+                WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+                Log.i(LOG_TAG, "Provider document-start script registered")
+            } catch (error: Throwable) {
+                Log.e(LOG_TAG, "Provider document-start script registration failed", error)
+                throw error
+            }
             webView.post {
                 try { webView.evaluateJavascript(script, null) } catch (_: Throwable) {}
             }
