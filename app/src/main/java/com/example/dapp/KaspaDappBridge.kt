@@ -15,6 +15,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.util.Locale
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.UUID
 import java.util.concurrent.Executors
 
@@ -25,8 +27,25 @@ object KaspaDappBridge {
     private const val MAX_MESSAGE_LENGTH = 4096
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cryptoExecutor = Executors.newSingleThreadExecutor()
+    private val installedWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
+    private val listenerRegisteredWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
+
+    private fun isInstalled(webView: WebView): Boolean =
+        synchronized(installedWebViews) { installedWebViews.contains(webView) }
+
+    private fun markInstalled(webView: WebView) {
+        synchronized(installedWebViews) { installedWebViews.add(webView) }
+    }
+
+    private fun hasListener(webView: WebView): Boolean =
+        synchronized(listenerRegisteredWebViews) { listenerRegisteredWebViews.contains(webView) }
+
+    private fun markListenerRegistered(webView: WebView) {
+        synchronized(listenerRegisteredWebViews) { listenerRegisteredWebViews.add(webView) }
+    }
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
+        if (isInstalled(webView) && hasListener(webView)) return
         val supportsWebMessageListener =
             WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
         val supportsDocumentStartScript =
@@ -41,11 +60,13 @@ object KaspaDappBridge {
         }
 
         try {
-            WebViewCompat.addWebMessageListener(
-                webView,
-                BRIDGE_NAME,
-                setOf("https://*")
-            ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+            if (!hasListener(webView)) {
+                try {
+                    WebViewCompat.addWebMessageListener(
+                        webView,
+                        BRIDGE_NAME,
+                        setOf("https://*")
+                    ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                 val origin = normalizeOrigin(sourceOrigin.toString())
                 val currentOrigin = normalizeOrigin(view.url.orEmpty())
                 if (!isMainFrame || origin == null || origin != currentOrigin) return@addWebMessageListener
@@ -786,6 +807,16 @@ object KaspaDappBridge {
 
                     else -> respond(errorCode = 4200, errorMessage = "Unsupported Kaspa wallet method")
                 }
+                    }
+                    markListenerRegistered(webView)
+                    Log.i(LOG_TAG, "Native message listener registered for WebView ${System.identityHashCode(webView)}")
+                } catch (error: Throwable) {
+                    Log.e(
+                        LOG_TAG,
+                        "Native message listener registration failed for WebView ${System.identityHashCode(webView)}: ${error.javaClass.name}: ${error.message}",
+                        error
+                    )
+                }
             }
 
             val script = """
@@ -1234,9 +1265,30 @@ object KaspaDappBridge {
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
-            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+            if (!isInstalled(webView)) {
+                try {
+                    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+                    Log.i(LOG_TAG, "Provider document-start script registered for WebView ${System.identityHashCode(webView)}")
+                    markInstalled(webView)
+                } catch (error: Throwable) {
+                    Log.e(
+                        LOG_TAG,
+                        "Provider document-start script registration failed for WebView ${System.identityHashCode(webView)}: ${error.javaClass.name}: ${error.message}",
+                        error
+                    )
+                    throw error
+                }
+            }
             webView.post {
-                try { webView.evaluateJavascript(script, null) } catch (_: Throwable) {}
+                try {
+                    webView.evaluateJavascript(script, null)
+                } catch (error: Throwable) {
+                    Log.e(
+                        LOG_TAG,
+                        "Current-page provider injection failed for WebView ${System.identityHashCode(webView)}: ${error.javaClass.name}: ${error.message}",
+                        error
+                    )
+                }
             }
         } catch (error: Throwable) {
             Log.e(LOG_TAG, "Provider installation failed while configuring WebView messaging or script injection", error)

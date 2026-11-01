@@ -3685,6 +3685,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
                         }
 
+                        // Re-attach the Kaspa dApp bridge to preserved/restored WebViews as well as new ones.
+                        // KaspaDappBridge.install is idempotent per WebView, so this does not duplicate listeners.
+                        com.example.dapp.KaspaDappBridge.install(
+                            context = ctx,
+                            webView = webView,
+                            viewModel = viewModel
+                        )
+
                         (webView.parent as? ViewGroup)?.removeView(webView)
                         addView(webView)
                         webViewInstance = webView
