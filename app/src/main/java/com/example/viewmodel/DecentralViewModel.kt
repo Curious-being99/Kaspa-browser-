@@ -2643,43 +2643,47 @@ class DecentralViewModel(
                 )
             }
 
-            // Native KAS funding for fee
-            val liveKasUtxos = try {
-                walletService.fetchLiveUtxos(keyPair.kaspaAddress)
-            } catch (_: Exception) {
-                emptyList()
-            }
-            val feeRequired = 100000L // 0.001 KAS
-            var feeAccum = 0L
+            val networkFees = walletService.fetchNetworkFeeEstimate(isTestnet = false)
+            val feeRateSompiPerGram = maxOf(networkFees.normalFeerate, KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
+            val liveKasUtxos = walletService.fetchLiveUtxos(keyPair.kaspaAddress)
+                .filter { it.utxoEntry.amount > 0L }
+                .sortedByDescending { it.utxoEntry.amount }
+            val tokenInputSompis = selectedPieces.sumOf { it.valueSompi }
+            val successorDepositSompis = outputs.sumOf { it.amount }
             val feeInputs = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
-            for (u in liveKasUtxos.sortedByDescending { it.utxoEntry.amount }) {
-                feeInputs.add(u)
-                feeAccum += u.utxoEntry.amount
-                if (feeAccum >= feeRequired + 20000000L) break
-            }
+            var feeAccum = 0L
+            var feeRequired = KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+            val minimumChangeSompis = KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS
 
-            for (u in feeInputs) {
-                inputs.add(
-                    KaspaTransactionEngine.KaspaTransactionInput(
-                        previousOutpoint = u.outpoint,
-                        signatureScript = "",
-                        sequence = 0L,
-                        sigOpCount = 1
-                    )
+            for (u in liveKasUtxos) {
+                val estimatedInputs = selectedPieces.size + feeInputs.size + 1
+                val estimatedOutputs = outputs.size + 1
+                val estimatedAmounts = selectedPieces.map { it.valueSompi } + feeInputs.map { it.utxoEntry.amount } + u.utxoEntry.amount
+                val estimatedMass = KaspaTransactionEngine.estimateTransactionMass(
+                    inputsCount = estimatedInputs,
+                    outputsCount = estimatedOutputs,
+                    inputAmounts = estimatedAmounts,
+                    outputAmounts = outputs.map { it.amount } + minimumChangeSompis
                 )
+                val dynamicFee = KaspaTransactionEngine.calculateFeeForMass(estimatedMass, feeRateSompiPerGram)
+                val standardFee = KaspaTransactionEngine.calculateToccataMinimumStandardFee(estimatedInputs, estimatedOutputs)
+                feeRequired = maxOf(dynamicFee, standardFee, KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS)
+                feeInputs += u
+                feeAccum = Math.addExact(feeAccum, u.utxoEntry.amount)
+                if (feeAccum >= feeRequired + minimumChangeSompis) break
+            }
+            if (feeAccum < feeRequired) {
+                return@withContext Result.failure(IllegalStateException("Insufficient native KAS for the live KB covenant deposits and current network fee (${feeRequired} sompi at ${feeRateSompiPerGram} sompi/gram)."))
+            }
+            for (u in feeInputs) {
+                inputs.add(KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = u.outpoint, signatureScript = "", sequence = 0L, sigOpCount = 1))
                 utxoEntries.add(u.utxoEntry)
             }
-
-            val totalInSompi = pieces.sumOf { it.valueSompi } + feeAccum
-            val totalOutSompi = outputs.sumOf { it.amount } + feeRequired
-            if (totalInSompi > totalOutSompi + 100000L) {
-                val changeSompi = totalInSompi - totalOutSompi
-                outputs.add(
-                    KaspaTransactionEngine.KaspaTransactionOutput(
-                        amount = changeSompi,
-                        scriptPublicKey = KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress)
-                    )
-                )
+            val totalInSompi = Math.addExact(tokenInputSompis, feeAccum)
+            val changeSompi = totalInSompi - successorDepositSompis - feeRequired
+            if (changeSompi < 0L) return@withContext Result.failure(IllegalStateException("Selected live inputs do not cover covenant deposits plus the current network fee."))
+            if (changeSompi >= minimumChangeSompis) {
+                outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = changeSompi, scriptPublicKey = KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress)))
             }
 
             val tx = KaspaTransactionEngine.KaspaTransaction(
@@ -2705,16 +2709,18 @@ class DecentralViewModel(
                 tx.inputs[i].signatureScript = "41" + sig64Hex + "01"
             }
 
-            // Include real input amounts so KIP-9 storage mass is not omitted.
             tx.mass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+            val requiredFeeSompis = maxOf(
+                KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                KaspaTransactionEngine.calculateFeeForMass(tx.mass, feeRateSompiPerGram),
+                KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+            )
+            val actualFeeSompis = totalInSompi - outputs.sumOf { it.amount }
+            if (actualFeeSompis < requiredFeeSompis) {
+                return@withContext Result.failure(IllegalStateException("KCC-20 dynamic-fee preflight failed: needs ${requiredFeeSompis} sompi at ${feeRateSompiPerGram} sompi/gram, has ${actualFeeSompis}. No transaction was broadcast."))
+            }
             if (tx.mass > KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "KCC-20 transfer requires mass ${tx.mass}, above the standard mempool limit " +
-                            "${KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS}. " +
-                            "The selected live covenant cells cannot be submitted as a standard transaction."
-                    )
-                )
+                return@withContext Result.failure(IllegalStateException("KCC-20 transaction mass ${tx.mass} exceeds the standard mempool limit ${KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS}. No transaction was broadcast."))
             }
             val txId = KaspaTransactionEngine.calcTransactionId(tx)
 
