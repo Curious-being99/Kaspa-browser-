@@ -45,6 +45,8 @@ jobs:
     timeout-minutes: 60
     env:
       ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL: 60
+      ANDROID_USER_HOME: ${{ runner.temp }}/android-user-home
+      ANDROID_AVD_HOME: ${{ runner.temp }}/android-user-home/avd
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -71,16 +73,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '9.3.1'
+          cache-disabled: true
       - name: Create and verify API 35 AVD in explicit shared location
         run: |
           set -Eeuo pipefail
-          echo "Creating AVD in the runner default Android user directory: $HOME/.android/avd"
-          mkdir -p "$HOME/.android/avd"
+          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
+          mkdir -p "$ANDROID_AVD_HOME"
           echo "no" | avdmanager create avd --force --name kaspa-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
-          echo "AVD registry:"
-          find "$HOME/.android" -maxdepth 3 -name "kaspa-api35.ini" -o -name "config.ini"
-          test -f "$HOME/.android/avd/kaspa-api35.ini"
-          test -d "$HOME/.android/avd/kaspa-api35.avd"
+          echo "AVD registry files:"
+          find "$ANDROID_USER_HOME" -maxdepth 4 -type f -name "*.ini" -print
+          echo "AVD directories:"
+          find "$ANDROID_AVD_HOME" -maxdepth 2 -type d -print
+          test -f "$ANDROID_AVD_HOME/kaspa-api35.ini"
+          test -d "$ANDROID_AVD_HOME/kaspa-api35.avd"
           "${ANDROID_HOME}/emulator/emulator" -list-avds | tee "$RUNNER_TEMP/avd-list.txt"
           grep -Fxq "kaspa-api35" "$RUNNER_TEMP/avd-list.txt"
       - name: Boot emulator and run instrumentation tests
@@ -90,7 +96,7 @@ jobs:
           EMULATOR="${ANDROID_HOME}/emulator/emulator"
           ADB="${ANDROID_HOME}/platform-tools/adb"
           test -x "$EMULATOR"
-          test -f "$HOME/.android/avd/kaspa-api35.ini"
+          test -f "$ANDROID_AVD_HOME/kaspa-api35.ini"
           "$ADB" start-server
           "$EMULATOR" -avd kaspa-api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -wipe-data -no-metrics -gpu swiftshader_indirect -memory 4096 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
           EMULATOR_PID=$!
