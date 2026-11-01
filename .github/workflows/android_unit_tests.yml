@@ -39,7 +39,7 @@ jobs:
   kaspa-dapp-webview-emulator:
     name: Kaspa dApp WebView emulator tests
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 60
     env:
       ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL: 60
     steps:
@@ -62,43 +62,55 @@ jobs:
         run: |
           echo "no" | avdmanager create avd --force --name kaspa-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
       - name: Boot emulator and run instrumentation tests
-        timeout-minutes: 55
+        timeout-minutes: 45
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           adb start-server
-          emulator -avd kaspa-api35 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -no-metrics -gpu swiftshader_indirect -memory 2048 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          emulator -avd kaspa-api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -wipe-data -no-metrics -gpu swiftshader_indirect -memory 4096 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
             adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
             kill "$EMULATOR_PID" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
-          adb wait-for-device
-          deadline=$((SECONDS + 1200))
+          echo "Waiting up to 180 seconds for the emulator transport..."
+          if ! timeout 180s adb -s emulator-5554 wait-for-device; then
+            echo "ADB never saw emulator-5554. Emulator process state:"
+            ps -p "$EMULATOR_PID" -o pid,stat,etime,cmd || true
+            echo "Emulator startup log:"
+            cat "$RUNNER_TEMP/emulator.log" || true
+            adb devices -l || true
+            exit 1
+          fi
+          echo "ADB transport connected; waiting up to 15 minutes for Android boot."
+          deadline=$((SECONDS + 900))
           booted=0
           while (( SECONDS < deadline )); do
-            state="$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "Emulator process exited before Android boot completed."
+              cat "$RUNNER_TEMP/emulator.log" || true
+              adb devices -l || true
+              exit 1
+            fi
+            state="$(timeout 15s adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
             if [[ "$state" == "1" ]]; then
               booted=1
               break
             fi
-            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
-              echo "Emulator process exited before boot completed"
-              cat "$RUNNER_TEMP/emulator.log"
-              exit 1
-            fi
             sleep 5
           done
           if [[ "$booted" != "1" ]]; then
-            echo "Emulator did not finish booting within 20 minutes"
-            cat "$RUNNER_TEMP/emulator.log"
-            adb -s emulator-5554 logcat -d -t 500 || true
+            echo "Android did not complete boot within 15 minutes."
+            cat "$RUNNER_TEMP/emulator.log" || true
+            timeout 30s adb -s emulator-5554 logcat -d -t 500 || true
             exit 1
           fi
+          echo "Emulator boot completed:"
+          adb devices -l
           adb -s emulator-5554 shell settings put global window_animation_scale 0
           adb -s emulator-5554 shell settings put global transition_animation_scale 0
           adb -s emulator-5554 shell settings put global animator_duration_scale 0
-          adb devices -l
+          echo "Starting connectedDebugAndroidTest."
           gradle connectedDebugAndroidTest --no-daemon --stacktrace
       - name: Upload instrumentation reports and emulator diagnostics
         if: always()
