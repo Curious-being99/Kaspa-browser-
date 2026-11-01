@@ -2007,7 +2007,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Dev Console", color = TextPrimary) },
+                                    text = { Text("Kaspa Dev Console", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
