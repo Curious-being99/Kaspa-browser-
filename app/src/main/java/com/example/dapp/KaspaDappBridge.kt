@@ -1,6 +1,5 @@
 package com.example.dapp
 
-import android.app.AlertDialog
 import android.content.Context
 import android.net.Uri
 import android.os.Handler
@@ -19,6 +18,7 @@ import java.util.Collections
 import java.util.WeakHashMap
 import java.util.UUID
 import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
 
 object KaspaDappBridge {
     private const val BRIDGE_NAME = "kaspaDappBridge"
@@ -64,7 +64,7 @@ object KaspaDappBridge {
                     WebViewCompat.addWebMessageListener(
                         webView,
                         BRIDGE_NAME,
-                        setOf("https://*")
+                        setOf("*")
                     ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                 val origin = normalizeOrigin(sourceOrigin.toString())
                 val currentOrigin = normalizeOrigin(view.url.orEmpty())
@@ -77,7 +77,11 @@ object KaspaDappBridge {
                 val requestId = request.optString("id")
                 val method = request.optString("method")
                 val params = request.opt("params")
-                val account = viewModel.activeAccount.value
+                val account = viewModel.activeAccount.value ?: runCatching {
+                    kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                        viewModel.getActiveAccountFromDb()
+                    }
+                }.getOrNull()
                 val currentSelectedNet = viewModel.selectedNetwork.value
                 val isBraidSwapOrigin = origin.contains("braidswap.com", ignoreCase = true)
                 val network = if (isBraidSwapOrigin && !currentSelectedNet.contains("Mainnet", ignoreCase = true)) {
@@ -102,7 +106,11 @@ object KaspaDappBridge {
                 }
 
                 fun currentKeyPair(): CryptoUtils.KaspaKeyPair? {
-                    val active = account ?: return null
+                    val active = account ?: runCatching {
+                        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                            viewModel.getActiveAccountFromDb()
+                        }
+                    }.getOrNull() ?: return null
                     return try {
                         val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
                         CryptoUtils.deriveKaspaKeyPair(seed, prefix)
@@ -111,36 +119,120 @@ object KaspaDappBridge {
                     }
                 }
 
+                fun ensureUnlocked(onRejectMsg: String = "Wallet is locked. User cancelled unlock", onSuccess: () -> Unit) {
+                    if (viewModel.isWalletLocked.value && viewModel.hasWalletPassword.value) {
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.UnlockWallet(
+                                origin = origin,
+                                reason = "Unlock wallet to authorize request from $origin",
+                                onAuthenticatePassword = { pwd, callback ->
+                                    viewModel.unlockWalletWithPassword(pwd) { success ->
+                                        callback(success)
+                                    }
+                                },
+                                onAuthenticateBiometric = if (viewModel.biometricsEnabled.value) {
+                                    {
+                                        viewModel.unlockWalletWithBiometric()
+                                    }
+                                } else null,
+                                onUnlocked = {
+                                    viewModel.dappPromptState.value = null
+                                    onSuccess()
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(errorCode = 4001, errorMessage = onRejectMsg)
+                                }
+                            )
+                        }
+                    } else {
+                        onSuccess()
+                    }
+                }
+
+                fun ensureConnectedAndUnlocked(keyPair: CryptoUtils.KaspaKeyPair?, onRejectMsg: String = "User rejected connection", onSuccess: () -> Unit) {
+                    if (keyPair == null) {
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet(
+                                origin = origin,
+                                onOpenWallet = {
+                                    viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                    respond(errorCode = 4001, errorMessage = "User has not created a Kaspa wallet yet")
+                                    viewModel.dappPromptState.value = null
+                                },
+                                onReject = {
+                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                    viewModel.dappPromptState.value = null
+                                }
+                            )
+                        }
+                        return
+                    }
+
+                    val isCurrentlyConnected = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .getBoolean(origin, false)
+
+                    if (!isCurrentlyConnected) {
+                        cryptoExecutor.execute {
+                            val balance = try {
+                                kotlinx.coroutines.runBlocking {
+                                    viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                                }
+                            } catch (_: Throwable) { null }
+                            val balanceSompi = balance?.optLong("balance", 0L) ?: 0L
+                            val balanceKasStr = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(balanceSompi)
+                            ) + " KAS"
+                            mainHandler.post {
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
+                                    origin = origin,
+                                    network = network,
+                                    accountAddress = keyPair.kaspaAddress,
+                                    accountHandle = account?.handle.orEmpty(),
+                                    balanceKas = balanceKasStr,
+                                    onApprove = {
+                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                            .edit().putBoolean(origin, true).apply()
+                                        viewModel.dappPromptState.value = null
+                                        ensureUnlocked(onSuccess = onSuccess)
+                                    },
+                                    onReject = {
+                                        respond(errorCode = 4001, errorMessage = onRejectMsg)
+                                        viewModel.dappPromptState.value = null
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        ensureUnlocked(onSuccess = onSuccess)
+                    }
+                }
+
                 when (method) {
                     "requestAccounts" -> {
                         val keyPair = currentKeyPair()
-                        if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
-                        } else if (isConnected) {
-                            respond(JSONArray().put(keyPair.kaspaAddress))
-                        } else {
-                            AlertDialog.Builder(context)
-                                .setTitle("Connect Kaspa Browser Wallet")
-                                .setMessage("$origin wants to view your Kaspa address on $network. No transaction will be signed by connecting.")
-                                .setNegativeButton("Reject") { _, _ ->
-                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
-                                }
-                                .setPositiveButton("Connect") { _, _ ->
-                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                        .edit().putBoolean(origin, true).apply()
-                                    respond(JSONArray().put(keyPair.kaspaAddress))
-                                }
-                                .setOnCancelListener {
-                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
-                                }
-                                .show()
+                        ensureConnectedAndUnlocked(keyPair) {
+                            respond(JSONArray().put(keyPair!!.kaspaAddress))
                         }
                     }
 
                     "requestNetworkAccounts", "getNetworkAccounts" -> {
                         val keyPair = currentKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            mainHandler.post {
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet(
+                                    origin = origin,
+                                    onOpenWallet = {
+                                        viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                        respond(errorCode = 4001, errorMessage = "User has not created a Kaspa wallet yet")
+                                        viewModel.dappPromptState.value = null
+                                    },
+                                    onReject = {
+                                        respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                        viewModel.dappPromptState.value = null
+                                    }
+                                )
+                            }
                         } else {
                             val active = account
                             val evmAddress = active?.seedPhrase?.let {
@@ -151,21 +243,36 @@ object KaspaDappBridge {
                                 .put("kasplex", evmAddress)
                                 .put("igra", evmAddress)
                             if (method == "requestNetworkAccounts" && !isConnected) {
-                                AlertDialog.Builder(context)
-                                    .setTitle("Connect Kaspa Browser Wallet")
-                                    .setMessage("$origin wants to connect to Kaspa Mainnet L1 & L2 (Kasplex/Igra).")
-                                    .setNegativeButton("Reject") { _, _ ->
-                                        respond(errorCode = 4001, errorMessage = "User rejected network connection")
+                                cryptoExecutor.execute {
+                                    val balance = try {
+                                        kotlinx.coroutines.runBlocking {
+                                            viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                                        }
+                                    } catch (_: Throwable) { null }
+                                    val balanceSompi = balance?.optLong("balance", 0L) ?: 0L
+                                    val balanceKasStr = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                        com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(balanceSompi)
+                                    ) + " KAS"
+                                    mainHandler.post {
+                                        viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
+                                            origin = origin,
+                                            network = "$network (L1 & L2)",
+                                            accountAddress = keyPair.kaspaAddress,
+                                            accountHandle = account?.handle.orEmpty(),
+                                            balanceKas = balanceKasStr,
+                                            onApprove = {
+                                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                                    .edit().putBoolean(origin, true).apply()
+                                                respond(accountsObj)
+                                                viewModel.dappPromptState.value = null
+                                            },
+                                            onReject = {
+                                                respond(errorCode = 4001, errorMessage = "User rejected network connection")
+                                                viewModel.dappPromptState.value = null
+                                            }
+                                        )
                                     }
-                                    .setPositiveButton("Approve & Connect") { _, _ ->
-                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                            .edit().putBoolean(origin, true).apply()
-                                        respond(accountsObj)
-                                    }
-                                    .setOnCancelListener {
-                                        respond(errorCode = 4001, errorMessage = "User rejected network connection")
-                                    }
-                                    .show()
+                                }
                             } else {
                                 respond(accountsObj)
                             }
@@ -238,25 +345,53 @@ object KaspaDappBridge {
                     "getPublicKey" -> {
                         val keyPair = currentKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            mainHandler.post {
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet(
+                                    origin = origin,
+                                    onOpenWallet = {
+                                        viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                        respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                                        viewModel.dappPromptState.value = null
+                                    },
+                                    onReject = {
+                                        respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                        viewModel.dappPromptState.value = null
+                                    }
+                                )
+                            }
                         } else if (isConnected) {
                             respond(keyPair.publicKeyHex)
                         } else {
-                            AlertDialog.Builder(context)
-                                .setTitle("Connect Kaspa Browser Wallet")
-                                .setMessage("$origin wants to read your Kaspa public key on $network. This does not authorize signing or sending transactions.")
-                                .setNegativeButton("Reject") { _, _ ->
-                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                            cryptoExecutor.execute {
+                                val balance = try {
+                                    kotlinx.coroutines.runBlocking {
+                                        viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                                    }
+                                } catch (_: Throwable) { null }
+                                val balanceSompi = balance?.optLong("balance", 0L) ?: 0L
+                                val balanceKasStr = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                    com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(balanceSompi)
+                                ) + " KAS"
+                                mainHandler.post {
+                                    viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
+                                        origin = origin,
+                                        network = network,
+                                        accountAddress = keyPair.kaspaAddress,
+                                        accountHandle = account?.handle.orEmpty(),
+                                        balanceKas = balanceKasStr,
+                                        onApprove = {
+                                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                                .edit().putBoolean(origin, true).apply()
+                                            respond(keyPair.publicKeyHex)
+                                            viewModel.dappPromptState.value = null
+                                        },
+                                        onReject = {
+                                            respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                            viewModel.dappPromptState.value = null
+                                        }
+                                    )
                                 }
-                                .setPositiveButton("Connect") { _, _ ->
-                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                        .edit().putBoolean(origin, true).apply()
-                                    respond(keyPair.publicKeyHex)
-                                }
-                                .setOnCancelListener {
-                                    respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
-                                }
-                                .show()
+                            }
                         }
                     }
 
@@ -280,40 +415,43 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
                             return@addWebMessageListener
                         }
-                        AlertDialog.Builder(context)
-                            .setTitle("Sign message?")
-                            .setMessage("Website: $origin\nNetwork: $network\nAddress: ${keyPair.kaspaAddress}\n\nExact message:\n$text")
-                            .setNegativeButton("Reject") { _, _ ->
-                                respond(errorCode = 4001, errorMessage = "User rejected message signature")
-                            }
-                            .setPositiveButton("Sign") { _, _ ->
-                                cryptoExecutor.execute {
-                                    val signature = try {
-                                        CryptoUtils.signKaspaPersonalMessage(
-                                            keyPair.privateKey,
-                                            text.toByteArray(Charsets.UTF_8)
-                                        )
-                                    } catch (_: Throwable) {
-                                        null
-                                    }
-                                    mainHandler.post {
-                                        if (signature == null) respond(errorCode = -32603, errorMessage = "Message signing failed")
-                                        else {
-                                            val resultObj = JSONObject()
-                                                .put("address", keyPair.kaspaAddress)
-                                                .put("signature", signature)
-                                            respond(resultObj)
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignMessage(
+                                origin = origin,
+                                network = network,
+                                accountAddress = keyPair.kaspaAddress,
+                                message = text,
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
+                                    cryptoExecutor.execute {
+                                        val signature = try {
+                                            CryptoUtils.signKaspaPersonalMessage(
+                                                keyPair.privateKey,
+                                                text.toByteArray(Charsets.UTF_8)
+                                            )
+                                        } catch (_: Throwable) {
+                                            null
+                                        }
+                                        mainHandler.post {
+                                            if (signature == null) respond(errorCode = -32603, errorMessage = "Message signing failed")
+                                            else {
+                                                val resultObj = JSONObject()
+                                                    .put("address", keyPair.kaspaAddress)
+                                                    .put("signature", signature)
+                                                respond(resultObj)
+                                            }
                                         }
                                     }
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(errorCode = 4001, errorMessage = "User rejected message signature")
                                 }
-                            }
-                            .setOnCancelListener {
-                                respond(errorCode = 4001, errorMessage = "User rejected message signature")
-                            }
-                            .show()
+                            )
+                        }
                     }
 
-                    "signPskt" -> {
+                    "signPskt", "signPksk", "signPsktTransaction", "signKcc20Pskt" -> {
                         if (!isConnected) {
                             respond(errorCode = 4100, errorMessage = "Connect this site first")
                             return@addWebMessageListener
@@ -353,13 +491,20 @@ object KaspaDappBridge {
                                 return@execute
                             }
                             mainHandler.post {
-                                AlertDialog.Builder(context)
-                                    .setTitle("Review Kaspa transaction signature")
-                                    .setMessage(DappPsktTransaction.reviewText(prepared, origin, network, keyPair.kaspaAddress))
-                                    .setNegativeButton("Reject") { _, _ ->
-                                        respond(errorCode = 4001, errorMessage = "User rejected transaction signature")
-                                    }
-                                    .setPositiveButton("Sign selected inputs") { _, _ ->
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                    origin = origin,
+                                    network = network,
+                                    accountAddress = keyPair.kaspaAddress,
+                                    title = "Sign Kaspa Transaction",
+                                    action = "PSKT Transaction Signing",
+                                    tick = "KAS",
+                                    amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
+                                    destination = prepared.transaction.outputs.firstOrNull()?.scriptPublicKey?.script?.take(22).orEmpty(),
+                                    inputsCount = prepared.signInputs.size,
+                                    feeKas = prepared.feeKas,
+                                    totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
+                                    onApprove = {
+                                        viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
                                             val signedResult = try {
                                                 DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey)
@@ -374,11 +519,12 @@ object KaspaDappBridge {
                                                 }
                                             }
                                         }
-                                    }
-                                    .setOnCancelListener {
+                                    },
+                                    onReject = {
+                                        viewModel.dappPromptState.value = null
                                         respond(errorCode = 4001, errorMessage = "User rejected transaction signature")
                                     }
-                                    .show()
+                                )
                             }
                         }
                     }
@@ -411,13 +557,25 @@ object KaspaDappBridge {
                         val rawTxJson = paramsObj.optString("txJsonString", paramsObj.optString("transaction", ""))
                         val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KRC-20"
 
-                        AlertDialog.Builder(context)
-                            .setTitle("Review $protocolLabel $tick Transaction")
-                            .setMessage("DApp: $origin\nNetwork: $network\nStandard: $protocolLabel\nAction: ${op.uppercase()} $tick\nAmount: $amtStr\nDestination: ${if (toAddr.isNotBlank()) toAddr else "Encoded in transaction"}\n\nReview the actual transaction outputs and covenant data before approving. Only the wallet-owned inputs will be signed.")
-                            .setNegativeButton("Reject") { _, _ ->
-                                respond(errorCode = 4001, errorMessage = "User rejected $protocolLabel transaction")
-                            }
-                            .setPositiveButton("Sign & Broadcast") { _, _ ->
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                origin = origin,
+                                network = network,
+                                accountAddress = keyPair.kaspaAddress,
+                                title = "Confirm $tick Transaction",
+                                action = "${op.uppercase()} $tick ($protocolLabel)",
+                                tick = tick,
+                                amount = amtStr,
+                                destination = if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress,
+                                inputsCount = 1,
+                                feeKas = "0.0001 KAS",
+                                totalAmountKas = amtStr,
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
+                                    val contractId = paramsObj.optString("contractId", paramsObj.optString("contract", ""))
+                                    if (contractId.isNotBlank()) {
+                                        viewModel.addTrackedKcc20Contract(contractId)
+                                    }
                                 cryptoExecutor.execute {
                                     // Case A: dApp provided structured PSKT/transaction JSON to sign
                                     if (rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("version"))) {
@@ -580,12 +738,14 @@ object KaspaDappBridge {
                                         }
                                     }
                                 }
+                            },
+                            onReject = {
+                                viewModel.dappPromptState.value = null
+                                respond(errorCode = 4001, errorMessage = "User rejected $protocolLabel transaction")
                             }
-                            .setOnCancelListener {
-                                respond(errorCode = 4001, errorMessage = "User rejected KRC-20 transaction")
-                            }
-                            .show()
+                        )
                     }
+                }
 
                     "sendKaspa", "sendTransaction" -> {
                         if (!isConnected) {
@@ -628,41 +788,51 @@ object KaspaDappBridge {
                             return@addWebMessageListener
                         }
 
-                        AlertDialog.Builder(context)
-                            .setTitle("Send Kaspa Transaction?")
-                            .setMessage("DApp: $origin\nNetwork: $network\nRecipient: $toAddress\nAmount: $amountKas KAS\n\nThis will broadcast a real transaction to the Kaspa BlockDAG.")
-                            .setNegativeButton("Reject") { _, _ ->
-                                respond(errorCode = 4001, errorMessage = "User rejected transaction")
-                            }
-                            .setPositiveButton("Send Transaction") { _, _ ->
-                                cryptoExecutor.execute {
-                                    val sendResult = try {
-                                        kotlinx.coroutines.runBlocking {
-                                            viewModel.walletService.sendKaspa(
-                                                senderAddress = keyPair.kaspaAddress,
-                                                senderSeed = active.seedPhrase,
-                                                recipientAddress = toAddress,
-                                                amountKas = amountKas
-                                            )
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                origin = origin,
+                                network = network,
+                                accountAddress = keyPair.kaspaAddress,
+                                title = "Send Kaspa",
+                                action = "Send KAS Transaction",
+                                tick = "KAS",
+                                amount = "$amountKas",
+                                destination = toAddress,
+                                inputsCount = 1,
+                                feeKas = "0.0001 KAS",
+                                totalAmountKas = "$amountKas KAS",
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
+                                    cryptoExecutor.execute {
+                                        val sendResult = try {
+                                            kotlinx.coroutines.runBlocking {
+                                                viewModel.walletService.sendKaspa(
+                                                    senderAddress = keyPair.kaspaAddress,
+                                                    senderSeed = active.seedPhrase,
+                                                    recipientAddress = toAddress,
+                                                    amountKas = amountKas
+                                                )
+                                            }
+                                        } catch (e: Throwable) {
+                                            Result.failure(e)
                                         }
-                                    } catch (e: Throwable) {
-                                        Result.failure(e)
-                                    }
-                                    mainHandler.post {
-                                        if (sendResult.isSuccess) {
-                                            val txItem = sendResult.getOrThrow()
-                                            viewModel.refreshTestnetWallet()
-                                            respond(txItem.txId)
-                                        } else {
-                                            respond(errorCode = -32000, errorMessage = sendResult.exceptionOrNull()?.message ?: "Broadcast failed")
+                                        mainHandler.post {
+                                            if (sendResult.isSuccess) {
+                                                val txItem = sendResult.getOrThrow()
+                                                viewModel.refreshTestnetWallet()
+                                                respond(txItem.txId)
+                                            } else {
+                                                respond(errorCode = -32000, errorMessage = sendResult.exceptionOrNull()?.message ?: "Broadcast failed")
+                                            }
                                         }
                                     }
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(errorCode = 4001, errorMessage = "User rejected transaction")
                                 }
-                            }
-                            .setOnCancelListener {
-                                respond(errorCode = 4001, errorMessage = "User rejected transaction")
-                            }
-                            .show()
+                            )
+                        }
                     }
 
                     "submitTransaction", "pushTx" -> {
@@ -694,13 +864,24 @@ object KaspaDappBridge {
                                 return@execute
                             }
                             mainHandler.post {
-                                AlertDialog.Builder(context)
-                                    .setTitle("Submit Kaspa transaction?")
-                                    .setMessage(DappPsktTransaction.reviewText(prepared, origin, network, keyPair.kaspaAddress))
-                                    .setNegativeButton("Reject") { _, _ ->
-                                        respond(errorCode = 4001, errorMessage = "User rejected transaction submission")
-                                    }
-                                    .setPositiveButton("Submit transaction") { _, _ ->
+                                val firstOutput = prepared.transaction.outputs.firstOrNull()
+                                val outKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                    com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)
+                                )
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                    origin = origin,
+                                    network = network,
+                                    accountAddress = keyPair.kaspaAddress,
+                                    title = "Submit Kaspa Transaction",
+                                    action = "Broadcast Raw Transaction",
+                                    tick = "KAS",
+                                    amount = outKas,
+                                    destination = firstOutput?.scriptPublicKey?.script?.take(22).orEmpty(),
+                                    inputsCount = prepared.signInputs.size,
+                                    feeKas = prepared.feeKas,
+                                    totalAmountKas = outKas,
+                                    onApprove = {
+                                        viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
                                             val receipt = try {
                                                 kotlinx.coroutines.runBlocking {
@@ -722,11 +903,12 @@ object KaspaDappBridge {
                                                 }
                                             }
                                         }
-                                    }
-                                    .setOnCancelListener {
+                                    },
+                                    onReject = {
+                                        viewModel.dappPromptState.value = null
                                         respond(errorCode = 4001, errorMessage = "User rejected transaction submission")
                                     }
-                                    .show()
+                                )
                             }
                         }
                     }
@@ -763,13 +945,23 @@ object KaspaDappBridge {
                                 return@execute
                             }
                             mainHandler.post {
-                                AlertDialog.Builder(context)
-                                    .setTitle("Review KasCoven Policy Transaction")
-                                    .setMessage("DApp: $origin\nProtocol: Policy Vault\n\n" + DappPsktTransaction.reviewText(prepared, origin, network, keyPair.kaspaAddress))
-                                    .setNegativeButton("Reject") { _, _ ->
-                                        respond(errorCode = 4001, errorMessage = "User rejected policy signature")
-                                    }
-                                    .setPositiveButton("Sign Policy") { _, _ ->
+                                val outKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                    com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)
+                                )
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                    origin = origin,
+                                    network = network,
+                                    accountAddress = keyPair.kaspaAddress,
+                                    title = "Review KasCoven Policy Transaction",
+                                    action = "Sign KasCoven Policy Vault",
+                                    tick = "KAS",
+                                    amount = outKas,
+                                    destination = "KasCoven Policy Contract",
+                                    inputsCount = prepared.signInputs.size,
+                                    feeKas = prepared.feeKas,
+                                    totalAmountKas = outKas,
+                                    onApprove = {
+                                        viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
                                             val signedJson = try {
                                                 DappPsktTransaction.sign(prepared, keyPair.privateKey)
@@ -789,11 +981,12 @@ object KaspaDappBridge {
                                                 }
                                             }
                                         }
-                                    }
-                                    .setOnCancelListener {
+                                    },
+                                    onReject = {
+                                        viewModel.dappPromptState.value = null
                                         respond(errorCode = 4001, errorMessage = "User rejected policy signature")
                                     }
-                                    .show()
+                                )
                             }
                         }
                     }
@@ -823,8 +1016,9 @@ object KaspaDappBridge {
                   if (window.__kaspaBrowserProviderInstalled) return;
                   const nativeChannel = window.$BRIDGE_NAME || window.kaspaDappPort || window.kaspaBridgePort;
                   if (!nativeChannel || typeof nativeChannel.postMessage !== 'function') {
-                    window.__kaspaBrowserProviderInstallError = 'native-channel-unavailable';
-                    return;
+                    window.__kaspaBrowserProviderInstallWarning = 'native-channel-delayed';
+                  } else {
+                    try { delete window.__kaspaBrowserProviderInstallWarning; } catch (_) {}
                   }
                   try { delete window.__kaspaBrowserProviderInstallError; } catch (_) {}
                   window.__kaspaBrowserProviderInstalled = true;
@@ -1272,7 +1466,7 @@ object KaspaDappBridge {
 
             if (!isInstalled(webView)) {
                 try {
-                    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
+                    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
                     Log.i(LOG_TAG, "Provider document-start script registered for WebView ${System.identityHashCode(webView)}")
                     markInstalled(webView)
                 } catch (error: Throwable) {

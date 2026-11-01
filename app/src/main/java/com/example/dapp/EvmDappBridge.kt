@@ -1,6 +1,5 @@
 package com.example.dapp
 
-import android.app.AlertDialog
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -35,7 +34,7 @@ internal object EvmDappBridge {
             !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
         ) return
         try {
-            WebViewCompat.addWebMessageListener(webView, BRIDGE, setOf("https://*")) { view, message, sourceOrigin, isMainFrame, replyProxy ->
+            WebViewCompat.addWebMessageListener(webView, BRIDGE, setOf("*")) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                 val origin = normalizeOrigin(sourceOrigin.toString())
                 if (!isMainFrame || origin == null || origin != normalizeOrigin(view.url.orEmpty())) return@addWebMessageListener
                 val request = try {
@@ -84,6 +83,37 @@ internal object EvmDappBridge {
                     return response.opt("result")
                 }
 
+                fun ensureUnlocked(onSuccess: () -> Unit) {
+                    if (viewModel.isWalletLocked.value && viewModel.hasWalletPassword.value) {
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.UnlockWallet(
+                                origin = origin,
+                                reason = "Unlock wallet to authorize request from $origin",
+                                onAuthenticatePassword = { pwd, callback ->
+                                    viewModel.unlockWalletWithPassword(pwd) { success ->
+                                        callback(success)
+                                    }
+                                },
+                                onAuthenticateBiometric = if (viewModel.biometricsEnabled.value) {
+                                    {
+                                        viewModel.unlockWalletWithBiometric()
+                                    }
+                                } else null,
+                                onUnlocked = {
+                                    viewModel.dappPromptState.value = null
+                                    onSuccess()
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(code = 4001, error = "Wallet is locked. User cancelled unlock request.")
+                                }
+                            )
+                        }
+                    } else {
+                        onSuccess()
+                    }
+                }
+
                 fun requestConnection() {
                     if (legacyPhraseUnconfirmed) {
                         respond(code = 4100, error = "Review and confirm the derived legacy EVM address in wallet settings before connecting dApps")
@@ -94,7 +124,20 @@ internal object EvmDappBridge {
                         return
                     }
                     if (seedPhrase.isBlank()) {
-                        respond(code = 4100, error = "No active wallet is available")
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet(
+                                origin = origin,
+                                onOpenWallet = {
+                                    viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                    respond(code = 4100, error = "No active wallet is available")
+                                    viewModel.dappPromptState.value = null
+                                },
+                                onReject = {
+                                    respond(code = 4001, error = "User rejected wallet connection")
+                                    viewModel.dappPromptState.value = null
+                                }
+                            )
+                        }
                         return
                     }
                     val evmAddress = try { EvmWalletEngine.address(seedPhrase, passphrase) } catch (e: Throwable) {
@@ -102,20 +145,30 @@ internal object EvmDappBridge {
                         return
                     }
                     if (connected) {
-                        respond(JSONArray().put(evmAddress))
+                        ensureUnlocked {
+                            respond(JSONArray().put(evmAddress))
+                        }
                         return
                     }
                     mainHandler.post {
-                        AlertDialog.Builder(context)
-                            .setTitle("Connect EVM wallet?")
-                            .setMessage("$origin wants to view your EVM address on ${chain.name}. Connecting does not authorize signing or spending.")
-                            .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected wallet connection") }
-                            .setPositiveButton("Connect") { _, _ ->
+                        viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
+                            origin = origin,
+                            network = chain.name,
+                            accountAddress = evmAddress,
+                            accountHandle = account?.handle.orEmpty().ifBlank { "Kaspa EVM Account" },
+                            balanceKas = "",
+                            onApprove = {
                                 prefs.edit().putBoolean(origin, true).apply()
-                                respond(JSONArray().put(evmAddress))
+                                viewModel.dappPromptState.value = null
+                                ensureUnlocked {
+                                    respond(JSONArray().put(evmAddress))
+                                }
+                            },
+                            onReject = {
+                                respond(code = 4001, error = "User rejected wallet connection")
+                                viewModel.dappPromptState.value = null
                             }
-                            .setOnCancelListener { respond(code = 4001, error = "User rejected wallet connection") }
-                            .show()
+                        )
                     }
                 }
 
@@ -138,20 +191,32 @@ internal object EvmDappBridge {
                             return@addWebMessageListener
                         }
                         mainHandler.post {
-                            AlertDialog.Builder(context)
-                                .setTitle("Switch EVM network?")
-                                .setMessage("Allow $origin to switch to ${target.name} (chain ID ${target.chainId})?")
-                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected network switch") }
-                                .setPositiveButton("Switch") { _, _ ->
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                origin = origin,
+                                network = target.name,
+                                accountAddress = currentEvmAddress,
+                                title = "Switch EVM Network",
+                                action = "Switch network to ${target.name} (Chain ID: ${target.chainId})",
+                                tick = target.currency,
+                                amount = "",
+                                destination = "",
+                                inputsCount = 0,
+                                feeKas = "0",
+                                totalAmountKas = "",
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
                                     chainPrefs.edit().putLong(origin, target.chainId).apply()
                                     walletNetworkPrefs.edit().putLong(EvmWalletEngine.WALLET_NETWORK_KEY, target.chainId).apply()
                                     respond(JSONObject.NULL)
                                     try {
                                         replyProxy.postMessage(JSONObject().put("event", "chainChanged").put("chainId", target.chainIdHex).toString())
                                     } catch (_: Throwable) {}
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(code = 4001, error = "User rejected network switch")
                                 }
-                                .setOnCancelListener { respond(code = 4001, error = "User rejected network switch") }
-                                .show()
+                            )
                         }
                     }
                     "wallet_addEthereumChain" -> {
@@ -191,18 +256,23 @@ internal object EvmDappBridge {
                         }
                         val messageText = String(messageBytes, Charsets.UTF_8)
                         mainHandler.post {
-                            AlertDialog.Builder(context)
-                                .setTitle("Sign EVM message?")
-                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nMessage:\n$messageText")
-                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected message signature") }
-                                .setPositiveButton("Sign message") { _, _ ->
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignMessage(
+                                origin = origin,
+                                network = chain.name,
+                                accountAddress = address,
+                                message = messageText,
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
                                     executor.execute {
                                         try { val sig = EvmWalletEngine.signPersonalMessageHex(seedPhrase, messageHex, passphrase); mainHandler.post { respond(sig) } }
                                         catch (e: Throwable) { mainHandler.post { respond(code = -32603, error = e.message ?: "Signing failed") } }
                                     }
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(code = 4001, error = "User rejected message signature")
                                 }
-                                .setOnCancelListener { respond(code = 4001, error = "User rejected message signature") }
-                                .show()
+                            )
                         }
                     }
                     "eth_sign" -> {
@@ -231,11 +301,13 @@ internal object EvmDappBridge {
                             return@addWebMessageListener
                         }
                         mainHandler.post {
-                            AlertDialog.Builder(context)
-                                .setTitle("Review raw-hash signature")
-                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nThis signs the Keccak-256 hash of the supplied bytes without the personal-message prefix. Only continue if you trust the requesting site.\n\nMessage bytes: $messageHex")
-                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected eth_sign") }
-                                .setPositiveButton("Sign hash") { _, _ ->
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignMessage(
+                                origin = origin,
+                                network = chain.name,
+                                accountAddress = address,
+                                message = "Raw-hash signature request:\n$messageHex",
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
                                     executor.execute {
                                         try {
                                             val signature = EvmWalletEngine.signEthMessage(seedPhrase, messageHex, passphrase)
@@ -244,9 +316,12 @@ internal object EvmDappBridge {
                                             mainHandler.post { respond(code = -32603, error = e.message ?: "eth_sign failed") }
                                         }
                                     }
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(code = 4001, error = "User rejected eth_sign")
                                 }
-                                .setOnCancelListener { respond(code = 4001, error = "User rejected eth_sign") }
-                                .show()
+                            )
                         }
                     }
                     "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData" -> {
@@ -317,11 +392,13 @@ internal object EvmDappBridge {
                             }
                         }
                         mainHandler.post {
-                            AlertDialog.Builder(context)
-                                .setTitle("Review EIP-712 signature")
-                                .setMessage("Website: $origin\nNetwork: ${chain.name}\nAccount: $address\n\nReview the typed-data domain and message carefully before signing:\n$typedData")
-                                .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected typed-data signature") }
-                                .setPositiveButton("Sign typed data") { _, _ ->
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignMessage(
+                                origin = origin,
+                                network = chain.name,
+                                accountAddress = address,
+                                message = "EIP-712 Typed Data:\n$typedData",
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
                                     executor.execute {
                                         try {
                                             val signature = EvmWalletEngine.signTypedData(seedPhrase, typedData, passphrase)
@@ -330,9 +407,12 @@ internal object EvmDappBridge {
                                             mainHandler.post { respond(code = -32603, error = e.message ?: "Typed-data signing failed") }
                                         }
                                     }
+                                },
+                                onReject = {
+                                    viewModel.dappPromptState.value = null
+                                    respond(code = 4001, error = "User rejected typed-data signature")
                                 }
-                                .setOnCancelListener { respond(code = 4001, error = "User rejected typed-data signature") }
-                                .show()
+                            )
                         }
                     }
                     "eth_sendTransaction", "eth_signTransaction" -> {
@@ -429,11 +509,21 @@ internal object EvmDappBridge {
                                     return@execute
                                 }
                                 mainHandler.post {
-                                    AlertDialog.Builder(context)
-                                        .setTitle("Review EVM transaction")
-                                        .setMessage("Website: $origin\nNetwork: ${chain.name}\nGas token: ${chain.currency}\nAccount: $address\nTo: $to\nValue (wei): $value\nGas limit: $gas\n$feeLabel: $feePerGas\nMaximum network fee (wei): $maximumFee\n\nYou need enough ${chain.currency} in this EVM account to cover the network fee and transaction value. Token/NFT holdings alone do not pay gas. Contract calls can transfer tokens or NFTs and may be irreversible.")
-                                        .setNegativeButton("Reject") { _, _ -> respond(code = 4001, error = "User rejected transaction") }
-                                        .setPositiveButton(if (method == "eth_signTransaction") "Sign transaction" else "Sign & send") { _, _ ->
+                                    val valNative = java.math.BigDecimal(txValue).movePointLeft(18).stripTrailingZeros().toPlainString()
+                                    viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                        origin = origin,
+                                        network = chain.name,
+                                        accountAddress = address,
+                                        title = if (method == "eth_signTransaction") "Sign EVM Transaction" else "Send EVM Transaction",
+                                        action = "EVM Contract / Transfer (${chain.name})",
+                                        tick = chain.currency,
+                                        amount = valNative,
+                                        destination = to,
+                                        inputsCount = 1,
+                                        feeKas = "$maximumFee wei",
+                                        totalAmountKas = "$valNative ${chain.currency}",
+                                        onApprove = {
+                                            viewModel.dappPromptState.value = null
                                             executor.execute {
                                                 try {
                                                     val raw = EvmWalletEngine.signTransaction(seedPhrase, chain, tx, passphrase)
@@ -447,9 +537,12 @@ internal object EvmDappBridge {
                                                     mainHandler.post { respond(code = -32603, error = e.message ?: "Transaction signing or submission failed") }
                                                 }
                                             }
+                                        },
+                                        onReject = {
+                                            viewModel.dappPromptState.value = null
+                                            respond(code = 4001, error = "User rejected transaction")
                                         }
-                                        .setOnCancelListener { respond(code = 4001, error = "User rejected transaction") }
-                                        .show()
+                                    )
                                 }
                             } catch (e: Throwable) {
                                 mainHandler.post { respond(code = -32602, error = e.message ?: "Transaction preparation failed") }
@@ -576,7 +669,7 @@ internal object EvmDappBridge {
                   window.dispatchEvent(new Event('ethereum#initialized'));
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", java.util.UUID.randomUUID().toString())
-            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("https://*"))
+            WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
         } catch (_: Throwable) {
             // EVM provider stays unavailable if secure WebView messaging is unsupported.
         }

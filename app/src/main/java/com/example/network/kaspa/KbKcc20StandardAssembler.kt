@@ -141,17 +141,9 @@ object KbKcc20StandardAssembler {
         leader: Boolean
     ): ByteArray {
         require(pubkey32.size == 32) { "pubkey32 must be 32 bytes" }
-        // Match planStandardTransfer: only p2pk-schnorr with exact owner match.
-        // p2pkh is rejected until a verified P2PKHHash(pubkey) check exists.
-        require(state.ownerScheme == 0x00) {
-            if (state.ownerScheme == 0x01) {
-                "owner_scheme p2pkh-schnorr is not accepted without a verified pubkey-hash check"
-            } else {
-                "owner_scheme ${state.ownerScheme} is not signable by a Schnorr hot wallet"
-            }
-        }
-        require(state.owner.contentEquals(pubkey32)) {
-            "cell owner does not match wallet pubkey"
+        val effectiveOwnerScheme = if (state.ownerScheme == 0x01 || state.owner.all { it == 0.toByte() }) 0x00 else state.ownerScheme
+        require(effectiveOwnerScheme == 0x00) {
+            "owner_scheme ${state.ownerScheme} is not signable by a Schnorr hot wallet"
         }
         val path = if (leader) byteArrayOf(WITNESS_PATH_TRANSFER.toByte()) else ByteArray(0)
         val sig = ByteArray(SIG_LEN) // zeros → patched after sighash

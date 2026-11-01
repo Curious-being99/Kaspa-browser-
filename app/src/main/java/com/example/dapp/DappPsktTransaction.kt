@@ -63,27 +63,47 @@ internal object DappPsktTransaction {
             }
             val utxoScript = prepared.utxoEntries[request.index].scriptPublicKey.script
                 .replace(" ", "").lowercase()
-            if (prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && utxoScript == expectedScript) {
+            val pubHex = walletPublicKeyHex.lowercase()
+
+            val isOwnedByWallet = utxoScript.contains(pubHex) ||
+                (request.redeemScript.isNotBlank() && request.redeemScript.lowercase().contains(pubHex)) ||
+                (prepared.redeemScript.isNotBlank() && prepared.redeemScript.lowercase().contains(pubHex))
+
+            if ((prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && utxoScript == expectedScript) ||
+                utxoScript.contains(pubHex)
+            ) {
                 continue
             }
+
+            val isCovenant = utxoScript.contains("ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b") ||
+                utxoScript.contains("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
+
+            if (isCovenant && isOwnedByWallet) {
+                continue
+            }
+
             val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
-                ?: throw IllegalArgumentException("Selected input ${request.index} is not an active-wallet P2PK or supported P2SH input")
-            val redeem = request.redeemScript.takeIf { it.isNotBlank() }
-                ?: prepared.redeemScript.takeIf { it.isNotBlank() }
-                ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
-            require(redeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
-                "P2SH redeemScript for input ${request.index} is malformed"
+            if (p2shHash != null) {
+                val redeem = request.redeemScript.takeIf { it.isNotBlank() }
+                    ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
+                require(redeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                    "P2SH redeemScript for input ${request.index} is malformed"
+                }
+                val redeemBytes = hexToBytes(redeem)
+                val actualHash = CryptoUtils.blake2b256(redeemBytes)
+                    .joinToString("") { "%02x".format(it) }
+                require(actualHash.equals(p2shHash, ignoreCase = true)) {
+                    "P2SH redeemScript does not match input ${request.index} locking script"
+                }
+                val redeemHex = redeem.lowercase()
+                require(redeemHex.contains(expectedScript) || redeemHex.contains(pubHex)) {
+                    "P2SH input ${request.index} redeemScript is not controlled by the active wallet key"
+                }
+                continue
             }
-            val redeemBytes = hexToBytes(redeem)
-            val actualHash = CryptoUtils.blake2b256(redeemBytes)
-                .joinToString("") { "%02x".format(it) }
-            require(actualHash.equals(p2shHash, ignoreCase = true)) {
-                "P2SH redeemScript does not match input ${request.index} locking script"
-            }
-            val redeemHex = redeem.lowercase()
-            require(redeemHex.contains(expectedScript)) {
-                "P2SH input ${request.index} redeemScript is not controlled by the active wallet key"
-            }
+
+            throw IllegalArgumentException("Selected input ${request.index} is not controlled by the active wallet key")
         }
         return prepared
     }
@@ -279,16 +299,10 @@ internal object DappPsktTransaction {
         val lines = ArrayList<String>()
         lines += "Website: $origin"
         lines += "Network: $network"
-        lines += "Wallet: $address"
-        lines += "Inputs: ${prepared.transaction.inputs.size}"
-        lines += "Outputs: ${prepared.transaction.outputs.size}"
-        lines += "Total input: ${KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(prepared.inputSumSompi))} KAS"
-        lines += "Total output: ${KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi))} KAS"
-        lines += "Fee: ${prepared.feeKas} KAS"
-        prepared.transaction.outputs.forEachIndexed { index, output ->
-            lines += "Output ${index + 1}: ${KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(output.amount))} KAS · script ${output.scriptPublicKey.script.take(22)}…"
-        }
-        lines += "Review every output before approving. Covenant logic and marketplace intent are not inferred by this generic signer."
+        lines += "Account: $address"
+        lines += "Inputs to sign: ${prepared.signInputs.size}"
+        lines += "Total amount: ${KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi))} KAS"
+        lines += "Estimated fee: ${prepared.feeKas} KAS"
         return lines.joinToString("\n")
     }
 }

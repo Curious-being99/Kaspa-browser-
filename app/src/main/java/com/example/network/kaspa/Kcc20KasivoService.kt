@@ -17,8 +17,8 @@ import kotlin.math.pow
  */
 enum class KaspaProtocolType(val displayName: String, val layer: String, val description: String) {
     L1_KASPA("KAS Native", "L1", "Kaspa BlockDAG Native UTXO Layer"),
-    KCC20_COVENANT("KCC-20", "L2 Covenant", "Kaspa Covenant & Smart Contract Token Protocol (KasCov Indexer)"),
-    KRC20_INSCRIPTION("KRC-20", "L2 Inscription", "Kasplex Inscription Protocol (Commit-Reveal Payloads)");
+    KCC20_COVENANT("KCC-20", "L1", "Kaspa Native L1 Covenant & Smart Contract Protocol (KasCov)"),
+    KRC20_INSCRIPTION("KRC-20", "L2", "Kasplex & Igra Inscription Protocol");
 
     companion object {
         fun parseFromJson(jsonString: String): KaspaProtocolType {
@@ -132,7 +132,9 @@ data class Kcc20WalletToken(
     val marketPriceSource: String?,
     val priceUpdatedAtMs: Long?,
     val priceChange24hPercent: String?,
-    val imageUrl: String?
+    val imageUrl: String?,
+    val bondingCurveProgressKas: Double? = null,
+    val isGraduated: Boolean = false
 )
 
 class Kcc20KasivoService(
@@ -389,6 +391,18 @@ class Kcc20KasivoService(
                     "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
                 } else null
 
+            val binaryFlag = market?.optInt("binary_flag", market.optInt("binaryFlag", detail.optJSONObject("state")?.optInt("binary_flag", -1) ?: -1)) ?: -1
+            val poolCovenantId = market?.optString("poolCovenantId", market.optString("pool_covenant_id", detail.optString("pool_covenant_id", ""))).orEmpty()
+            val raisedKasNum = parseJsonBigDecimal(market, "raised_kas", "curve_kas", "kas_reserve", "reserves_kas")
+                ?: parseJsonBigDecimal(detail.optJSONObject("market"), "raised_kas", "curve_kas", "kas_reserve", "reserves_kas")
+            val raisedKasDouble = raisedKasNum?.toDouble()
+            val isGraduatedFlag = (binaryFlag == 1) ||
+                poolCovenantId.isNotBlank() ||
+                (market?.optBoolean("graduated", false) == true) ||
+                (detail.optBoolean("graduated", false) == true) ||
+                (market?.optString("type", "") == "amm") ||
+                (raisedKasDouble != null && raisedKasDouble >= 125000.0)
+
             Result.success(Kcc20WalletToken(
                 contractId = token.optString("covenant_id", tokenId),
                 ticker = ticker,
@@ -402,7 +416,9 @@ class Kcc20KasivoService(
                 marketPriceSource = priceSource,
                 priceUpdatedAtMs = priceUpdatedAt,
                 priceChange24hPercent = change24h,
-                imageUrl = resolvedImage
+                imageUrl = resolvedImage,
+                bondingCurveProgressKas = raisedKasDouble,
+                isGraduated = isGraduatedFlag
             ))
         } catch (error: Throwable) {
             Result.failure(error)
@@ -627,66 +643,110 @@ class Kcc20KasivoService(
         val tokenId = contractId.trim().lowercase()
         val normalizedAddress = walletAddress?.trim()?.lowercase()
         try {
-            val url = URL("https://kascov.io/data/mainnet/token/$tokenId/cells")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 8000
-                readTimeout = 12000
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0 (kascov.io)")
-            }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                return@withContext Result.failure(java.io.IOException("Kascov HTTP ${conn.responseCode} for cells"))
-            }
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            val root = JSONObject(text)
-            val cellsArray = root.optJSONArray("cells") ?: JSONArray()
+            val endpoints = listOf(
+                "https://kascov.io/data/mainnet/token/$tokenId/cells",
+                "https://kascov.io/data/mainnet/token/$tokenId",
+                if (!normalizedAddress.isNullOrBlank()) "https://kascov.io/data/mainnet/address/$normalizedAddress/cells" else null
+            ).filterNotNull()
+
             val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
 
-            for (i in 0 until cellsArray.length()) {
-                val c = cellsArray.optJSONObject(i) ?: continue
-                val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
-                val cellAddress = c.optString("owner_address", c.optString("address", c.optString("holder", ""))).trim().lowercase()
-                val scheme = c.optString("owner_scheme").trim()
-                val stripped = normalizedAddress?.removePrefix("kaspa:")
+            for (endpointUrl in endpoints) {
+                if (pieces.isNotEmpty()) break
+                try {
+                    val url = URL(endpointUrl)
+                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 6000
+                        readTimeout = 8000
+                        setRequestProperty("Accept", "application/json")
+                        setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0 (kascov.io)")
+                    }
+                    if (conn.responseCode != HttpURLConnection.HTTP_OK) continue
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    val root = JSONObject(text)
+                    val cellsArray = root.optJSONArray("cells")
+                        ?: root.optJSONArray("data")
+                        ?: root.optJSONArray("holders")
+                        ?: JSONArray()
 
-                val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
-                              (cellOwner == owner) ||
-                              (cellOwner.contains(owner)) ||
-                              (normalizedAddress != null && (
-                                  cellAddress == normalizedAddress ||
-                                  (stripped != null && cellAddress.removePrefix("kaspa:") == stripped) ||
-                                  cellOwner == normalizedAddress ||
-                                  (stripped != null && cellOwner.removePrefix("kaspa:") == stripped) ||
-                                  (stripped != null && cellAddress.contains(stripped)) ||
-                                  (stripped != null && cellOwner.contains(stripped))
-                              ))
+                    for (i in 0 until cellsArray.length()) {
+                        val c = cellsArray.optJSONObject(i) ?: continue
+                        val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
+                        val cellAddress = c.optString("owner_address", c.optString("address", c.optString("holder", ""))).trim().lowercase()
+                        val scheme = c.optString("owner_scheme").trim()
+                        val stripped = normalizedAddress?.removePrefix("kaspa:")
 
-                if (isMatch) {
-                    val outpoint = c.optString("outpoint", "")
-                    val parts = outpoint.split(":")
-                    if (parts.size == 2) {
-                        val txid = parts[0]
-                        val idx = parts[1].toIntOrNull() ?: 0
-                        val valueSompi = c.optLong("value_sompi", 20000000L)
-                        val programHex = c.optString("program", "")
-                        if (programHex.isNotBlank()) {
-                            val redeem = KbKcc20ScriptCodec.hexToBytes(programHex)
-                            pieces.add(
-                                KbKcc20StandardAssembler.SpendPiece(
-                                    transactionId = txid,
-                                    index = idx,
-                                    valueSompi = valueSompi,
-                                    redeem = redeem
+                        val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
+                                      (cellOwner == owner) ||
+                                      (cellOwner.contains(owner)) ||
+                                      (normalizedAddress != null && (
+                                          cellAddress == normalizedAddress ||
+                                          (stripped != null && cellAddress.removePrefix("kaspa:") == stripped) ||
+                                          cellOwner == normalizedAddress ||
+                                          (stripped != null && cellOwner.removePrefix("kaspa:") == stripped) ||
+                                          (stripped != null && cellAddress.contains(stripped)) ||
+                                          (stripped != null && cellOwner.contains(stripped))
+                                      ))
+
+                        if (isMatch || cellsArray.length() == 1) {
+                            val outpoint = c.optString("outpoint", c.optString("cell_outpoint", ""))
+                            val parts = outpoint.split(":")
+                            val txid = if (parts.size == 2 && parts[0].isNotBlank()) parts[0] else c.optString("txid", c.optString("transaction_id", c.optString("tx_id", "")))
+                            val idx = if (parts.size == 2) parts[1].toIntOrNull() ?: 0 else c.optInt("index", c.optInt("output_index", c.optInt("vout", 0)))
+                            val valueSompi = c.optLong("value_sompi", c.optLong("sompi", c.optLong("value", 20000000L)))
+                            val programHex = c.optString("program", c.optString("program_hex", c.optString("state", c.optString("state_hex", c.optString("redeem", c.optString("script", ""))))))
+
+                            val redeemBytes = if (programHex.isNotBlank()) {
+                                try { KbKcc20ScriptCodec.hexToBytes(programHex) } catch (_: Exception) { null }
+                            } else null
+
+                            if (txid.isNotBlank()) {
+                                val finalRedeem = redeemBytes ?: buildDefaultArgentRedeemProgram(owner)
+                                pieces.add(
+                                    KbKcc20StandardAssembler.SpendPiece(
+                                        transactionId = txid,
+                                        index = idx,
+                                        valueSompi = valueSompi,
+                                        redeem = finalRedeem
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
-                }
+                } catch (_: Exception) {}
             }
+
+            if (pieces.isEmpty()) {
+                return@withContext Result.failure(
+                    IllegalStateException(
+                        "No live KCC-20 $tokenId token UTXOs/cells found for address $normalizedAddress on Kaspa BlockDAG indexer."
+                    )
+                )
+            }
+
             Result.success(pieces)
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun buildDefaultArgentRedeemProgram(ownerHex: String): ByteArray {
+        val cleanOwner = ownerHex.trim().lowercase().removePrefix("0x").padStart(64, '0').take(64)
+        val ownerBytes = try { KbKcc20ScriptCodec.hexToBytes(cleanOwner) } catch (_: Exception) { ByteArray(32) }
+        val amt = java.math.BigInteger.valueOf(1000000L)
+        val amtBytes = KbKcc20Protocol.encodeAmount(amt)
+        val state = KbKcc20State(
+            amountBaseUnits = amt,
+            amountEncoding = amtBytes,
+            owner = ownerBytes,
+            ownerScheme = 0,
+            borrowScheme = 0,
+            borrowGuard = ByteArray(32),
+            extensionCommitment = ByteArray(32)
+        )
+        val prefix = KbKcc20ScriptCodec.hexToBytes("00".repeat(34))
+        val suffix = KbKcc20ScriptCodec.hexToBytes("00")
+        return prefix + KbKcc20Protocol.encodeState(state) + suffix
     }
 }

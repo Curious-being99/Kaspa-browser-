@@ -4473,6 +4473,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
+    // Real Web3 DApp Prompt Bottom Sheet (Connect, Sign, Tokens)
+    val dappPrompt by viewModel.dappPromptState.collectAsState()
+    if (dappPrompt != null) {
+        DappPromptBottomSheet(
+            prompt = dappPrompt!!,
+            onDismiss = {
+                val current = dappPrompt
+                if (current != null) {
+                    when (current) {
+                        is com.example.viewmodel.DecentralViewModel.DappPromptState.Connect -> current.onReject()
+                        is com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction -> current.onReject()
+                        is com.example.viewmodel.DecentralViewModel.DappPromptState.SignMessage -> current.onReject()
+                        is com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet -> current.onReject()
+                        is com.example.viewmodel.DecentralViewModel.DappPromptState.UnlockWallet -> current.onReject()
+                    }
+                }
+                viewModel.dappPromptState.value = null
+            }
+        )
+    }
 
 
 

@@ -117,6 +117,9 @@ data class KaspaAddressValidationResult(
     val explorerUrl: String = ""
 )
 
+typealias DappPromptState = DecentralViewModel.DappPromptState
+
+
 fun extractFilenameFromDisposition(disposition: String?): String? {
     if (disposition.isNullOrBlank()) return null
     try {
@@ -239,6 +242,58 @@ class DecentralViewModel(
     application: Application,
     private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
+
+    sealed class DappPromptState {
+        data class Connect(
+            val origin: String,
+            val network: String,
+            val accountAddress: String,
+            val accountHandle: String = "",
+            val balanceKas: String = "",
+            val onApprove: () -> Unit,
+            val onReject: () -> Unit
+        ) : DappPromptState()
+
+        data class SignTransaction(
+            val origin: String,
+            val network: String,
+            val accountAddress: String,
+            val title: String,
+            val action: String,
+            val tick: String,
+            val amount: String,
+            val destination: String,
+            val inputsCount: Int = 1,
+            val feeKas: String = "",
+            val totalAmountKas: String = "",
+            val onApprove: () -> Unit,
+            val onReject: () -> Unit
+        ) : DappPromptState()
+
+        data class SignMessage(
+            val origin: String,
+            val network: String,
+            val accountAddress: String,
+            val message: String,
+            val onApprove: () -> Unit,
+            val onReject: () -> Unit
+        ) : DappPromptState()
+
+        data class NoWallet(
+            val origin: String,
+            val onOpenWallet: () -> Unit,
+            val onReject: () -> Unit
+        ) : DappPromptState()
+
+        data class UnlockWallet(
+            val origin: String,
+            val reason: String = "Unlock wallet to complete dApp request",
+            val onAuthenticatePassword: (String, (Boolean) -> Unit) -> Unit,
+            val onAuthenticateBiometric: (() -> Unit)? = null,
+            val onUnlocked: () -> Unit,
+            val onReject: () -> Unit
+        ) : DappPromptState()
+    }
 
     val webViewTabManager = BrowserTabWebViewManager()
     private val appPrefs = application.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
@@ -1125,11 +1180,11 @@ class DecentralViewModel(
 
     val activeAccount: StateFlow<AccountEntity?> = database.accountDao()
         .getActiveAccount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val allAccounts: StateFlow<List<AccountEntity>> = database.accountDao()
         .getAllAccounts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val domainRegistry = KaspaDomainRegistry(database, kaspaWalletService)
 
@@ -1153,7 +1208,21 @@ class DecentralViewModel(
     private val _isLoadingKcc20 = MutableStateFlow(false)
     val isLoadingKcc20: StateFlow<Boolean> = _isLoadingKcc20.asStateFlow()
     private val kcc20RefreshMutex = Mutex()
-    private val kcc20ContractIds = listOf("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
+    private val _kcc20ContractIds = MutableStateFlow<List<String>>(
+        listOf("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
+    )
+    val kcc20ContractIds: StateFlow<List<String>> = _kcc20ContractIds.asStateFlow()
+
+    fun addTrackedKcc20Contract(contractId: String) {
+        val clean = contractId.trim().lowercase()
+        if (clean.isNotBlank() && !_kcc20ContractIds.value.contains(clean)) {
+            _kcc20ContractIds.value = _kcc20ContractIds.value + clean
+            refreshKcc20Tokens()
+            refreshKcc20Transactions()
+        }
+    }
+
+    val dappPromptState = MutableStateFlow<DappPromptState?>(null)
 
 
     private val _pinnedTokens = MutableStateFlow<List<Krc20TokenBalance>>(emptyList())
@@ -1305,6 +1374,20 @@ class DecentralViewModel(
     val mainnetAddress: StateFlow<String> = combine(activeAccount, _selectedNetwork) { acc, _ ->
         getMainnetAddressForAccount(acc)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    suspend fun getActiveAccountFromDb(): AccountEntity? {
+        val current = activeAccount.value
+        if (current != null) return current
+        val list = kotlinx.coroutines.withContext(Dispatchers.IO) { database.accountDao().getAllAccountsList() }
+        val existingActive = list.firstOrNull { it.isActive }
+        if (existingActive != null) return existingActive
+        val firstExisting = list.firstOrNull()
+        if (firstExisting != null) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) { database.accountDao().setActive(firstExisting.did) }
+            return firstExisting.copy(isActive = true)
+        }
+        return null
+    }
 
     private val _activeTab = MutableStateFlow(AppTab.BROWSER_GATEWAY)
     val activeTab: StateFlow<AppTab> = _activeTab.asStateFlow()
@@ -1832,12 +1915,16 @@ class DecentralViewModel(
         UBlockEngine.init(getApplication())
 
         // Delete any legacy mock accounts so user has clean slate
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 database.accountDao().deleteLegacyMockAccounts()
                 database.domainDao().deleteLegacyMockDomains()
                 val allAccounts = database.accountDao().getAllAccountsList()
                 if (allAccounts.isNotEmpty()) {
+                    val hasActive = allAccounts.any { it.isActive }
+                    if (!hasActive) {
+                        database.accountDao().setActive(allAccounts.first().did)
+                    }
                     for (acc in allAccounts) {
                         val cleanHandle = if (acc.handle.contains(".k") || acc.handle.startsWith("@kas")) {
                             "Kaspa Account (${acc.kaspaAddress.takeLast(6)})"
@@ -2183,7 +2270,7 @@ class DecentralViewModel(
                     }
                     try {
                         val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
-                        val results = kcc20ContractIds.mapNotNull { id ->
+                        val results = _kcc20ContractIds.value.mapNotNull { id ->
                             kcc20Service.fetchWalletToken(
                                 publicKeyHex = keyPair.publicKeyHex,
                                 contractId = id,
@@ -2198,7 +2285,7 @@ class DecentralViewModel(
 
                         // 3. Fetch KCC-20 transaction history from live KasCov BlockDAG indexer
                         val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
-                        for (id in kcc20ContractIds) {
+                        for (id in _kcc20ContractIds.value) {
                             val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
                             if (!history.isNullOrEmpty()) {
                                 txHistoryList.addAll(history)
@@ -2226,7 +2313,7 @@ class DecentralViewModel(
             }
             try {
                 val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
-                for (id in kcc20ContractIds) {
+                for (id in _kcc20ContractIds.value) {
                     val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
                     if (!history.isNullOrEmpty()) {
                         txHistoryList.addAll(history)
