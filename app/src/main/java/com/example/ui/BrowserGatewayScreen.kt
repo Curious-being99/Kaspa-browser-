@@ -2007,7 +2007,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Provider Diagnostics", color = TextPrimary) },
+                                    text = { Text("Dev Console", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Code, contentDescription = null, tint = ElectricCyan) },
                                     onClick = {
                                         showBrowserMenu = false
@@ -2209,7 +2209,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 if (showProviderDiagnostics) {
                     AlertDialog(
                         onDismissRequest = { showProviderDiagnostics = false },
-                        title = { Text("Kaspa Provider Diagnostics", color = TextPrimary) },
+                        title = { Text("Kaspa Dev Console", color = TextPrimary) },
                         text = {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
