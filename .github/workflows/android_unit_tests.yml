@@ -1,13 +1,8 @@
 name: Android Unit Tests
 
 on:
-  push:
-    branches:
-      - draft/evm-kasplex-igra-provider-clean
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -19,37 +14,59 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - run: yes | sdkmanager --licenses || true
+      - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '9.3.1'
-
-      - name: Run unit tests
-        run: gradle testDebugUnitTest --no-daemon --stacktrace
-
-      - name: Upload unit test reports
+      - run: gradle testDebugUnitTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: android-unit-test-reports
           path: |
             **/build/test-results/testDebugUnitTest/
             **/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+
+  kaspa-dapp-webview-emulator:
+    name: Kaspa dApp WebView emulator tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - run: yes | sdkmanager --licenses || true
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '9.3.1'
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: gradle connectedDebugAndroidTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kaspa-dapp-webview-instrumentation-reports
+          path: |
+            **/build/outputs/androidTest-results/connected/
+            **/build/reports/androidTests/connected/
           if-no-files-found: warn
