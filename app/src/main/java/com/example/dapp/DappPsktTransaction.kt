@@ -80,45 +80,45 @@ internal object DappPsktTransaction {
                 .replace(" ", "").lowercase()
             val pubHex = walletPublicKeyHex.lowercase()
 
-            val isOwnedByWallet = utxoScript.contains(pubHex) ||
-                (request.redeemScript.isNotBlank() && request.redeemScript.lowercase().contains(pubHex)) ||
-                (prepared.redeemScript.isNotBlank() && prepared.redeemScript.lowercase().contains(pubHex))
-
-            if ((prepared.utxoEntries[request.index].scriptPublicKey.version == 0 && utxoScript == expectedScript) ||
-                utxoScript.contains(pubHex)
-            ) {
-                continue
+            val utxo = prepared.utxoEntries[request.index]
+            require(utxo.amount > 0L) {
+                "Input ${request.index} has an invalid or missing UTXO amount"
             }
 
-            val isCovenant = utxoScript.contains("ff3ae732e3a2819bf9181f5aed6b1e9d0f7abea70a1dd655b8e777cbcbd2422b") ||
-                utxoScript.contains("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
-
-            if (isCovenant && isOwnedByWallet) {
+            // Only sign standard version-0 P2PK outputs whose complete locking script
+            // exactly commits to this wallet key. Substring matches are not ownership proofs.
+            if (utxo.scriptPublicKey.version == 0 && utxoScript == expectedScript) {
                 continue
             }
 
             val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
-            if (p2shHash != null) {
+            if (utxo.scriptPublicKey.version == 8 && p2shHash != null) {
                 val redeem = request.redeemScript.takeIf { it.isNotBlank() }
                     ?: prepared.redeemScript.takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
                 require(redeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                     "P2SH redeemScript for input ${request.index} is malformed"
                 }
-                val redeemBytes = hexToBytes(redeem)
+                val redeemHex = redeem.lowercase()
+                val redeemBytes = hexToBytes(redeemHex)
                 val actualHash = CryptoUtils.blake2b256(redeemBytes)
                     .joinToString("") { "%02x".format(it) }
                 require(actualHash.equals(p2shHash, ignoreCase = true)) {
                     "P2SH redeemScript does not match input ${request.index} locking script"
                 }
-                val redeemHex = redeem.lowercase()
-                require(redeemHex.contains(expectedScript) || redeemHex.contains(pubHex)) {
-                    "P2SH input ${request.index} redeemScript is not controlled by the active wallet key"
+                // Until full script execution is available in the wallet, only support
+                // the exact single-key P2PK redeem script. Never infer ownership because
+                // the active key merely appears somewhere in an arbitrary script.
+                require(redeemHex == expectedScript) {
+                    "P2SH input ${request.index} is not a supported single-key P2PK deposit for the active wallet key"
                 }
                 continue
             }
 
-            throw IllegalArgumentException("Selected input ${request.index} is not controlled by the active wallet key")
+            throw IllegalArgumentException(
+                "Input ${request.index} is not an exact supported P2PK/P2SH-P2PK deposit for the active wallet key " +
+                    "(scriptVersion=${utxo.scriptPublicKey.version}, amountSompi=${utxo.amount})"
+            )
         }
         return prepared
     }
