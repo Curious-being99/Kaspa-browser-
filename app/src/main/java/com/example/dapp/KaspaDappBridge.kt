@@ -497,6 +497,7 @@ object KaspaDappBridge {
                                     action = "PSKT Transaction Signing",
                                     tick = "KAS",
                                     amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
+                                    amountLabel = "Total outputs (includes wallet change)",
                                     destination = prepared.transaction.outputs.firstOrNull()?.scriptPublicKey?.script?.take(22).orEmpty(),
                                     inputsCount = prepared.signInputs.size,
                                     feeKas = prepared.feeKas,
