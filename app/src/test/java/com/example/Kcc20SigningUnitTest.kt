@@ -15,7 +15,7 @@ import org.robolectric.annotation.Config
 import java.math.BigInteger
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [36])
 class Kcc20SigningUnitTest {
 
     private val testPrivateKey = BigInteger("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", 16)

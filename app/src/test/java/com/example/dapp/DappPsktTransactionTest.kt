@@ -152,4 +152,149 @@ class DappPsktTransactionTest {
             otherKey
         )
     }
+
+    @Test
+    fun parsesFlatInputsWithTxidAndVoutAliases() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val flatInputs = JSONArray().put(JSONObject()
+            .put("txid", "aa".repeat(32))
+            .put("vout", 0)
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("sigOpCount", 1)
+            .put("amount", "10000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+            .put("blockDaaScore", "1")
+            .put("isCoinbase", false)
+        )
+        val outputs = JSONArray().put(
+            JSONObject().put("amount", "9400000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+        )
+        val tx = JSONObject()
+            .put("version", 0)
+            .put("inputs", flatInputs)
+            .put("outputs", outputs)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        assertEquals("aa".repeat(32), prepared.transaction.inputs[0].previousOutpoint.transactionId)
+        assertEquals(0L, prepared.transaction.inputs[0].previousOutpoint.index)
+        assertEquals(10000000L, prepared.utxoEntries[0].amount)
+    }
+
+    @Test
+    fun parsesSnakeCasePreviousOutpointAndAliases() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val snakeInputs = JSONArray().put(JSONObject()
+            .put("previous_outpoint", JSONObject().put("transaction_id", "bb".repeat(32)).put("output_index", 2))
+            .put("signature_script", "")
+            .put("sequence", 0)
+            .put("sig_op_count", 1)
+            .put("utxo_entry", JSONObject().put("amount", "15000000").put("script_public_key", JSONObject().put("version", 0).put("script", userScript)))
+        )
+        val outputs = JSONArray().put(
+            JSONObject().put("amount", "14400000").put("script_public_key", JSONObject().put("version", 0).put("script", userScript))
+        )
+        val tx = JSONObject()
+            .put("version", 0)
+            .put("inputs", snakeInputs)
+            .put("outputs", outputs)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        assertEquals("bb".repeat(32), prepared.transaction.inputs[0].previousOutpoint.transactionId)
+        assertEquals(2L, prepared.transaction.inputs[0].previousOutpoint.index)
+        assertEquals(15000000L, prepared.utxoEntries[0].amount)
+    }
+
+    @Test
+    fun signAndFormatReturnsExpectedJsonStructure() {
+        val prepared = DappPsktTransaction.prepareForSigning(
+            transactionJson(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        val result = DappPsktTransaction.signAndFormat(prepared, privateKey)
+        assertTrue(result.has("psktTransactionJson"))
+        assertTrue(result.has("signedTxJson"))
+        assertTrue(result.has("inputs"))
+
+        val signedTxJson = result.getString("psktTransactionJson")
+        val signedObj = JSONObject(signedTxJson)
+        val firstInput = signedObj.getJSONArray("inputs").getJSONObject(0)
+        assertTrue(firstInput.getString("signatureScript").startsWith("41"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun throwsWhenInput0IsMissingPreviousOutpoint() {
+        val userScript = "20" + publicKeyHex + "ac"
+        // Completely missing outpoint info
+        val badInputs = JSONArray().put(JSONObject()
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("amount", "10000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+        )
+        val outputs = JSONArray().put(
+            JSONObject().put("amount", "9400000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+        )
+        val tx = JSONObject().put("inputs", badInputs).put("outputs", outputs)
+        DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+    }
+
+    @Test
+    fun parsesOutpointObjectAndIntegerSignInputs() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val inputs = JSONArray().put(JSONObject()
+            .put("outpoint", JSONObject().put("transactionId", "cc".repeat(32)).put("index", 1))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject().put("amount", "20000000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
+        )
+        val outputs = JSONArray().put(
+            JSONObject().put("amount", "19400000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+        )
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(0), // Raw integer signInputs
+            publicKeyHex
+        )
+        assertEquals("cc".repeat(32), prepared.transaction.inputs[0].previousOutpoint.transactionId)
+        assertEquals(1L, prepared.transaction.inputs[0].previousOutpoint.index)
+        assertEquals(20000000L, prepared.utxoEntries[0].amount)
+    }
+
+    @Test
+    fun parsesStringOutpointFormat() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val txId = "dd".repeat(32)
+        val inputs = JSONArray().put(JSONObject()
+            .put("outpoint", "$txId:3")
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject().put("amount", "25000000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
+        )
+        val outputs = JSONArray().put(
+            JSONObject().put("amount", "24400000").put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+        )
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0)), // signInputs without explicit sighashType
+            publicKeyHex
+        )
+        assertEquals(txId, prepared.transaction.inputs[0].previousOutpoint.transactionId)
+        assertEquals(3L, prepared.transaction.inputs[0].previousOutpoint.index)
+    }
 }

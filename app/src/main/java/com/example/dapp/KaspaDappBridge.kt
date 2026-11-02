@@ -83,12 +83,7 @@ object KaspaDappBridge {
                     }
                 }.getOrNull()
                 val currentSelectedNet = viewModel.selectedNetwork.value
-                val isBraidSwapOrigin = origin.contains("braidswap.com", ignoreCase = true)
-                val network = if (isBraidSwapOrigin && !currentSelectedNet.contains("Mainnet", ignoreCase = true)) {
-                    "Kaspa Mainnet"
-                } else {
-                    currentSelectedNet
-                }
+                val network = currentSelectedNet
                 val prefix = if (network.contains("Mainnet", true)) "kaspa" else "kaspatest"
                 val isConnected = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .getBoolean(origin, false)
@@ -248,6 +243,8 @@ object KaspaDappBridge {
                             } ?: "0x0000000000000000000000000000000000000000"
                             val accountsObj = JSONObject()
                                 .put("mainnet", keyPair.kaspaAddress)
+                                .put("testnet-10", keyPair.kaspaAddress)
+                                .put("testnet-11", keyPair.kaspaAddress)
                                 .put("kasplex", evmAddress)
                                 .put("igra", evmAddress)
                             if (method == "requestNetworkAccounts" && !isConnected) {
@@ -293,11 +290,7 @@ object KaspaDappBridge {
                     }
 
                     "getNetwork" -> {
-                        if (origin.contains("braidswap.com", ignoreCase = true)) {
-                            respond("mainnet")
-                        } else {
-                            respond(networkId(network))
-                        }
+                        respond(networkId(network))
                     }
 
                     "getBalance" -> {
@@ -508,6 +501,7 @@ object KaspaDappBridge {
                                     inputsCount = prepared.signInputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
+                                    isBroadcast = false,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
@@ -520,7 +514,7 @@ object KaspaDappBridge {
                                                 if (signedResult == null) {
                                                     respond(errorCode = -32603, errorMessage = "Transaction signing failed")
                                                 } else {
-                                                    respond(signedResult.optString("psktTransactionJson"))
+                                                    respond(signedResult)
                                                 }
                                             }
                                         }
@@ -608,7 +602,8 @@ object KaspaDappBridge {
                                                 kotlinx.coroutines.runBlocking {
                                                     viewModel.walletService.submitDappTransaction(
                                                         prepared.transaction,
-                                                        keyPair.kaspaAddress
+                                                        keyPair.kaspaAddress,
+                                                        network
                                                     )
                                                 }
                                             } catch (_: Throwable) { null }
@@ -893,7 +888,8 @@ object KaspaDappBridge {
                                                 kotlinx.coroutines.runBlocking {
                                                     viewModel.walletService.submitDappTransaction(
                                                         prepared.transaction,
-                                                        keyPair.kaspaAddress
+                                                        keyPair.kaspaAddress,
+                                                        network
                                                     )
                                                 }
                                             } catch (error: Throwable) {
@@ -1514,6 +1510,7 @@ object KaspaDappBridge {
         network.contains("Mainnet", true) -> "mainnet"
         network.contains("11") -> "testnet-11"
         network.contains("10") -> "testnet-10"
+        network.contains("Testnet", true) -> "testnet-10"
         else -> "mainnet"
     }
 

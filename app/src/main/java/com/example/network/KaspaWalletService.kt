@@ -43,19 +43,51 @@ class KaspaWalletService(
         private const val KNS_MAINNET_REGISTRY_ID = "ee2128c03dfac7f6d74734bb3c879bd999434c47a55945b8a6daae2a1e4a21de"
     }
 
+    fun formatAddressForNetwork(address: String, networkName: String): String {
+        val clean = address.trim()
+        if (clean.isBlank()) return clean
+        val isMainnet = networkName.contains("Mainnet", ignoreCase = true)
+        val isTestnet = !isMainnet && (
+            networkName.contains("Testnet", ignoreCase = true) || 
+            networkName.contains("tn", ignoreCase = true) ||
+            clean.startsWith("kaspatest:", ignoreCase = true)
+        )
+        val targetPrefix = if (isTestnet) "kaspatest" else "kaspa"
+        if (clean.startsWith("$targetPrefix:", ignoreCase = true)) return clean.lowercase()
+        val pubKey = CryptoUtils.extractPublicKeyFromAddress(clean)
+        if (pubKey != null) {
+            return CryptoUtils.encodeRealKaspaAddress(pubKey, prefix = targetPrefix)
+        }
+        return clean.lowercase()
+    }
+
     fun getCandidateEndpoints(address: String, networkName: String = "Kaspa Mainnet"): List<String> {
+        val isMainnet = networkName.contains("Mainnet", ignoreCase = true)
+        val isTestnet11 = !isMainnet && networkName.contains("Testnet 11", ignoreCase = true)
+        val isTestnet = !isMainnet && (
+            networkName.contains("Testnet", ignoreCase = true) ||
+            networkName.contains("tn", ignoreCase = true) ||
+            address.startsWith("kaspatest:", ignoreCase = true)
+        )
         return when {
-            networkName.contains("Mainnet", ignoreCase = true) || address.startsWith("kaspa:") -> listOf(API_MAINNET, "https://api.kaspanet.io")
-            networkName.contains("Testnet 11", ignoreCase = true) -> listOf(API_TESTNET_11, "https://api-tn11.kaspanet.io")
-            else -> listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
+            isTestnet11 -> listOf(API_TESTNET_11, "https://api-tn11.kaspanet.io")
+            isTestnet -> listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
+            else -> listOf(API_MAINNET, "https://api.kaspanet.io")
         }
     }
 
     private fun getApiBase(address: String, networkName: String = "Kaspa Mainnet"): String {
+        val isMainnet = networkName.contains("Mainnet", ignoreCase = true)
+        val isTestnet11 = !isMainnet && networkName.contains("Testnet 11", ignoreCase = true)
+        val isTestnet = !isMainnet && (
+            networkName.contains("Testnet", ignoreCase = true) ||
+            networkName.contains("tn", ignoreCase = true) ||
+            address.startsWith("kaspatest:", ignoreCase = true)
+        )
         return when {
-            networkName.contains("Mainnet", ignoreCase = true) || address.startsWith("kaspa:") -> API_MAINNET
-            networkName.contains("Testnet 11", ignoreCase = true) -> API_TESTNET_11
-            else -> API_TESTNET
+            isTestnet11 -> API_TESTNET_11
+            isTestnet -> API_TESTNET
+            else -> API_MAINNET
         }
     }
 
@@ -221,6 +253,7 @@ class KaspaWalletService(
         if (address.isBlank()) {
             return@withContext KaspaWalletState()
         }
+        val targetAddress = formatAddressForNetwork(address, networkName)
 
         var balanceSompis = 0L
         var priceUsd = 0.165 // fallback reference price
@@ -229,10 +262,10 @@ class KaspaWalletService(
         val transactions = mutableListOf<KaspaTransactionItem>()
 
         // 1. Fetch live balance from Kaspa API
-        val apiBase = getApiBase(address, networkName)
+        val apiBase = getApiBase(targetAddress, networkName)
         var balanceFetchSuccess = false
         try {
-            val balanceUrl = "$apiBase/addresses/$address/balance"
+            val balanceUrl = "$apiBase/addresses/$targetAddress/balance"
             val req = Request.Builder().url(balanceUrl).get().build()
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
@@ -284,7 +317,7 @@ class KaspaWalletService(
 
         // 3. Fetch UTXOs count and balance fallback safeguard
         try {
-            val utxosUrl = "$apiBase/addresses/$address/utxos"
+            val utxosUrl = "$apiBase/addresses/$targetAddress/utxos"
             val req = Request.Builder().url(utxosUrl).get().build()
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
@@ -333,7 +366,7 @@ class KaspaWalletService(
 
         // 4. Fetch full transactions with fast local resolution (zero blocking network loops)
         try {
-            val txsUrl = "$apiBase/addresses/$address/full-transactions?limit=20"
+            val txsUrl = "$apiBase/addresses/$targetAddress/full-transactions?limit=20"
             val req = Request.Builder().url(txsUrl).get().build()
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
@@ -449,10 +482,11 @@ class KaspaWalletService(
     /**
      * Fetches live UTXOs for a Kaspa address from REST API
      */
-    suspend fun fetchLiveUtxos(address: String): List<KaspaTransactionEngine.KaspaUtxo> = withContext(Dispatchers.IO) {
+    suspend fun fetchLiveUtxos(address: String, networkName: String = "Kaspa Mainnet"): List<KaspaTransactionEngine.KaspaUtxo> = withContext(Dispatchers.IO) {
         val utxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
-        val apiBase = getApiBase(address)
-        val url = "$apiBase/addresses/$address/utxos"
+        val targetAddress = formatAddressForNetwork(address, networkName)
+        val apiBase = getApiBase(targetAddress, networkName)
+        val url = "$apiBase/addresses/$targetAddress/utxos"
         try {
             val req = Request.Builder().url(url).get().build()
             fastRestClient.newCall(req).execute().use { resp ->
@@ -596,8 +630,7 @@ class KaspaWalletService(
      * 6. Broadcasts to Kaspa Node REST & RPC endpoints
      */
     suspend fun fetchDappBalance(address: String, networkName: String): JSONObject = withContext(Dispatchers.IO) {
-        val normalized = address.trim()
-        require(normalized.startsWith("kaspa:") || normalized.startsWith("kaspatest:")) { "Unsupported Kaspa address" }
+        val normalized = formatAddressForNetwork(address, networkName)
         val apiBase = getApiBase(normalized, networkName)
         val request = Request.Builder().url("$apiBase/addresses/$normalized/balance").get().build()
         client.newCall(request).execute().use { response ->
@@ -619,13 +652,63 @@ class KaspaWalletService(
     }
 
     suspend fun fetchDappUtxos(address: String, networkName: String): JSONArray = withContext(Dispatchers.IO) {
-        val normalized = address.trim()
-        require(normalized.startsWith("kaspa:") || normalized.startsWith("kaspatest:")) { "Unsupported Kaspa address" }
+        val normalized = formatAddressForNetwork(address, networkName)
         val apiBase = getApiBase(normalized, networkName)
         val request = Request.Builder().url("$apiBase/addresses/$normalized/utxos").get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw java.io.IOException("Kaspa UTXO endpoint returned HTTP ${response.code}")
-            JSONArray(response.body?.string().orEmpty())
+            val raw = JSONArray(response.body?.string().orEmpty())
+            val enriched = JSONArray()
+            for (i in 0 until raw.length()) {
+                val item = raw.optJSONObject(i) ?: continue
+                val op = item.optJSONObject("outpoint")
+                    ?: item.optJSONObject("previousOutpoint")
+                    ?: item.optJSONObject("previous_outpoint")
+                val txId = op?.optString("transactionId", op.optString("transaction_id", op.optString("txId", ""))) ?: ""
+                val idx = op?.optLong("index", op.optLong("outputIndex", 0L)) ?: 0L
+
+                val utxoEntryObj = item.optJSONObject("utxoEntry") ?: item.optJSONObject("utxo_entry")
+                val amountStr = utxoEntryObj?.optString("amount", "0") ?: "0"
+                val spkObj = utxoEntryObj?.optJSONObject("scriptPublicKey") ?: utxoEntryObj?.optJSONObject("script_public_key")
+                val spkScript = spkObj?.optString("scriptPublicKey", spkObj.optString("script", "")) ?: ""
+                val spkVersion = spkObj?.optInt("version", 0) ?: 0
+                val daa = utxoEntryObj?.optLong("blockDaaScore", utxoEntryObj.optLong("block_daa_score", 0L)) ?: 0L
+                val isCoinbase = utxoEntryObj?.optBoolean("isCoinbase", utxoEntryObj.optBoolean("is_coinbase", false)) ?: false
+
+                val outpointNormalized = JSONObject().apply {
+                    put("transactionId", txId)
+                    put("transaction_id", txId)
+                    put("txId", txId)
+                    put("index", idx)
+                    put("outputIndex", idx)
+                }
+                val spkNormalized = JSONObject().apply {
+                    put("version", spkVersion)
+                    put("scriptPublicKey", spkScript)
+                    put("script_public_key", spkScript)
+                    put("script", spkScript)
+                }
+                val utxoEntryNormalized = JSONObject().apply {
+                    put("amount", amountStr)
+                    put("value", amountStr)
+                    put("scriptPublicKey", spkNormalized)
+                    put("script_public_key", spkNormalized)
+                    put("blockDaaScore", daa.toString())
+                    put("block_daa_score", daa.toString())
+                    put("isCoinbase", isCoinbase)
+                    put("is_coinbase", isCoinbase)
+                }
+                val enrichedItem = JSONObject().apply {
+                    put("address", normalized)
+                    put("outpoint", outpointNormalized)
+                    put("previousOutpoint", outpointNormalized)
+                    put("previous_outpoint", outpointNormalized)
+                    put("utxoEntry", utxoEntryNormalized)
+                    put("utxo_entry", utxoEntryNormalized)
+                }
+                enriched.put(enrichedItem)
+            }
+            enriched
         }
     }
 
@@ -637,7 +720,8 @@ class KaspaWalletService(
 
     suspend fun submitDappTransaction(
         tx: KaspaTransactionEngine.KaspaTransaction,
-        senderAddress: String
+        senderAddress: String,
+        networkName: String = "Kaspa Mainnet"
     ): DappBroadcastReceipt {
         val normalizedAddress = senderAddress.trim().lowercase()
         require(normalizedAddress.startsWith("kaspa:") || normalizedAddress.startsWith("kaspatest:")) {
@@ -657,7 +741,7 @@ class KaspaWalletService(
             "Transaction mass exceeds the standard mempool limit"
         }
         val txId = KaspaTransactionEngine.calcTransactionId(tx)
-        val result = broadcastTransactionWithFailover(tx, txId, normalizedAddress)
+        val result = broadcastTransactionWithFailover(tx, txId, normalizedAddress, networkName)
         return DappBroadcastReceipt(result.isConfirmed, result.txId, result.errorMessage)
     }
 
@@ -675,7 +759,8 @@ class KaspaWalletService(
     private suspend fun broadcastTransactionWithFailover(
         tx: KaspaTransactionEngine.KaspaTransaction,
         computedTxId: String,
-        address: String
+        address: String,
+        networkName: String = "Kaspa Mainnet"
     ): BroadcastResult {
         // Mempool Standard Compliance: allowOrphan = false
         val submitPayload = KaspaTransactionEngine.buildSubmitPayload(tx, allowOrphan = false)
@@ -684,12 +769,7 @@ class KaspaWalletService(
         var confirmedTxId = computedTxId
         var lastBroadcastError = "Unable to connect to Kaspa BlockDAG network nodes."
 
-        val isTestnet = address.trim().lowercase().startsWith("kaspatest:")
-        val candidateEndpoints = if (isTestnet) {
-            listOf(API_TESTNET, "https://api-tn10.kaspanet.io")
-        } else {
-            listOf(API_MAINNET, "https://api.kaspanet.io")
-        }
+        val candidateEndpoints = getCandidateEndpoints(address, networkName)
 
         val broadcastClient = client.newBuilder()
             .connectTimeout(4000, TimeUnit.MILLISECONDS)

@@ -39,7 +39,10 @@ object KaspaTransactionEngine {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("transactionId", transactionId)
+            put("transaction_id", transactionId)
+            put("txId", transactionId)
             put("index", index)
+            put("outputIndex", index)
         }
 
         companion object {
@@ -81,8 +84,11 @@ object KaspaTransactionEngine {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount.toString())
             put("scriptPublicKey", scriptPublicKey.toJson())
+            put("script_public_key", scriptPublicKey.toJson())
             put("blockDaaScore", blockDaaScore.toString())
+            put("block_daa_score", blockDaaScore.toString())
             put("isCoinbase", isCoinbase)
+            put("is_coinbase", isCoinbase)
         }
 
         companion object {
@@ -119,10 +125,15 @@ object KaspaTransactionEngine {
         val sigOpCount: Int = 1
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
-            put("previousOutpoint", previousOutpoint.toJson())
+            val opJson = previousOutpoint.toJson()
+            put("previousOutpoint", opJson)
+            put("previous_outpoint", opJson)
+            put("outpoint", opJson)
             put("signatureScript", signatureScript)
+            put("signature_script", signatureScript)
             put("sequence", sequence)
             put("sigOpCount", sigOpCount)
+            put("sig_op_count", sigOpCount)
         }
     }
 
@@ -132,7 +143,9 @@ object KaspaTransactionEngine {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("authorizingInput", authorizingInput)
+            put("authorizing_input", authorizingInput)
             put("covenantId", covenantId)
+            put("covenant_id", covenantId)
         }
     }
 
@@ -143,7 +156,9 @@ object KaspaTransactionEngine {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount)
+            put("value", amount)
             put("scriptPublicKey", scriptPublicKey.toJson())
+            put("script_public_key", scriptPublicKey.toJson())
             if (covenant != null) {
                 put("covenant", covenant.toJson())
             }

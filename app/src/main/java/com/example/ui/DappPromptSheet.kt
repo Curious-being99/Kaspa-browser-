@@ -495,7 +495,7 @@ fun DappPromptBottomSheet(
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                         ) {
-                            Text("Sign & Send", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(if (prompt.isBroadcast) "Sign & Send" else "Sign Transaction", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         }
                     }
                 }

@@ -680,4 +680,63 @@ class NetworkAuditUnitTest {
         )
     }
 
+    @Test
+    fun testRealKaspaAddressFormatForNetwork() {
+        val walletService = com.example.network.KaspaWalletService(okhttp3.OkHttpClient())
+        val mainnetAddress = "kaspa:qrdqp4ngc5xnggrd6j7j2rl9f6gc8686zdzpgc7vahj0sg4py82svf4dr4c8a"
+        val expectedTestnet = "kaspatest:qrdqp4ngc5xnggrd6j7j2rl9f6gc8686zdzpgc7vahj0sg4py82svgntc6xke"
+
+        val formattedTn10 = walletService.formatAddressForNetwork(mainnetAddress, "Kaspa Testnet 10")
+        assertEquals(expectedTestnet, formattedTn10)
+
+        val formattedMainnet = walletService.formatAddressForNetwork(expectedTestnet, "Kaspa Mainnet")
+        assertEquals(mainnetAddress, formattedMainnet)
+
+        val tn10Endpoints = walletService.getCandidateEndpoints(mainnetAddress, "Kaspa Testnet 10")
+        assertTrue(tn10Endpoints.any { it.contains("api-tn10") })
+        assertFalse(tn10Endpoints.any { it.contains("api.kaspa.org") })
+
+        val mainnetEndpoints = walletService.getCandidateEndpoints(expectedTestnet, "Kaspa Mainnet")
+        assertTrue(mainnetEndpoints.any { it.contains("api.kaspa.org") })
+    }
+
+    @Test
+    fun testRealUserUtxoPsktSigning() {
+        val pubKeyHex = "da00d668c50d34206dd4bd250fe54e9183e8fa13441463ccede4f822a121d506"
+        val userScript = "20" + pubKeyHex + "ac"
+        val txId = "e89322b6a098cb595fbb6f147b590d26478d5e1b3ebd8528d71c029011dd571a"
+
+        // Transaction as built by dApp using real UTXO 0
+        val inputs = org.json.JSONArray().put(org.json.JSONObject()
+            .put("outpoint", org.json.JSONObject().put("transactionId", txId).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", org.json.JSONObject()
+                .put("amount", "50000000")
+                .put("scriptPublicKey", org.json.JSONObject().put("scriptPublicKey", userScript))
+            )
+        )
+        val outputs = org.json.JSONArray()
+            .put(org.json.JSONObject().put("amount", "20000000").put("scriptPublicKey", org.json.JSONObject().put("scriptPublicKey", userScript)))
+            .put(org.json.JSONObject().put("amount", "29900000").put("scriptPublicKey", org.json.JSONObject().put("scriptPublicKey", userScript)))
+
+        val txJson = org.json.JSONObject().put("inputs", inputs).put("outputs", outputs).toString()
+
+        val prepared = com.example.dapp.DappPsktTransaction.prepareForSigning(
+            txJson,
+            org.json.JSONArray().put(0),
+            pubKeyHex
+        )
+        assertEquals(txId, prepared.transaction.inputs[0].previousOutpoint.transactionId)
+        assertEquals(0L, prepared.transaction.inputs[0].previousOutpoint.index)
+        assertEquals(50000000L, prepared.utxoEntries[0].amount)
+
+        // Sign with private key
+        val dummyPrivKey = java.math.BigInteger("1234567890123456789012345678901234567890123456789012345678901234", 16)
+        val signedResult = com.example.dapp.DappPsktTransaction.signAndFormat(prepared, dummyPrivKey)
+        assertTrue(signedResult.has("psktTransactionJson"))
+        val signedTx = org.json.JSONObject(signedResult.getString("psktTransactionJson"))
+        val firstInput = signedTx.getJSONArray("inputs").getJSONObject(0)
+        assertTrue(firstInput.getString("signatureScript").startsWith("41"))
+    }
 }

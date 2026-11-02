@@ -472,7 +472,15 @@ class Kcc20KasivoService(
         val identifier = tokenContractIdOrTicker.uppercase().trim()
         val known = KNOWN_KCC20_TOKENS[identifier]
 
-        for (baseEndpoint in endpointBases) {
+        val isTestnet = address.startsWith("kaspatest:")
+        val network = if (isTestnet) "testnet-10" else "mainnet"
+        val dynamicEndpoints = if (isTestnet) {
+            listOf("https://kascov.io/v1/$network/kcc20", "https://api-tn10.kaspa.org")
+        } else {
+            endpointBases
+        }
+
+        for (baseEndpoint in dynamicEndpoints) {
             try {
                 val endpointUrl = if (baseEndpoint.contains("kascov.io") || baseEndpoint.contains("kasivo.org")) {
                     "$baseEndpoint/address/$address/token/$identifier"
@@ -642,11 +650,12 @@ class Kcc20KasivoService(
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
         val normalizedAddress = walletAddress?.trim()?.lowercase()
+        val network = if (normalizedAddress?.startsWith("kaspatest:") == true) "testnet-10" else "mainnet"
         try {
             val endpoints = listOf(
-                "https://kascov.io/data/mainnet/token/$tokenId/cells",
-                "https://kascov.io/data/mainnet/token/$tokenId",
-                if (!normalizedAddress.isNullOrBlank()) "https://kascov.io/data/mainnet/address/$normalizedAddress/cells" else null
+                "https://kascov.io/data/$network/token/$tokenId/cells",
+                "https://kascov.io/data/$network/token/$tokenId",
+                if (!normalizedAddress.isNullOrBlank()) "https://kascov.io/data/$network/address/$normalizedAddress/cells" else null
             ).filterNotNull()
 
             val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()

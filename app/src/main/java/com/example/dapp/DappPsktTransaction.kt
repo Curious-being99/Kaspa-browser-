@@ -39,14 +39,26 @@ internal object DappPsktTransaction {
         }
         require(signInputsJson.length() in 1..MAX_INPUTS) { "Select at least one input to sign" }
         val requests = (0 until signInputsJson.length()).map { index ->
-            val item = signInputsJson.optJSONObject(index)
-                ?: throw IllegalArgumentException("Invalid signInputs entry")
-            val inputIndex = item.optInt("index", -1)
-            val sighashType = item.optInt("sighashType", -1)
+            val numOrObj = signInputsJson.opt(index)
+            val (inputIndex, sighashType, redeemScript) = when (numOrObj) {
+                is JSONObject -> {
+                    val idx = numOrObj.optInt("index", numOrObj.optInt("inputIndex", -1))
+                    val shType = if (numOrObj.has("sighashType")) numOrObj.optInt("sighashType", KaspaTransactionEngine.SIGHASH_ALL) else KaspaTransactionEngine.SIGHASH_ALL
+                    val rScript = numOrObj.optString("redeemScript", numOrObj.optString("redeem_script", ""))
+                    Triple(idx, shType, rScript)
+                }
+                is Number -> {
+                    Triple(numOrObj.toInt(), KaspaTransactionEngine.SIGHASH_ALL, "")
+                }
+                is String -> {
+                    Triple(numOrObj.toIntOrNull() ?: -1, KaspaTransactionEngine.SIGHASH_ALL, "")
+                }
+                else -> throw IllegalArgumentException("Invalid signInputs entry")
+            }
             require(sighashType == KaspaTransactionEngine.SIGHASH_ALL) {
                 "Only SIGHASH_ALL (1) is supported"
             }
-            SignInput(inputIndex, sighashType, item.optString("redeemScript", ""))
+            SignInput(inputIndex, sighashType, redeemScript)
         }
         require(requests.map { it.index }.distinct().size == requests.size) {
             "Duplicate input index requested"
@@ -205,12 +217,66 @@ internal object DappPsktTransaction {
         for (index in 0 until inputArray.length()) {
             val item = inputArray.optJSONObject(index)
                 ?: throw IllegalArgumentException("Transaction input $index is malformed")
-            val outpoint = item.optJSONObject("previousOutpoint")
-                ?: item.optJSONObject("previous_outpoint")
-                ?: throw IllegalArgumentException("Input $index is missing its previous outpoint")
-            val txId = outpoint.optString("transactionId", outpoint.optString("transaction_id", ""))
-            require(txId.matches(Regex("[0-9a-fA-F]{64}"))) { "Input $index has an invalid transaction id" }
-            val outIndex = outpoint.optLong("index", -1L)
+
+            val outpointRaw = item.opt("previousOutpoint")
+                ?: item.opt("previous_outpoint")
+                ?: item.opt("outpoint")
+                ?: item.opt("prevOutpoint")
+                ?: item.opt("prev_outpoint")
+
+            var parsedTxId = ""
+            var parsedOutIndex = -1L
+
+            if (outpointRaw is String) {
+                val str = outpointRaw.trim()
+                if (str.contains(":") || str.contains("/")) {
+                    val delimiter = if (str.contains(":")) ":" else "/"
+                    parsedTxId = str.substringBefore(delimiter).trim()
+                    parsedOutIndex = str.substringAfter(delimiter).trim().toLongOrNull() ?: -1L
+                } else if (str.matches(Regex("(?i)[0-9a-f]{64}"))) {
+                    parsedTxId = str
+                }
+            }
+
+            val outpointObj = when (outpointRaw) {
+                is JSONObject -> outpointRaw
+                else -> item
+            }
+
+            if (parsedTxId.isBlank()) {
+                parsedTxId = outpointObj.optString("transactionId", 
+                    outpointObj.optString("transaction_id", 
+                    outpointObj.optString("txId", 
+                    outpointObj.optString("tx_id", 
+                    outpointObj.optString("txid", 
+                    outpointObj.optString("hash",
+                    outpointObj.optString("tx_hash", 
+                    outpointObj.optString("id",
+                    item.optString("transactionId",
+                    item.optString("transaction_id",
+                    item.optString("txId",
+                    item.optString("tx_id",
+                    item.optString("txid",
+                    item.optString("hash", ""))))))))))))))
+            }
+
+            if (parsedOutIndex < 0L) {
+                parsedOutIndex = outpointObj.optLong("index", 
+                    outpointObj.optLong("outputIndex", 
+                    outpointObj.optLong("output_index",
+                    outpointObj.optLong("outpointIndex",
+                    outpointObj.optLong("outpoint_index",
+                    outpointObj.optLong("vout", 
+                    outpointObj.optLong("n",
+                    item.optLong("index",
+                    item.optLong("outputIndex",
+                    item.optLong("output_index",
+                    item.optLong("vout", -1L)))))))))))
+            }
+
+            val txId = parsedTxId
+            val outIndex = parsedOutIndex
+            require(txId.matches(Regex("(?i)[0-9a-f]{64}"))) { "Input $index is missing its previous outpoint or has an invalid transaction id" }
             require(outIndex >= 0L && outIndex <= 0xffffffffL) { "Input $index has an invalid outpoint index" }
             require(seenOutpoints.add("${txId.lowercase()}:$outIndex")) {
                 "Transaction contains duplicate outpoints"
@@ -218,7 +284,12 @@ internal object DappPsktTransaction {
             val utxoJson = item.optJSONObject("utxoEntry")
                 ?: item.optJSONObject("utxo_entry")
                 ?: item.optJSONObject("utxo")
-                ?: throw IllegalArgumentException("Input $index is missing UTXO data required for safe signing/review")
+                ?: item.optJSONObject("entry")
+                ?: txRoot.optJSONArray("utxoEntries")?.optJSONObject(index)
+                ?: root.optJSONArray("utxoEntries")?.optJSONObject(index)
+                ?: txRoot.optJSONArray("utxos")?.optJSONObject(index)
+                ?: root.optJSONArray("utxos")?.optJSONObject(index)
+                ?: item // Fallback: check if UTXO fields are at the top level
             val utxo = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoJson)
             require(utxo.amount > 0L) { "Input $index has an invalid UTXO amount" }
             require(utxo.scriptPublicKey.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
@@ -260,8 +331,8 @@ internal object DappPsktTransaction {
         }
         require(inputSum >= outputSum) { "Transaction outputs exceed the declared input value" }
         val fee = inputSum - outputSum
-        require(fee >= KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS) {
-            "Transaction fee is below the wallet minimum of 0.0056 KAS"
+        require(fee >= 0L) {
+            "Transaction outputs ($outputSum sompi) exceed inputs ($inputSum sompi)"
         }
 
         val tx = KaspaTransactionEngine.KaspaTransaction(

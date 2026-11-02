@@ -160,13 +160,15 @@ fun DappsScreen(
                     Text("Kaspa Browser", color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text("KCC-20 • \$KB command center", color = TextSecondary, fontSize = 12.sp)
                 }
+                val selectedNetwork by viewModel.selectedNetwork.collectAsState()
                 Row(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(SurfaceDark)
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Spacer(Modifier.size(7.dp).clip(CircleShape).background(KaspaTea))
-                    Text(" Mainnet", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    val networkColor = if (selectedNetwork.contains("Mainnet", true)) KaspaTea else Color(0xFFF44336)
+                    Spacer(Modifier.size(7.dp).clip(CircleShape).background(networkColor))
+                    Text(" $selectedNetwork", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
