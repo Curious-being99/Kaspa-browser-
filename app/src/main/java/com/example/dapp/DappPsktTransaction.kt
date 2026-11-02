@@ -314,10 +314,7 @@ internal object DappPsktTransaction {
                 .mapNotNull { key -> if (item.has(key)) item.optString(key).trim().toLongOrNull() else null }
                 .firstOrNull() ?: -1L
             require(amount >= 0L) { "Output $index has an invalid amount" }
-            val scriptJson = item.optJSONObject("scriptPublicKey")
-                ?: item.optJSONObject("script_public_key")
-                ?: throw IllegalArgumentException("Output $index is missing its script public key")
-            val script = KaspaTransactionEngine.KaspaScriptPublicKey.fromJson(scriptJson)
+            val script = parseOutputScriptPublicKey(item, index)
             require(script.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                 "Output $index has an invalid script"
             }
@@ -352,6 +349,42 @@ internal object DappPsktTransaction {
             "Transaction mass exceeds the standard mempool limit"
         }
         return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee, redeemScript)
+    }
+
+    private fun parseOutputScriptPublicKey(
+        output: JSONObject,
+        index: Int
+    ): KaspaTransactionEngine.KaspaScriptPublicKey {
+        val nested = output.optJSONObject("scriptPublicKey")
+            ?: output.optJSONObject("script_public_key")
+        if (nested != null) {
+            return KaspaTransactionEngine.KaspaScriptPublicKey.fromJson(nested)
+        }
+
+        // Some PSKT producers flatten the script public key to its hex script.
+        // Accept only an explicit script field; never derive one from an address or input.
+        val flatScript = sequenceOf(
+            "scriptPublicKey",
+            "script_public_key",
+            "script",
+            "scriptPublicKeyHex",
+            "script_public_key_hex"
+        ).mapNotNull { key ->
+            if (!output.has(key) || output.isNull(key)) null
+            else output.optString(key).trim().takeIf { it.isNotEmpty() && it != "null" }
+        }.firstOrNull()
+
+        if (flatScript != null) {
+            val version = output.optInt(
+                "scriptPublicKeyVersion",
+                output.optInt("script_public_key_version", output.optInt("version", 0))
+            )
+            return KaspaTransactionEngine.KaspaScriptPublicKey(version, flatScript)
+        }
+
+        throw IllegalArgumentException(
+            "Output $index is missing its script public key (expected scriptPublicKey or script_public_key object, or an explicit script hex field)"
+        )
     }
 
     private fun hexToBytes(value: String): ByteArray =
