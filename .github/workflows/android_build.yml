@@ -41,6 +41,8 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '9.3.1'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -52,15 +54,8 @@ jobs:
           yes | sdkmanager --licenses || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
 
-      - name: Prepare Gradle & Wrapper Executable
-        run: |
-          if [ ! -f "./gradlew" ]; then
-            echo "Gradle wrapper not found in repository. Generating gradle wrapper..."
-            gradle wrapper || true
-          fi
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-          fi
+      - name: Verify Gradle installation
+        run: gradle --version
 
       - name: Inspect Secrets & Prepare Keystore
         id: check_secrets
@@ -79,7 +74,7 @@ jobs:
           fi
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest --no-daemon
+        run: gradle testDebugUnitTest --no-daemon --stacktrace
 
       - name: Require signing secrets for public releases
         if: ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))) && steps.check_secrets.outputs.HAS_SECRETS != 'true'
@@ -102,12 +97,7 @@ jobs:
           APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
           ZIPALIGN="${BUILD_TOOLS_DIR}/zipalign"
 
-          # Determine Gradle executable (wrapper or CLI)
-          if [ -f "./gradlew" ]; then
-            GRADLE_BIN="./gradlew"
-          else
-            GRADLE_BIN="gradle"
-          fi
+          GRADLE_BIN="gradle"
 
           if [ "$HAS_SECRETS" = "true" ]; then
             echo "=== Decoding Keystore Secret ==="
