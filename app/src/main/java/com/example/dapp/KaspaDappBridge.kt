@@ -88,10 +88,19 @@ object KaspaDappBridge {
                 val isConnected = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .getBoolean(origin, false)
 
-                fun respond(result: Any? = null, errorCode: Int? = null, errorMessage: String? = null) {
+                fun respond(
+                    result: Any? = null,
+                    errorCode: Int? = null,
+                    errorMessage: String? = null,
+                    errorData: JSONObject? = null
+                ) {
                     val response = JSONObject().put("id", requestId)
                     if (errorCode != null) {
-                        response.put("error", JSONObject().put("code", errorCode).put("message", errorMessage ?: "Request rejected"))
+                        val errorObject = JSONObject()
+                            .put("code", errorCode)
+                            .put("message", errorMessage ?: "Request rejected")
+                        if (errorData != null) errorObject.put("data", errorData)
+                        response.put("error", errorObject)
                     } else {
                         response.put("result", result ?: JSONObject.NULL)
                     }
@@ -515,9 +524,18 @@ object KaspaDappBridge {
                                                 signingOutcome.fold(
                                                     onSuccess = { signedResult -> respond(signedResult) },
                                                     onFailure = { error ->
+                                                        val diagnostic = JSONObject()
+                                                            .put("type", "kaspa_pskt_signing_failure")
+                                                            .put("network", network)
+                                                            .put("txJsonString", txJson)
+                                                            .put("signInputs", signInputs)
+                                                            .put("redeemScript", options?.optString("redeemScript", "").orEmpty())
+                                                            .put("error", error.message ?: error.javaClass.simpleName)
+                                                            .put("broadcastAttempted", false)
                                                         respond(
                                                             errorCode = -32603,
-                                                            errorMessage = error.message ?: "Transaction signing failed"
+                                                            errorMessage = error.message ?: "Transaction signing failed",
+                                                            errorData = diagnostic
                                                         )
                                                     }
                                                 )
