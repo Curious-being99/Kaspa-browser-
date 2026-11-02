@@ -384,7 +384,7 @@ fun DappPromptBottomSheet(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Amount", fontSize = 13.sp, color = TextSecondary)
+                                    Text(prompt.amountLabel, fontSize = 13.sp, color = TextSecondary)
                                     Text(
                                         text = "${prompt.amount} ${prompt.tick}",
                                         fontSize = 17.sp,
