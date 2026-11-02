@@ -80,6 +80,7 @@ class DappPsktTransactionTest {
         val json = JSONObject(transactionJson(covenantSigScript = ""))
         val p2shInput = json.getJSONArray("inputs").getJSONObject(1)
         p2shInput.getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
+            .put("version", 8)
             .put("script", "aa20" + p2shHash + "87")
         val originalMass = json.getLong("mass")
         val prepared = DappPsktTransaction.prepareForSigning(
@@ -140,6 +141,19 @@ class DappPsktTransactionTest {
         val json = JSONObject(transactionJson())
         val inputs = json.getJSONArray("inputs")
         inputs.getJSONObject(1).put("previousOutpoint", JSONObject().put("transactionId", "01".repeat(32)).put("index", 0))
+        DappPsktTransaction.prepareForSigning(
+            json.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsScriptsThatOnlyContainTheWalletPublicKeyAsASubstring() {
+        val json = JSONObject(transactionJson())
+        val utxoScript = json.getJSONArray("inputs").getJSONObject(0)
+            .getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
+        utxoScript.put("script", "51" + publicKeyHex + "51")
         DappPsktTransaction.prepareForSigning(
             json.toString(),
             JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
