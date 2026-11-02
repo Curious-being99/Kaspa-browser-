@@ -297,4 +297,75 @@ class DappPsktTransactionTest {
         assertEquals(txId, prepared.transaction.inputs[0].previousOutpoint.transactionId)
         assertEquals(3L, prepared.transaction.inputs[0].previousOutpoint.index)
     }
+
+    @Test
+    fun parsesStandardKaspaValueOutputsAsNumbersAndStrings() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "ee".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("sigOpCount", 1)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+                .put("blockDaaScore", "1")
+                .put("isCoinbase", false))
+        )
+        val outputs = JSONArray()
+            .put(JSONObject().put("value", 4000000L)
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
+            .put(JSONObject().put("value", "5000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
+        val tx = JSONObject()
+            .put("version", 0)
+            .put("inputs", inputs)
+            .put("outputs", outputs)
+            .put("lockTime", 0)
+            .put("subnetworkId", KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID)
+            .put("gas", 0)
+            .put("payload", "")
+            .put("mass", 0)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(0),
+            publicKeyHex
+        )
+
+        assertEquals(9000000L, prepared.outputSumSompi)
+        assertEquals(1000000L, prepared.feeSompi)
+        assertEquals(4000000L, prepared.transaction.outputs[0].amount)
+        assertEquals(5000000L, prepared.transaction.outputs[1].amount)
+    }
+
+    @Test
+    fun prefersValueAndFallsBackToAmountForOutputAmounts() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "ff".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("sigOpCount", 1)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+                .put("blockDaaScore", "1")
+                .put("isCoinbase", false))
+        )
+        val outputs = JSONArray()
+            .put(JSONObject().put("value", "3000000").put("amount", "1")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
+            .put(JSONObject().put("amount", 6000000L)
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(), JSONArray().put(0), publicKeyHex
+        )
+
+        assertEquals(9000000L, prepared.outputSumSompi)
+        assertEquals(3000000L, prepared.transaction.outputs[0].amount)
+        assertEquals(6000000L, prepared.transaction.outputs[1].amount)
+    }
 }
