@@ -21,7 +21,8 @@ internal object DappPsktTransaction {
         val inputSumSompi: Long,
         val outputSumSompi: Long,
         val feeSompi: Long,
-        val redeemScript: String = ""
+        val redeemScript: String = "",
+        val walletPublicKeyHex: String = ""
     ) {
         val feeKas: String
             get() = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(feeSompi))
@@ -63,7 +64,9 @@ internal object DappPsktTransaction {
         require(requests.map { it.index }.distinct().size == requests.size) {
             "Duplicate input index requested"
         }
-        val prepared = parseAndValidate(txJsonString, requests, redeemScript)
+        val prepared = parseAndValidate(txJsonString, requests, redeemScript).copy(
+            walletPublicKeyHex = walletPublicKeyHex.lowercase()
+        )
         val expectedScript = "20" + walletPublicKeyHex.lowercase() + "ac"
         for (request in requests) {
             require(request.index in prepared.transaction.inputs.indices) {
@@ -154,6 +157,12 @@ internal object DappPsktTransaction {
                 utxoEntry
             )
             val signature = CryptoUtils.signSchnorr(privateKey, sighash)
+            val walletPublicKey = hexToBytes(prepared.walletPublicKeyHex)
+            require(walletPublicKey.size == 32 &&
+                CryptoUtils.verifySchnorrSignature(signature, sighash, walletPublicKey)
+            ) {
+                "Input ${request.index} signature failed local Schnorr verification for the active wallet key"
+            }
             val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
             val redeem = if (Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
                 val redeemScript = request.redeemScript.takeIf { it.isNotBlank() }
