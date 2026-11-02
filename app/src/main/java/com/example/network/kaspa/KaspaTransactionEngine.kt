@@ -54,6 +54,25 @@ object KaspaTransactionEngine {
         }
     }
 
+    fun parseAmountFromObject(json: JSONObject, vararg preferredKeys: String): Long? {
+        val keys = if (preferredKeys.isNotEmpty()) preferredKeys else arrayOf("amount", "value", "sompi", "sompis", "satoshis", "val")
+        for (key in keys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val parsed = when (val raw = json.opt(key)) {
+                is Number -> raw.toLong()
+                is String -> {
+                    val clean = raw.trim()
+                    clean.toLongOrNull()
+                        ?: clean.toDoubleOrNull()?.toLong()
+                        ?: try { BigInteger(clean).toLong() } catch (_: Exception) { null }
+                }
+                else -> null
+            }
+            if (parsed != null && parsed >= 0L) return parsed
+        }
+        return null
+    }
+
     data class KaspaScriptPublicKey(
         val version: Int = 0,
         val script: String
@@ -67,9 +86,28 @@ object KaspaTransactionEngine {
         companion object {
             fun fromJson(json: JSONObject): KaspaScriptPublicKey {
                 val version = json.optInt("version", 0)
-                val script = json.optString("scriptPublicKey",
+                var script = json.optString("scriptPublicKey",
                     json.optString("script_public_key",
                     json.optString("script", "")))
+                if (script.isBlank()) {
+                    val scriptInside = json.optJSONObject("scriptPublicKey") ?: json.optJSONObject("script_public_key")
+                    if (scriptInside != null) {
+                        script = scriptInside.optString("scriptPublicKey",
+                            scriptInside.optString("script_public_key",
+                            scriptInside.optString("script", "")))
+                    }
+                }
+                if (script.isBlank()) {
+                    val addr = json.optString("address",
+                        json.optString("scriptPublicKeyAddress",
+                        json.optString("recipient",
+                        json.optString("to", "")))).trim()
+                    if (addr.isNotBlank()) {
+                        try {
+                            return decodeAddressToScriptPublicKey(addr)
+                        } catch (_: Exception) {}
+                    }
+                }
                 return KaspaScriptPublicKey(version, script)
             }
         }
@@ -83,6 +121,7 @@ object KaspaTransactionEngine {
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount.toString())
+            put("value", amount.toString())
             put("scriptPublicKey", scriptPublicKey.toJson())
             put("script_public_key", scriptPublicKey.toJson())
             put("blockDaaScore", blockDaaScore.toString())
@@ -93,7 +132,7 @@ object KaspaTransactionEngine {
 
         companion object {
             fun fromJson(json: JSONObject): KaspaUtxoEntry {
-                val amt = json.optLong("amount", json.optString("amount", "0").toLongOrNull() ?: 0L)
+                val amt = parseAmountFromObject(json) ?: 0L
                 val scriptObj = json.optJSONObject("scriptPublicKey") ?: json.optJSONObject("script_public_key")
                 val scriptPubKey = if (scriptObj != null) {
                     KaspaScriptPublicKey.fromJson(scriptObj)
@@ -102,7 +141,16 @@ object KaspaTransactionEngine {
                         json.optString("script_public_key",
                         json.optString("script", "")))
                     val version = json.optInt("version", 0)
-                    KaspaScriptPublicKey(version, rawScript)
+                    if (rawScript.isNotBlank()) {
+                        KaspaScriptPublicKey(version, rawScript)
+                    } else {
+                        val addr = json.optString("address", json.optString("scriptPublicKeyAddress", "")).trim()
+                        if (addr.isNotBlank()) {
+                            try { decodeAddressToScriptPublicKey(addr) } catch (_: Exception) { KaspaScriptPublicKey(0, "") }
+                        } else {
+                            KaspaScriptPublicKey(0, "")
+                        }
+                    }
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))

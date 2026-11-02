@@ -297,4 +297,30 @@ class DappPsktTransactionTest {
         assertEquals(txId, prepared.transaction.inputs[0].previousOutpoint.transactionId)
         assertEquals(3L, prepared.transaction.inputs[0].previousOutpoint.index)
     }
+
+    @Test
+    fun parsesDappSwapOutputsWithValueAndAddress() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val txId = "ee".repeat(32)
+        val inputs = JSONArray().put(JSONObject()
+            .put("outpoint", "$txId:0")
+            .put("utxoEntry", JSONObject().put("value", "1000000000").put("scriptPublicKey", userScript))
+        )
+        // Output 0 uses "value" instead of "amount", and "address" instead of "scriptPublicKey" object
+        val outputs = JSONArray()
+            .put(JSONObject().put("value", 401994000L).put("address", "kaspa:qrdqp4ngc5xnggrd6j7j2rl9f6gc8686zdzpgc7vahj0sg4py82svf4dr4c8a"))
+            .put(JSONObject().put("value", "597000000").put("scriptPublicKey", userScript))
+
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(0),
+            publicKeyHex
+        )
+        assertEquals(1000000000L, prepared.inputSumSompi)
+        assertEquals(998994000L, prepared.outputSumSompi)
+        assertEquals(401994000L, prepared.transaction.outputs[0].amount)
+        assertEquals(597000000L, prepared.transaction.outputs[1].amount)
+        assertTrue(prepared.transaction.outputs[0].scriptPublicKey.script.isNotEmpty())
+    }
 }
