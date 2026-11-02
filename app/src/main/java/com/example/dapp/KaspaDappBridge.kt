@@ -506,17 +506,21 @@ object KaspaDappBridge {
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
-                                            val signedResult = try {
-                                                DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey)
+                                            val signingOutcome = try {
+                                                Result.success(DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey))
                                             } catch (error: Throwable) {
-                                                null
+                                                Result.failure(error)
                                             }
                                             mainHandler.post {
-                                                if (signedResult == null) {
-                                                    respond(errorCode = -32603, errorMessage = "Transaction signing failed")
-                                                } else {
-                                                    respond(signedResult)
-                                                }
+                                                signingOutcome.fold(
+                                                    onSuccess = { signedResult -> respond(signedResult) },
+                                                    onFailure = { error ->
+                                                        respond(
+                                                            errorCode = -32603,
+                                                            errorMessage = error.message ?: "Transaction signing failed"
+                                                        )
+                                                    }
+                                                )
                                             }
                                         }
                                     },
