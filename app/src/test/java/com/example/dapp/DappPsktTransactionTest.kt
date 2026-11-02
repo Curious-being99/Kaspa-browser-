@@ -336,7 +336,7 @@ class DappPsktTransactionTest {
         assertEquals(9000000000L, prepared.outputSumSompi)
         assertEquals(1000000000L, prepared.feeSompi)
         assertEquals(4000000000L, prepared.transaction.outputs[0].amount)
-        assertEquals(5000000L, prepared.transaction.outputs[1].amount)
+        assertEquals(5000000000L, prepared.transaction.outputs[1].amount)
     }
 
     @Test
@@ -365,7 +365,7 @@ class DappPsktTransactionTest {
         )
 
         assertEquals(9000000000L, prepared.outputSumSompi)
-        assertEquals(3000000L, prepared.transaction.outputs[0].amount)
+        assertEquals(3000000000L, prepared.transaction.outputs[0].amount)
         assertEquals(6000000000L, prepared.transaction.outputs[1].amount)
     }
 }
