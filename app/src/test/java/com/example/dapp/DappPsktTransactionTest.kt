@@ -340,6 +340,22 @@ class DappPsktTransactionTest {
     }
 
     @Test
+    fun parsesFlatScriptPublicKeyOutputFields() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val tx = JSONObject(transactionJson())
+        val outputs = tx.getJSONArray("outputs")
+        val first = outputs.getJSONObject(0)
+        first.remove("scriptPublicKey")
+        first.put("scriptPublicKey", userScript)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(), JSONArray().put(0), publicKeyHex
+        )
+
+        assertEquals(userScript, prepared.transaction.outputs[0].scriptPublicKey.script)
+    }
+
+    @Test
     fun prefersValueAndFallsBackToAmountForOutputAmounts() {
         val userScript = "20" + publicKeyHex + "ac"
         val inputs = JSONArray().put(JSONObject()
