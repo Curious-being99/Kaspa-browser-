@@ -61,6 +61,11 @@ class DappPsktTransactionTest {
         )
         val signed = JSONObject(DappPsktTransaction.sign(prepared, privateKey))
         val signedInputs = signed.getJSONObject("transaction").getJSONArray("inputs")
+        val signedSignature = signedInputs.getJSONObject(0).getString("signatureScript").substring(2, 130)
+        val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+            prepared.transaction, 0, KaspaTransactionEngine.SIGHASH_ALL, prepared.utxoEntries[0]
+        )
+        assertTrue(CryptoUtils.verifySchnorrSignature(signedSignature, sighash, CryptoUtils.hexToBytes(publicKeyHex)))
         assertTrue(signedInputs.getJSONObject(0).getString("signatureScript").isNotBlank())
         assertEquals(beforeCovenantInput, signedInputs.getJSONObject(1).toString())
         assertTrue(signed.getJSONObject("meta").getBoolean("kept"))
