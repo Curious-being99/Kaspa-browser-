@@ -130,6 +130,38 @@ class DappPsktTransactionTest {
         assertEquals("", inspected.transaction.inputs[1].signatureScript)
     }
 
+    @Test
+    fun rejectsZeroSompiOutputBeforeSigning() {
+        val json = JSONObject(transactionJson())
+        json.getJSONArray("outputs").getJSONObject(0).put("amount", "0")
+        try {
+            DappPsktTransaction.prepareForSigning(
+                json.toString(),
+                JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+                publicKeyHex
+            )
+            throw AssertionError("Zero-value output must be rejected")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("positive integer number of sompi"))
+        }
+    }
+
+    @Test
+    fun rejectsFractionalSompiOutputBeforeSigning() {
+        val json = JSONObject(transactionJson())
+        json.getJSONArray("outputs").getJSONObject(0).put("amount", "19400000.5")
+        try {
+            DappPsktTransaction.prepareForSigning(
+                json.toString(),
+                JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+                publicKeyHex
+            )
+            throw AssertionError("Fractional sompi output must be rejected")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("positive integer number of sompi"))
+        }
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsDuplicateOutpointsBeforeSigning() {
         val json = JSONObject(transactionJson())
