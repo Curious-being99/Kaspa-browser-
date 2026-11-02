@@ -702,7 +702,13 @@ class NetworkAuditUnitTest {
 
     @Test
     fun testRealUserUtxoPsktSigning() {
-        val pubKeyHex = "da00d668c50d34206dd4bd250fe54e9183e8fa13441463ccede4f822a121d506"
+        // The signing key and locking-script owner must be the same key.
+        // A fabricated unrelated public key only tested serialization and now
+        // correctly fails local Schnorr verification.
+        val testKeyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        )
+        val pubKeyHex = testKeyPair.publicKeyHex
         val userScript = "20" + pubKeyHex + "ac"
         val txId = "e89322b6a098cb595fbb6f147b590d26478d5e1b3ebd8528d71c029011dd571a"
 
@@ -731,9 +737,11 @@ class NetworkAuditUnitTest {
         assertEquals(0L, prepared.transaction.inputs[0].previousOutpoint.index)
         assertEquals(50000000L, prepared.utxoEntries[0].amount)
 
-        // Sign with private key
-        val dummyPrivKey = java.math.BigInteger("1234567890123456789012345678901234567890123456789012345678901234", 16)
-        val signedResult = com.example.dapp.DappPsktTransaction.signAndFormat(prepared, dummyPrivKey)
+        // Sign with the matching private key for the UTXO locking script.
+        val signedResult = com.example.dapp.DappPsktTransaction.signAndFormat(
+            prepared,
+            testKeyPair.privateKey
+        )
         assertTrue(signedResult.has("psktTransactionJson"))
         val signedTx = org.json.JSONObject(signedResult.getString("psktTransactionJson"))
         val firstInput = signedTx.getJSONArray("inputs").getJSONObject(0)
