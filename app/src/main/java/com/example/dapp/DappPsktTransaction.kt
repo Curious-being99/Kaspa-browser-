@@ -310,8 +310,22 @@ internal object DappPsktTransaction {
         for (index in 0 until outputArray.length()) {
             val item = outputArray.optJSONObject(index)
                 ?: throw IllegalArgumentException("Transaction output $index is malformed")
-            val amount = item.optLong("amount", item.optString("amount", "-1").toLongOrNull() ?: -1L)
-            require(amount >= 0L) { "Output $index has an invalid amount" }
+            // Parse the wire value without optLong's truncation/default-to-zero behavior.
+            // Kaspa outputs must be positive whole sompi; fractional, zero, negative and
+            // overflowing values are invalid before a wallet signature is produced.
+            val amountText = when (val rawAmount = item.opt("amount")) {
+                is Number -> rawAmount.toString()
+                is String -> rawAmount.trim()
+                else -> ""
+            }
+            val amount = try {
+                java.math.BigDecimal(amountText).toBigIntegerExact().longValueExact()
+            } catch (_: Exception) {
+                throw IllegalArgumentException("Output $index must have a positive integer number of sompi")
+            }
+            require(amount > 0L) {
+                "Output $index must have a positive integer number of sompi"
+            }
             val scriptJson = item.optJSONObject("scriptPublicKey")
                 ?: item.optJSONObject("script_public_key")
                 ?: throw IllegalArgumentException("Output $index is missing its script public key")
