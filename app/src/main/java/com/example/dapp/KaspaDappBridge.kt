@@ -649,7 +649,43 @@ object KaspaDappBridge {
                                         }
                                     }
 
+                                    // A supplied PSKT that fails validation must stop here. Never
+                                    // fall through to a different transaction builder or sign a substitute.
+                                    if (rawTxJson.isNotBlank()) {
+                                        mainHandler.post {
+                                            respond(
+                                                errorCode = -32602,
+                                                errorMessage = "The supplied swap transaction failed validation. No signature or broadcast was produced."
+                                            )
+                                        }
+                                        return@execute
+                                    }
+
                                     if (method.contains("kcc", ignoreCase = true)) {
+                                        // This legacy builder constructs Kaspa Browser's own KB transfer.
+                                        // It is not a generic KCC-20 builder and must never be used for BMG
+                                        // or any other token merely because the request says KCC-20.
+                                        if (!tick.equals("KB", ignoreCase = true)) {
+                                            val tokenId = paramsObj.optString(
+                                                "contractId",
+                                                paramsObj.optString("contract", "")
+                                            ).trim()
+                                            val lineage = paramsObj.optString("lineage", "").trim().lowercase()
+                                            val hasValidTokenId = tokenId.matches(Regex("(?i)[0-9a-f]{64}"))
+                                            val hasRecognizedLineage = lineage in setOf("kr", "ref", "q4", "kron", "kronc")
+                                            val detail = when {
+                                                !hasValidTokenId -> "a verified 64-hex covenant ID"
+                                                !hasRecognizedLineage -> "a verified covenant lineage (kr, ref, q4, kron or kronc)"
+                                                else -> "a token-specific covenant assembler and verified live UTXO context"
+                                            }
+                                            mainHandler.post {
+                                                respond(
+                                                    errorCode = -32602,
+                                                    errorMessage = "KCC-20 $tick cannot use the KB transfer builder. This token requires $detail. No transaction was signed or broadcast."
+                                                )
+                                            }
+                                            return@execute
+                                        }
                                         val amtDouble = amtStr.toDoubleOrNull() ?: 0.0
                                         if (toAddr.isNotBlank() && amtDouble > 0.0) {
                                             val res = kotlinx.coroutines.runBlocking {
