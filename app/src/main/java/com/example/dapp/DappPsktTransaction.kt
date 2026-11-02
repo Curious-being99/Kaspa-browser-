@@ -219,8 +219,16 @@ internal object DappPsktTransaction {
         for (index in 0 until outputArray.length()) {
             val item = outputArray.optJSONObject(index)
                 ?: throw IllegalArgumentException("Transaction output $index is malformed")
-            val amount = item.optLong("amount", item.optString("amount", "-1").toLongOrNull() ?: -1L)
-            require(amount >= 0L) { "Output $index has an invalid amount" }
+            val amount = when (val rawAmount = item.opt("amount")) {
+                is Number -> rawAmount.toString().toBigDecimalOrNull()?.let {
+                    try { it.longValueExact() } catch (_: ArithmeticException) { -1L }
+                } ?: -1L
+                is String -> rawAmount.trim().toLongOrNull() ?: -1L
+                else -> -1L
+            }
+            require(amount > 0L) {
+                "Output $index amount must be a positive integer number of sompi"
+            }
             val scriptJson = item.optJSONObject("scriptPublicKey")
                 ?: item.optJSONObject("script_public_key")
                 ?: throw IllegalArgumentException("Output $index is missing its script public key")
