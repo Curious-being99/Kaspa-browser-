@@ -307,15 +307,15 @@ class DappPsktTransactionTest {
             .put("sequence", 0)
             .put("sigOpCount", 1)
             .put("utxoEntry", JSONObject()
-                .put("amount", "10000000")
+                .put("amount", "10000000000")
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
                 .put("blockDaaScore", "1")
                 .put("isCoinbase", false))
         )
         val outputs = JSONArray()
-            .put(JSONObject().put("value", 4000000L)
+            .put(JSONObject().put("value", 4000000000L)
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
-            .put(JSONObject().put("value", "5000000")
+            .put(JSONObject().put("value", "5000000000")
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
         val tx = JSONObject()
             .put("version", 0)
@@ -333,9 +333,9 @@ class DappPsktTransactionTest {
             publicKeyHex
         )
 
-        assertEquals(9000000L, prepared.outputSumSompi)
-        assertEquals(1000000L, prepared.feeSompi)
-        assertEquals(4000000L, prepared.transaction.outputs[0].amount)
+        assertEquals(9000000000L, prepared.outputSumSompi)
+        assertEquals(1000000000L, prepared.feeSompi)
+        assertEquals(4000000000L, prepared.transaction.outputs[0].amount)
         assertEquals(5000000L, prepared.transaction.outputs[1].amount)
     }
 
@@ -348,15 +348,15 @@ class DappPsktTransactionTest {
             .put("sequence", 0)
             .put("sigOpCount", 1)
             .put("utxoEntry", JSONObject()
-                .put("amount", "10000000")
+                .put("amount", "10000000000")
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
                 .put("blockDaaScore", "1")
                 .put("isCoinbase", false))
         )
         val outputs = JSONArray()
-            .put(JSONObject().put("value", "3000000").put("amount", "1")
+            .put(JSONObject().put("value", "3000000000").put("amount", "1")
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
-            .put(JSONObject().put("amount", 6000000L)
+            .put(JSONObject().put("amount", 6000000000L)
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript)))
         val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
 
@@ -364,8 +364,8 @@ class DappPsktTransactionTest {
             tx.toString(), JSONArray().put(0), publicKeyHex
         )
 
-        assertEquals(9000000L, prepared.outputSumSompi)
+        assertEquals(9000000000L, prepared.outputSumSompi)
         assertEquals(3000000L, prepared.transaction.outputs[0].amount)
-        assertEquals(6000000L, prepared.transaction.outputs[1].amount)
+        assertEquals(6000000000L, prepared.transaction.outputs[1].amount)
     }
 }
