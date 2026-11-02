@@ -310,10 +310,12 @@ internal object DappPsktTransaction {
         for (index in 0 until outputArray.length()) {
             val item = outputArray.optJSONObject(index)
                 ?: throw IllegalArgumentException("Transaction output $index is malformed")
-            val amount = KaspaTransactionEngine.parseAmountFromObject(item)
-                ?: throw IllegalArgumentException("Output $index has an invalid amount")
+            val amount = item.optLong("amount", item.optString("amount", "-1").toLongOrNull() ?: -1L)
             require(amount >= 0L) { "Output $index has an invalid amount" }
-            val script = parseScriptPublicKeyFromOutput(item)
+            val scriptJson = item.optJSONObject("scriptPublicKey")
+                ?: item.optJSONObject("script_public_key")
+                ?: throw IllegalArgumentException("Output $index is missing its script public key")
+            val script = KaspaTransactionEngine.KaspaScriptPublicKey.fromJson(scriptJson)
             require(script.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                 "Output $index has an invalid script"
             }
@@ -348,31 +350,6 @@ internal object DappPsktTransaction {
             "Transaction mass exceeds the standard mempool limit"
         }
         return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee, redeemScript)
-    }
-
-    private fun parseScriptPublicKeyFromOutput(item: JSONObject): KaspaTransactionEngine.KaspaScriptPublicKey {
-        val scriptObj = item.optJSONObject("scriptPublicKey")
-            ?: item.optJSONObject("script_public_key")
-            ?: item.optJSONObject("script")
-        if (scriptObj != null) {
-            val spk = KaspaTransactionEngine.KaspaScriptPublicKey.fromJson(scriptObj)
-            if (spk.script.isNotBlank()) return spk
-        }
-        val rawScript = item.optString("scriptPublicKey",
-            item.optString("script_public_key",
-            item.optString("script", "")))
-        if (rawScript.isNotBlank()) {
-            val version = item.optInt("version", 0)
-            return KaspaTransactionEngine.KaspaScriptPublicKey(version, rawScript.replace(" ", "").lowercase())
-        }
-        val address = item.optString("address",
-            item.optString("recipient",
-            item.optString("to",
-            item.optString("targetAddress", "")))).trim()
-        if (address.isNotBlank()) {
-            return KaspaTransactionEngine.addressToScriptPublicKey(address)
-        }
-        throw IllegalArgumentException("Output is missing its script public key or destination address")
     }
 
     private fun hexToBytes(value: String): ByteArray =

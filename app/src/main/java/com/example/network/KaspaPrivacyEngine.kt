@@ -353,12 +353,125 @@ object KaspaPrivacyEngine {
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
             if (window.__kaspa_shield_injected) return;
+            try {
+                var h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 || h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 || h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1 || h.indexOf('x.com') !== -1 || h.indexOf('twitter.com') !== -1 || h.indexOf('twimg.com') !== -1 || h.indexOf('arkoselabs.com') !== -1 || h.indexOf('octocaptcha.com') !== -1) {
+                    return;
+                }
+            } catch(e) {}
             window.__kaspa_shield_injected = true;
             try {
-                if (navigator && !('globalPrivacyControl' in navigator)) {
-                    try { Object.defineProperty(navigator, 'globalPrivacyControl', { value: true, writable: false, configurable: true }); } catch(_) {}
+                // 1. Global Privacy Control & Do-Not-Track (W3C Standard)
+                try {
+                    Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
+                    Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
+                } catch(e) {}
+
+                // 2. Hardware & Concurrency Fingerprint Normalization
+                try {
+                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
+                    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
+                    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });
+                    if (window.screen) {
+                        Object.defineProperty(window.screen, 'colorDepth', { get: () => 24, configurable: true });
+                        Object.defineProperty(window.screen, 'pixelDepth', { get: () => 24, configurable: true });
+                    }
+                } catch(e) {}
+
+                // 3. WebGL GPU Parameter Normalization (Safe Context Instance Wrapping)
+                try {
+                    if (window.HTMLCanvasElement && window.HTMLCanvasElement.prototype) {
+                        const origGetContext = HTMLCanvasElement.prototype.getContext;
+                        if (origGetContext) {
+                            HTMLCanvasElement.prototype.getContext = function(type) {
+                                const ctx = origGetContext.apply(this, arguments);
+                                if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
+                                    try {
+                                        if (!ctx.__kaspa_masked) {
+                                            ctx.__kaspa_masked = true;
+                                            const origParam = ctx.getParameter;
+                                            if (typeof origParam === 'function') {
+                                                ctx.getParameter = function(param) {
+                                                    if (param === 0x9245) return 'Google Inc. (NVIDIA)';
+                                                    if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0)';
+                                                    if (param === 0x1F00) return 'WebKit';
+                                                    if (param === 0x1F01) return 'WebKit WebGL';
+                                                    if (param === 0x1F02) return 'WebGL 1.0 (OpenGL ES 2.0 Chromium)';
+                                                    if (param === 0x8B8C) return 'WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)';
+                                                    if (param === 0x0D52) return 8;
+                                                    if (param === 0x0D53) return 8;
+                                                    if (param === 0x0D54) return 8;
+                                                    if (param === 0x0D55) return 8;
+                                                    if (param === 0x0D56) return 24;
+                                                    if (param === 0x0D57) return 8;
+                                                    try {
+                                                        return origParam.apply(this, arguments);
+                                                    } catch(e) {
+                                                        return null;
+                                                    }
+                                                };
+                                            }
+                                        }
+                                    } catch(e) {}
+                                }
+                                return ctx;
+                            };
+                        }
+                    }
+                } catch(e) {}
+
+                // 4. WebRTC IP Leak Prevention (Relay Mode when TURN available)
+                if (window.RTCPeerConnection) {
+                    try {
+                        const OrigRTC = window.RTCPeerConnection;
+                        window.RTCPeerConnection = function(config, constraints) {
+                            try {
+                                if (config && config.iceServers && Array.isArray(config.iceServers)) {
+                                    const hasTurn = config.iceServers.some(s => {
+                                        const urls = Array.isArray(s.urls) ? s.urls : [s.urls || s.url || ''];
+                                        return urls.some(u => typeof u === 'string' && (u.startsWith('turn:') || u.startsWith('turns:')));
+                                    });
+                                    if (hasTurn) {
+                                        config.iceTransportPolicy = 'relay';
+                                    }
+                                }
+                            } catch(_) {}
+                            return new OrigRTC(config, constraints);
+                        };
+                        window.RTCPeerConnection.prototype = OrigRTC.prototype;
+                    } catch(e) {}
                 }
-            } catch (_) {}
+
+                // 5. HTML5 Geolocation Sensor Shield (Zero Hardware GPS Leakage)
+                try {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.getCurrentPosition = function(success, error, options) {
+                            if (error) {
+                                error({
+                                    code: 1,
+                                    message: "Geolocation permission denied by Privacy Shield",
+                                    PERMISSION_DENIED: 1,
+                                    POSITION_UNAVAILABLE: 2,
+                                    TIMEOUT: 3
+                                });
+                            }
+                        };
+                        navigator.geolocation.watchPosition = function(success, error, options) {
+                            if (error) {
+                                error({
+                                    code: 1,
+                                    message: "Geolocation permission denied by Privacy Shield",
+                                    PERMISSION_DENIED: 1,
+                                    POSITION_UNAVAILABLE: 2,
+                                    TIMEOUT: 3
+                                });
+                            }
+                            return 0;
+                        };
+                        navigator.geolocation.clearWatch = function(id) {};
+                    }
+                } catch(e) {}
+            } catch (e) {}
         })();
     """
 
@@ -437,27 +550,119 @@ object KaspaPrivacyEngine {
     }
 
     /**
-     * Network headers for Desktop / Mobile site modes.
-     * Returning emptyMap allows the native Chromium engine to manage Client Hints automatically
-     * based on userAgentString, preventing Cloudflare / DDoS-Guard header-mismatch errors (e.g. Error 600010).
+     * Client hints and network headers for Desktop / Mobile site modes.
+     * Tells modern servers (Google, YouTube, Reddit, etc.) whether to serve desktop or mobile layouts.
      */
     fun getDesktopHeaders(isDesktop: Boolean, baseUa: String? = null): Map<String, String> {
-        return emptyMap()
+        val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
+        val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
+        val majorVer = fullVer.substringBefore(".")
+        
+        return if (isDesktop) {
+            mapOf(
+                "Sec-CH-UA-Mobile" to "?0",
+                "Sec-CH-UA-Platform" to "\"Windows\"",
+                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
+                "Sec-CH-UA-Model" to "\"\"",
+                "Sec-CH-UA-Platform-Version" to "\"15.0.0\"",
+                "Sec-CH-UA-Full-Version-List" to "\"Chromium\";v=\"$fullVer\", \"Google Chrome\";v=\"$fullVer\", \"Not?A_Brand\";v=\"99.0.0.0\""
+            )
+        } else {
+            mapOf(
+                "Sec-CH-UA-Mobile" to "?1",
+                "Sec-CH-UA-Platform" to "\"Android\"",
+                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
+                "Sec-CH-UA-Model" to "\"\"",
+                "Sec-CH-UA-Platform-Version" to "\"10.0.0\"",
+                "Sec-CH-UA-Arch" to "\"arm\"",
+                "Sec-CH-UA-Bitness" to "\"64\"",
+                "Sec-CH-Device-Memory" to "\"8\""
+            )
+        }
     }
 
     /**
      * Minimal dynamic script for Desktop mode presentation.
-     * Ensures responsive desktop layout rendering without modifying native DOM prototypes.
+     * Ensures navigator.userAgentData reflects mobile: false for responsive layout engines
+     * while preserving native hardware capabilities (e.g. touch gestures, high-DPI scaling).
      */
     fun getDesktopViewportScript(isDesktop: Boolean = false, baseUa: String? = null): String {
+        val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
+        val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
+        val majorVer = fullVer.substringBefore(".")
+
         return """
         (function() {
             try {
                 var ua = navigator.userAgent || '';
                 var isDesktopMode = $isDesktop || (!ua.includes('Android') && !ua.includes('Mobile'));
 
-                if (!isDesktopMode) return;
+                if (!isDesktopMode) {
+                    try {
+                        var metas = document.querySelectorAll('meta[name="viewport"]');
+                        for (var i = 0; i < metas.length; i++) {
+                            var content = metas[i].getAttribute('content') || '';
+                            if (content.indexOf('width=980') !== -1) {
+                                metas[i].setAttribute('content', 'width=device-width, initial-scale=1.0, user-scalable=yes');
+                            }
+                        }
+                        var styleEl = document.getElementById('__kaspa_desktop_css');
+                        if (styleEl && styleEl.parentNode) {
+                            styleEl.parentNode.removeChild(styleEl);
+                        }
+                    } catch (_) {}
+                    return;
+                }
 
+                var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
+
+                // 1. Intercept meta element content attribute and setAttribute synchronously
+                try {
+                    var origSetAttribute = HTMLMetaElement.prototype.setAttribute;
+                    HTMLMetaElement.prototype.setAttribute = function(name, value) {
+                        if (name && name.toLowerCase() === 'content' && this.name && this.name.toLowerCase() === 'viewport') {
+                            return origSetAttribute.call(this, name, DESKTOP_VIEWPORT);
+                        }
+                        return origSetAttribute.apply(this, arguments);
+                    };
+
+                    var origContentDesc = Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype, 'content');
+                    if (origContentDesc && origContentDesc.set) {
+                        Object.defineProperty(HTMLMetaElement.prototype, 'content', {
+                            get: function() {
+                                return (this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : origContentDesc.get.call(this);
+                            },
+                            set: function(val) {
+                                var finalVal = (this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : val;
+                                origContentDesc.set.call(this, finalVal);
+                            },
+                            configurable: true
+                        });
+                    }
+                } catch (_) {}
+
+                // 2. Synchronous sanitizer for meta elements
+                function sanitizeMeta(el) {
+                    try {
+                        if (!el || el.nodeType !== 1 || el.nodeName !== 'META') return;
+                        var n = (el.getAttribute('name') || el.name || '').toLowerCase();
+                        if (n === 'viewport') {
+                            if (el.getAttribute('content') !== DESKTOP_VIEWPORT) {
+                                el.setAttribute('content', DESKTOP_VIEWPORT);
+                            }
+                        }
+                    } catch (_) {}
+                }
+
+                // 3. Apply immediately to any existing meta tags in the document
+                try {
+                    var existing = document.getElementsByTagName('meta');
+                    for (var i = 0; i < existing.length; i++) {
+                        sanitizeMeta(existing[i]);
+                    }
+                } catch (_) {}
+
+                // 4. Ensure desktop viewport meta and layout CSS exist immediately
                 function enforceDesktopLayout() {
                     try {
                         var target = document.head || document.documentElement || document.body;
@@ -467,8 +672,12 @@ object KaspaPrivacyEngine {
                         if (metas.length === 0) {
                             var meta = document.createElement('meta');
                             meta.name = 'viewport';
-                            meta.content = 'width=980, user-scalable=yes';
+                            meta.content = DESKTOP_VIEWPORT;
                             target.insertBefore(meta, target.firstChild);
+                        } else {
+                            for (var j = 0; j < metas.length; j++) {
+                                sanitizeMeta(metas[j]);
+                            }
                         }
 
                         if (!document.getElementById('__kaspa_desktop_css')) {
@@ -480,11 +689,82 @@ object KaspaPrivacyEngine {
                     } catch (_) {}
                 }
 
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', enforceDesktopLayout, { once: true });
-                } else {
-                    enforceDesktopLayout();
+                enforceDesktopLayout();
+
+                // 5. Observe DOM mutations from root immediately to prevent any mobile flash during parsing
+                try {
+                    if (!window.__kaspa_desktop_observer) {
+                        var rootTarget = document.documentElement || document;
+                        var observer = new MutationObserver(function(mutations) {
+                            for (var m = 0; m < mutations.length; m++) {
+                                var added = mutations[m].addedNodes;
+                                if (!added) continue;
+                                for (var k = 0; k < added.length; k++) {
+                                    var node = added[k];
+                                    if (node.nodeType === 1) {
+                                        if (node.nodeName === 'META') {
+                                            sanitizeMeta(node);
+                                        } else if (node.getElementsByTagName) {
+                                            var childMetas = node.getElementsByTagName('meta');
+                                            for (var c = 0; c < childMetas.length; c++) {
+                                                sanitizeMeta(childMetas[c]);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        observer.observe(rootTarget, { childList: true, subtree: true });
+                        window.__kaspa_desktop_observer = observer;
+                    }
+                } catch (_) {}
+
+                document.addEventListener('DOMContentLoaded', enforceDesktopLayout, { once: true });
+
+                // 6. Provide desktop navigator.userAgentData and platform
+                if (navigator.userAgentData) {
+                    try {
+                        var origUaData = navigator.userAgentData;
+                        Object.defineProperty(navigator, 'userAgentData', {
+                            get: function() {
+                                return {
+                                    brands: (origUaData && origUaData.brands) ? origUaData.brands : [
+                                        { brand: 'Chromium', version: '$majorVer' },
+                                        { brand: 'Google Chrome', version: '$majorVer' },
+                                        { brand: 'Not?A_Brand', version: '99' }
+                                    ],
+                                    mobile: false,
+                                    platform: 'Windows',
+                                    getHighEntropyValues: function(hints) {
+                                        if (origUaData && origUaData.getHighEntropyValues) {
+                                            return origUaData.getHighEntropyValues(hints).then(function(v) {
+                                                return Object.assign({}, v, {
+                                                    mobile: false,
+                                                    platform: 'Windows'
+                                                });
+                                            });
+                                        }
+                                        return Promise.resolve({
+                                            mobile: false,
+                                            platform: 'Windows',
+                                            uaFullVersion: '$fullVer'
+                                        });
+                                    }
+                                };
+                            },
+                            configurable: true,
+                            enumerable: true
+                        });
+                    } catch (_) {}
                 }
+
+                try {
+                    Object.defineProperty(navigator, 'platform', {
+                        get: function() { return 'Win32'; },
+                        configurable: true
+                    });
+                } catch (_) {}
+
             } catch (_) {}
         })();
         """.trimIndent()

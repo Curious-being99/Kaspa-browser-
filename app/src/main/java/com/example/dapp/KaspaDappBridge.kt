@@ -29,7 +29,6 @@ object KaspaDappBridge {
     private val cryptoExecutor = Executors.newSingleThreadExecutor()
     private val installedWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
     private val listenerRegisteredWebViews = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
-    private val rejectedOriginsCooldown = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     private fun isInstalled(webView: WebView): Boolean =
         synchronized(installedWebViews) { installedWebViews.contains(webView) }
@@ -163,7 +162,6 @@ object KaspaDappBridge {
                                     viewModel.dappPromptState.value = null
                                 },
                                 onReject = {
-                                    rejectedOriginsCooldown[origin] = System.currentTimeMillis()
                                     respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
                                     viewModel.dappPromptState.value = null
                                 }
@@ -176,12 +174,6 @@ object KaspaDappBridge {
                         .getBoolean(origin, false)
 
                     if (!isCurrentlyConnected) {
-                        val lastRejectedTime = rejectedOriginsCooldown[origin] ?: 0L
-                        if (System.currentTimeMillis() - lastRejectedTime < 3000L) {
-                            respond(errorCode = 4001, errorMessage = "User rejected connection request")
-                            return
-                        }
-
                         cryptoExecutor.execute {
                             val balance = try {
                                 kotlinx.coroutines.runBlocking {
@@ -208,11 +200,8 @@ object KaspaDappBridge {
                                         })
                                     },
                                     onReject = {
-                                        rejectedOriginsCooldown[origin] = System.currentTimeMillis()
                                         respond(errorCode = 4001, errorMessage = onRejectMsg)
-                                        mainHandler.post {
-                                            viewModel.dappPromptState.value = null
-                                        }
+                                        viewModel.dappPromptState.value = null
                                     }
                                 )
                             }
@@ -259,11 +248,6 @@ object KaspaDappBridge {
                                 .put("kasplex", evmAddress)
                                 .put("igra", evmAddress)
                             if (method == "requestNetworkAccounts" && !isConnected) {
-                                val lastRejectedTime = rejectedOriginsCooldown[origin] ?: 0L
-                                if (System.currentTimeMillis() - lastRejectedTime < 3000L) {
-                                    respond(errorCode = 4001, errorMessage = "User rejected connection request")
-                                    return@addWebMessageListener
-                                }
                                 cryptoExecutor.execute {
                                     val balance = try {
                                         kotlinx.coroutines.runBlocking {
@@ -288,11 +272,8 @@ object KaspaDappBridge {
                                                 viewModel.dappPromptState.value = null
                                             },
                                             onReject = {
-                                                rejectedOriginsCooldown[origin] = System.currentTimeMillis()
                                                 respond(errorCode = 4001, errorMessage = "User rejected network connection")
-                                                mainHandler.post {
-                                                    viewModel.dappPromptState.value = null
-                                                }
+                                                viewModel.dappPromptState.value = null
                                             }
                                         )
                                     }
@@ -486,33 +467,9 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Requested sender does not match the active wallet")
                             return@addWebMessageListener
                         }
-                        val txJson = paramsObject?.optString("txJsonString",
-                            paramsObject.optString("txJson",
-                            paramsObject.optString("psktJson",
-                            paramsObject.optString("transaction",
-                            paramsObject.optString("tx",
-                            paramsObject.optJSONObject("transaction")?.toString() ?:
-                            paramsObject.optJSONObject("tx")?.toString() ?: ""))))).orEmpty()
-
+                        val txJson = paramsObject?.optString("txJsonString", "").orEmpty()
                         val options = paramsObject?.optJSONObject("options")
                         val signInputs = options?.optJSONArray("signInputs")
-                            ?: paramsObject?.optJSONArray("signInputs")
-                            ?: paramsObject?.optJSONArray("inputsToSign")
-                            ?: paramsObject?.optJSONArray("signInputIndexes")
-                            ?: run {
-                                try {
-                                    val txObj = JSONObject(txJson)
-                                    val txInputs = txObj.optJSONArray("inputs")
-                                    if (txInputs != null && txInputs.length() > 0) {
-                                        val autoArr = JSONArray()
-                                        for (i in 0 until txInputs.length()) {
-                                            autoArr.put(i)
-                                        }
-                                        autoArr
-                                    } else null
-                                } catch (_: Exception) { null }
-                            }
-
                         if (txJson.isBlank() || signInputs == null || signInputs.length() == 0) {
                             respond(errorCode = -32602, errorMessage = "signPskt requires txJsonString and a non-empty options.signInputs array")
                             return@addWebMessageListener
@@ -624,21 +581,7 @@ object KaspaDappBridge {
                                         val prepared = try {
                                             val options = paramsObj.optJSONObject("options")
                                             val signInputs = options?.optJSONArray("signInputs")
-                                                ?: paramsObj.optJSONArray("signInputs")
-                                                ?: paramsObj.optJSONArray("inputsToSign")
-                                                ?: run {
-                                                    try {
-                                                        val txObj = JSONObject(rawTxJson)
-                                                        val txInputs = txObj.optJSONArray("inputs")
-                                                        if (txInputs != null && txInputs.length() > 0) {
-                                                            val autoArr = JSONArray()
-                                                            for (i in 0 until txInputs.length()) {
-                                                                autoArr.put(i)
-                                                            }
-                                                            autoArr
-                                                        } else null
-                                                    } catch (_: Exception) { null }
-                                                } ?: throw IllegalArgumentException("KCC-20 PSKT requires signInputs")
+                                                ?: throw IllegalArgumentException("KCC-20 PSKT requires explicit options.signInputs")
                                             require(signInputs.length() > 0) { "KCC-20 PSKT requires at least one explicitly selected input" }
                                             DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex)
                                         } catch (e: Throwable) {

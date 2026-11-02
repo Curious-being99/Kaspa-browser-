@@ -20,7 +20,6 @@ internal object EvmDappBridge {
     private const val CHAIN_PREFS = "evm_dapp_chains"
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
-    private val rejectedOriginsCooldown = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val readMethods = setOf(
         "eth_blockNumber", "eth_getBalance", "eth_getCode", "eth_call",
         "eth_estimateGas", "eth_gasPrice", "eth_maxPriorityFeePerGas",
@@ -116,11 +115,6 @@ internal object EvmDappBridge {
                 }
 
                 fun requestConnection() {
-                    val lastRejectedAt = rejectedOriginsCooldown[origin] ?: 0L
-                    if (System.currentTimeMillis() - lastRejectedAt < 3000L) {
-                        respond(code = 4001, error = "User recently rejected connection request. Please wait a moment before retrying.")
-                        return
-                    }
                     if (legacyPhraseUnconfirmed) {
                         respond(code = 4100, error = "Review and confirm the derived legacy EVM address in wallet settings before connecting dApps")
                         return
@@ -139,7 +133,6 @@ internal object EvmDappBridge {
                                     viewModel.dappPromptState.value = null
                                 },
                                 onReject = {
-                                    rejectedOriginsCooldown[origin] = System.currentTimeMillis()
                                     respond(code = 4001, error = "User rejected wallet connection")
                                     viewModel.dappPromptState.value = null
                                 }
@@ -172,7 +165,6 @@ internal object EvmDappBridge {
                                 }
                             },
                             onReject = {
-                                rejectedOriginsCooldown[origin] = System.currentTimeMillis()
                                 respond(code = 4001, error = "User rejected wallet connection")
                                 viewModel.dappPromptState.value = null
                             }
