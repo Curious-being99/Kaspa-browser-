@@ -264,6 +264,7 @@ class DecentralViewModel(
             val action: String,
             val tick: String,
             val amount: String,
+            val amountLabel: String = "Amount",
             val destination: String,
             val inputsCount: Int = 1,
             val feeKas: String = "",
