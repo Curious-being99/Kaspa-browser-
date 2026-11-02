@@ -311,14 +311,8 @@ internal object DappPsktTransaction {
             val item = outputArray.optJSONObject(index)
                 ?: throw IllegalArgumentException("Transaction output $index is malformed")
             val amount = sequenceOf("value", "amount")
-                .mapNotNull { key ->
-                    when (val raw = item.opt(key)) {
-                        is Number -> raw.toLong()
-                        is String -> raw.trim().toLongOrNull()
-                        else -> null
-                    }
-                }
-                .firstOrNull { it >= 0L } ?: -1L
+                .mapNotNull { key -> if (item.has(key)) item.optString(key).trim().toLongOrNull() else null }
+                .firstOrNull() ?: -1L
             require(amount >= 0L) { "Output $index has an invalid amount" }
             val scriptJson = item.optJSONObject("scriptPublicKey")
                 ?: item.optJSONObject("script_public_key")
