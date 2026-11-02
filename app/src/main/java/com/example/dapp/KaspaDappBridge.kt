@@ -48,12 +48,9 @@ object KaspaDappBridge {
                 val params = request.opt("params")
                 val account = viewModel.activeAccount.value
                 val currentSelectedNet = viewModel.selectedNetwork.value
-                val isBraidSwapOrigin = origin.contains("braidswap.com", ignoreCase = true)
-                val network = if (isBraidSwapOrigin && !currentSelectedNet.contains("Mainnet", ignoreCase = true)) {
-                    "Kaspa Mainnet"
-                } else {
-                    currentSelectedNet
-                }
+                // A dApp must use the wallet's explicitly selected network. Never silently
+                // upgrade Testnet-10 requests to Mainnet based on the website origin.
+                val network = currentSelectedNet
                 val prefix = if (network.contains("Mainnet", true)) "kaspa" else "kaspatest"
                 val isConnected = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .getBoolean(origin, false)
@@ -459,7 +456,28 @@ object KaspaDappBridge {
                                         }
                                     }
 
+                                    // A malformed or rejected PSKT must never fall through to a
+                                    // different transaction path (especially the KB-only builder).
+                                    if (rawTxJson.isNotBlank()) {
+                                        mainHandler.post {
+                                            respond(
+                                                errorCode = -32602,
+                                                errorMessage = "The supplied transaction failed wallet validation; no signing or broadcast was performed."
+                                            )
+                                        }
+                                        return@execute
+                                    }
+
                                     if (method.contains("kcc", ignoreCase = true)) {
+                                        if (!tick.equals("KB", ignoreCase = true)) {
+                                            mainHandler.post {
+                                                respond(
+                                                    errorCode = -32602,
+                                                    errorMessage = "KCC-20 $tick requires its own covenant-aware transaction and verified token metadata. The KB transfer builder cannot be used as a fallback; nothing was signed or broadcast."
+                                                )
+                                            }
+                                            return@execute
+                                        }
                                         val amtDouble = amtStr.toDoubleOrNull() ?: 0.0
                                         if (toAddr.isNotBlank() && amtDouble > 0.0) {
                                             val res = kotlinx.coroutines.runBlocking {
