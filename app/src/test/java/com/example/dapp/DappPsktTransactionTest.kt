@@ -80,7 +80,7 @@ class DappPsktTransactionTest {
         val json = JSONObject(transactionJson(covenantSigScript = ""))
         val p2shInput = json.getJSONArray("inputs").getJSONObject(1)
         p2shInput.getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
-            .put("version", 8)
+            .put("version", 0)
             .put("script", "aa20" + p2shHash + "87")
         val originalMass = json.getLong("mass")
         val prepared = DappPsktTransaction.prepareForSigning(

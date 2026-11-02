@@ -92,7 +92,7 @@ internal object DappPsktTransaction {
             }
 
             val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
-            if (utxo.scriptPublicKey.version == 8 && p2shHash != null) {
+            if (utxo.scriptPublicKey.version == 0 && p2shHash != null) {
                 val redeem = request.redeemScript.takeIf { it.isNotBlank() }
                     ?: prepared.redeemScript.takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
