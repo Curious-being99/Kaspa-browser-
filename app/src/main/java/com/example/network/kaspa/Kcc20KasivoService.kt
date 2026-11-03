@@ -137,6 +137,15 @@ data class Kcc20WalletToken(
     val isGraduated: Boolean = false
 )
 
+data class Kcc20CandidateNote(
+    val transactionId: String,
+    val outputIndex: Int,
+    val covenantId: String,
+    val scriptPublicKey: String,
+    val p2shHash: String,
+    val candidateAmounts: List<java.math.BigInteger>
+)
+
 internal fun normalizeKascovNetwork(value: String): String? {
     val normalized = value.trim().lowercase().replace('_', '-').replace(' ', '-')
     return when (normalized) {
@@ -167,6 +176,126 @@ class Kcc20KasivoService(
     /**
      * Differentiate raw payload or metadata JSON into exact Kaspa Protocol Taxonomy.
      */
+    /**
+     * Finds candidate KCC-20 notes from the wallet's complete REST transaction history.
+     * Signature-script amounts are hints only; ownership and liveness still require
+     * exact launchpad-template verification and a node UTXO lookup.
+     */
+    suspend fun discoverCandidateNotes(
+        walletAddress: String,
+        network: String
+    ): Result<List<Kcc20CandidateNote>> = withContext(Dispatchers.IO) {
+        val address = walletAddress.trim()
+        if (address.isBlank()) return@withContext Result.failure(IllegalArgumentException("Wallet address is required"))
+        val apiBase = when (normalizeKascovNetwork(network)) {
+            "mainnet" -> "https://api.kaspa.org"
+            "testnet-10" -> "https://api-tn10.kaspa.org"
+            else -> return@withContext Result.failure(IllegalArgumentException("Unsupported KCC-20 network: $network"))
+        }
+        try {
+            val connection = (URL("$apiBase/addresses/$address/full-transactions").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 20000
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0")
+            }
+            val body = try {
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                    throw java.io.IOException("Kaspa REST full-transactions returned HTTP ${connection.responseCode}")
+                }
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } finally {
+                connection.disconnect()
+            }
+            val transactions = JSONArray(body)
+            val found = linkedMapOf<String, Kcc20CandidateNote>()
+            for (txIndex in 0 until transactions.length()) {
+                val tx = transactions.optJSONObject(txIndex) ?: continue
+                val txid = tx.optString("transaction_id", tx.optString("transactionId", "")).lowercase()
+                if (!txid.matches(Regex("[0-9a-f]{64}"))) continue
+                val amountHints = linkedSetOf<java.math.BigInteger>()
+                val inputs = tx.optJSONArray("inputs") ?: JSONArray()
+                for (inputIndex in 0 until inputs.length()) {
+                    val input = inputs.optJSONObject(inputIndex) ?: continue
+                    val sigScript = input.optString("signature_script", input.optString("signatureScript", "")).lowercase()
+                    amountHints.addAll(parsePositiveScriptNumberPushes(sigScript))
+                }
+                val outputs = tx.optJSONArray("outputs") ?: continue
+                for (outputIndex in 0 until outputs.length()) {
+                    val output = outputs.optJSONObject(outputIndex) ?: continue
+                    val covenant = output.optJSONObject("covenant") ?: output.optJSONObject("covenant_binding")
+                    val covenantId = output.optString("covenant_id",
+                        output.optString("covenantId",
+                            covenant?.optString("covenant_id", covenant?.optString("covenantId", "") ?: "") ?: ""
+                        )).lowercase().removePrefix("0x")
+                    if (!covenantId.matches(Regex("[0-9a-f]{64}"))) continue
+                    val spk = output.optJSONObject("script_public_key") ?: output.optJSONObject("scriptPublicKey")
+                    val script = spk?.optString("script", "")?.replace(" ", "")?.lowercase().orEmpty()
+                    if (!script.matches(Regex("aa20[0-9a-f]{64}87"))) continue
+                    found["${txid}:$outputIndex"] = Kcc20CandidateNote(
+                        transactionId = txid,
+                        outputIndex = outputIndex,
+                        covenantId = covenantId,
+                        scriptPublicKey = script,
+                        p2shHash = script.substring(4, 68),
+                        candidateAmounts = amountHints.toList()
+                    )
+                }
+            }
+            Result.success(found.values.toList())
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+    }
+
+    /**
+     * Reads data-pushes from a signature script as untrusted amount hints.
+     * No value returned here is accepted as a verified token amount.
+     */
+    private fun parsePositiveScriptNumberPushes(scriptHex: String): List<java.math.BigInteger> {
+        if (scriptHex.length % 2 != 0 || !scriptHex.matches(Regex("[0-9a-f]*"))) return emptyList()
+        val bytes = ByteArray(scriptHex.length / 2) { index ->
+            scriptHex.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+        val values = linkedSetOf<java.math.BigInteger>()
+        var cursor = 0
+        while (cursor < bytes.size) {
+            val opcode = bytes[cursor++].toInt() and 0xff
+            val length = when {
+                opcode in 1..75 -> opcode
+                opcode == 0x4c -> {
+                    if (cursor >= bytes.size) break
+                    bytes[cursor++].toInt() and 0xff
+                }
+                opcode == 0x4d -> {
+                    if (cursor + 1 >= bytes.size) break
+                    val n = (bytes[cursor].toInt() and 0xff) or ((bytes[cursor + 1].toInt() and 0xff) shl 8)
+                    cursor += 2
+                    n
+                }
+                opcode == 0x4e -> {
+                    if (cursor + 3 >= bytes.size) break
+                    val n = (bytes[cursor].toInt() and 0xff) or
+                        ((bytes[cursor + 1].toInt() and 0xff) shl 8) or
+                        ((bytes[cursor + 2].toInt() and 0xff) shl 16) or
+                        ((bytes[cursor + 3].toInt() and 0xff) shl 24)
+                    cursor += 4
+                    n
+                }
+                else -> continue
+            }
+            if (length <= 0 || length > bytes.size - cursor) break
+            val pushed = bytes.copyOfRange(cursor, cursor + length)
+            cursor += length
+            if (pushed.size <= 8) {
+                val candidate = java.math.BigInteger(1, pushed.reversedArray())
+                if (candidate.signum() > 0) values.add(candidate)
+            }
+        }
+        return values.toList()
+    }
+
     suspend fun fetchWalletToken(
         publicKeyHex: String,
         contractId: String,
