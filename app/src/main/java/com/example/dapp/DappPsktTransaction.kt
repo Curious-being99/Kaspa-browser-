@@ -384,11 +384,13 @@ internal object DappPsktTransaction {
         }.firstOrNull()
 
         if (flatScript != null) {
-            val version = output.optInt(
+            val explicitVersion = sequenceOf(
                 "scriptPublicKeyVersion",
-                output.optInt("script_public_key_version", output.optInt("version", 0))
-            )
-            return KaspaTransactionEngine.KaspaScriptPublicKey(version, flatScript)
+                "script_public_key_version",
+                "version"
+            ).firstOrNull { output.has(it) && !output.isNull(it) }
+                ?.let { output.optInt(it, 0) }
+            return KaspaTransactionEngine.parseFlatScriptPublicKey(flatScript, explicitVersion)
         }
 
         throw IllegalArgumentException(

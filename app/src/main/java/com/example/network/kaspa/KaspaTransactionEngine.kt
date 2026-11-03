@@ -66,12 +66,26 @@ object KaspaTransactionEngine {
 
         companion object {
             fun fromJson(json: JSONObject): KaspaScriptPublicKey {
-                val version = json.optInt("version", 0)
+                val explicitVersion = sequenceOf("version", "scriptPublicKeyVersion", "script_public_key_version")
+                    .firstOrNull { json.has(it) && !json.isNull(it) }
+                    ?.let { json.optInt(it, 0) }
                 val script = json.optString("scriptPublicKey",
                     json.optString("script_public_key",
                     json.optString("script", "")))
-                return KaspaScriptPublicKey(version, script)
+                return parseFlatScriptPublicKey(script, explicitVersion)
             }
+        }
+    }
+
+    fun parseFlatScriptPublicKey(rawScript: String, explicitVersion: Int? = null): KaspaScriptPublicKey {
+        val clean = rawScript.trim().removePrefix("0x").lowercase()
+        require(clean.isNotEmpty() && clean.length % 2 == 0 && clean.matches(Regex("[0-9a-f]+"))) {
+            "Malformed flat script public key"
+        }
+        return if (explicitVersion == null && clean.startsWith("0000")) {
+            KaspaScriptPublicKey(version = 0, script = clean.substring(4))
+        } else {
+            KaspaScriptPublicKey(version = explicitVersion ?: 0, script = clean)
         }
     }
 
@@ -101,8 +115,10 @@ object KaspaTransactionEngine {
                     val rawScript = json.optString("scriptPublicKey",
                         json.optString("script_public_key",
                         json.optString("script", "")))
-                    val version = json.optInt("version", 0)
-                    KaspaScriptPublicKey(version, rawScript)
+                    val explicitVersion = sequenceOf("version", "scriptPublicKeyVersion", "script_public_key_version")
+                        .firstOrNull { json.has(it) && !json.isNull(it) }
+                        ?.let { json.optInt(it, 0) }
+                    parseFlatScriptPublicKey(rawScript, explicitVersion)
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))
