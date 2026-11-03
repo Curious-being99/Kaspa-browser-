@@ -171,17 +171,30 @@ class Kcc20IndexerDiscovery(
         val redeem = decodeHex(redeemHex)
             ?: throw IOException("KRON UTXO has malformed redeemScriptHex")
 
-        // KRON's documented KCC-20 note encoding:
-        // byte 0 = note type; bytes 1..32 = x-only owner key;
-        // byte 33 = amount push/type; bytes 34..41 = signed int64 LE amount.
-        // Do not reinterpret this as the generic 145-byte reference-state structure.
-        if (redeem.size < 42) throw IOException("KRON redeem script is truncated")
+        // KRON-family KCC-20 state prefix:
+        // 0x20 PUSH32, owner[1..32], 0x01 PUSH1, identifierType[34],
+        // 0x08 PUSH8, amount[36..43] as int64 little-endian,
+        // 0x01 PUSH1, flags[45].
+        // This decoder is KRON-specific; never reuse it for KaspaRocket/KasSeal.
+        if (redeem.size < 46) throw IOException("KRON redeem script is truncated")
+        if ((redeem[0].toInt() and 0xff) != 0x20 ||
+            (redeem[33].toInt() and 0xff) != 0x01 ||
+            (redeem[35].toInt() and 0xff) != 0x08 ||
+            (redeem[44].toInt() and 0xff) != 0x01
+        ) {
+            throw IOException("KRON redeem script does not match the documented state-prefix encoding")
+        }
+        val identifierType = redeem[34].toInt() and 0xff
+        val flags = redeem[45].toInt() and 0xff
+        if (identifierType !in 0..3 || flags !in 0..1) {
+            throw IOException("KRON redeem script has an unsupported identifier type or flag")
+        }
         val owner = redeem.copyOfRange(1, 33)
         if (!owner.contentEquals(walletPublicKey)) {
-            throw IOException("KRON redeem-script owner does not match the connected wallet")
+            throw IOException("KRON redeem-script owner does not match the connected wallet public-key identifier")
         }
 
-        val amountBytes = redeem.copyOfRange(34, 42)
+        val amountBytes = redeem.copyOfRange(36, 44)
         val signedAmount = ByteBuffer.wrap(amountBytes).order(ByteOrder.LITTLE_ENDIAN).long
         if (signedAmount < 0L) throw IOException("KRON note contains a negative token amount")
         val tokenAmount = BigInteger.valueOf(signedAmount)
