@@ -400,6 +400,16 @@ object KaspaTransactionEngine {
         return data
     }
 
+    private fun decodeCovenantId(value: String): ByteArray {
+        val clean = value.trim().replace(Regex("(?i)^0x"), "")
+        require(clean.length == 64 && clean.matches(Regex("[0-9a-fA-F]{64}"))) {
+            "Covenant ID must be a 32-byte hexadecimal value"
+        }
+        return ByteArray(32) { index ->
+            clean.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+    }
+
     private fun writeSighashOutput(stream: ByteArrayOutputStream, output: KaspaTransactionOutput, transactionVersion: Int) {
         writeUInt64LE(stream, output.amount)
         writeUInt16LE(stream, output.scriptPublicKey.version)
@@ -411,8 +421,7 @@ object KaspaTransactionEngine {
             writeByte(stream, (if (covenant == null) 0 else 1).toByte())
             if (covenant != null) {
                 require(covenant.authorizingInput in 0..0xffff) { "Covenant authorizing input is outside the u16 range" }
-                val covenantId = hexToBytes(covenant.covenantId)
-                require(covenantId.size == 32) { "Covenant ID must be exactly 32 bytes" }
+                val covenantId = decodeCovenantId(covenant.covenantId)
                 writeUInt16LE(stream, covenant.authorizingInput)
                 stream.write(covenantId)
             }

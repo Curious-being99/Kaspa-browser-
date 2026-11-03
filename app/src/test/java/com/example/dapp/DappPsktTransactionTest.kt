@@ -459,6 +459,46 @@ class DappPsktTransactionTest {
     }
 
     @Test
+    fun versionOneSighashNormalizesPrefixedUppercaseCovenantId() {
+        val script = "20" + publicKeyHex + "ac"
+        val utxo = KaspaTransactionEngine.KaspaUtxoEntry(10_000_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))
+        fun hash(covenantId: String): ByteArray {
+            val tx = KaspaTransactionEngine.KaspaTransaction(
+                version = 1,
+                inputs = listOf(KaspaTransactionEngine.KaspaTransactionInput(
+                    KaspaTransactionEngine.KaspaOutpoint("33".repeat(32), 0), sequence = 7
+                )),
+                outputs = listOf(KaspaTransactionEngine.KaspaTransactionOutput(
+                    9_400_000L,
+                    KaspaTransactionEngine.KaspaScriptPublicKey(0, script),
+                    KaspaTransactionEngine.KaspaCovenantBinding(0, covenantId)
+                ))
+            )
+            return KaspaTransactionEngine.calcSchnorrSignatureHash(tx, 0, 1, utxo)
+        }
+        val canonical = "ab".repeat(32)
+        assertTrue(hash(canonical).contentEquals(hash("0X" + canonical.uppercase())))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun versionOneSighashRejectsMalformedCovenantId() {
+        val script = "20" + publicKeyHex + "ac"
+        val utxo = KaspaTransactionEngine.KaspaUtxoEntry(10_000_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))
+        val tx = KaspaTransactionEngine.KaspaTransaction(
+            version = 1,
+            inputs = listOf(KaspaTransactionEngine.KaspaTransactionInput(
+                KaspaTransactionEngine.KaspaOutpoint("33".repeat(32), 0), sequence = 7
+            )),
+            outputs = listOf(KaspaTransactionEngine.KaspaTransactionOutput(
+                9_400_000L,
+                KaspaTransactionEngine.KaspaScriptPublicKey(0, script),
+                KaspaTransactionEngine.KaspaCovenantBinding(0, "0x1234")
+            ))
+        )
+        KaspaTransactionEngine.calcSchnorrSignatureHash(tx, 0, 1, utxo)
+    }
+
+    @Test
     fun versionOneSighashCommitsToCovenantPresenceAndFields() {
         val script = "20" + publicKeyHex + "ac"
         val utxo = KaspaTransactionEngine.KaspaUtxoEntry(10_000_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))
