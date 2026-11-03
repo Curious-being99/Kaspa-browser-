@@ -375,6 +375,38 @@ class DappPsktTransactionTest {
     }
 
     @Test
+    fun parsesWasmSafeJsonFlatVersionPrefixedInputAndOutputScriptsBeforeSigning() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val json = JSONObject(transactionJson())
+        val inputUtxo = json.getJSONArray("inputs").getJSONObject(0)
+            .getJSONObject("utxoEntry")
+        inputUtxo.put("scriptPublicKey", "0000" + userScript)
+        val output = json.getJSONArray("outputs").getJSONObject(0)
+        output.put("scriptPublicKey", "0000" + userScript)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            json.toString(),
+            JSONArray().put(0),
+            publicKeyHex
+        )
+
+        assertEquals(0, prepared.utxoEntries[0].scriptPublicKey.version)
+        assertEquals(userScript, prepared.utxoEntries[0].scriptPublicKey.script)
+        assertEquals(0, prepared.transaction.outputs[0].scriptPublicKey.version)
+        assertEquals(userScript, prepared.transaction.outputs[0].scriptPublicKey.script)
+
+        val signed = JSONObject(DappPsktTransaction.sign(prepared, privateKey))
+        val signature = signed.getJSONArray("inputs").getJSONObject(0)
+            .getString("signatureScript").substring(2, 130)
+        val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+            prepared.transaction, 0, KaspaTransactionEngine.SIGHASH_ALL, prepared.utxoEntries[0]
+        )
+        assertTrue(CryptoUtils.verifySchnorrSignature(
+            signature, sighash, CryptoUtils.hexToBytes(publicKeyHex)
+        ))
+    }
+
+    @Test
     fun prefersValueAndFallsBackToAmountForOutputAmounts() {
         val userScript = "20" + publicKeyHex + "ac"
         val inputs = JSONArray().put(JSONObject()
