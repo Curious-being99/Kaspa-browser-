@@ -30,7 +30,6 @@ data class Kcc20DiscoveredHolding(
 data class Kcc20VerifiedUtxo(
     val transactionId: String,
     val outputIndex: Int,
-    val carrierSompi: BigInteger,
     val tokenAmount: BigInteger,
     val redeemScriptHex: String
 )
@@ -119,7 +118,7 @@ class Kcc20IndexerDiscovery(
                     "$base/token/${encodePath(ticker)}/address/${encodePath(walletAddress)}/utxos"
                 )
                 val verified = utxoRows.map { row ->
-                    verifyUtxo(row, publicKey, covenantId)
+                    verifyUtxo(row, publicKey)
                 }
                 val rawTotal = verified.fold(BigInteger.ZERO) { sum, utxo ->
                     sum.add(utxo.tokenAmount)
@@ -151,8 +150,7 @@ class Kcc20IndexerDiscovery(
 
     private fun verifyUtxo(
         row: JSONObject,
-        walletPublicKey: ByteArray,
-        expectedCovenantId: String
+        walletPublicKey: ByteArray
     ): Kcc20VerifiedUtxo {
         val outpoint = row.optJSONObject("outpoint")
             ?: throw IOException("KRON UTXO is missing its outpoint")
@@ -165,9 +163,6 @@ class Kcc20IndexerDiscovery(
         val redeem = decodeHex(redeemHex)
             ?: throw IOException("KRON UTXO has malformed redeemScriptHex")
         val state = decodeReferenceTokenState(redeem)
-        if (state.templateHash != expectedCovenantId) {
-            throw IOException("KRON UTXO template does not match token $expectedCovenantId")
-        }
         if (state.ownerScheme != 0 && state.ownerScheme != 1) {
             throw IOException("KRON UTXO uses unsupported holder owner scheme ${state.ownerScheme}")
         }
@@ -186,14 +181,9 @@ class Kcc20IndexerDiscovery(
         if (tokenAmount != state.amount || tokenAmount.signum() < 0) {
             throw IOException("KRON UTXO amount does not match its redeem-script state")
         }
-        val carrier = row.optString("value").toBigIntegerOrNull()
-            ?: throw IOException("KRON UTXO is missing its actual native carrier value")
-        if (carrier.signum() < 0) throw IOException("KRON UTXO has a negative carrier value")
-
         return Kcc20VerifiedUtxo(
             transactionId = transactionId,
             outputIndex = outputIndex,
-            carrierSompi = carrier,
             tokenAmount = tokenAmount,
             redeemScriptHex = redeemHex
         )
