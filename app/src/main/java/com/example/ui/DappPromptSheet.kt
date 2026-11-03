@@ -42,7 +42,7 @@ fun DappPromptBottomSheet(
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var copiedAddress by remember { mutableStateOf(false) }
-    var actionTriggered by remember { mutableStateOf(false) }
+    var actionTriggered by remember(prompt) { mutableStateOf(false) }
 
     fun safeAction(action: () -> Unit) {
         if (!actionTriggered) {
@@ -664,12 +664,12 @@ fun DappPromptBottomSheet(
                 }
 
                 is DecentralViewModel.DappPromptState.UnlockWallet -> {
-                    var passwordInput by remember { mutableStateOf("") }
-                    var passwordVisible by remember { mutableStateOf(false) }
-                    var passwordError by remember { mutableStateOf<String?>(null) }
-                    var isVerifying by remember { mutableStateOf(false) }
-                    var isAuthenticatingBiometric by remember { mutableStateOf(false) }
-                    var biometricError by remember { mutableStateOf<String?>(null) }
+                    var passwordInput by remember(prompt) { mutableStateOf("") }
+                    var passwordVisible by remember(prompt) { mutableStateOf(false) }
+                    var passwordError by remember(prompt) { mutableStateOf<String?>(null) }
+                    var isVerifying by remember(prompt) { mutableStateOf(false) }
+                    var isAuthenticatingBiometric by remember(prompt) { mutableStateOf(false) }
+                    var biometricError by remember(prompt) { mutableStateOf<String?>(null) }
 
                     Box(
                         modifier = Modifier

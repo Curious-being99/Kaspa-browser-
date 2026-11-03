@@ -95,8 +95,17 @@ internal object EvmDappBridge {
                                     }
                                 },
                                 onAuthenticateBiometric = if (viewModel.biometricsEnabled.value) {
-                                    {
-                                        viewModel.unlockWalletWithBiometric()
+                                    { callback ->
+                                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                            context = context,
+                                            title = "Unlock Kaspa Wallet",
+                                            subtitle = "Authenticate to connect to $origin",
+                                            onSuccess = {
+                                                viewModel.unlockWalletWithBiometric()
+                                                callback(true)
+                                            },
+                                            onError = { callback(false) }
+                                        )
                                     }
                                 } else null,
                                 onUnlocked = {
