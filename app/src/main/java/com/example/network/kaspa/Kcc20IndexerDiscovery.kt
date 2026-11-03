@@ -118,7 +118,7 @@ class Kcc20IndexerDiscovery(
                     "$base/token/${encodePath(ticker)}/address/${encodePath(walletAddress)}/utxos"
                 )
                 val verified = utxoRows.map { row ->
-                    verifyUtxo(row, publicKey)
+                    verifyUtxo(row, publicKey, walletAddress)
                 }
                 val rawTotal = verified.fold(BigInteger.ZERO) { sum, utxo ->
                     sum.add(utxo.tokenAmount)
@@ -150,7 +150,8 @@ class Kcc20IndexerDiscovery(
 
     private fun verifyUtxo(
         row: JSONObject,
-        walletPublicKey: ByteArray
+        walletPublicKey: ByteArray,
+        activeWalletAddress: String
     ): Kcc20VerifiedUtxo {
         val outpoint = row.optJSONObject("outpoint")
             ?: throw IOException("KRON UTXO is missing its outpoint")
@@ -158,6 +159,10 @@ class Kcc20IndexerDiscovery(
         val outputIndex = outpoint.optInt("index", -1)
         if (!TX_ID.matches(transactionId) || outputIndex < 0) {
             throw IOException("KRON UTXO has an invalid outpoint")
+        }
+        val reportedOwner = row.optString("ownerAddress").trim()
+        if (!reportedOwner.equals(activeWalletAddress, ignoreCase = true)) {
+            throw IOException("KRON UTXO ownerAddress does not match the connected wallet")
         }
         val redeemHex = row.optString("redeemScriptHex").lowercase()
         val redeem = decodeHex(redeemHex)
@@ -277,7 +282,7 @@ class Kcc20IndexerDiscovery(
     }
 
     private fun blake3(input: ByteArray): ByteArray {
-        val digest = Blake3Digest(256)
+        val digest = Blake3Digest()
         digest.update(input, 0, input.size)
         return ByteArray(32).also { digest.doFinal(it, 0) }
     }
