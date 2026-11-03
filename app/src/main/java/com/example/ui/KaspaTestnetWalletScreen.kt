@@ -378,10 +378,10 @@ fun KaspaTestnetWalletScreen(
     }
 
     LaunchedEffect(activeAccount?.did, selectedNetwork) {
-        if (activeAccount != null && selectedNetwork.contains("Mainnet", ignoreCase = true)) {
+        if (activeAccount != null) {
             viewModel.refreshKcc20Tokens()
             while (true) {
-                kotlinx.coroutines.delay(3_000L)
+                kotlinx.coroutines.delay(6_000L)
                 viewModel.refreshKcc20Tokens()
             }
         }

@@ -49,6 +49,7 @@ import com.example.network.kaspa.Kcc20WalletToken
 import com.example.network.kaspa.Kcc20TransactionHistoryItem
 import com.example.network.kaspa.KbKcc20StandardAssembler
 import com.example.network.kaspa.KbKcc20ScriptCodec
+import com.example.network.kaspa.Kcc20NoteScanner
 import java.math.BigDecimal
 import com.example.model.UpdateStatus
 import com.example.network.AppUpdateManager
@@ -2270,30 +2271,69 @@ class DecentralViewModel(
                         _liveKas24hChange.value = kasMarketPriceInfo.change24hPercent
                     }
 
-                    // 2. Fetch KB live spot price and token metadata
+                    // 2. Scan authentic L1 KCC-20 covenant notes using Kcc20NoteScanner
                     val keyPair = withContext(Dispatchers.Default) {
                         val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
                         CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
                     }
                     try {
                         val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
-                        val results = _kcc20ContractIds.value.mapNotNull { id ->
-                            kcc20Service.fetchWalletToken(
+                        val scanResult = Kcc20NoteScanner.scanWalletNotes(
+                            walletAddress = keyPair.kaspaAddress,
+                            walletPublicKeyHex = keyPair.publicKeyHex,
+                            network = kascovNetwork,
+                            knownContractIds = _kcc20ContractIds.value
+                        )
+
+                        val mergedTokens = mutableListOf<Kcc20WalletToken>()
+                        val scannedIds = scanResult.walletTokens.map { it.contractId.lowercase() }.toSet()
+
+                        for (token in scanResult.walletTokens) {
+                            val enriched = kcc20Service.fetchWalletToken(
                                 publicKeyHex = keyPair.publicKeyHex,
-                                contractId = id,
+                                contractId = token.contractId,
                                 network = kascovNetwork,
                                 kasUsd = currentUsdRate,
                                 walletAddress = keyPair.kaspaAddress
                             ).getOrNull()
-                        }
-                        if (results.isNotEmpty()) {
-                            _kcc20Tokens.value = results
-                        } else {
-                             _kcc20Tokens.value = emptyList()
+
+                            if (enriched != null) {
+                                val liveBal = if (token.balanceRaw != "0") token.balanceRaw else enriched.balanceRaw
+                                mergedTokens.add(enriched.copy(
+                                    balanceRaw = liveBal,
+                                    ticker = token.ticker.ifBlank { enriched.ticker },
+                                    name = token.name.ifBlank { enriched.name },
+                                    decimals = if (token.decimals != 8) token.decimals else enriched.decimals,
+                                    imageUrl = token.imageUrl ?: enriched.imageUrl
+                                ))
+                            } else {
+                                mergedTokens.add(token)
+                            }
                         }
 
-                        // 3. Fetch KCC-20 transaction history from live KasCov BlockDAG indexer
+                        for (id in _kcc20ContractIds.value) {
+                            if (!scannedIds.contains(id.lowercase())) {
+                                val t = kcc20Service.fetchWalletToken(
+                                    publicKeyHex = keyPair.publicKeyHex,
+                                    contractId = id,
+                                    network = kascovNetwork,
+                                    kasUsd = currentUsdRate,
+                                    walletAddress = keyPair.kaspaAddress
+                                ).getOrNull()
+                                if (t != null) mergedTokens.add(t)
+                            }
+                        }
+
+                        if (mergedTokens.isNotEmpty()) {
+                            _kcc20Tokens.value = mergedTokens
+                        } else {
+                            _kcc20Tokens.value = emptyList()
+                        }
+
+                        // 3. Update KCC-20 transaction history with discovered note actions and KasCov history
                         val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
+                        txHistoryList.addAll(scanResult.historyItems)
+
                         for (id in _kcc20ContractIds.value) {
                             val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
                             if (!history.isNullOrEmpty()) {
@@ -2316,12 +2356,23 @@ class DecentralViewModel(
     fun refreshKcc20Transactions() {
         viewModelScope.launch {
             val account = activeAccount.value ?: return@launch
+            val network = _selectedNetwork.value
+            val isMainnet = network.contains("Mainnet", ignoreCase = true)
+            val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
             val keyPair = withContext(Dispatchers.Default) {
                 val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
-                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = "kaspa")
+                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
             }
             try {
+                val scanResult = Kcc20NoteScanner.scanWalletNotes(
+                    walletAddress = keyPair.kaspaAddress,
+                    walletPublicKeyHex = keyPair.publicKeyHex,
+                    network = if (isMainnet) "mainnet" else "testnet-10",
+                    knownContractIds = _kcc20ContractIds.value
+                )
                 val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
+                txHistoryList.addAll(scanResult.historyItems)
+
                 for (id in _kcc20ContractIds.value) {
                     val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
                     if (!history.isNullOrEmpty()) {

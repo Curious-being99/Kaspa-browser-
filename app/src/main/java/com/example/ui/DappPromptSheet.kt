@@ -42,9 +42,17 @@ fun DappPromptBottomSheet(
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var copiedAddress by remember { mutableStateOf(false) }
+    var actionTriggered by remember { mutableStateOf(false) }
+
+    fun safeAction(action: () -> Unit) {
+        if (!actionTriggered) {
+            actionTriggered = true
+            action()
+        }
+    }
 
     ModalBottomSheet(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { safeAction(onDismiss) },
         sheetState = sheetState,
         containerColor = SurfaceDark,
         scrimColor = Color.Black.copy(alpha = 0.65f),
@@ -62,8 +70,8 @@ fun DappPromptBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -95,45 +103,53 @@ fun DappPromptBottomSheet(
                         color = TextPrimary
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // DApp Origin & Network Badge
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(SurfaceCard)
-                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    // DApp Origin & Network Badge (Bounded Surface to guarantee proper single-line layout)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = SurfaceCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Secure",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = prompt.origin.removePrefix("https://").removePrefix("http://").trimEnd('/'),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(EmeraldMesh)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = prompt.network,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = KaspaTea
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Secure",
+                                tint = ElectricCyan,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = prompt.origin.removePrefix("https://").removePrefix("http://").trimEnd('/'),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(EmeraldMesh)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = prompt.network,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = KaspaTea,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -151,10 +167,13 @@ fun DappPromptBottomSheet(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(36.dp)
+                                            .size(40.dp)
                                             .clip(CircleShape)
                                             .background(ElectricCyan.copy(alpha = 0.15f)),
                                         contentAlignment = Alignment.Center
@@ -163,16 +182,18 @@ fun DappPromptBottomSheet(
                                             Icons.Default.Person,
                                             contentDescription = null,
                                             tint = ElectricCyan,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(22.dp)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text(
                                             text = prompt.accountHandle.ifBlank { "Kaspa Primary Account" },
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
-                                            color = TextPrimary
+                                            color = TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         if (prompt.balanceKas.isNotBlank()) {
                                             Text(
@@ -200,27 +221,27 @@ fun DappPromptBottomSheet(
                                         imageVector = if (copiedAddress) Icons.Default.Check else Icons.Default.ContentCopy,
                                         contentDescription = "Copy address",
                                         tint = if (copiedAddress) EmeraldMesh else TextSecondary,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(SurfaceDark)
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                color = SurfaceDark,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.5f))
                             ) {
                                 Text(
                                     text = prompt.accountAddress,
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = TextSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
+                                    lineHeight = 16.sp,
+                                    letterSpacing = 0.3.sp,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                                 )
                             }
                         }
@@ -295,36 +316,34 @@ fun DappPromptBottomSheet(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Action Buttons
+                    // Action Buttons (Immediate execution to avoid freezing DApp promises)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onReject() }
-                            },
+                            onClick = { safeAction { prompt.onReject() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
                         ) {
-                            Text("Cancel", fontWeight = FontWeight.SemiBold)
+                            Text("Cancel", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
                         }
 
                         Button(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onApprove() }
-                            },
+                            onClick = { safeAction { prompt.onApprove() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                         ) {
-                            Text("Connect", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("Connect", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
                         }
                     }
                 }
@@ -424,7 +443,9 @@ fun DappPromptBottomSheet(
                                     text = prompt.network,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = EmeraldMesh
+                                    color = EmeraldMesh,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
 
@@ -466,36 +487,42 @@ fun DappPromptBottomSheet(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Action Buttons
+                    // Action Buttons (Immediate execution)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onReject() }
-                            },
+                            onClick = { safeAction { prompt.onReject() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
                         ) {
-                            Text("Reject", fontWeight = FontWeight.SemiBold)
+                            Text("Reject", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1)
                         }
 
                         Button(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onApprove() }
-                            },
+                            onClick = { safeAction { prompt.onApprove() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                         ) {
-                            Text(if (prompt.isBroadcast) "Sign & Send" else "Sign Transaction", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                text = if (prompt.isBroadcast) "Sign & Send" else "Sign Transaction",
+                                color = SurfaceDark,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -543,29 +570,27 @@ fun DappPromptBottomSheet(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onReject() }
-                            },
+                            onClick = { safeAction { prompt.onReject() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                         ) {
-                            Text("Reject", color = TextPrimary)
+                            Text("Reject", color = TextPrimary, fontSize = 14.sp, maxLines = 1)
                         }
 
                         Button(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onApprove() }
-                            },
+                            onClick = { safeAction { prompt.onApprove() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                         ) {
-                            Text("Sign Message", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                            Text("Sign Message", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -613,29 +638,27 @@ fun DappPromptBottomSheet(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onReject() }
-                            },
+                            onClick = { safeAction { prompt.onReject() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                         ) {
-                            Text("Cancel", color = TextPrimary)
+                            Text("Cancel", color = TextPrimary, fontSize = 14.sp, maxLines = 1)
                         }
 
                         Button(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onOpenWallet() }
-                            },
+                            onClick = { safeAction { prompt.onOpenWallet() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                         ) {
-                            Text("Open Wallet", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                            Text("Open Wallet", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
                         }
                     }
                 }
@@ -673,30 +696,35 @@ fun DappPromptBottomSheet(
                         color = TextPrimary
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(SurfaceCard)
-                            .border(1.dp, SurfaceCardBorder, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(20.dp),
+                        color = SurfaceCard,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = KaspaTea,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = prompt.origin.removePrefix("https://").removePrefix("http://").trimEnd('/'),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Security,
+                                contentDescription = null,
+                                tint = KaspaTea,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = prompt.origin.removePrefix("https://").removePrefix("http://").trimEnd('/'),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -762,7 +790,7 @@ fun DappPromptBottomSheet(
                                 prompt.onAuthenticateBiometric.invoke { success ->
                                     isAuthenticatingBiometric = false
                                     if (success) {
-                                        scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onUnlocked() }
+                                        safeAction { prompt.onUnlocked() }
                                     } else {
                                         biometricError = "Authentication cancelled or not verified. Wallet remains locked."
                                     }
@@ -784,7 +812,7 @@ fun DappPromptBottomSheet(
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Unlock with Biometrics", color = ElectricCyan, fontWeight = FontWeight.SemiBold)
+                            Text("Unlock with Biometrics", color = ElectricCyan, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         }
                         if (biometricError != null) {
                             Spacer(modifier = Modifier.height(6.dp))
@@ -799,16 +827,15 @@ fun DappPromptBottomSheet(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onReject() }
-                            },
+                            onClick = { safeAction { prompt.onReject() } },
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
                         ) {
-                            Text("Cancel", color = TextPrimary)
+                            Text("Cancel", color = TextPrimary, fontSize = 14.sp, maxLines = 1)
                         }
 
                         Button(
@@ -823,7 +850,7 @@ fun DappPromptBottomSheet(
                                     if (!success) {
                                         passwordError = "Incorrect wallet password"
                                     } else {
-                                        scope.launch { sheetState.hide() }.invokeOnCompletion { prompt.onUnlocked() }
+                                        safeAction { prompt.onUnlocked() }
                                     }
                                 }
                             },
@@ -831,6 +858,7 @@ fun DappPromptBottomSheet(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = KaspaTea)
                         ) {
@@ -841,7 +869,7 @@ fun DappPromptBottomSheet(
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Text("Unlock", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Unlock", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
                             }
                         }
                     }
