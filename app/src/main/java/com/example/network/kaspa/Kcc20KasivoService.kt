@@ -137,6 +137,15 @@ data class Kcc20WalletToken(
     val isGraduated: Boolean = false
 )
 
+internal fun normalizeKascovNetwork(value: String): String? {
+    val normalized = value.trim().lowercase().replace('_', '-').replace(' ', '-')
+    return when (normalized) {
+        "mainnet", "kaspa-mainnet" -> "mainnet"
+        "testnet-10", "testnet10", "kaspa-testnet-10", "kaspatest" -> "testnet-10"
+        else -> null
+    }
+}
+
 class Kcc20KasivoService(
     private val context: Context? = null,
     private val endpointBases: List<String> = KASCOV_ENDPOINTS
@@ -173,12 +182,11 @@ class Kcc20KasivoService(
         if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
             return@withContext Result.failure(IllegalArgumentException("KCC-20 covenant ID must be 32-byte hex"))
         }
-        if (network != "mainnet") {
-            return@withContext Result.failure(IllegalArgumentException("Kascov KCC-20 token directory is currently queried on mainnet"))
-        }
+        val kascovNetwork = normalizeKascovNetwork(network)
+            ?: return@withContext Result.failure(IllegalArgumentException("Unsupported KCC-20 network: " + network))
         try {
             fun getJson(path: String): JSONObject {
-                val connection = (URL("https://kascov.io/data/$network/$path").openConnection() as HttpURLConnection).apply {
+                val connection = (URL("https://kascov.io/data/$kascovNetwork/$path").openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 8000
                     readTimeout = 12000
@@ -206,14 +214,13 @@ class Kcc20KasivoService(
                 val rowAddress = row.optString("owner_address", row.optString("address", row.optString("holder", ""))).trim().lowercase()
                 val schemeName = row.optString("owner_scheme_name").trim().lowercase()
                 val scheme = row.optString("owner_scheme").trim().lowercase()
-                val directPublicKeyMatch = rowOwner == owner || rowOwner.contains(owner)
+                val directPublicKeyMatch = rowOwner == owner
                 val addressMatch = normalizedAddress != null && normalizedAddress.isNotBlank() && (
                     rowAddress == normalizedAddress ||
                     (strippedAddress != null && rowAddress.removePrefix("kaspa:") == strippedAddress) ||
                     rowOwner == normalizedAddress ||
                     (strippedAddress != null && rowOwner.removePrefix("kaspa:") == strippedAddress) ||
-                    (strippedAddress != null && rowAddress.contains(strippedAddress)) ||
-                    (strippedAddress != null && rowOwner.contains(strippedAddress))
+                    false
                 )
                 val isSchnorrKeyHashOwner =
                     rowOwner.startsWith("p2pkh:") &&
