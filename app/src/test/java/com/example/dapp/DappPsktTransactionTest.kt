@@ -435,4 +435,41 @@ class DappPsktTransactionTest {
         assertEquals(3000000000L, prepared.transaction.outputs[0].amount)
         assertEquals(6000000000L, prepared.transaction.outputs[1].amount)
     }
+
+    @Test
+    fun versionOneSighashDoesNotCommitToSigOpCounts() {
+        val script = "20" + publicKeyHex + "ac"
+        val utxo = KaspaTransactionEngine.KaspaUtxoEntry(10_000_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))
+        fun tx(count: Int) = KaspaTransactionEngine.KaspaTransaction(1,
+            listOf(KaspaTransactionEngine.KaspaTransactionInput(KaspaTransactionEngine.KaspaOutpoint("11".repeat(32), 0), sequence = 7, sigOpCount = count)),
+            listOf(KaspaTransactionEngine.KaspaTransactionOutput(9_400_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))))
+        assertTrue(KaspaTransactionEngine.calcSchnorrSignatureHash(tx(1), 0, 1, utxo)
+            .contentEquals(KaspaTransactionEngine.calcSchnorrSignatureHash(tx(99), 0, 1, utxo)))
+    }
+
+    @Test
+    fun versionZeroSighashStillCommitsToSigOpCounts() {
+        val script = "20" + publicKeyHex + "ac"
+        val utxo = KaspaTransactionEngine.KaspaUtxoEntry(10_000_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))
+        fun tx(count: Int) = KaspaTransactionEngine.KaspaTransaction(0,
+            listOf(KaspaTransactionEngine.KaspaTransactionInput(KaspaTransactionEngine.KaspaOutpoint("22".repeat(32), 0), sequence = 7, sigOpCount = count)),
+            listOf(KaspaTransactionEngine.KaspaTransactionOutput(9_400_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))))
+        assertFalse(KaspaTransactionEngine.calcSchnorrSignatureHash(tx(1), 0, 1, utxo)
+            .contentEquals(KaspaTransactionEngine.calcSchnorrSignatureHash(tx(99), 0, 1, utxo)))
+    }
+
+    @Test
+    fun versionOneSighashCommitsToCovenantPresenceAndFields() {
+        val script = "20" + publicKeyHex + "ac"
+        val utxo = KaspaTransactionEngine.KaspaUtxoEntry(10_000_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script))
+        fun tx(binding: KaspaTransactionEngine.KaspaCovenantBinding?) =
+            KaspaTransactionEngine.KaspaTransaction(1,
+                listOf(KaspaTransactionEngine.KaspaTransactionInput(KaspaTransactionEngine.KaspaOutpoint("33".repeat(32), 0), sequence = 7)),
+                listOf(KaspaTransactionEngine.KaspaTransactionOutput(9_400_000L, KaspaTransactionEngine.KaspaScriptPublicKey(0, script), binding)))
+        val absent = KaspaTransactionEngine.calcSchnorrSignatureHash(tx(null), 0, 1, utxo)
+        val present = KaspaTransactionEngine.calcSchnorrSignatureHash(tx(KaspaTransactionEngine.KaspaCovenantBinding(0, "44".repeat(32))), 0, 1, utxo)
+        val changed = KaspaTransactionEngine.calcSchnorrSignatureHash(tx(KaspaTransactionEngine.KaspaCovenantBinding(0, "55".repeat(32))), 0, 1, utxo)
+        assertFalse(absent.contentEquals(present))
+        assertFalse(present.contentEquals(changed))
+    }
 }
