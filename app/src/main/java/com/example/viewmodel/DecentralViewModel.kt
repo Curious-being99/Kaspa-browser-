@@ -1213,17 +1213,53 @@ class DecentralViewModel(
     private val _isLoadingKcc20 = MutableStateFlow(false)
     val isLoadingKcc20: StateFlow<Boolean> = _isLoadingKcc20.asStateFlow()
     private val kcc20RefreshMutex = Mutex()
-    private val _kcc20ContractIds = MutableStateFlow<List<String>>(
-        listOf("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
-    )
+    private val kcc20Prefs by lazy {
+        getApplication<Application>().getSharedPreferences("kcc20_tracked_contracts_prefs", Context.MODE_PRIVATE)
+    }
+
+    private fun loadTrackedContractIds(): List<String> {
+        val defaultList = listOf("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
+        val saved = try { kcc20Prefs.getStringSet("tracked_ids", null) } catch (_: Exception) { null }
+        return if (saved.isNullOrEmpty()) defaultList else (defaultList + saved.map { it.lowercase() }).distinct()
+    }
+
+    private fun persistTrackedContractIds(ids: List<String>) {
+        try {
+            kcc20Prefs.edit().putStringSet("tracked_ids", ids.map { it.lowercase() }.toSet()).apply()
+        } catch (_: Exception) {}
+    }
+
+    private val _kcc20ContractIds = MutableStateFlow<List<String>>(loadTrackedContractIds())
     val kcc20ContractIds: StateFlow<List<String>> = _kcc20ContractIds.asStateFlow()
+
+    private var postSwapRefreshJob: kotlinx.coroutines.Job? = null
+
+    fun triggerPostSwapRefresh() {
+        postSwapRefreshJob?.cancel()
+        postSwapRefreshJob = viewModelScope.launch {
+            val intervals = listOf(0L, 2000L, 3500L, 5500L, 8500L, 13000L)
+            for (delayMs in intervals) {
+                if (delayMs > 0L) {
+                    kotlinx.coroutines.delay(delayMs)
+                }
+                try {
+                    refreshTestnetWallet()
+                    refreshKaspaWallet()
+                    refreshKrc20Tokens()
+                    refreshKcc20Tokens()
+                    refreshKcc20Transactions()
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
     fun addTrackedKcc20Contract(contractId: String) {
         val clean = contractId.trim().lowercase()
-        if (clean.isNotBlank() && !_kcc20ContractIds.value.contains(clean)) {
-            _kcc20ContractIds.value = _kcc20ContractIds.value + clean
-            refreshKcc20Tokens()
-            refreshKcc20Transactions()
+        if (clean.isNotBlank() && !_kcc20ContractIds.value.map { it.lowercase() }.contains(clean)) {
+            val updated = (_kcc20ContractIds.value + clean).distinct()
+            _kcc20ContractIds.value = updated
+            persistTrackedContractIds(updated)
+            triggerPostSwapRefresh()
         }
     }
 
@@ -2298,7 +2334,7 @@ class DecentralViewModel(
                             ).getOrNull()
 
                             if (enriched != null) {
-                                val liveBal = if (token.balanceRaw != "0") token.balanceRaw else enriched.balanceRaw
+                                val liveBal = token.balanceRaw
                                 mergedTokens.add(enriched.copy(
                                     balanceRaw = liveBal,
                                     ticker = token.ticker.ifBlank { enriched.ticker },
@@ -2326,6 +2362,14 @@ class DecentralViewModel(
 
                         if (mergedTokens.isNotEmpty()) {
                             _kcc20Tokens.value = mergedTokens
+                            val scannedContractIds = mergedTokens.map { it.contractId.lowercase() }.filter { it.isNotBlank() }
+                            val currentContractIds = _kcc20ContractIds.value.map { it.lowercase() }.toSet()
+                            val newContractIds = scannedContractIds.filter { !currentContractIds.contains(it) }
+                            if (newContractIds.isNotEmpty()) {
+                                val updatedList = (_kcc20ContractIds.value + newContractIds).distinct()
+                                _kcc20ContractIds.value = updatedList
+                                persistTrackedContractIds(updatedList)
+                            }
                         } else {
                             _kcc20Tokens.value = emptyList()
                         }
@@ -2468,7 +2512,7 @@ class DecentralViewModel(
             )
             krc20Service.recordTransaction(tx)
             krc20Service.setPinned(upper, true)
-            refreshKrc20Tokens()
+            triggerPostSwapRefresh()
         }
     }
 
@@ -2837,8 +2881,7 @@ class DecentralViewModel(
             val receipt = walletService.submitDappTransaction(tx, keyPair.kaspaAddress, _selectedNetwork.value)
             if (receipt.accepted) {
                 val confirmedId = receipt.transactionId.ifBlank { txId }
-                refreshKcc20Transactions()
-                refreshKcc20Tokens()
+                triggerPostSwapRefresh()
                 Result.success(confirmedId)
             } else {
                 Result.failure(java.io.IOException(receipt.error.ifBlank { "Broadcast rejected by Kaspa node mempool" }))
@@ -2932,6 +2975,7 @@ class DecentralViewModel(
                         recentTransactions = updatedTxs,
                         statusNotice = "Transaction successfully broadcast to $currentNet"
                     )
+                    triggerPostSwapRefresh()
                 } catch (e: Exception) {
                     val errMsg = e.message ?: "Failed to broadcast transaction to $currentNet"
                     _statusMessage.value = errMsg
@@ -3021,6 +3065,7 @@ class DecentralViewModel(
                         recentTransactions = updatedTxs,
                         statusNotice = "Transaction pending mempool acceptance"
                     )
+                    triggerPostSwapRefresh()
 
                     // Poll acceptance in the background; the user should not need to refresh manually.
                     val networkAtBroadcast = _selectedNetwork.value
@@ -3055,7 +3100,7 @@ class DecentralViewModel(
                                     },
                                     statusNotice = "Transaction accepted by the Kaspa network"
                                 )
-                                refreshKaspaWallet(senderAddress)
+                                triggerPostSwapRefresh()
                             }
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled

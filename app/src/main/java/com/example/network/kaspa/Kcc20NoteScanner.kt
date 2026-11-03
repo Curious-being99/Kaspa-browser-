@@ -744,7 +744,46 @@ object Kcc20NoteScanner {
         val known = KNOWN_TOKENS[cleanId]
         if (known != null) return known
 
-        // Query launchpad APIs by covenant ID
+        // 1. Query KasCov oracle / indexer for real on-chain token metadata
+        try {
+            val net = if (isTestnet) "testnet-10" else "mainnet"
+            val conn = (URL("https://kascov.io/data/$net/token/$cleanId").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 2500
+                readTimeout = 2500
+                setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0")
+            }
+            if (conn.responseCode == 200) {
+                val root = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                val t = root.optJSONObject("token")
+                if (t != null) {
+                    val ticker = t.optString("claimed_ticker", t.optString("ticker", t.optString("symbol", "")))
+                    val name = t.optString("claimed_name", t.optString("name", ticker))
+                    val decimals = if (t.has("claimed_decimals") && !t.isNull("claimed_decimals")) {
+                        t.optInt("claimed_decimals")
+                    } else if (t.has("display_decimals") && !t.isNull("display_decimals")) {
+                        t.optInt("display_decimals")
+                    } else if (t.has("decimals") && !t.isNull("decimals")) {
+                        t.optInt("decimals")
+                    } else {
+                        if (ticker.equals("KB", true)) 3 else 0
+                    }
+                    val icon = t.optString("icon_url", t.optString("image_url", t.optString("imageUrl", t.optString("icon", "")))).ifBlank { null }
+                    if (ticker.isNotBlank()) {
+                        return TokenMetadata(
+                            covenantId = cleanId,
+                            ticker = ticker.uppercase(),
+                            name = name.ifBlank { ticker.uppercase() },
+                            decimals = decimals,
+                            imageUrl = icon,
+                            launchpad = t.optString("launchpad", "KasCov")
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Query KasSeal launchpad API
         try {
             val kassealBase = if (isTestnet) "https://testnet.kasseal.com" else "https://app.kasseal.com"
             val conn = (URL("$kassealBase/v1/tokens/$cleanId").openConnection() as HttpURLConnection).apply {
@@ -755,17 +794,21 @@ object Kcc20NoteScanner {
             if (conn.responseCode == 200) {
                 val obj = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
                 val meta = obj.optJSONObject("meta") ?: obj
-                return TokenMetadata(
-                    covenantId = cleanId,
-                    ticker = meta.optString("ticker", cleanId.take(6).uppercase()),
-                    name = meta.optString("name", "Kasseal Token"),
-                    decimals = meta.optInt("decimals", 0),
-                    imageUrl = meta.optString("imageUrl", null),
-                    launchpad = "KasSeal"
-                )
+                val ticker = meta.optString("ticker", meta.optString("symbol", ""))
+                if (ticker.isNotBlank()) {
+                    return TokenMetadata(
+                        covenantId = cleanId,
+                        ticker = ticker.uppercase(),
+                        name = meta.optString("name", ticker.uppercase()),
+                        decimals = meta.optInt("decimals", 0),
+                        imageUrl = meta.optString("imageUrl", meta.optString("icon", null)),
+                        launchpad = "KasSeal"
+                    )
+                }
             }
         } catch (_: Exception) {}
 
+        // 3. Query KaspaRocket launchpad API
         try {
             val rocketBase = "https://kasparocket.fun"
             val conn = (URL("$rocketBase/api/tokens/$cleanId").openConnection() as HttpURLConnection).apply {
@@ -775,14 +818,17 @@ object Kcc20NoteScanner {
             }
             if (conn.responseCode == 200) {
                 val meta = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-                return TokenMetadata(
-                    covenantId = cleanId,
-                    ticker = meta.optString("ticker", cleanId.take(6).uppercase()),
-                    name = meta.optString("name", "Rocket Token"),
-                    decimals = meta.optInt("decimals", 3),
-                    imageUrl = meta.optString("image", meta.optString("imageUrl", null)),
-                    launchpad = "KaspaRocket"
-                )
+                val ticker = meta.optString("ticker", meta.optString("symbol", ""))
+                if (ticker.isNotBlank()) {
+                    return TokenMetadata(
+                        covenantId = cleanId,
+                        ticker = ticker.uppercase(),
+                        name = meta.optString("name", ticker.uppercase()),
+                        decimals = meta.optInt("decimals", 3),
+                        imageUrl = meta.optString("image", meta.optString("imageUrl", null)),
+                        launchpad = "KaspaRocket"
+                    )
+                }
             }
         } catch (_: Exception) {}
 

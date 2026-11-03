@@ -540,7 +540,10 @@ internal object EvmDappBridge {
                                                         mainHandler.post { respond(raw) }
                                                     } else {
                                                         val hash = rpc(chain, "eth_sendRawTransaction", JSONArray().put(raw))
-                                                        mainHandler.post { respond(hash) }
+                                                        mainHandler.post {
+                                                            viewModel.triggerPostSwapRefresh()
+                                                            respond(hash)
+                                                        }
                                                     }
                                                 } catch (e: Throwable) {
                                                     mainHandler.post { respond(code = -32603, error = e.message ?: "Transaction signing or submission failed") }

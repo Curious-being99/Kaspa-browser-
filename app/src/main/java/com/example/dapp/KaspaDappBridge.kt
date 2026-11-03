@@ -522,7 +522,10 @@ object KaspaDappBridge {
                                             }
                                             mainHandler.post {
                                                 signingOutcome.fold(
-                                                    onSuccess = { signedResult -> respond(signedResult) },
+                                                    onSuccess = { signedResult ->
+                                                        viewModel.triggerPostSwapRefresh()
+                                                        respond(signedResult)
+                                                    },
                                                     onFailure = { error ->
                                                         val diagnostic = JSONObject()
                                                             .put("type", "kaspa_pskt_signing_failure")
@@ -594,7 +597,11 @@ object KaspaDappBridge {
                                 totalAmountKas = amtStr,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
-                                    val contractId = paramsObj.optString("contractId", paramsObj.optString("contract", ""))
+                                    val contractId = paramsObj.optString("contractId",
+                                        paramsObj.optString("contract",
+                                        paramsObj.optString("tokenId",
+                                        paramsObj.optString("covenantId",
+                                        paramsObj.optString("covenant_id", "")))))
                                     if (contractId.isNotBlank()) {
                                         viewModel.addTrackedKcc20Contract(contractId)
                                     }

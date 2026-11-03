@@ -755,7 +755,10 @@ fun KaspaTestnetWalletScreen(
                             )
                         }
                     }
-                    if (kcc20Tokens.isEmpty()) {
+                    val activeKcc20Tokens = remember(kcc20Tokens) {
+                        kcc20Tokens.filter { (it.balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > java.math.BigDecimal.ZERO }
+                    }
+                    if (activeKcc20Tokens.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -777,7 +780,7 @@ fun KaspaTestnetWalletScreen(
                             }
                         }
                     }
-                    kcc20Tokens.forEachIndexed { index, token ->
+                    activeKcc20Tokens.forEachIndexed { index, token ->
                         key(token.contractId.ifBlank { token.ticker }) {
                             if (index > 0) {
                             HorizontalDivider(color = SurfaceCardBorder, modifier = Modifier.padding(vertical = 10.dp))
