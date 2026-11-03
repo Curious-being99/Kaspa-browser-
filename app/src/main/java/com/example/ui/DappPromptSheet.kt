@@ -722,7 +722,8 @@ fun DappPromptBottomSheet(
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                         }
                     }
