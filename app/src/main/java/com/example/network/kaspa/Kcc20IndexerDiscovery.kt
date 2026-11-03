@@ -2,11 +2,13 @@ package com.example.network.kaspa
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.bouncycastle.crypto.digests.Blake3Digest
+import org.bouncycastle.crypto.digests.Blake2bDigest
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.math.BigInteger
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -160,32 +162,49 @@ class Kcc20IndexerDiscovery(
         if (!TX_ID.matches(transactionId) || outputIndex < 0) {
             throw IOException("KRON UTXO has an invalid outpoint")
         }
-        val reportedOwner = row.optString("ownerAddress").trim()
-        if (!reportedOwner.equals(activeWalletAddress, ignoreCase = true)) {
+
+        if (!row.optString("ownerAddress").trim().equals(activeWalletAddress, ignoreCase = true)) {
             throw IOException("KRON UTXO ownerAddress does not match the connected wallet")
         }
+
         val redeemHex = row.optString("redeemScriptHex").lowercase()
         val redeem = decodeHex(redeemHex)
             ?: throw IOException("KRON UTXO has malformed redeemScriptHex")
-        val state = decodeReferenceTokenState(redeem)
-        if (state.ownerScheme != 0 && state.ownerScheme != 1) {
-            throw IOException("KRON UTXO uses unsupported holder owner scheme ${state.ownerScheme}")
-        }
-        val expectedOwner = if (state.ownerScheme == 0) {
-            walletPublicKey
-        } else {
-            blake3(walletPublicKey)
-        }
-        if (!state.owner.contentEquals(expectedOwner)) {
-            throw IOException("KRON UTXO redeem-script owner does not match the connected wallet")
+
+        // KRON's documented KCC-20 note encoding:
+        // byte 0 = note type; bytes 1..32 = x-only owner key;
+        // byte 33 = amount push/type; bytes 34..41 = signed int64 LE amount.
+        // Do not reinterpret this as the generic 145-byte reference-state structure.
+        if (redeem.size < 42) throw IOException("KRON redeem script is truncated")
+        val owner = redeem.copyOfRange(1, 33)
+        if (!owner.contentEquals(walletPublicKey)) {
+            throw IOException("KRON redeem-script owner does not match the connected wallet")
         }
 
-        val amountField = row.optString("amount")
-        val tokenAmount = amountField.toBigIntegerOrNull()
-            ?: throw IOException("KRON UTXO has an invalid token amount")
-        if (tokenAmount != state.amount || tokenAmount.signum() < 0) {
-            throw IOException("KRON UTXO amount does not match its redeem-script state")
+        val amountBytes = redeem.copyOfRange(34, 42)
+        val signedAmount = ByteBuffer.wrap(amountBytes).order(ByteOrder.LITTLE_ENDIAN).long
+        if (signedAmount < 0L) throw IOException("KRON note contains a negative token amount")
+        val tokenAmount = BigInteger.valueOf(signedAmount)
+
+        val reportedAmount = row.optString("amount").toBigIntegerOrNull()
+            ?: throw IOException("KRON UTXO has an invalid raw token amount")
+        if (reportedAmount != tokenAmount) {
+            throw IOException("KRON UTXO amount disagrees with its redeem-script amount")
         }
+
+        val scriptPublicKey = normalizeScript(row.optString("scriptPublicKey"))
+            ?: throw IOException("KRON UTXO has no valid P2SH scriptPublicKey")
+        if (!scriptPublicKey.startsWith("aa20") || !scriptPublicKey.endsWith("87") ||
+            scriptPublicKey.length != 70
+        ) {
+            throw IOException("KRON UTXO scriptPublicKey is not canonical P2SH aa20<32-byte-hash>87")
+        }
+        val expectedHash = blake2b256(redeem).toHex()
+        val actualHash = scriptPublicKey.substring(4, 68)
+        if (!actualHash.equals(expectedHash, ignoreCase = true)) {
+            throw IOException("KRON redeemScript does not hash to the reported P2SH scriptPublicKey")
+        }
+
         return Kcc20VerifiedUtxo(
             transactionId = transactionId,
             outputIndex = outputIndex,
@@ -194,39 +213,10 @@ class Kcc20IndexerDiscovery(
         )
     }
 
-    private data class ReferenceState(
-        val templateHash: String,
-        val amount: BigInteger,
-        val owner: ByteArray,
-        val ownerScheme: Int
-    )
-
-    private fun decodeReferenceTokenState(redeem: ByteArray): ReferenceState {
-        val offset = 1
-        val stateLength = 145
-        if (redeem.size < offset + stateLength) {
-            throw IOException("KCC-20 redeem script is shorter than the reference state")
-        }
-        val state = redeem.copyOfRange(offset, offset + stateLength)
-        val framing = intArrayOf(0x20, 0x08, 0x20, 0x01, 0x01, 0x20, 0x20)
-        val positions = intArrayOf(0, 33, 42, 75, 77, 79, 112)
-        for (i in framing.indices) {
-            if ((state[positions[i]].toInt() and 0xff) != framing[i]) {
-                throw IOException("KCC-20 redeem state has invalid field framing")
-            }
-        }
-        val amountBytes = state.copyOfRange(34, 42)
-        val negative = (amountBytes[7].toInt() and 0x80) != 0
-        if (negative) throw IOException("KCC-20 redeem state has a negative token amount")
-        val amount = BigInteger(1, amountBytes.reversedArray())
-        val ownerScheme = state[76].toInt() and 0xff
-        if (ownerScheme !in 0..4) throw IOException("KCC-20 redeem state has an unknown owner scheme")
-        return ReferenceState(
-            templateHash = state.copyOfRange(1, 33).toHex(),
-            amount = amount,
-            owner = state.copyOfRange(43, 75),
-            ownerScheme = ownerScheme
-        )
+    private fun normalizeScript(value: String): String? {
+        val clean = value.trim().lowercase().removePrefix("0x")
+            .replace(" ", "")
+        return clean.takeIf { it.matches(Regex("[0-9a-f]+")) && it.length % 2 == 0 }
     }
 
     private fun getJson(url: String): JSONObject {
@@ -281,8 +271,8 @@ class Kcc20IndexerDiscovery(
         }.getOrNull()
     }
 
-    private fun blake3(input: ByteArray): ByteArray {
-        val digest = Blake3Digest()
+    private fun blake2b256(input: ByteArray): ByteArray {
+        val digest = Blake2bDigest(256)
         digest.update(input, 0, input.size)
         return ByteArray(32).also { digest.doFinal(it, 0) }
     }
