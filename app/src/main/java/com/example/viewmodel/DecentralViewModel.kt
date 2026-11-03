@@ -1201,6 +1201,8 @@ class DecentralViewModel(
 
     val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
+    private val _kcc20CandidateNotes = MutableStateFlow<List<com.example.network.kaspa.Kcc20CandidateNote>>(emptyList())
+    val kcc20CandidateNotes: StateFlow<List<com.example.network.kaspa.Kcc20CandidateNote>> = _kcc20CandidateNotes.asStateFlow()
     private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
     val kcc20Tokens: StateFlow<List<Kcc20WalletToken>> = _kcc20Tokens.asStateFlow()
     private val _kcc20Transactions = MutableStateFlow<List<Kcc20TransactionHistoryItem>>(emptyList())
@@ -2276,6 +2278,17 @@ class DecentralViewModel(
                         CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
                     }
                     try {
+                        // Stage 1: discover candidate covenant notes from the wallet's REST
+                        // transaction history. Candidates are not balances until redeem-script
+                        // ownership and live UTXO checks have both passed.
+                        val candidateResult = kcc20Service.discoverCandidateNotes(
+                            walletAddress = keyPair.kaspaAddress,
+                            network = kascovNetwork
+                        )
+                        if (candidateResult.isSuccess) {
+                            _kcc20CandidateNotes.value = candidateResult.getOrThrow()
+                        }
+
                         val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
                         val results = _kcc20ContractIds.value.mapNotNull { id ->
                             kcc20Service.fetchWalletToken(
