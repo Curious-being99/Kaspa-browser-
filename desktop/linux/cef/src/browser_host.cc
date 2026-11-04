@@ -100,6 +100,7 @@ void KaspaBrowserHandler::OnTitleChange(CefRefPtr<CefBrowser>, const CefString& 
 }
 KaspaBrowserApp::KaspaBrowserApp(std::string initial_url) : initial_url_(std::move(initial_url)) {}
 void KaspaBrowserApp::OnContextInitialized() {
+  if (!IsHttpUrl(initial_url_)) initial_url_ = "https://kaspabrowser.xyz";
   CefBrowserSettings settings;
   CefRefPtr<KaspaBrowserHandler> handler(new KaspaBrowserHandler());
   auto view = CefBrowserView::CreateBrowserView(handler, initial_url_, settings, nullptr, nullptr, new BrowserViewDelegate());
