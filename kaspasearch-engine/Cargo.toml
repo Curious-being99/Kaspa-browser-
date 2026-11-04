@@ -8,6 +8,7 @@ name = "kaspasearch"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+kaspasearch-core = { path = "../kaspasearch-core" }
 jni = "0.21"
 axum = { version = "0.7", features = ["macros"] }
 tokio = { version = "1.38", features = ["full"] }
