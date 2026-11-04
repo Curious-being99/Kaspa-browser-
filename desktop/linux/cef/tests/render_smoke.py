@@ -13,14 +13,18 @@ from pathlib import Path
 HOST = os.environ.get("KASPABROWSER_CEF_HOST", "build/linux-cef/bin/kaspabrowser-cef")
 TITLE = "KaspaBrowser CEF Smoke Test"
 
+
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
+
 def main():
     executable = Path(HOST).resolve()
     if not executable.is_file():
-        raise SystemExit(f"CEF host not found: {executable}; build it first and set KASPABROWSER_CEF_HOST")
+        raise SystemExit(
+            f"CEF host not found: {executable}; build it first and set KASPABROWSER_CEF_HOST"
+        )
 
     with tempfile.TemporaryDirectory(prefix="kb-cef-smoke-") as temp:
         root = Path(temp)
@@ -29,34 +33,42 @@ def main():
             "<body><h1>KaspaBrowser Linux CEF rendering check</h1></body></html>",
             encoding="utf-8",
         )
-        handler = lambda *args, **kwargs: QuietHandler(*args, directory=str(root), **kwargs)
+        handler = lambda *args, **kwargs: QuietHandler(
+            *args, directory=str(root), **kwargs
+        )
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         url = f"http://127.0.0.1:{server.server_port}/index.html"
         proc = subprocess.Popen(
             [str(executable), f"--url={url}"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
-            text=True, bufsize=1,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=None,
+            bufsize=0,
         )
         seen_title = False
         seen_load = False
+        pending = b""
         deadline = time.monotonic() + 25
         try:
             while time.monotonic() < deadline and proc.poll() is None:
                 ready, _, _ = select.select([proc.stdout], [], [], 0.25)
                 if not ready:
                     continue
-                line = proc.stdout.readline()
-                if not line:
+                chunk = os.read(proc.stdout.fileno(), 4096)
+                if not chunk:
                     break
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if event.get("event") == "title_changed" and event.get("title") == TITLE:
-                    seen_title = True
-                if event.get("event") == "load_finished" and event.get("url", "").startswith(url):
-                    seen_load = True
+                pending += chunk
+                while b"\\n" in pending:
+                    raw, pending = pending.split(b"\\n", 1)
+                    try:
+                        event = json.loads(raw.decode("utf-8", errors="replace"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        continue
+                    if event.get("event") == "title_changed" and event.get("title") == TITLE:
+                        seen_title = True
+                    if event.get("event") == "load_finished" and event.get("url", "").startswith(url):
+                        seen_load = True
                 if seen_title and seen_load:
                     break
             if not (seen_title and seen_load):
@@ -68,7 +80,7 @@ def main():
         finally:
             if proc.poll() is None:
                 try:
-                    proc.stdin.write("QUIT\n")
+                    proc.stdin.write(b"QUIT\\n")
                     proc.stdin.flush()
                     proc.wait(timeout=4)
                 except Exception:
@@ -76,6 +88,7 @@ def main():
                     proc.wait()
             server.shutdown()
             server.server_close()
+
 
 if __name__ == "__main__":
     main()
