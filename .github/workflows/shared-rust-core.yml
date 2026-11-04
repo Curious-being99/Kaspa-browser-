@@ -1,0 +1,31 @@
+name: Shared Rust Core Tests
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "kaspasearch-engine/**"
+      - ".github/workflows/shared-rust-core.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "kaspasearch-engine/**"
+      - ".github/workflows/shared-rust-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-core-tests:
+    name: Test platform-neutral Rust API
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: kaspasearch-engine
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path kaspasearch-engine/Cargo.toml
