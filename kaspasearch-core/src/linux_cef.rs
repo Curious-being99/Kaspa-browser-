@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::thread;
+use std::thread;\nuse std::time::{Duration, Instant};
 
 pub struct LinuxCefEngine { child: Child, stdin: ChildStdin, events: Receiver<Value> }
 
@@ -73,7 +73,7 @@ impl BrowserEngine for LinuxCefEngine {
     }
 }
 impl Drop for LinuxCefEngine {
-    fn drop(&mut self) { let _ = self.send("QUIT"); let _ = self.child.kill(); let _ = self.child.wait(); }
+    fn drop(&mut self) {\n        let _ = self.send("QUIT");\n        let deadline = Instant::now() + Duration::from_secs(3);\n        loop {\n            match self.child.try_wait() {\n                Ok(Some(_)) => break,\n                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(25)),\n                _ => { let _ = self.child.kill(); let _ = self.child.wait(); break; }\n            }\n        }\n    }
 }
 #[cfg(test)]
 mod tests {
