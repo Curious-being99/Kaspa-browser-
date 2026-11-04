@@ -249,6 +249,16 @@ class DappPsktTransactionTest {
         val signedObj = JSONObject(signedTxJson)
         val firstInput = signedObj.getJSONArray("inputs").getJSONObject(0)
         assertTrue(firstInput.getString("signatureScript").startsWith("41"))
+        val returnedInput = result.getJSONArray("inputs").getJSONObject(0)
+        val rawSignature = returnedInput.getString("signature")
+        assertEquals(128, rawSignature.length)
+        assertTrue(rawSignature.matches(Regex("(?i)[0-9a-f]{128}")))
+        assertEquals(KaspaTransactionEngine.SIGHASH_ALL, returnedInput.getInt("sighashType"))
+        assertTrue(returnedInput.getString("signatureScript").startsWith("41$rawSignature" + "01"))
+        assertEquals(
+            firstInput.getString("signatureScript"),
+            returnedInput.getString("signatureScript")
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)
