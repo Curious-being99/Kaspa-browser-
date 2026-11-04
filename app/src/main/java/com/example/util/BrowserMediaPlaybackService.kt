@@ -42,6 +42,8 @@ class BrowserMediaPlaybackService : Service() {
                 override fun onPlay() = BrowserBackgroundPlayback.control(true)
                 override fun onPause() = BrowserBackgroundPlayback.control(false)
                 override fun onSeekTo(pos: Long) = BrowserBackgroundPlayback.seekTo(pos)
+                override fun onSkipToNext() = BrowserBackgroundPlayback.skipToNext()
+                override fun onSkipToPrevious() = BrowserBackgroundPlayback.skipToPrevious()
                 override fun onStop() {
                     BrowserBackgroundPlayback.control(false)
                     stopForegroundInternal(removeNotification = true)
@@ -88,6 +90,8 @@ class BrowserMediaPlaybackService : Service() {
             ACTION_PAUSE -> {
                 BrowserBackgroundPlayback.control(false)
             }
+            ACTION_NEXT -> BrowserBackgroundPlayback.skipToNext()
+            ACTION_PREVIOUS -> BrowserBackgroundPlayback.skipToPrevious()
             ACTION_STOP -> {
                 releasePlaybackWakeLock()
                 abandonAudioFocus()
@@ -255,6 +259,14 @@ class BrowserMediaPlaybackService : Service() {
             this, 2, Intent(this, BrowserMediaPlaybackService::class.java).setAction(ACTION_PLAY),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val previousIntent = PendingIntent.getService(
+            this, 4, Intent(this, BrowserMediaPlaybackService::class.java).setAction(ACTION_PREVIOUS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val nextIntent = PendingIntent.getService(
+            this, 5, Intent(this, BrowserMediaPlaybackService::class.java).setAction(ACTION_NEXT),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val stopIntent = PendingIntent.getService(
             this, 3, Intent(this, BrowserMediaPlaybackService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -274,13 +286,15 @@ class BrowserMediaPlaybackService : Service() {
             .setStyle(
                 MediaStyle()
                     .setMediaSession(mediaSession?.sessionToken)
-                    .setShowActionsInCompactView(0, 1)
+                    .setShowActionsInCompactView(0, 1, 2)
             )
+        builder.addAction(android.R.drawable.ic_media_previous, "Previous", previousIntent)
         if (playing) {
             builder.addAction(android.R.drawable.ic_media_pause, "Pause", pauseIntent)
         } else {
             builder.addAction(android.R.drawable.ic_media_play, "Play", playIntent)
         }
+        builder.addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
         builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Close", stopIntent)
         return builder.build()
     }
@@ -314,6 +328,8 @@ class BrowserMediaPlaybackService : Service() {
         const val ACTION_UPDATE = "com.example.browser.media.UPDATE"
         const val ACTION_PLAY = "com.example.browser.media.PLAY"
         const val ACTION_PAUSE = "com.example.browser.media.PAUSE"
+        const val ACTION_NEXT = "com.example.browser.media.NEXT"
+        const val ACTION_PREVIOUS = "com.example.browser.media.PREVIOUS"
         const val ACTION_STOP = "com.example.browser.media.STOP"
         const val EXTRA_PLAYING = "playing"
         const val EXTRA_TITLE = "title"
