@@ -28,4 +28,4 @@ jobs:
         with:
           workspaces: kaspasearch-engine
       - name: Run Rust unit tests
-        run: cargo test --manifest-path kaspasearch-engine/Cargo.toml
+        run: cargo test --manifest-path kaspasearch-core/Cargo.toml
