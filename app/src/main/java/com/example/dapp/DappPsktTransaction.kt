@@ -222,6 +222,7 @@ internal object DappPsktTransaction {
         val utxoEntries = ArrayList<KaspaTransactionEngine.KaspaUtxoEntry>(inputArray.length())
         val inputs = ArrayList<KaspaTransactionEngine.KaspaTransactionInput>(inputArray.length())
         val seenOutpoints = HashSet<String>()
+        val inputRedeemScripts = ArrayList<String>(inputArray.length())
         var inputSum = 0L
         for (index in 0 until inputArray.length()) {
             val item = inputArray.optJSONObject(index)
@@ -300,6 +301,12 @@ internal object DappPsktTransaction {
                 ?: root.optJSONArray("utxos")?.optJSONObject(index)
                 ?: item // Fallback: check if UTXO fields are at the top level
             val utxo = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoJson)
+            val inputRedeemScript = sequenceOf("redeemScript", "redeem_script")
+                .mapNotNull { key ->
+                    item.optString(key, "").takeIf { it.isNotBlank() }
+                        ?: utxoJson.optString(key, "").takeIf { it.isNotBlank() }
+                }.firstOrNull().orEmpty()
+            inputRedeemScripts += inputRedeemScript
             require(utxo.amount > 0L) { "Input $index has an invalid UTXO amount" }
             require(utxo.scriptPublicKey.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                 "Input $index has an invalid UTXO script"
@@ -357,7 +364,13 @@ internal object DappPsktTransaction {
         require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
             "Transaction mass exceeds the standard mempool limit"
         }
-        return Prepared(root, tx, utxoEntries, signInputs, inputSum, outputSum, fee, redeemScript)
+        val resolvedSignInputs = signInputs.map { request ->
+            if (request.redeemScript.isNotBlank()) request
+            else request.copy(
+                redeemScript = inputRedeemScripts.getOrNull(request.index).orEmpty()
+            )
+        }
+        return Prepared(root, tx, utxoEntries, resolvedSignInputs, inputSum, outputSum, fee, redeemScript)
     }
 
     private fun parseOutputScriptPublicKey(
