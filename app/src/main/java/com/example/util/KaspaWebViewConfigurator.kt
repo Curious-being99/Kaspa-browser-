@@ -152,6 +152,11 @@ object KaspaWebViewConfigurator {
                     KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
                     setOf("*")
                 )
+                WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    BrowserBackgroundPlayback.getBackgroundPlaybackScript(),
+                    setOf("*")
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "DocumentStartJavaScript setup notice: ${e.message}")
