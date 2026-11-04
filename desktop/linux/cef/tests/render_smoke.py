@@ -3,9 +3,7 @@
 import json
 import os
 import select
-import socket
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -70,7 +68,7 @@ def main():
         finally:
             if proc.poll() is None:
                 try:
-                    proc.stdin.write("QUIT\\n")
+                    proc.stdin.write("QUIT\n")
                     proc.stdin.flush()
                     proc.wait(timeout=4)
                 except Exception:
