@@ -192,7 +192,12 @@ jobs:
           name: ${{ steps.release_info.outputs.TITLE }}
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
+          body: |
+            KaspaBrowser Android Release
+
+            - Android release APK
+            - Built from commit ${{ github.sha }}
           files: |
             release-artifacts/*.apk
         env:
