@@ -5,6 +5,7 @@ on:
     branches: [main, master]
     paths:
       - "kaspasearch-engine/**"
+      - "kaspasearch-core/**"
       - ".github/workflows/shared-rust-core.yml"
   push:
     branches: [main, master]
@@ -26,6 +27,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: kaspasearch-engine
+          workspaces: |
+            kaspasearch-engine
+            kaspasearch-core
       - name: Run Rust unit tests
         run: cargo test --manifest-path kaspasearch-core/Cargo.toml
