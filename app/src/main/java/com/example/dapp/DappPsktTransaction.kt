@@ -122,6 +122,15 @@ internal object DappPsktTransaction {
                 utxoEntry
             )
             val signature = CryptoUtils.signSchnorr(privateKey, sighash)
+            val signingPublicKey = CryptoUtils.to32ByteArray(
+                CryptoUtils.pointMultiply(privateKey).x
+            )
+            require(CryptoUtils.verifySchnorrSignature(signature, sighash, signingPublicKey)) {
+                "Generated SIGHASH_ALL Schnorr signature failed local verification for input ${request.index}"
+            }
+            require(signature.matches(Regex("(?i)[0-9a-f]{128}"))) {
+                "Signer did not return a plain 64-byte Schnorr signature"
+            }
             val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
             val redeem = if (Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
                 val redeemScript = request.redeemScript.takeIf { it.isNotBlank() }
@@ -149,9 +158,20 @@ internal object DappPsktTransaction {
         val inputsArray = JSONArray()
         for (request in prepared.signInputs) {
             val input = prepared.transaction.inputs[request.index]
+            require(input.signatureScript.startsWith("41") && input.signatureScript.length >= 132) {
+                "Signed input ${request.index} does not contain a canonical Schnorr signature push"
+            }
+            val rawSignature = input.signatureScript.substring(2, 130)
+            require(rawSignature.matches(Regex("(?i)[0-9a-f]{128}")) &&
+                input.signatureScript.substring(130, 132).equals("01", true)
+            ) {
+                "Signed input ${request.index} is not encoded as a plain SIGHASH_ALL Schnorr signature"
+            }
             inputsArray.put(
                 JSONObject()
                     .put("index", request.index)
+                    .put("signature", rawSignature)
+                    .put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)
                     .put("signatureScript", input.signatureScript)
             )
         }
