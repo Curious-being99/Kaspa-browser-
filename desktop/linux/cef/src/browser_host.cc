@@ -121,7 +121,6 @@ void KaspaBrowserApp::OnContextInitialized() {
   auto view = CefBrowserView::CreateBrowserView(handler, initial_url_, settings, nullptr, nullptr, new BrowserViewDelegate());
   CefWindow::CreateTopLevelWindow(new WindowDelegate(view));
 }
-void KaspaBrowserApp::OnLastWindowClosed() { CefQuitMessageLoop(); }
 void PostBrowserCommand(const std::string& command, const std::string& value) {
   CefPostTask(TID_UI, new BrowserCommandTask(command, value));
 }
