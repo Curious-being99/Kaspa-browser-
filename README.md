@@ -361,7 +361,7 @@ KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's
 | **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | Primary Logo Gradient, Action Buttons, Active Navigation Tab, Verified Indicators |
 | **Electric Cyan** (Vibrant Accent)| `#00F5D4` | `#00F5D4` | Brand Logo Glow, Antennae Nodes, Live Mesh Radar Pulse, Focus Rings |
 | **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | App Background, Adaptive Icon Canvas, WebView Scrim |
-| **Crisp Emblem** (drag on/Text) | `#70C7BA` | `#70C7BA` | dragon Logo, Primary High-Contrast Headlines, Icon Foreground |
+| **Crisp Dragon Emblem** | `#70C7BA` | `#70C7BA` | Official Dragon Kaspa Logo, Primary High-Contrast Headlines, Icon Foreground |
 | **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Floating Sheet Headers |
 | **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
 | **Deep Royal Violet** (zk/Badges)| `#5B21B6` | `#5B21B6` | Decentralized ID (DID) Badges, Ed25519 Keys, GitHub Badges |
