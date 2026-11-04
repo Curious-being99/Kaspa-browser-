@@ -102,7 +102,7 @@ pub extern "system" fn Java_com_example_network_EmbeddedRustSearchEngine_nativeS
         Err(_) => return env.new_string("").unwrap().into_raw(),
     };
 
-    let clean_str = privacy::PrivacyGuard::sanitize_url(&raw_str);
+    let clean_str = api::sanitize_url(&raw_str);
     env.new_string(clean_str).unwrap().into_raw()
 }
 
@@ -142,7 +142,7 @@ pub extern "system" fn Java_com_example_network_KaspaPrivacyEngine_nativeIsTrack
         Err(_) => return JNI_FALSE,
     };
 
-    if privacy::PrivacyGuard::is_tracker_or_ad(&raw_url) {
+    if api::is_tracker_or_ad(&raw_url) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -160,7 +160,7 @@ pub extern "system" fn Java_com_example_network_KaspaPrivacyEngine_nativeExtract
         Err(_) => return std::ptr::null_mut(),
     };
 
-    match privacy::PrivacyGuard::extract_host_fast(&raw_url) {
+    match api::extract_host(&raw_url) {
         Some(host) => env.new_string(host).map(|js| js.into_raw()).unwrap_or(std::ptr::null_mut()),
         None => std::ptr::null_mut(),
     }
@@ -177,7 +177,7 @@ pub extern "system" fn Java_com_example_network_KaspaPrivacyEngine_nativeIsGoogl
         Err(_) => return JNI_FALSE,
     };
 
-    if privacy::PrivacyGuard::is_google_account_domain(&raw_host) {
+    if api::is_google_account_domain(&raw_host) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -195,7 +195,7 @@ pub extern "system" fn Java_com_example_network_KaspaPrivacyEngine_nativeIsGoogl
         Err(_) => return JNI_FALSE,
     };
 
-    if privacy::PrivacyGuard::is_google_account_or_auth_url(&raw_url) {
+    if api::is_google_account_or_auth_url(&raw_url) {
         JNI_TRUE
     } else {
         JNI_FALSE
@@ -217,7 +217,7 @@ pub extern "system" fn Java_com_example_network_UBlockEngine_nativeShouldBlock(
         Err(_) => return JNI_FALSE,
     };
 
-    if privacy::PrivacyGuard::should_block(&raw_url) {
+    if api::should_block(&raw_url) {
         JNI_TRUE
     } else {
         JNI_FALSE
