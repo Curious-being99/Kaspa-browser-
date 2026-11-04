@@ -1,0 +1,12 @@
+[package]
+name = "kaspasearch-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "kaspasearch_core"
+path = "src/lib.rs"
+
+[dependencies]
+url = "2.5"
+regex = "1.10"
