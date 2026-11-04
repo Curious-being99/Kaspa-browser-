@@ -125,6 +125,37 @@ object BrowserBackgroundPlayback {
         }
     }
 
+    fun skipToNext() = dispatchTrackAction("nexttrack")
+    fun skipToPrevious() = dispatchTrackAction("previoustrack")
+
+    private fun dispatchTrackAction(action: String) {
+        val webView = webViewRef?.get() ?: return
+        val js = """
+            (function() {
+                var action = "$action";
+                var handlers = window.__kb_media_action_handlers || {};
+                var handler = handlers[action];
+                if (typeof handler === 'function') {
+                    try { handler.call(navigator.mediaSession, { action: action }); return true; } catch (_) {}
+                }
+                var labels = action === 'nexttrack' ? /next|skip forward|forward track/i : /previous|prev|back track|skip back/i;
+                var selectors = ['button[aria-label]', '[role="button"][aria-label]', 'button[title]', '[role="button"][title]', 'button[data-testid]', '[role="button"][data-testid]'];
+                for (var i = 0; i < selectors.length; i++) {
+                    var nodes = document.querySelectorAll(selectors[i]);
+                    for (var j = 0; j < nodes.length; j++) {
+                        var node = nodes[j];
+                        var label = [node.getAttribute('aria-label'), node.getAttribute('title'), node.getAttribute('data-testid')].join(' ');
+                        if (labels.test(label) && !node.disabled) { node.click(); return true; }
+                    }
+                }
+                return false;
+            })()
+        """.trimIndent()
+        webView.post {
+            if (enabled && webViewRef?.get() === webView) webView.evaluateJavascript(js, null)
+        }
+    }
+
     fun seekTo(positionMs: Long) {
         val webView = webViewRef?.get() ?: return
         val posSeconds = positionMs / 1000.0
@@ -158,6 +189,19 @@ object BrowserBackgroundPlayback {
         (function() {
             if (window.__brave_bg_playback_installed__) return;
             window.__brave_bg_playback_installed__ = true;
+
+            try {
+                var mediaSession = navigator.mediaSession;
+                if (mediaSession && !mediaSession.__kb_handlers_wrapped && mediaSession.setActionHandler) {
+                    var originalSetActionHandler = mediaSession.setActionHandler.bind(mediaSession);
+                    var handlers = window.__kb_media_action_handlers = window.__kb_media_action_handlers || {};
+                    mediaSession.setActionHandler = function(action, handler) {
+                        if (action === 'nexttrack' || action === 'previoustrack' || action === 'play' || action === 'pause' || action === 'seekto') handlers[action] = handler;
+                        return originalSetActionHandler(action, handler);
+                    };
+                    mediaSession.__kb_handlers_wrapped = true;
+                }
+            } catch (e) {}
 
             try {
                 Object.defineProperty(document, 'hidden', {
@@ -296,7 +340,7 @@ object BrowserBackgroundPlayback {
                     visited.push(win);
                     var doc = win.document;
                     var media = Array.from(doc.querySelectorAll('audio,video'));
-                    var target = media.find(function(el) { return !el.ended; });
+                    var target = media.find(function(el) { return !el.paused && !el.ended; }) || media.find(function(el) { return !el.ended; });
                     if (target) {
                         var promise = target.play();
                         if (promise && promise.catch) promise.catch(function() {});
