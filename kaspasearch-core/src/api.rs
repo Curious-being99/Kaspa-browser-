@@ -16,6 +16,18 @@ pub fn extract_host(url: &str) -> Option<String> {
     crate::privacy::PrivacyGuard::extract_host_fast(url)
 }
 
+pub fn is_google_account_domain(host: &str) -> bool {
+    crate::privacy::PrivacyGuard::is_google_account_domain(host)
+}
+
+pub fn is_google_account_or_auth_url(url: &str) -> bool {
+    crate::privacy::PrivacyGuard::is_google_account_or_auth_url(url)
+}
+
+pub fn should_block(url: &str) -> bool {
+    crate::privacy::PrivacyGuard::should_block(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -41,6 +53,18 @@ mod tests {
     fn tracker_detection_uses_existing_privacy_policy() {
         assert!(is_tracker_or_ad("https://doubleclick.net/ad.js"));
         assert!(!is_tracker_or_ad("https://kaspa.org/"));
+    }
+
+    #[test]
+    fn account_and_auth_domains_remain_allowed() {
+        assert!(is_google_account_domain("accounts.google.com"));
+        assert!(is_google_account_or_auth_url("https://accounts.google.com/signin"));
+    }
+
+    #[test]
+    fn kaspa_and_internal_schemes_are_not_blocked() {
+        assert!(!should_block("kaspa:mainnet"));
+        assert!(!should_block("about:blank"));
     }
 
     #[test]
