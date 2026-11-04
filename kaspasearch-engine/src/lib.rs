@@ -2,6 +2,7 @@ use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
+pub mod api;
 pub mod crypto;
 pub mod federator;
 pub mod privacy;
@@ -50,7 +51,7 @@ pub extern "system" fn Java_com_example_network_SearchEngine_nativeSanitizeUrl(
         Err(_) => return env.new_string("").unwrap().into_raw(),
     };
 
-    let clean_str = privacy::PrivacyGuard::sanitize_url(&raw_str);
+    let clean_str = api::sanitize_url(&raw_str);
     env.new_string(clean_str).unwrap().into_raw()
 }
 
@@ -65,7 +66,7 @@ pub extern "system" fn Java_com_example_network_SearchEngine_nativeAstFilter(
         Err(_) => return env.new_string("").unwrap().into_raw(),
     };
 
-    let clean_html = privacy::PrivacyGuard::filter_html_ast(&raw_html);
+    let clean_html = api::filter_html_ast(&raw_html);
     env.new_string(clean_html).unwrap().into_raw()
 }
 
