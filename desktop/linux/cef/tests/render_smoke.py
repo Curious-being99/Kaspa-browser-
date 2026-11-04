@@ -59,8 +59,8 @@ def main():
                 if not chunk:
                     break
                 pending += chunk
-                while b"\\n" in pending:
-                    raw, pending = pending.split(b"\\n", 1)
+                while b"\n" in pending:
+                    raw, pending = pending.split(b"\n", 1)
                     try:
                         event = json.loads(raw.decode("utf-8", errors="replace"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
@@ -80,7 +80,7 @@ def main():
         finally:
             if proc.poll() is None:
                 try:
-                    proc.stdin.write(b"QUIT\\n")
+                    proc.stdin.write(b"QUIT\n")
                     proc.stdin.flush()
                     proc.wait(timeout=4)
                 except Exception:
