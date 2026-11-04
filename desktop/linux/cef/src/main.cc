@@ -42,6 +42,9 @@ int main(int argc, char* argv[]) {
   if (subprocess >= 0) return subprocess;
   CefSettings settings;
   settings.log_severity = LOGSEVERITY_WARNING;
+#if !defined(CEF_USE_SANDBOX)
+  settings.no_sandbox = true;
+#endif
   CefRefPtr<KaspaBrowserApp> app(new KaspaBrowserApp(InitialUrl(argc, argv)));
   if (!CefInitialize(args, settings, app, nullptr)) return CefGetExitCode();
   std::thread reader(ReadCommands);
