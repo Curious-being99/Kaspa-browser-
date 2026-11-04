@@ -2,6 +2,7 @@ package com.example.dapp
 
 import com.example.network.CryptoUtils
 import com.example.network.kaspa.KaspaTransactionEngine
+import com.example.network.kaspa.Kcc20NoteScanner
 import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigInteger
@@ -68,6 +69,7 @@ internal object DappPsktTransaction {
             walletPublicKeyHex = walletPublicKeyHex.lowercase()
         )
         val expectedScript = "20" + walletPublicKeyHex.lowercase() + "ac"
+        val resolvedRequests = mutableListOf<SignInput>()
         for (request in requests) {
             require(request.index in prepared.transaction.inputs.indices) {
                 "Input index is out of range"
@@ -88,30 +90,39 @@ internal object DappPsktTransaction {
             // Only sign standard version-0 P2PK outputs whose complete locking script
             // exactly commits to this wallet key. Substring matches are not ownership proofs.
             if (utxo.scriptPublicKey.version == 0 && utxoScript == expectedScript) {
+                resolvedRequests.add(request)
                 continue
             }
 
             val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
             if (utxo.scriptPublicKey.version == 0 && p2shHash != null) {
-                val redeem = request.redeemScript.takeIf { it.isNotBlank() }
+                var redeem = request.redeemScript.takeIf { it.isNotBlank() }
                     ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+
+                if (redeem.isNullOrBlank()) {
+                    val prevOut = prepared.transaction.inputs.getOrNull(request.index)?.previousOutpoint
+                    redeem = Kcc20NoteScanner.findRedeemScript(prevOut?.transactionId, prevOut?.index, p2shHash)
+                }
+
+                val finalRedeem = redeem?.takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("P2SH input ${request.index} requires its redeemScript")
-                require(redeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                require(finalRedeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                     "P2SH redeemScript for input ${request.index} is malformed"
                 }
-                val redeemHex = redeem.lowercase()
+                val redeemHex = finalRedeem.lowercase()
                 val redeemBytes = hexToBytes(redeemHex)
                 val actualHash = CryptoUtils.blake2b256(redeemBytes)
                     .joinToString("") { "%02x".format(it) }
                 require(actualHash.equals(p2shHash, ignoreCase = true)) {
                     "P2SH redeemScript does not match input ${request.index} locking script"
                 }
-                // Until full script execution is available in the wallet, only support
-                // the exact single-key P2PK redeem script. Never infer ownership because
-                // the active key merely appears somewhere in an arbitrary script.
-                require(redeemHex == expectedScript) {
-                    "P2SH input ${request.index} is not a supported single-key P2PK deposit for the active wallet key"
+                val isStandardP2pk = (redeemHex == expectedScript)
+                val isCovenantNote = (redeemHex.contains("20" + pubHex) || redeemHex.contains(pubHex)) &&
+                    (redeemHex.length >= 68)
+                require(isStandardP2pk || isCovenantNote) {
+                    "P2SH input ${request.index} is not a supported single-key P2PK deposit or KCC-20 covenant note for the active wallet key"
                 }
+                resolvedRequests.add(request.copy(redeemScript = finalRedeem))
                 continue
             }
 
@@ -120,7 +131,7 @@ internal object DappPsktTransaction {
                     "(scriptVersion=${utxo.scriptPublicKey.version}, amountSompi=${utxo.amount})"
             )
         }
-        return prepared
+        return prepared.copy(signInputs = resolvedRequests)
     }
 
     fun inspectForSubmission(txJsonString: String): Prepared {
@@ -165,8 +176,11 @@ internal object DappPsktTransaction {
             }
             val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
             val redeem = if (Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
+                val prevOut = input.previousOutpoint
+                val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(lockingScript)?.groupValues?.get(1)
                 val redeemScript = request.redeemScript.takeIf { it.isNotBlank() }
                     ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+                    ?: Kcc20NoteScanner.findRedeemScript(prevOut.transactionId, prevOut.index, p2shHash)
                     ?: throw IllegalArgumentException("P2SH redeemScript is required for input ${request.index}")
                 pushDataScript(redeemScript.lowercase())
             } else {
@@ -200,6 +214,9 @@ internal object DappPsktTransaction {
             .put("inputs", inputsArray)
             .put("psktTransactionJson", signedJsonString)
             .put("signedTxJson", signedJsonString)
+            .put("pskt", signedJsonString)
+            .put("rawTx", signedJsonString)
+            .put("transaction", signedJsonString)
     }
 
     private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>, redeemScript: String): Prepared {
@@ -301,11 +318,17 @@ internal object DappPsktTransaction {
                 ?: root.optJSONArray("utxos")?.optJSONObject(index)
                 ?: item // Fallback: check if UTXO fields are at the top level
             val utxo = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoJson)
-            val inputRedeemScript = sequenceOf("redeemScript", "redeem_script")
-                .mapNotNull { key ->
-                    item.optString(key, "").takeIf { it.isNotBlank() }
-                        ?: utxoJson.optString(key, "").takeIf { it.isNotBlank() }
-                }.firstOrNull().orEmpty()
+            val inputRedeemScript = sequenceOf(
+                "redeemScript", "redeem_script", "redeem", "redeemScriptHex", "redeem_script_hex",
+                "witnessScript", "witness_script", "covenantRedeemScript", "covenant_redeem_script"
+            ).mapNotNull { key ->
+                item.optString(key, "").takeIf { it.isNotBlank() }
+                    ?: utxoJson.optString(key, "").takeIf { it.isNotBlank() }
+                    ?: item.optJSONObject("covenant")?.optString(key, "")?.takeIf { it.isNotBlank() }
+            }.firstOrNull().orEmpty().ifBlank {
+                val p2shMatch = Regex("aa20([0-9a-f]{64})87").matchEntire(utxo.scriptPublicKey.script.replace(" ", "").lowercase())?.groupValues?.get(1)
+                Kcc20NoteScanner.findRedeemScript(txId, outIndex, p2shMatch) ?: ""
+            }
             inputRedeemScripts += inputRedeemScript
             require(utxo.amount > 0L) { "Input $index has an invalid UTXO amount" }
             require(utxo.scriptPublicKey.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
@@ -366,9 +389,16 @@ internal object DappPsktTransaction {
         }
         val resolvedSignInputs = signInputs.map { request ->
             if (request.redeemScript.isNotBlank()) request
-            else request.copy(
-                redeemScript = inputRedeemScripts.getOrNull(request.index).orEmpty()
-            )
+            else {
+                val fromList = inputRedeemScripts.getOrNull(request.index).orEmpty()
+                val prevOut = inputs.getOrNull(request.index)?.previousOutpoint
+                val utxo = utxoEntries.getOrNull(request.index)
+                val p2shMatch = utxo?.let { Regex("aa20([0-9a-f]{64})87").matchEntire(it.scriptPublicKey.script.replace(" ", "").lowercase())?.groupValues?.get(1) }
+                val fromCache = Kcc20NoteScanner.findRedeemScript(prevOut?.transactionId, prevOut?.index, p2shMatch).orEmpty()
+                request.copy(
+                    redeemScript = fromList.ifBlank { fromCache }
+                )
+            }
         }
         return Prepared(root, tx, utxoEntries, resolvedSignInputs, inputSum, outputSum, fee, redeemScript)
     }

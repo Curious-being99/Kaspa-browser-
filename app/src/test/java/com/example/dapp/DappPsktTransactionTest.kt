@@ -2,6 +2,7 @@ package com.example.dapp
 
 import com.example.network.CryptoUtils
 import com.example.network.kaspa.KaspaTransactionEngine
+import com.example.network.kaspa.Kcc20NoteScanner
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -511,5 +512,178 @@ class DappPsktTransactionTest {
         val changed = KaspaTransactionEngine.calcSchnorrSignatureHash(tx(KaspaTransactionEngine.KaspaCovenantBinding(0, "55".repeat(32))), 0, 1, utxo)
         assertFalse(absent.contentEquals(present))
         assertFalse(present.contentEquals(changed))
+    }
+
+    @Test
+    fun braidSwapKcc20SwapAutoResolvesRedeemScriptFromCacheAndSignsSuccessfully() {
+        // Construct a realistic KCC-20 covenant note redeem script containing the user's public key
+        // Format: <covenant header/state> + 20<publicKeyHex> + <covenant validator tail>
+        val covenantPrefix = "6b20" + "ee".repeat(32)
+        val userPubkeyPush = "20" + publicKeyHex
+        val covenantTail = "8876a914" + "aa".repeat(20) + "88ac"
+        val covenantRedeemScript = (covenantPrefix + userPubkeyPush + covenantTail).lowercase()
+        assertTrue(covenantRedeemScript.length >= 68)
+
+        // Calculate P2SH hash for the covenant note UTXO
+        val p2shHash = CryptoUtils.blake2b256(
+            CryptoUtils.hexToBytes(covenantRedeemScript)
+        ).joinToString("") { "%02x".format(it) }
+        val covenantLockingScript = "aa20" + p2shHash + "87"
+
+        val txId = "4a".repeat(32)
+        val vout = 0
+
+        // Simulate Braid Swap PSKT spending this KCC-20 note UTXO at input 0
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", txId).put("index", vout))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("sigOpCount", 1)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "2500000000") // 25 KAS
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", covenantLockingScript))
+                .put("blockDaaScore", "100")
+                .put("isCoinbase", false)
+            )
+        )
+        // Output delivers KAS back to user wallet
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "2207210000") // ~22.0721 KAS received
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
+        )
+        val tx = JSONObject()
+            .put("version", 0)
+            .put("inputs", inputs)
+            .put("outputs", outputs)
+            .put("lockTime", 0)
+            .put("subnetworkId", KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID)
+            .put("gas", 0)
+            .put("payload", "")
+            .put("mass", 0)
+
+        // Precondition: Kcc20NoteScanner registered the note redeem script into cache
+        Kcc20NoteScanner.registerRedeemScript(txId, vout, p2shHash, covenantRedeemScript)
+
+        // Braid Swap requests signature for input 0 WITHOUT specifying redeemScript in signInputs
+        val signInputs = JSONArray().put(JSONObject().put("index", 0))
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            signInputs,
+            publicKeyHex
+        )
+
+        // Verify that redeemScript was automatically resolved
+        assertEquals(covenantRedeemScript, prepared.signInputs[0].redeemScript)
+
+        // Sign the prepared transaction with the wallet's private key
+        val result = DappPsktTransaction.signAndFormat(prepared, privateKey)
+        assertTrue(result.has("psktTransactionJson"))
+        assertTrue(result.has("rawTx"))
+
+        val signedTxJson = JSONObject(result.getString("psktTransactionJson"))
+        val signedInput0 = signedTxJson.getJSONArray("inputs").getJSONObject(0)
+        val sigScript = signedInput0.getString("signatureScript")
+
+        // Signature script must contain the 65-byte Schnorr signature push + pushed covenant redeem script
+        assertTrue("Signature script must not be empty", sigScript.isNotBlank())
+        assertTrue("Signature script must start with Schnorr signature push", sigScript.startsWith("41"))
+        assertTrue("Signature script must contain the pushed covenant redeem script", sigScript.contains(covenantRedeemScript))
+
+        // Verify cryptographic Schnorr signature
+        val schnorrSigHex = sigScript.substring(2, 130)
+        val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+            prepared.transaction, 0, KaspaTransactionEngine.SIGHASH_ALL, prepared.utxoEntries[0]
+        )
+        assertTrue(CryptoUtils.verifySchnorrSignature(schnorrSigHex, sighash, CryptoUtils.hexToBytes(publicKeyHex)))
+    }
+
+    @Test
+    fun signsKcc20CovenantNoteWithExplicitRedeemScriptProvidedByDapp() {
+        val covenantRedeemScript = ("6b20" + "ff".repeat(32) + "20" + publicKeyHex + "5152ac").lowercase()
+        val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(covenantRedeemScript))
+            .joinToString("") { "%02x".format(it) }
+
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "5b".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "aa20" + p2shHash + "87"))
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "9000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
+        )
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("redeemScript", covenantRedeemScript)),
+            publicKeyHex
+        )
+        assertEquals(covenantRedeemScript, prepared.signInputs[0].redeemScript)
+
+        val signed = JSONObject(DappPsktTransaction.sign(prepared, privateKey))
+        val sigScript = signed.getJSONArray("inputs").getJSONObject(0).getString("signatureScript")
+        assertTrue(sigScript.contains(covenantRedeemScript))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsCovenantNoteBelongingToAnotherWalletPublicKey() {
+        val otherKey = "33".repeat(32)
+        val covenantRedeemScript = ("6b20" + "11".repeat(32) + "20" + otherKey + "5152ac").lowercase()
+        val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(covenantRedeemScript))
+            .joinToString("") { "%02x".format(it) }
+
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "6c".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "aa20" + p2shHash + "87"))
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "9000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
+        )
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+
+        // Attempt to sign input 0 with other wallet's key in redeemScript
+        DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("redeemScript", covenantRedeemScript)),
+            publicKeyHex
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsP2shInputWhenRedeemScriptIsMissingAndNotCached() {
+        val unknownP2shScript = "aa20" + "99".repeat(32) + "87"
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "7d".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", unknownP2shScript))
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "9000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
+        )
+        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+
+        // Braid Swap sends signInputs without redeemScript and it's not in cache
+        DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0)),
+            publicKeyHex
+        )
     }
 }

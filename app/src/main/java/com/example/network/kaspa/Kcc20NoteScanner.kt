@@ -256,6 +256,31 @@ object Kcc20NoteScanner {
     // Memory cache for dynamic and embedded contract codes (suffix bytes keyed by template lineage)
     private val codeCache = mutableMapOf<String, String>()
 
+    // Global thread-safe memory cache of discovered and reconstructed note redeem scripts
+    // Keys: targetScriptHash (64-char hex) and/or "${txId.lowercase()}:$outputIndex"
+    private val noteRedeemScriptCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun registerRedeemScript(txId: String?, outputIndex: Int?, targetScriptHash: String?, redeemScriptHex: String) {
+        if (redeemScriptHex.isBlank()) return
+        val cleanRedeem = redeemScriptHex.lowercase()
+        if (!txId.isNullOrBlank() && outputIndex != null && outputIndex >= 0) {
+            noteRedeemScriptCache["${txId.lowercase()}:$outputIndex"] = cleanRedeem
+        }
+        if (!targetScriptHash.isNullOrBlank()) {
+            noteRedeemScriptCache[targetScriptHash.lowercase()] = cleanRedeem
+        }
+    }
+
+    fun findRedeemScript(txId: String?, outputIndex: Long?, targetScriptHash: String?): String? {
+        if (!targetScriptHash.isNullOrBlank()) {
+            noteRedeemScriptCache[targetScriptHash.lowercase()]?.let { return it }
+        }
+        if (!txId.isNullOrBlank() && outputIndex != null && outputIndex >= 0) {
+            noteRedeemScriptCache["${txId.lowercase()}:$outputIndex"]?.let { return it }
+        }
+        return null
+    }
+
     /**
      * Initializes static contract codes from classpath resources.
      */
@@ -395,6 +420,7 @@ object Kcc20NoteScanner {
                         isUnspent = false // checked in next step
                     )
                     discoveredNotes.add(note)
+                    registerRedeemScript(txId, i, targetHash, matchedRedeem)
                 }
             }
         }
@@ -706,6 +732,7 @@ object Kcc20NoteScanner {
                                     isUnspent = true
                                 )
                             )
+                            registerRedeemScript(txId, outIdx, spk, rHex)
                         }
                     }
                 }
@@ -903,5 +930,149 @@ object Kcc20NoteScanner {
         val clean = hex.trim().lowercase().removePrefix("0x")
         val n = clean.length / 2
         return ByteArray(n) { i -> clean.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+    }
+
+    /**
+     * Resolves or reconstructs a candidate KCC-20 covenant redeem script for a P2SH input.
+     * Tries:
+     * 1. In-memory & previously registered redeem script cache
+     * 2. Transaction on-chain input pushes & dynamic code templates matching targetScriptHash
+     * 3. KasCov token cells endpoint for the user's address/token
+     * 4. KRON token indexer
+     */
+    suspend fun resolveOrReconstructRedeemScript(
+        txId: String,
+        outputIndex: Int,
+        p2shScriptHash: String,
+        walletAddress: String,
+        walletPublicKeyHex: String,
+        network: String = "testnet-10"
+    ): String? = withContext(Dispatchers.IO) {
+        val cleanHash = p2shScriptHash.trim().lowercase()
+        val cleanPub = walletPublicKeyHex.trim().lowercase().removePrefix("0x")
+        val cleanAddr = walletAddress.trim().lowercase()
+
+        // 1. Check in-memory cache
+        findRedeemScript(txId, outputIndex.toLong(), cleanHash)?.let { cached ->
+            val h = CryptoUtils.blake2b256(hexToBytes(cached)).joinToString("") { "%02x".format(it) }
+            if (h.equals(cleanHash, ignoreCase = true)) {
+                return@withContext cached
+            }
+        }
+
+        val isTestnet = cleanAddr.startsWith("kaspatest:") || network.contains("testnet", ignoreCase = true)
+        val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
+        val rpcNodes = if (isTestnet) {
+            listOf("https://api-tn10.kaspa.org", "https://api-tn10.kaspanet.io")
+        } else {
+            listOf("https://api.kaspa.org", "https://api.kaspanet.io")
+        }
+
+        // 2. Fetch the transaction that created this UTXO and reconstruct from contract templates
+        if (txId.isNotBlank()) {
+            for (rpc in rpcNodes) {
+                try {
+                    val url = URL("$rpc/transactions/$txId")
+                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 5000
+                        readTimeout = 5000
+                        setRequestProperty("Accept", "application/json")
+                    }
+                    if (conn.responseCode == 200) {
+                        val body = conn.inputStream.bufferedReader().use { it.readText() }
+                        val txObj = JSONObject(body)
+                        val outputs = txObj.optJSONArray("outputs") ?: JSONArray()
+                        val inputs = txObj.optJSONArray("inputs") ?: JSONArray()
+
+                        val candidateAmounts = mutableSetOf<Long>()
+                        for (j in 0 until inputs.length()) {
+                            val inp = inputs.optJSONObject(j) ?: continue
+                            val sig = inp.optString("signature_script", inp.optString("signatureScript", ""))
+                            if (sig.isNotBlank()) {
+                                extractCandidateAmountsFromScript(sig, candidateAmounts)
+                                lastPush(sig)?.let { pushHex ->
+                                    val pushHash = CryptoUtils.blake2b256(hexToBytes(pushHex)).joinToString("") { "%02x".format(it) }
+                                    if (pushHash.equals(cleanHash, ignoreCase = true)) {
+                                        registerRedeemScript(txId, outputIndex, cleanHash, pushHex)
+                                        return@withContext pushHex
+                                    }
+                                }
+                            }
+                        }
+
+                        // Also add amounts from outputs and common balances
+                        for (j in 0 until outputs.length()) {
+                            val out = outputs.optJSONObject(j) ?: continue
+                            val amt = readAmount(out)
+                            if (amt > 0L) candidateAmounts.add(amt)
+                        }
+
+                        for ((lineage, template) in TEMPLATES) {
+                            val code = codeCache[lineage] ?: extractCodeFromInputs(inputs, template) ?: template.suf
+                            val forms = listOf("p2pk", "p2sh")
+                            for (amt in candidateAmounts) {
+                                if (amt <= 0L) continue
+                                for (form in forms) {
+                                    val candidateRedeem = buildNoteRedeem(template, cleanPub, amt, form, code)
+                                    val h = CryptoUtils.blake2b256(hexToBytes(candidateRedeem)).joinToString("") { "%02x".format(it) }
+                                    if (h.equals(cleanHash, ignoreCase = true)) {
+                                        registerRedeemScript(txId, outputIndex, cleanHash, candidateRedeem)
+                                        return@withContext candidateRedeem
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        // 3. Query KasCov live token cells for this wallet
+        try {
+            val net = if (isTestnet) "testnet-10" else "mainnet"
+            val cellEndpoints = listOf(
+                "https://kascov.io/data/$net/address/$cleanAddr/cells",
+                "https://kascov.io/data/$net/token/cells"
+            )
+            for (ep in cellEndpoints) {
+                try {
+                    val url = URL(ep)
+                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 5000
+                        readTimeout = 5000
+                    }
+                    if (conn.responseCode == 200) {
+                        val body = conn.inputStream.bufferedReader().use { it.readText() }
+                        val array = try { JSONArray(body) } catch (_: Exception) { JSONObject(body).optJSONArray("cells") ?: JSONArray() }
+                        for (k in 0 until array.length()) {
+                            val cell = array.optJSONObject(k) ?: continue
+                            val rHex = cell.optString("redeemScriptHex", cell.optString("redeem_script_hex", cell.optString("redeem", ""))).lowercase()
+                            if (rHex.isNotBlank()) {
+                                val h = CryptoUtils.blake2b256(hexToBytes(rHex)).joinToString("") { "%02x".format(it) }
+                                if (h.equals(cleanHash, ignoreCase = true)) {
+                                    registerRedeemScript(txId, outputIndex, cleanHash, rHex)
+                                    return@withContext rHex
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+
+        // 4. Query KRON indexer
+        try {
+            val kronNotes = fetchKronNotes(cleanAddr, cleanPub, expectedPrefix)
+            for (n in kronNotes) {
+                registerRedeemScript(n.txId, n.outputIndex, n.targetScriptHash, n.redeemScriptHex)
+                if (n.targetScriptHash.equals(cleanHash, ignoreCase = true)) {
+                    return@withContext n.redeemScriptHex
+                }
+            }
+        } catch (_: Exception) {}
+
+        null
     }
 }

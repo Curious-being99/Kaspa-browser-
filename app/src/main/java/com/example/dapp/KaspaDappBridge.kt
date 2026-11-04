@@ -468,7 +468,12 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
                             return@addWebMessageListener
                         }
-                        val paramsObject = params as? JSONObject
+                        val paramsObject = when (params) {
+                            is JSONObject -> params
+                            is String -> try { JSONObject(params) } catch (_: Exception) { null }
+                            is JSONArray -> params.optJSONObject(0)
+                            else -> null
+                        }
                         val requestedSender = paramsObject?.optString("sender", "").orEmpty()
                         if (requestedSender.isNotBlank() &&
                             !requestedSender.equals(keyPair.kaspaAddress, ignoreCase = true)
@@ -476,20 +481,110 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Requested sender does not match the active wallet")
                             return@addWebMessageListener
                         }
-                        val txJson = paramsObject?.optString("txJsonString", "").orEmpty()
+                        val txJson = paramsObject?.optString("txJsonString",
+                            paramsObject.optString("pskt",
+                            paramsObject.optString("transaction",
+                            paramsObject.optString("txJson",
+                            paramsObject.optString("rawTx", ""))))).orEmpty()
                         val options = paramsObject?.optJSONObject("options")
-                        val signInputs = options?.optJSONArray("signInputs")
-                        if (txJson.isBlank() || signInputs == null || signInputs.length() == 0) {
+                            ?: paramsObject?.optJSONObject("params")
+                        val rawSignInputs = options?.optJSONArray("signInputs")
+                            ?: paramsObject?.optJSONArray("signInputs")
+                            ?: paramsObject?.optJSONArray("inputs")
+                        if (txJson.isBlank() || rawSignInputs == null || rawSignInputs.length() == 0) {
                             respond(errorCode = -32602, errorMessage = "signPskt requires txJsonString and a non-empty options.signInputs array")
                             return@addWebMessageListener
                         }
                         cryptoExecutor.execute {
+                            var topLevelRedeemScript = sequenceOf(
+                                options?.optString("redeemScript", ""),
+                                options?.optString("redeem_script", ""),
+                                options?.optString("redeem", ""),
+                                paramsObject?.optString("redeemScript", ""),
+                                paramsObject?.optString("redeem_script", ""),
+                                paramsObject?.optString("redeem", "")
+                            ).filterNotNull().firstOrNull { it.isNotBlank() }.orEmpty()
+
+                            val signInputs = JSONArray()
+                            val txObj = try { JSONObject(txJson) } catch (_: Exception) { null }
+                            val txInputsArray = txObj?.optJSONObject("transaction")?.optJSONArray("inputs")
+                                ?: txObj?.optJSONArray("inputs")
+                            val txUtxosArray = txObj?.optJSONObject("transaction")?.optJSONArray("utxoEntries")
+                                ?: txObj?.optJSONArray("utxoEntries")
+                                ?: txObj?.optJSONArray("utxos")
+
+                            for (i in 0 until rawSignInputs.length()) {
+                                val item = rawSignInputs.opt(i)
+                                val (idx, shType, reqRedeem) = when (item) {
+                                    is JSONObject -> Triple(
+                                        item.optInt("index", item.optInt("inputIndex", -1)),
+                                        if (item.has("sighashType")) item.optInt("sighashType", 1) else 1,
+                                        sequenceOf(
+                                            item.optString("redeemScript", ""),
+                                            item.optString("redeem_script", ""),
+                                            item.optString("redeem", "")
+                                        ).firstOrNull { it.isNotBlank() }.orEmpty()
+                                    )
+                                    is Number -> Triple(item.toInt(), 1, "")
+                                    is String -> Triple(item.toIntOrNull() ?: -1, 1, "")
+                                    else -> Triple(-1, 1, "")
+                                }
+                                var finalInputRedeem = reqRedeem
+                                if (finalInputRedeem.isBlank() && idx >= 0) {
+                                    finalInputRedeem = sequenceOf(
+                                        options?.optJSONArray("redeemScripts")?.optString(idx, ""),
+                                        paramsObject?.optJSONArray("redeemScripts")?.optString(idx, ""),
+                                        options?.optJSONObject("redeemScripts")?.optString(idx.toString(), ""),
+                                        paramsObject?.optJSONObject("redeemScripts")?.optString(idx.toString(), "")
+                                    ).filterNotNull().firstOrNull { it.isNotBlank() }.orEmpty()
+                                }
+
+                                if (finalInputRedeem.isBlank() && idx >= 0 && txInputsArray != null && idx < txInputsArray.length()) {
+                                    val txIn = txInputsArray.optJSONObject(idx)
+                                    val utxoIn = txIn?.optJSONObject("utxoEntry") ?: txUtxosArray?.optJSONObject(idx)
+                                    val spk = utxoIn?.optJSONObject("scriptPublicKey")?.optString("script", "")
+                                        ?: utxoIn?.optString("script", "")
+                                        ?: ""
+                                    val p2shMatch = Regex("aa20([0-9a-fA-F]{64})87").matchEntire(spk.replace(" ", "").lowercase())?.groupValues?.get(1)
+                                    if (p2shMatch != null) {
+                                        val prevTxId = txIn?.optJSONObject("previousOutpoint")?.optString("transactionId", "")
+                                            ?: txIn?.optString("transactionId", "")
+                                            ?: ""
+                                        val prevIdx = txIn?.optJSONObject("previousOutpoint")?.optInt("index", -1)
+                                            ?: txIn?.optInt("index", -1)
+                                            ?: 0
+                                        finalInputRedeem = kotlinx.coroutines.runBlocking {
+                                            com.example.network.kaspa.Kcc20NoteScanner.resolveOrReconstructRedeemScript(
+                                                txId = prevTxId,
+                                                outputIndex = prevIdx,
+                                                p2shScriptHash = p2shMatch,
+                                                walletAddress = keyPair.kaspaAddress,
+                                                walletPublicKeyHex = keyPair.publicKeyHex,
+                                                network = network
+                                            )
+                                        }.orEmpty()
+                                    }
+                                }
+
+                                if (finalInputRedeem.isNotBlank() && topLevelRedeemScript.isBlank()) {
+                                    topLevelRedeemScript = finalInputRedeem
+                                }
+
+                                val resolvedInputObj = JSONObject()
+                                    .put("index", idx)
+                                    .put("sighashType", shType)
+                                if (finalInputRedeem.isNotBlank()) {
+                                    resolvedInputObj.put("redeemScript", finalInputRedeem)
+                                }
+                                signInputs.put(resolvedInputObj)
+                            }
+
                             val prepared = try {
                                 DappPsktTransaction.prepareForSigning(
                                     txJson,
                                     signInputs,
                                     keyPair.publicKeyHex,
-                                    redeemScript = options?.optString("redeemScript", "").orEmpty()
+                                    redeemScript = topLevelRedeemScript
                                 )
                             } catch (error: Throwable) {
                                 mainHandler.post {
@@ -612,8 +707,8 @@ object KaspaDappBridge {
                                             val options = paramsObj.optJSONObject("options")
                                             val signInputs = options?.optJSONArray("signInputs")
                                                 ?: throw IllegalArgumentException("KCC-20 PSKT requires explicit options.signInputs")
-                                            require(signInputs.length() > 0) { "KCC-20 PSKT requires at least one explicitly selected input" }
-                                            DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex)
+                                            val rScript = options?.optString("redeemScript", options.optString("redeem_script", "")).orEmpty()
+                                            DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex, redeemScript = rScript)
                                         } catch (e: Throwable) {
                                             null
                                         }
