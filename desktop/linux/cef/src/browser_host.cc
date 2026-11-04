@@ -72,7 +72,7 @@ class BrowserCommandTask final : public CefTask {
 
 void KaspaBrowserHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) { active_browser = browser; }
 void KaspaBrowserHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
-  if (active_browser && active_browser->GetIdentifier() == browser->GetIdentifier()) active_browser = nullptr;
+  if (active_browser && active_browser->GetIdentifier() == browser->GetIdentifier()) {\n    active_browser = nullptr;\n    CefQuitMessageLoop();\n  }
 }
 bool KaspaBrowserHandler::OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
  CefRefPtr<CefRequest> request, bool, bool) {
