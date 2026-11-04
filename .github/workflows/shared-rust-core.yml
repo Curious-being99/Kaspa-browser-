@@ -6,11 +6,14 @@ on:
     paths:
       - "kaspasearch-engine/**"
       - "kaspasearch-core/**"
+      - "desktop/linux/cef/**"
       - ".github/workflows/shared-rust-core.yml"
   push:
     branches: [main, master]
     paths:
       - "kaspasearch-engine/**"
+      - "kaspasearch-core/**"
+      - "desktop/linux/cef/**"
       - ".github/workflows/shared-rust-core.yml"
   workflow_dispatch:
 
@@ -19,7 +22,7 @@ permissions:
 
 jobs:
   rust-core-tests:
-    name: Test platform-neutral Rust API
+    name: Test shared browser API and Linux CEF adapter
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -32,3 +35,5 @@ jobs:
             kaspasearch-core
       - name: Run Rust unit tests
         run: cargo test --manifest-path kaspasearch-core/Cargo.toml
+      - name: Validate Linux CEF smoke-test script
+        run: python3 -m py_compile desktop/linux/cef/tests/render_smoke.py
