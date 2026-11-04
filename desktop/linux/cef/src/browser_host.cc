@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <iostream>
 #include <mutex>
+#include <utility>
 #include "include/cef_parser.h"
 #include "include/cef_task.h"
 #include "include/views/cef_browser_view_delegate.h"
@@ -80,7 +81,7 @@ void KaspaBrowserHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
 
 bool KaspaBrowserHandler::OnBeforePopup(
     CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, int, const CefString&,
-    const CefString&, WindowOpenDisposition, bool, const CefPopupFeatures&,
+    const CefString&, CefLifeSpanHandler::WindowOpenDisposition, bool, const CefPopupFeatures&,
     CefWindowInfo&, CefRefPtr<CefClient>&, CefBrowserSettings&,
     CefRefPtr<CefDictionaryValue>&, bool*) {
   return true;
