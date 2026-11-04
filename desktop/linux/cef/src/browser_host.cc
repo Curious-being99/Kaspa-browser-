@@ -72,10 +72,25 @@ class BrowserCommandTask final : public CefTask {
 
 void KaspaBrowserHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) { active_browser = browser; }
 void KaspaBrowserHandler::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
-  if (active_browser && active_browser->GetIdentifier() == browser->GetIdentifier()) {\n    active_browser = nullptr;\n    CefQuitMessageLoop();\n  }
+  if (active_browser && active_browser->GetIdentifier() == browser->GetIdentifier()) {
+    active_browser = nullptr;
+    CefQuitMessageLoop();
+  }
 }
-bool KaspaBrowserHandler::OnBeforeBrowse(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame,
- CefRefPtr<CefRequest> request, bool, bool) {
+
+bool KaspaBrowserHandler::OnBeforePopup(
+    CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, int, const CefString&,
+    const CefString&, WindowOpenDisposition, bool, const CefPopupFeatures&,
+    CefWindowInfo&, CefRefPtr<CefClient>&, CefBrowserSettings&,
+    CefRefPtr<CefDictionaryValue>&, bool*) {
+  return true;
+}
+
+bool KaspaBrowserHandler::OnBeforeBrowse(CefRefPtr<CefBrowser>,
+                                         CefRefPtr<CefFrame> frame,
+                                         CefRefPtr<CefRequest> request,
+                                         bool, bool) {
+  if (!IsHttpUrl(request->GetURL().ToString())) return true;
   if (frame->IsMain()) EmitUrl("navigation_started", request->GetURL());
   return false;
 }
