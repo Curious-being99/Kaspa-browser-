@@ -94,6 +94,28 @@ class DappPsktTransactionTest {
     }
 
     @Test
+    fun signAndFormatExposesPlainSighashAllSignatureAndFullSignedTransaction() {
+        val prepared = DappPsktTransaction.prepareForSigning(
+            transactionJson(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        val result = DappPsktTransaction.signAndFormat(prepared, privateKey)
+        val signatures = result.getJSONArray("inputs")
+        val signature = signatures.getJSONObject(0)
+        val raw = signature.getString("signature")
+        assertEquals(128, raw.length)
+        assertTrue(raw.matches(Regex("(?i)[0-9a-f]{128}")))
+        assertEquals(KaspaTransactionEngine.SIGHASH_ALL, signature.getInt("sighashType"))
+        assertTrue(signature.getString("signatureScript").startsWith("41$raw" + "01"))
+        val signedTransaction = JSONObject(result.getString("psktTransactionJson"))
+        assertTrue(
+            signedTransaction.getJSONArray("inputs")
+                .getJSONObject(0).getString("signatureScript").startsWith("41$raw" + "01")
+        )
+    }
+
+    @Test
     fun enforcesExistingWalletMinimumFeePolicy() {
         val prepared = DappPsktTransaction.prepareForSigning(
             transactionJson(),
