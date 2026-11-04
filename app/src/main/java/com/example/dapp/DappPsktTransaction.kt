@@ -204,10 +204,22 @@ internal object DappPsktTransaction {
         val inputsArray = JSONArray()
         for (request in prepared.signInputs) {
             val input = prepared.transaction.inputs[request.index]
+            val script = input.signatureScript
+            require(script.length >= 132 && script.startsWith("41", ignoreCase = true)) {
+                "Input ${request.index} did not produce a canonical 64-byte Schnorr signature push"
+            }
+            val rawSignature = script.substring(2, 130)
+            require(rawSignature.matches(Regex("(?i)[0-9a-f]{128}")) &&
+                script.substring(130, 132).equals("01", ignoreCase = true)
+            ) {
+                "Input ${request.index} did not produce a plain SIGHASH_ALL Schnorr signature"
+            }
             inputsArray.put(
                 JSONObject()
                     .put("index", request.index)
-                    .put("signatureScript", input.signatureScript)
+                    .put("signature", rawSignature)
+                    .put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)
+                    .put("signatureScript", script)
             )
         }
         return JSONObject()
