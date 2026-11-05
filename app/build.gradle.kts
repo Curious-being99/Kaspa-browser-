@@ -120,6 +120,7 @@ android {
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+    isCoreLibraryDesugaringEnabled = true
   }
   buildFeatures {
     compose = true
@@ -217,6 +218,7 @@ dependencies {
   implementation(libs.play.integrity)
   implementation("androidx.work:work-runtime-ktx:2.10.1")
   implementation("org.jsoup:jsoup:1.24.1")
+  coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
