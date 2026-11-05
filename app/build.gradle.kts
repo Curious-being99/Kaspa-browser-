@@ -172,10 +172,6 @@ secrets {
   defaultPropertiesFileName = ".env.example"
 }
 
-configurations.configureEach {
-  exclude(group = "com.google.guava", module = "listenablefuture")
-}
-
 dependencies {
   implementation("org.web3j:core:4.12.3-android")
   implementation("org.web3j:abi:4.12.3") {
