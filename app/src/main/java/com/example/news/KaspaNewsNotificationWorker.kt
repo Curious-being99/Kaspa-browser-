@@ -30,6 +30,7 @@ class KaspaNewsNotificationWorker(
 
     override suspend fun doWork(): Result {
         return try {
+            if (!canPostNotifications()) return Result.success()
             val articles = fetchLatestKaspaFeeds()
             if (articles.isEmpty()) return Result.success()
 
@@ -68,6 +69,13 @@ class KaspaNewsNotificationWorker(
         } catch (_: Exception) {
             Result.retry()
         }
+    }
+
+    private fun canPostNotifications(): Boolean {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return false
+        return NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()
     }
 
     private fun classify(text: String): String {
