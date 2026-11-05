@@ -1,8 +1,11 @@
 package com.example.util
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.os.Bundle
+import android.os.Debug
+import android.os.Process
 import android.os.Parcel
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -32,6 +35,57 @@ class BrowserTabWebViewManager {
     fun getWebView(tabId: String): WebView? = webViewMap[tabId]
 
     fun getAllWebViews(): Map<String, WebView> = webViewMap.toMap()
+
+    /**
+     * Captures a point-in-time memory snapshot for device profiling.
+     *
+     * WebView renderers commonly run in isolated processes, so app PSS and renderer
+     * PSS are reported separately. A zero renderer count means Android did not expose
+     * a matching renderer process at the time of sampling; it is not proof of zero use.
+     */
+    @Suppress("DEPRECATION")
+    fun memorySnapshot(context: Context): BrowserMemorySnapshot {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val appPssKb = activityManager.getProcessMemoryInfo(intArrayOf(Process.myPid()))
+            .firstOrNull()?.totalPss ?: 0
+
+        val rendererProcesses = activityManager.runningAppProcesses.orEmpty().filter { process ->
+            process.processName.startsWith("${context.packageName}:") &&
+                (process.processName.contains("sandboxed_process", ignoreCase = true) ||
+                    process.processName.contains("privileged_process", ignoreCase = true))
+        }
+        val rendererPssKb = if (rendererProcesses.isEmpty()) {
+            0
+        } else {
+            activityManager.getProcessMemoryInfo(rendererProcesses.map { it.pid }.toIntArray())
+                .sumOf { it.totalPss }
+        }
+
+        val views = webViewMap.values.toList()
+        return BrowserMemorySnapshot(
+            timestampMs = System.currentTimeMillis(),
+            liveWebViewCount = views.size,
+            attachedWebViewCount = views.count { it.parent != null },
+            appPssKb = appPssKb,
+            rendererProcessCount = rendererProcesses.size,
+            rendererPssKb = rendererPssKb,
+            javaHeapUsedBytes = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory(),
+            nativeHeapAllocatedBytes = Debug.getNativeHeapAllocatedSize()
+        )
+    }
+
+    fun logMemorySnapshot(context: Context, reason: String): BrowserMemorySnapshot {
+        val snapshot = memorySnapshot(context)
+        android.util.Log.i(
+            "BrowserMemory",
+            "reason=$reason liveWebViews=${snapshot.liveWebViewCount} " +
+                "attachedWebViews=${snapshot.attachedWebViewCount} " +
+                "appPssKb=${snapshot.appPssKb} rendererProcesses=${snapshot.rendererProcessCount} " +
+                "rendererPssKb=${snapshot.rendererPssKb} javaHeapBytes=${snapshot.javaHeapUsedBytes} " +
+                "nativeHeapBytes=${snapshot.nativeHeapAllocatedBytes}"
+        )
+        return snapshot
+    }
 
     fun getOrCreateWebView(
         tabId: String,
