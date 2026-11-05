@@ -2396,6 +2396,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 androidx.compose.runtime.key(activeTabId) {
                     com.example.browser.engine.CefriumRendererSurface(
                         initialUrl = urlInput,
+                        navigationSessionId = navigationSessionId,
                         modifier = Modifier
                             .fillMaxSize()
                             .clipToBounds()
