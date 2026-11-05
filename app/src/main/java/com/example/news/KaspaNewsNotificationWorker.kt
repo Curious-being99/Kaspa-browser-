@@ -92,7 +92,7 @@ class KaspaNewsNotificationWorker(
         }
     }
 
-    private fun postArticleNotification(
+    private suspend fun postArticleNotification(
         title: String,
         description: String,
         source: String,
