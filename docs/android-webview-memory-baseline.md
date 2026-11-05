@@ -25,7 +25,7 @@ tools/android-browser-memory-baseline.sh -s DEVICE_SERIAL -l five-tabs-mixed -n 
 tools/android-browser-memory-baseline.sh -s DEVICE_SERIAL -l repeated-open-close -n 6 -i 10
 ```
 
-The script records device/build/provider details, host-process `dumpsys meminfo`, process listings, ActivityManager's renderer connection information, and per-process meminfo for package-named processes. Some Android releases expose isolated renderer PIDs differently. Verify renderer PIDs against the ActivityManager connection output and include every app-owned renderer in the total; do not treat an empty renderer list as zero renderer memory.
+The script records device/build/provider details, host-process `dumpsys meminfo`, the full process list, and the full ActivityManager process-connection dump. Renderer processes often run under the WebView provider's process name rather than your app package, so package-name filtering is not sufficient. Identify each isolated PID from the `Isolated` / `SandboxedProcessService` connection records, then run `adb shell dumpsys meminfo RENDERER_PID` for every renderer owned by this app. Include all app-owned renderers in the total; do not treat an empty app-package process list as zero renderer memory.
 
 ## Required scenarios
 
