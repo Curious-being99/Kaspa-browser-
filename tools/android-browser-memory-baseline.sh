@@ -65,17 +65,16 @@ for ((sample=1; sample<=SAMPLES; sample++)); do
     "${ADB[@]}" shell dumpsys meminfo "$PACKAGE"
     echo
     echo "===== APP / WEBVIEW RENDERER PROCESS LIST ====="
-    "${ADB[@]}" shell ps -A -o PID,NAME | tr -d '\r' | awk -v pkg="$PACKAGE" 'index($0,pkg) || (index($0,"sandboxed_process") && index($0,pkg))'
+    "${ADB[@]}" shell ps -A -o PID,NAME
     echo
-    echo "===== APP PROCESS CONNECTIONS ====="
-    "${ADB[@]}" shell dumpsys activity processes "$PACKAGE" | grep -E -B 3 -A 5 'SandboxedProcessService|sandboxed_process|privileged_process' || true
+    echo "===== FULL APP PROCESS CONNECTIONS (FIND ISOLATED RENDERER PID) ====="
+    "${ADB[@]}" shell dumpsys activity processes "$PACKAGE"
     echo
-    echo "===== PER-PROCESS MEMINFO (PACKAGE-NAMED PROCESSES) ====="
-    while read -r pid name; do
-      [[ "$pid" =~ ^[0-9]+$ ]] || continue
-      echo "--- pid=$pid process=$name ---"
-      "${ADB[@]}" shell dumpsys meminfo "$pid"
-    done < <("${ADB[@]}" shell ps -A -o PID,NAME | tr -d '\r' | awk -v pkg="$PACKAGE" 'index($0,pkg) {print $1, $2}')
+    echo "===== HOST PROCESS MEMINFO ====="
+    "${ADB[@]}" shell dumpsys meminfo "$PACKAGE"
+    echo
+    echo "Renderer PIDs must be identified from the Isolated/SandboxedProcessService connection records above."
+    echo "Run: adb shell dumpsys meminfo RENDERER_PID for each app-owned renderer PID and include all in the total."
   } > "$FILE" 2>&1
   if (( sample < SAMPLES )); then sleep "$INTERVAL"; fi
 done
