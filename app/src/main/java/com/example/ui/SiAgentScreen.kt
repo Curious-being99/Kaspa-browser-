@@ -1530,6 +1530,7 @@ suspend fun executeSiAgentCommand(
         normalizedInput.startsWith("look up ") -> trimmed.substringAfter("look up ", "").trim()
         normalizedInput.startsWith("search the web for ") -> trimmed.substringAfter("search the web for ", "").trim()
         normalizedInput.startsWith("find online ") -> trimmed.substringAfter("find online ", "").trim()
+        normalizedInput.startsWith("query ") -> trimmed.substringAfter(" ", "").trim()
         else -> null
     }?.takeIf { it.isNotBlank() }
 
@@ -1563,6 +1564,10 @@ suspend fun executeSiAgentCommand(
     }
 
     if (!groqResult.isNullOrBlank()) {
+        if (webResearch != null) {
+            val sourceList = webResearch.sources.joinToString("\\n") { "- ${it.title}: ${it.url}" }
+            return "$groqResult\\n\\nSources:\\n$sourceList"
+        }
         return groqResult
     }
 
@@ -1702,7 +1707,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.startsWith("help") || lower.startsWith("command") || lower.startsWith("menu") || lower.isEmpty() -> {
-            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kb — Live KB KCC-20 balance and indexed price\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/clear — Clear chat"
+            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kb — Live KB KCC-20 balance and indexed price\n/search <query> — Search and crawl public web sources\n/crawl <https-url> — Extract a public HTTPS page\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/clear — Clear chat"
         }
 
         else -> {
