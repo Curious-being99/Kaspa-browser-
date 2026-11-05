@@ -446,7 +446,7 @@ class DecentralViewModel(
 
                     val isInvalidYoutube = item.category == "YouTube" && (item.videoId.isNullOrBlank() || item.videoId.length != 11)
 
-                    !isUnavailable && !isFakeOrCommunity && !isFakeXFeed && !isKaspaCurrencyYoutube && !isInvalidYoutube &&
+                    !isUnavailable && !isFakeOrCommunity && !isFakeXFeed && !isKaspaCurrencyYoutube && !isInvalidYoutube
                 }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
