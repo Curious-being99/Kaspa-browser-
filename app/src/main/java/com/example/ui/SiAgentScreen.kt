@@ -1510,7 +1510,7 @@ suspend fun executeSiAgentCommand(
 ): String {
     val trimmed = input.trim()
     val localCommand = trimmed.lowercase().removePrefix("/")
-    val crawlMatch = Regex("""^(?:/crawl|crawl)\s+(https?://\\S+|[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}\\S*)$""", RegexOption.IGNORE_CASE)
+    val crawlMatch = Regex("""^(?:/crawl|crawl)\s+(https?://\S+|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\S*)$""", RegexOption.IGNORE_CASE)
         .find(trimmed)
     if (crawlMatch != null) {
         val target = crawlMatch.groupValues[1].trimEnd('.', ',', ')', ']')
