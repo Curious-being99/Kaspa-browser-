@@ -24,7 +24,7 @@ jobs:
           java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-37 build-tools;37.0.0'
+          packages: 'platform-tools'
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
@@ -64,7 +64,7 @@ jobs:
       - name: Install emulator and API 37 image
         run: |
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager "emulator" "system-images;android-37;google_apis;x86_64"
+          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0" "emulator" "system-images;android-37;google_apis;x86_64"
           echo "${ANDROID_HOME}/emulator" >> "$GITHUB_PATH"
           echo "${ANDROID_HOME}/platform-tools" >> "$GITHUB_PATH"
           test -x "${ANDROID_HOME}/emulator/emulator"
