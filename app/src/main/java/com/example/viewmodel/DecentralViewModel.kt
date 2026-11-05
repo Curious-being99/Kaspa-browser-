@@ -497,7 +497,18 @@ class DecentralViewModel(
         }
 
         val appIcon = runCatching {
-            android.graphics.BitmapFactory.decodeResource(context.resources, com.example.R.mipmap.ic_launcher)
+            val drawable = context.packageManager.getApplicationIcon(context.applicationInfo)
+            val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 128
+            val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 128
+            android.graphics.Bitmap.createBitmap(
+                width.coerceAtMost(512),
+                height.coerceAtMost(512),
+                android.graphics.Bitmap.Config.ARGB_8888
+            ).also { bitmap ->
+                val canvas = android.graphics.Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+            }
         }.getOrNull()
 
         val articleImage = featuredArticle?.imageUrl
@@ -551,7 +562,7 @@ class DecentralViewModel(
         )
 
         val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(com.example.R.mipmap.ic_launcher)
+            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
             .setLargeIcon(appIcon)
             .setContentTitle(headline)
             .setContentText(detail)
