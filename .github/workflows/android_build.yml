@@ -47,12 +47,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-37 build-tools;37.0.0'
+          packages: 'platform-tools'
 
       - name: Accept Android SDK Licenses & Install API 36 Components
         run: |
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0" "platform-tools"
 
       - name: Verify Gradle installation
         run: gradle --version
