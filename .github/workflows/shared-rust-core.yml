@@ -37,3 +37,52 @@ jobs:
         run: cargo test --manifest-path kaspasearch-core/Cargo.toml
       - name: Validate Linux CEF smoke-test script
         run: python3 -m py_compile desktop/linux/cef/tests/render_smoke.py
+
+  linux-cef-render-smoke:
+    name: Build Linux CEF and render a real webpage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux CEF build and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake ninja-build pkg-config python3 xvfb xauth \
+            libasound2-dev libatk1.0-dev libatk-bridge2.0-dev libatspi2.0-dev \
+            libdbus-1-dev libdrm-dev libgbm-dev libglib2.0-dev libgtk-3-dev \
+            libnss3-dev libpango1.0-dev libx11-xcb-dev libxcomposite-dev \
+            libxdamage-dev libxext-dev libxfixes-dev libxkbcommon-dev \
+            libxrandr-dev libxrender-dev libxshmfence-dev libxtst-dev
+
+      - name: Download pinned official CEF Linux x64 distribution
+        env:
+          CEF_VERSION: 154.0.34+g14c5a08+chromium-154.0.8037.98
+        run: |
+          set -euo pipefail
+          archive="cef_binary_${CEF_VERSION}_linux64.tar.bz2"
+          url="https://cef-builds.spotifycdn.com/${archive}"
+          encoded_url="${url//+/%2B}"
+          curl --fail --location --retry 3 --output "${archive}.sha1" "${encoded_url}.sha1"
+          curl --fail --location --retry 3 --output "${archive}" "${encoded_url}"
+          expected="$(tr -d '[:space:]' < "${archive}.sha1")"
+          printf '%s  %s\n' "${expected}" "${archive}" | sha1sum --check --strict
+          tar -xjf "${archive}"
+          echo "CEF_ROOT=$PWD/cef_binary_${CEF_VERSION}_linux64" >> "$GITHUB_ENV"
+
+      - name: Configure native Linux CEF host
+        run: |
+          cmake -S desktop/linux/cef -B build/linux-cef -G Ninja \
+            -DCEF_ROOT="$CEF_ROOT" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile native Linux CEF executable
+        run: cmake --build build/linux-cef --target kaspabrowser-cef --parallel 2
+
+      - name: Launch CEF and render a local webpage under Xvfb
+        env:
+          KASPABROWSER_CEF_HOST: build/linux-cef/bin/kaspabrowser-cef
+        run: |
+          set -euo pipefail
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+            python3 desktop/linux/cef/tests/render_smoke.py
