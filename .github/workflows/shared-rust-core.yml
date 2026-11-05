@@ -80,9 +80,14 @@ jobs:
         run: cmake --build build/linux-cef --target kaspabrowser-cef --parallel 2
 
       - name: Launch CEF and render a local webpage under Xvfb
-        env:
-          KASPABROWSER_CEF_HOST: build/linux-cef/bin/kaspabrowser-cef
         run: |
           set -euo pipefail
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
+          host="$(find build/linux-cef -type f -name kaspabrowser-cef -perm -u+x -print -quit)"
+          if [[ -z "$host" ]]; then
+            echo "CEF build completed but no executable named kaspabrowser-cef was found."
+            find build/linux-cef -maxdepth 5 -type f -printf '%p\\n' | sort
+            exit 1
+          fi
+          echo "Using CEF executable: $host"
+          KASPABROWSER_CEF_HOST="$host" xvfb-run --auto-servernum --server-args="-screen 0 1280x800x24" \
             python3 desktop/linux/cef/tests/render_smoke.py
