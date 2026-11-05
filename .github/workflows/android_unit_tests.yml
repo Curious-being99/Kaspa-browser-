@@ -21,14 +21,14 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: 'platform-tools'
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.3.1'
+          gradle-version: '9.7.0'
       - run: gradle testDebugUnitTest --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
@@ -40,7 +40,7 @@ jobs:
           if-no-files-found: warn
 
   kaspa-dapp-webview-emulator:
-    name: Kaspa dApp WebView emulator tests
+    name: Kaspa dApp Cefrium migration emulator tests
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
@@ -52,19 +52,19 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 emulator'
+          packages: 'platform-tools platforms;android-37 build-tools;37.0.0 emulator'
       - name: Install Linux libraries required by Android Emulator
         run: |
           sudo apt-get update
           sudo apt-get install --yes libpulse0
           ldconfig -p | grep -F 'libpulse.so.0'
-      - name: Install emulator and API 35 image
+      - name: Install emulator and API 37 image
         run: |
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager "emulator" "system-images;android-35;google_apis;x86_64"
+          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0" "emulator" "system-images;android-37;google_apis;x86_64"
           echo "${ANDROID_HOME}/emulator" >> "$GITHUB_PATH"
           echo "${ANDROID_HOME}/platform-tools" >> "$GITHUB_PATH"
           test -x "${ANDROID_HOME}/emulator/emulator"
@@ -72,23 +72,23 @@ jobs:
           adb version
       - uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.3.1'
+          gradle-version: '9.7.0'
           cache-disabled: true
-      - name: Create and verify API 35 AVD in explicit shared location
+      - name: Create and verify API 37 AVD in explicit shared location
         run: |
           set -Eeuo pipefail
           echo "ANDROID_USER_HOME=$ANDROID_USER_HOME"
           echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
           mkdir -p "$ANDROID_AVD_HOME"
-          echo "no" | avdmanager create avd --force --name kaspa-api35 --package "system-images;android-35;google_apis;x86_64" --device "pixel_2"
+          echo "no" | avdmanager create avd --force --name kaspa-api37 --package "system-images;android-37;google_apis;x86_64" --device "pixel_2"
           echo "AVD registry files:"
           find "$ANDROID_USER_HOME" -maxdepth 4 -type f -name "*.ini" -print
           echo "AVD directories:"
           find "$ANDROID_AVD_HOME" -maxdepth 2 -type d -print
-          test -f "$ANDROID_AVD_HOME/kaspa-api35.ini"
-          test -d "$ANDROID_AVD_HOME/kaspa-api35.avd"
+          test -f "$ANDROID_AVD_HOME/kaspa-api37.ini"
+          test -d "$ANDROID_AVD_HOME/kaspa-api37.avd"
           "${ANDROID_HOME}/emulator/emulator" -list-avds | tee "$RUNNER_TEMP/avd-list.txt"
-          grep -Fxq "kaspa-api35" "$RUNNER_TEMP/avd-list.txt"
+          grep -Fxq "kaspa-api37" "$RUNNER_TEMP/avd-list.txt"
       - name: Boot emulator and run instrumentation tests
         timeout-minutes: 45
         run: |
@@ -96,9 +96,9 @@ jobs:
           EMULATOR="${ANDROID_HOME}/emulator/emulator"
           ADB="${ANDROID_HOME}/platform-tools/adb"
           test -x "$EMULATOR"
-          test -f "$ANDROID_AVD_HOME/kaspa-api35.ini"
+          test -f "$ANDROID_AVD_HOME/kaspa-api37.ini"
           "$ADB" start-server
-          "$EMULATOR" -avd kaspa-api35 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -wipe-data -no-metrics -gpu swiftshader_indirect -memory 4096 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          "$EMULATOR" -avd kaspa-api37 -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -no-snapshot-save -wipe-data -no-metrics -gpu swiftshader_indirect -memory 4096 -cores 2 > "$RUNNER_TEMP/emulator.log" 2>&1 &
           EMULATOR_PID=$!
           cleanup() {
             "$ADB" -s emulator-5554 emu kill >/dev/null 2>&1 || true

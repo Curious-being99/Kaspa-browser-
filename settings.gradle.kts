@@ -18,6 +18,7 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    maven("https://codeberg.org/api/packages/cefrium/maven")
   }
 }
 

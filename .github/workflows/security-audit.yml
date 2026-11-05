@@ -47,7 +47,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -60,7 +60,7 @@ jobs:
         if: matrix.language == 'java-kotlin'
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          packages: 'platform-tools platforms;android-37.0 build-tools;37.0.0'
 
       - name: Accept Android SDK licenses
         if: matrix.language == 'java-kotlin'
@@ -70,7 +70,7 @@ jobs:
         if: matrix.language == 'java-kotlin'
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.3.1'
+          gradle-version: '9.7.0'
 
       - name: Generate CI debug keystore
         if: matrix.language == 'java-kotlin'

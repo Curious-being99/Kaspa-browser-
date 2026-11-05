@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 
 plugins {
   alias(libs.plugins.android.application)
+  id("com.cefrium") version "0.17.0"
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
@@ -60,11 +61,11 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk { version = release(37) }
 
   defaultConfig {
     applicationId = "org.kaspa.browser"
-    minSdk = 24
+    minSdk = 29
     targetSdk = 36
 
     versionCode = resolvedVersionCode
@@ -199,6 +200,13 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.swiperefreshlayout)
+  // Cefrium Chromium engine spike. WebView remains temporarily for staged migration.
+  implementation("com.cefrium:cefrium-sdk:0.17.0")
+  implementation("com.cefrium:cefrium-compose:0.17.0")
+  implementation("androidx.appcompat:appcompat:1.7.0")
+  implementation("androidx.core:core:1.16.0")
+  implementation("androidx.mediarouter:mediarouter:1.7.0")
+  implementation("androidx.browser:browser:1.8.0")
   implementation(libs.androidx.webkit)
   implementation(libs.androidx.biometric)
   implementation(libs.coil.compose)
