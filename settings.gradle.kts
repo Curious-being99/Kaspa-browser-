@@ -8,6 +8,7 @@ pluginManagement {
       }
     }
     mavenCentral()
+    maven("https://codeberg.org/api/packages/cefrium/maven")
     gradlePluginPortal()
   }
 }
@@ -18,6 +19,7 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    maven("https://codeberg.org/api/packages/cefrium/maven")
   }
 }
 
