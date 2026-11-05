@@ -5,6 +5,7 @@ import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.Jsoup
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -74,7 +75,7 @@ object AndroidWebResearch {
             val cleanQuery = query.trim().take(240)
             if (cleanQuery.isBlank()) return@withContext ResearchResult(cleanQuery, emptyList(), "Enter a search query.")
             try {
-                val searchUrl = HttpUrl.parse(SEARCH_URL)?.newBuilder()
+                val searchUrl = SEARCH_URL.toHttpUrlOrNull()?.newBuilder()
                     ?.addQueryParameter("q", cleanQuery)?.build()
                     ?: return@withContext ResearchResult(cleanQuery, emptyList(), "Could not construct search URL.")
                 val html = fetchText(searchUrl.toString(), MAX_BODY_BYTES)
@@ -83,7 +84,7 @@ object AndroidWebResearch {
                 val results = doc.select("a.result__a, a[data-testid=result-title-a]")
                     .mapNotNull { element ->
                         val raw = element.absUrl("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                        val parsedLink = HttpUrl.parse(raw)
+                        val parsedLink = raw.toHttpUrlOrNull()
                         val destination = if (parsedLink?.host?.endsWith("duckduckgo.com") == true) parsedLink.queryParameter("uddg") ?: raw else raw
                         val safe = normalizePublicHttpsUrl(destination) ?: return@mapNotNull null
                         val title = element.text().trim().take(220).ifBlank { safe }
