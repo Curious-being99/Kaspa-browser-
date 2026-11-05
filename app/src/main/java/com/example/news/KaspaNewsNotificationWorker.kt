@@ -22,6 +22,8 @@ import com.example.MainActivity
 import com.example.data.fetchLatestKaspaFeeds
 import com.example.data.getKaspaNewsDeduplicationKey
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class KaspaNewsNotificationWorker(
     appContext: Context,
@@ -57,7 +59,8 @@ class KaspaNewsNotificationWorker(
                     article.desc,
                     article.author.ifBlank { article.category },
                     article.url,
-                    classify(article.title + " " + article.desc)
+                    classify(article.title + " " + article.desc),
+                    article.imageUrl
                 )
             }
 
@@ -94,7 +97,8 @@ class KaspaNewsNotificationWorker(
         description: String,
         source: String,
         url: String,
-        category: String
+        category: String,
+        imageUrl: String?
     ) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -121,11 +125,65 @@ class KaspaNewsNotificationWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val body = description.ifBlank { "Open to read the full Kaspa update." }
+        val appIcon = runCatching {
+            val drawable = applicationContext.packageManager.getApplicationIcon(applicationContext.applicationInfo)
+            val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 128
+            val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 128
+            android.graphics.Bitmap.createBitmap(
+                width.coerceAtMost(512),
+                height.coerceAtMost(512),
+                android.graphics.Bitmap.Config.ARGB_8888
+            ).also { bitmap ->
+                val canvas = android.graphics.Canvas(bitmap)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+            }
+        }.getOrNull()
+        val articleImage = imageUrl
+            ?.takeIf { it.startsWith("https://", ignoreCase = true) }
+            ?.let { target ->
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(4, TimeUnit.SECONDS)
+                            .readTimeout(4, TimeUnit.SECONDS)
+                            .callTimeout(6, TimeUnit.SECONDS)
+                            .build()
+                        val request = okhttp3.Request.Builder()
+                            .url(target)
+                            .header("User-Agent", "KaspaBrowser/1.0")
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            val responseBody = response.body ?: return@use null
+                            if (!response.isSuccessful || responseBody.contentLength() > 4L * 1024L * 1024L) return@use null
+                            val bytes = responseBody.bytes()
+                            if (bytes.isEmpty() || bytes.size > 4 * 1024 * 1024) return@use null
+                            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@use null
+                            val sample = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 1024)
+                            android.graphics.BitmapFactory.decodeByteArray(
+                                bytes, 0, bytes.size,
+                                android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                            )
+                        }
+                    }.getOrNull()
+                }
+            }
+        val style = if (articleImage != null) {
+            NotificationCompat.BigPictureStyle()
+                .bigPicture(articleImage)
+                .setBigContentTitle(title)
+                .setSummaryText("Source: $source")
+        } else {
+            NotificationCompat.BigTextStyle().bigText("$body\n\nSource: $source")
+        }
         val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
+            .setLargeIcon(appIcon)
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$body\n\nSource: $source"))
+            .setStyle(style)
             .setSubText(category)
             .setContentIntent(pendingIntent)
             .setPriority(if (category == "Breaking Kaspa News") NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
