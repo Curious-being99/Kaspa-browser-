@@ -36,14 +36,16 @@ class SiWebCrawler(
         .callTimeout(10, TimeUnit.SECONDS)
         .followRedirects(false)
         .followSslRedirects(false)
-        .dns { hostname ->
-            Dns.SYSTEM.lookup(hostname).also { addresses ->
+        .dns(object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                val addresses = Dns.SYSTEM.lookup(hostname)
                 require(addresses.isNotEmpty() && addresses.all { address ->
                     !address.isAnyLocalAddress && !address.isLoopbackAddress &&
                         !address.isLinkLocalAddress && !address.isSiteLocalAddress
                 }) { "Non-public DNS target blocked" }
+                return addresses
             }
-        }
+        })
         .build(),
     private val maxPages: Int = 8,
     private val maxDepth: Int = 2,
