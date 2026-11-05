@@ -33,6 +33,12 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
+      - name: Block public release until Android launch regression is resolved
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
+        run: |
+          echo "::error::Public release blocked: Cefrium Android runtime launch and APK-size regression have not passed on-device validation. Do not publish this build."
+          exit 1
+
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
