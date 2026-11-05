@@ -3,6 +3,9 @@ package com.example.network
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Dns
+import kotlinx.coroutines.delay
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
@@ -31,8 +34,16 @@ class SiWebCrawler(
         .connectTimeout(7, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .callTimeout(10, TimeUnit.SECONDS)
-        .followRedirects(true)
+        .followRedirects(false)
         .followSslRedirects(false)
+        .dns { hostname ->
+            Dns.SYSTEM.lookup(hostname).also { addresses ->
+                require(addresses.isNotEmpty() && addresses.all { address ->
+                    !address.isAnyLocalAddress && !address.isLoopbackAddress &&
+                        !address.isLinkLocalAddress && !address.isSiteLocalAddress
+                }) { "Non-public DNS target blocked" }
+            }
+        }
         .build(),
     private val maxPages: Int = 8,
     private val maxDepth: Int = 2,
@@ -107,7 +118,7 @@ class SiWebCrawler(
                 }
             }
             // Keep requests polite and avoid hammering a single host.
-            if (queue.isNotEmpty() && pages.size < maxPages) Thread.sleep(350)
+            if (queue.isNotEmpty() && pages.size < maxPages) delay(350)
         }
         SiCrawlResult(pages, blocked, skipped)
     }
