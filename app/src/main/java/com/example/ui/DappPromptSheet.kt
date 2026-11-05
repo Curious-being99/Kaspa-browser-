@@ -203,6 +203,30 @@ fun DappPromptBottomSheet(
                                                 color = KaspaTea
                                             )
                                         }
+                                        if (prompt.kcc20Tokens.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            androidx.compose.foundation.lazy.LazyRow(
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                                            ) {
+                                                items(prompt.kcc20Tokens.size) { idx ->
+                                                    val token = prompt.kcc20Tokens[idx]
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = KaspaTea.copy(alpha = 0.12f),
+                                                        border = androidx.compose.foundation.BorderStroke(0.5.dp, KaspaTea.copy(alpha = 0.35f))
+                                                    ) {
+                                                        Text(
+                                                            text = "${token.balanceFormatted} ${token.ticker}",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = KaspaTea,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 

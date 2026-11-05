@@ -135,7 +135,15 @@ data class Kcc20WalletToken(
     val imageUrl: String?,
     val bondingCurveProgressKas: Double? = null,
     val isGraduated: Boolean = false
-)
+) {
+    val balanceFormatted: String
+        get() {
+            val raw = balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+            if (raw == java.math.BigDecimal.ZERO) return "0"
+            val scaled = raw.movePointLeft(decimals).stripTrailingZeros()
+            return scaled.toPlainString()
+        }
+}
 
 internal fun normalizeKascovNetwork(value: String): String? {
     val normalized = value.trim().lowercase().replace('_', '-').replace(' ', '-')

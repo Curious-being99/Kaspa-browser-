@@ -193,6 +193,10 @@ object KaspaDappBridge {
                             val balanceKasStr = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
                                 com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(balanceSompi)
                             ) + " KAS"
+                            val activeKcc20 = viewModel.kcc20Tokens.value.filter {
+                                (it.balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > java.math.BigDecimal.ZERO
+                            }
+                            viewModel.refreshKcc20Tokens()
                             mainHandler.post {
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
                                     origin = origin,
@@ -200,6 +204,7 @@ object KaspaDappBridge {
                                     accountAddress = keyPair.kaspaAddress,
                                     accountHandle = account?.handle.orEmpty(),
                                     balanceKas = balanceKasStr,
+                                    kcc20Tokens = activeKcc20,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
                                         ensureUnlocked(onSuccess = {
@@ -618,6 +623,7 @@ object KaspaDappBridge {
                                             mainHandler.post {
                                                 signingOutcome.fold(
                                                     onSuccess = { signedResult ->
+                                                        viewModel.onSwapTransactionSigned(prepared.originalJson.toString())
                                                         viewModel.triggerPostSwapRefresh()
                                                         respond(signedResult)
                                                     },
@@ -751,6 +757,8 @@ object KaspaDappBridge {
 
                                             mainHandler.post {
                                                 if (receipt?.accepted == true) {
+                                                    viewModel.onSwapTransactionSigned(signedJson)
+                                                    viewModel.triggerPostSwapRefresh()
                                                     respond(
                                                         JSONObject()
                                                             .put("commitTxId", realTxId)
@@ -1026,6 +1034,8 @@ object KaspaDappBridge {
                                                 } else if (!receipt.accepted) {
                                                     respond(errorCode = -32000, errorMessage = receipt.error)
                                                 } else {
+                                                    viewModel.onSwapTransactionSigned(txJson)
+                                                    viewModel.triggerPostSwapRefresh()
                                                     respond(receipt.transactionId)
                                                 }
                                             }

@@ -260,6 +260,14 @@ object Kcc20NoteScanner {
     // Keys: targetScriptHash (64-char hex) and/or "${txId.lowercase()}:$outputIndex"
     private val noteRedeemScriptCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    // Global thread-safe in-memory cache of discovered notes
+    // Keys: "${txId.lowercase()}:$outputIndex" and targetScriptHash / p2shAddress
+    private val cachedNotesByOutpoint = java.util.concurrent.ConcurrentHashMap<String, DiscoveredNote>()
+    private val cachedNoteAddressesByToken = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+
+    fun getCachedNotes(): List<DiscoveredNote> =
+        cachedNotesByOutpoint.values.distinctBy { "${it.txId.lowercase()}:${it.outputIndex}" }
+
     fun registerRedeemScript(txId: String?, outputIndex: Int?, targetScriptHash: String?, redeemScriptHex: String) {
         if (redeemScriptHex.isBlank()) return
         val cleanRedeem = redeemScriptHex.lowercase()
@@ -279,6 +287,219 @@ object Kcc20NoteScanner {
             noteRedeemScriptCache["${txId.lowercase()}:$outputIndex"]?.let { return it }
         }
         return null
+    }
+
+    /**
+     * Builds a unified ScanResult from a list of notes, aggregating active token balances
+     * and transaction history.
+     */
+    fun buildScanResultFromNotes(
+        notes: List<DiscoveredNote>,
+        knownContractIds: List<String>,
+        isTestnet: Boolean
+    ): ScanResult {
+        val verifiedNotes = notes.distinctBy { "${it.txId.lowercase()}:${it.outputIndex}" }
+        val allTrackedIds = (verifiedNotes.map { it.covenantId.lowercase() } + knownContractIds.map { it.lowercase() }).distinct()
+        val walletTokens = mutableListOf<Kcc20WalletToken>()
+        val historyItems = mutableListOf<Kcc20TransactionHistoryItem>()
+
+        for (covenantId in allTrackedIds) {
+            val liveNotesForToken = verifiedNotes.filter { it.covenantId.equals(covenantId, ignoreCase = true) && it.isUnspent }
+            val totalRawAmount = liveNotesForToken.sumOf { it.rawTokenAmount }
+            val meta = resolveMetadata(covenantId, isTestnet)
+
+            walletTokens.add(
+                Kcc20WalletToken(
+                    contractId = covenantId,
+                    ticker = meta.ticker,
+                    name = meta.name,
+                    balanceRaw = totalRawAmount.toString(),
+                    decimals = meta.decimals,
+                    holderCount = null,
+                    validationStatus = if (totalRawAmount > 0) "verified_onchain_note" else "verified",
+                    marketPriceKas = null,
+                    marketPriceUsd = null,
+                    marketPriceSource = meta.launchpad,
+                    priceUpdatedAtMs = System.currentTimeMillis(),
+                    priceChange24hPercent = null,
+                    imageUrl = meta.imageUrl,
+                    bondingCurveProgressKas = null,
+                    isGraduated = true
+                )
+            )
+        }
+
+        for (note in verifiedNotes) {
+            val meta = resolveMetadata(note.covenantId, isTestnet)
+            val displayAmt = formatTokenAmount(note.rawTokenAmount, meta.decimals)
+            historyItems.add(
+                Kcc20TransactionHistoryItem(
+                    txId = note.txId,
+                    tokenContractId = note.covenantId,
+                    ticker = meta.ticker,
+                    operation = if (note.isUnspent) "RECEIVE" else "SPEND",
+                    amount = displayAmt.toDoubleOrNull() ?: note.rawTokenAmount.toDouble(),
+                    amountRaw = note.rawTokenAmount.toString(),
+                    fromAddress = "Covenant Note Pool",
+                    toAddress = note.p2shAddress,
+                    timestamp = note.blockTime,
+                    status = if (note.isUnspent) "UNSPENT NOTE" else "SPENT NOTE",
+                    feeKas = note.sompiAmount.toDouble() / 100_000_000.0,
+                    protocolType = KaspaProtocolType.KCC20_COVENANT
+                )
+            )
+        }
+
+        return ScanResult(
+            walletTokens = walletTokens,
+            historyItems = historyItems.distinctBy { "${it.txId}:${it.tokenContractId}" }.sortedByDescending { it.timestamp },
+            discoveredNotes = verifiedNotes
+        )
+    }
+
+    /**
+     * Immediately registers a pending swap transaction into the note cache so the user's
+     * KCC-20 token balance reflects the swap with ZERO delay.
+     * Marks spent notes as spent and instantiates newly received notes immediately as unspent/pending.
+     */
+    fun registerPendingSwapTransaction(
+        txJsonString: String,
+        walletAddress: String,
+        walletPublicKeyHex: String,
+        network: String = "testnet-10"
+    ): ScanResult {
+        if (txJsonString.isBlank()) return ScanResult(emptyList(), emptyList(), emptyList())
+        val cleanAddr = walletAddress.trim().lowercase()
+        val cleanPubKey = walletPublicKeyHex.trim().lowercase().removePrefix("0x")
+        val isTestnet = cleanAddr.startsWith("kaspatest:") || network.contains("testnet", ignoreCase = true)
+        val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
+
+        try {
+            val root = JSONObject(txJsonString)
+            val txObj = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
+            val inputsArray = txObj.optJSONArray("inputs") ?: JSONArray()
+            val outputsArray = txObj.optJSONArray("outputs") ?: JSONArray()
+            val txId = sequenceOf(
+                txObj.optString("transaction_id", ""),
+                txObj.optString("transactionId", ""),
+                txObj.optString("txid", ""),
+                txObj.optString("subnetwork_id", "").takeIf { it.length == 64 },
+                root.optString("txId", ""),
+                root.optString("transactionId", "")
+            ).filterNotNull().firstOrNull { it.isNotBlank() } ?: "pending_${System.currentTimeMillis()}"
+
+            // 1. Process inputs: If this swap spends an existing covenant note, mark it as spent immediately
+            for (j in 0 until inputsArray.length()) {
+                val inObj = inputsArray.optJSONObject(j) ?: continue
+                val prevOut = inObj.optJSONObject("previousOutpoint") ?: inObj.optJSONObject("previous_outpoint") ?: inObj.optJSONObject("outpoint")
+                val inTxId = prevOut?.optString("transactionId", prevOut.optString("transaction_id", ""))
+                    ?: inObj.optString("txid", inObj.optString("transactionId", ""))
+                val inIndex = prevOut?.optInt("index", prevOut.optInt("output_index", -1))
+                    ?: inObj.optInt("vout", inObj.optInt("index", -1))
+
+                if (inTxId.isNotBlank() && inIndex >= 0) {
+                    val key = "${inTxId.lowercase()}:$inIndex"
+                    val existing = cachedNotesByOutpoint[key]
+                    if (existing != null) {
+                        cachedNotesByOutpoint[key] = existing.copy(isUnspent = false)
+                    }
+                }
+
+                // Check signature script / redeem script pushes
+                val sig = inObj.optString("signature_script", inObj.optString("signatureScript", ""))
+                val redeem = inObj.optString("redeemScript", inObj.optString("redeem_script", ""))
+                val scriptText = (sig + redeem).lowercase()
+                if (scriptText.isNotBlank()) {
+                    for ((outpointKey, cached) in cachedNotesByOutpoint) {
+                        if (cached.isUnspent && (scriptText.contains(cached.targetScriptHash) || (cached.redeemScriptHex.isNotBlank() && scriptText.contains(cached.redeemScriptHex)))) {
+                            cachedNotesByOutpoint[outpointKey] = cached.copy(isUnspent = false)
+                        }
+                    }
+                }
+            }
+
+            // Extract candidate amounts from inputs & outputs
+            val candidateAmounts = mutableSetOf<Long>()
+            for (j in 0 until inputsArray.length()) {
+                val input = inputsArray.optJSONObject(j) ?: continue
+                val sig = input.optString("signature_script", input.optString("signatureScript", ""))
+                if (sig.isNotBlank()) extractCandidateAmountsFromScript(sig, candidateAmounts)
+            }
+            for (i in 0 until outputsArray.length()) {
+                val out = outputsArray.optJSONObject(i) ?: continue
+                val directAmt = out.optLong("tokenAmount", out.optLong("token_amount", out.optLong("rawAmount", 0L)))
+                if (directAmt > 0L) candidateAmounts.add(directAmt)
+            }
+
+            // 2. Process outputs: Look for newly minted / received covenant notes
+            for (i in 0 until outputsArray.length()) {
+                val out = outputsArray.optJSONObject(i) ?: continue
+                val spk = readScriptHex(out)
+                if (!Regex("^aa20([0-9a-fA-F]{64})87$").matches(spk)) continue
+                val targetHash = spk.substring(4, 68).lowercase()
+                val covenantId = resolveCovenantId(out, inputsArray)
+                val sompiAmount = readAmount(out)
+
+                var matched = false
+                var matchedAmount = 0L
+                var matchedLineage = ""
+                var matchedRedeem = ""
+
+                for ((lineage, template) in TEMPLATES) {
+                    val code = codeCache[lineage] ?: extractCodeFromInputs(inputsArray, template)
+                    if (code == null) continue
+
+                    for (amt in candidateAmounts) {
+                        if (amt <= 0L) continue
+                        val forms = listOf("p2pk", "p2sh")
+                        for (form in forms) {
+                            val candidateRedeem = buildNoteRedeem(template, cleanPubKey, amt, form, code)
+                            val p2shHash = CryptoUtils.blake2b256(hexToBytes(candidateRedeem))
+                                .joinToString("") { "%02x".format(it) }
+                            if (p2shHash.equals(targetHash, ignoreCase = true)) {
+                                matched = true
+                                matchedAmount = amt
+                                matchedLineage = lineage
+                                matchedRedeem = candidateRedeem
+                                break
+                            }
+                        }
+                        if (matched) break
+                    }
+                    if (matched) break
+                }
+
+                val finalCovenantId = covenantId ?: KNOWN_TOKENS.keys.firstOrNull() ?: "covenant_swap_note"
+                if (!matched && matchedAmount <= 0L) {
+                    matchedAmount = candidateAmounts.firstOrNull { it > 0L } ?: 1000L
+                }
+
+                val p2shAddr = CryptoUtils.encodeP2shAddress(hexToBytes(targetHash), expectedPrefix)
+                val newNote = DiscoveredNote(
+                    txId = txId,
+                    outputIndex = i,
+                    covenantId = finalCovenantId,
+                    sompiAmount = sompiAmount,
+                    rawTokenAmount = matchedAmount,
+                    scriptPublicKey = spk,
+                    targetScriptHash = targetHash,
+                    p2shAddress = p2shAddr,
+                    redeemScriptHex = matchedRedeem,
+                    lineage = matchedLineage.ifBlank { "kcc20" },
+                    blockTime = System.currentTimeMillis(),
+                    isUnspent = true
+                )
+                val outpointKey = "${txId.lowercase()}:$i"
+                cachedNotesByOutpoint[outpointKey] = newNote
+                cachedNotesByOutpoint[p2shAddr.lowercase()] = newNote
+                cachedNoteAddressesByToken.getOrPut(finalCovenantId.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(p2shAddr)
+                if (matchedRedeem.isNotBlank()) {
+                    registerRedeemScript(txId, i, targetHash, matchedRedeem)
+                }
+            }
+        } catch (_: Exception) {}
+
+        return buildScanResultFromNotes(getCachedNotes(), emptyList(), isTestnet)
     }
 
     /**
@@ -429,70 +650,24 @@ object Kcc20NoteScanner {
         val kronNotes = fetchKronNotes(cleanAddr, cleanPubKey, expectedPrefix)
         discoveredNotes.addAll(kronNotes)
 
-        // 4. Verify on-chain unspent status for all discovered notes via GET /addresses/{p2shAddress}/utxos
+        // 4. Merge previously cached notes (including any recent swap notes)
+        discoveredNotes.addAll(cachedNotesByOutpoint.values)
+
+        // 5. Verify on-chain unspent status directly via Kaspa Node GET /addresses/{p2shAddress}/utxos
         val verifiedNotes = mutableListOf<DiscoveredNote>()
-        for (note in discoveredNotes.distinctBy { "${it.txId}:${it.outputIndex}" }) {
+        for (note in discoveredNotes.distinctBy { "${it.txId.lowercase()}:${it.outputIndex}" }) {
             val isUnspent = checkNoteIsUnspent(note.p2shAddress, note.txId, note.outputIndex, rpcNodes)
-            verifiedNotes.add(note.copy(isUnspent = isUnspent))
+            val updated = note.copy(isUnspent = isUnspent)
+            verifiedNotes.add(updated)
+            val key = "${note.txId.lowercase()}:${note.outputIndex}"
+            cachedNotesByOutpoint[key] = updated
+            if (note.p2shAddress.isNotBlank()) {
+                cachedNotesByOutpoint[note.p2shAddress.lowercase()] = updated
+                cachedNoteAddressesByToken.getOrPut(note.covenantId.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(note.p2shAddress)
+            }
         }
 
-        // 5. Build transaction history items from discovered note operations
-        for (note in verifiedNotes) {
-            val meta = resolveMetadata(note.covenantId, isTestnet)
-            val displayAmt = formatTokenAmount(note.rawTokenAmount, meta.decimals)
-            historyItems.add(
-                Kcc20TransactionHistoryItem(
-                    txId = note.txId,
-                    tokenContractId = note.covenantId,
-                    ticker = meta.ticker,
-                    operation = "RECEIVE",
-                    amount = displayAmt.toDoubleOrNull() ?: note.rawTokenAmount.toDouble(),
-                    amountRaw = note.rawTokenAmount.toString(),
-                    fromAddress = "Covenant Note Pool",
-                    toAddress = cleanAddr,
-                    timestamp = note.blockTime,
-                    status = if (note.isUnspent) "UNSPENT NOTE" else "SPENT NOTE",
-                    feeKas = note.sompiAmount.toDouble() / 100_000_000.0,
-                    protocolType = KaspaProtocolType.KCC20_COVENANT
-                )
-            )
-        }
-
-        // 6. Aggregate live (unspent) notes per covenant ID into Kcc20WalletToken items
-        val allTrackedIds = (verifiedNotes.map { it.covenantId } + knownContractIds).distinct()
-        val walletTokens = mutableListOf<Kcc20WalletToken>()
-
-        for (covenantId in allTrackedIds) {
-            val liveNotesForToken = verifiedNotes.filter { it.covenantId.equals(covenantId, ignoreCase = true) && it.isUnspent }
-            val totalRawAmount = liveNotesForToken.sumOf { it.rawTokenAmount }
-            val meta = resolveMetadata(covenantId, isTestnet)
-
-            walletTokens.add(
-                Kcc20WalletToken(
-                    contractId = covenantId,
-                    ticker = meta.ticker,
-                    name = meta.name,
-                    balanceRaw = totalRawAmount.toString(),
-                    decimals = meta.decimals,
-                    holderCount = null,
-                    validationStatus = if (totalRawAmount > 0) "verified_onchain_note" else "verified",
-                    marketPriceKas = null,
-                    marketPriceUsd = null,
-                    marketPriceSource = meta.launchpad,
-                    priceUpdatedAtMs = System.currentTimeMillis(),
-                    priceChange24hPercent = null,
-                    imageUrl = meta.imageUrl,
-                    bondingCurveProgressKas = null,
-                    isGraduated = true
-                )
-            )
-        }
-
-        ScanResult(
-            walletTokens = walletTokens,
-            historyItems = historyItems.distinctBy { "${it.txId}:${it.tokenContractId}" }.sortedByDescending { it.timestamp },
-            discoveredNotes = verifiedNotes
-        )
+        buildScanResultFromNotes(verifiedNotes, knownContractIds, isTestnet)
     }
 
     /**

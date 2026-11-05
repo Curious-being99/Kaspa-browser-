@@ -253,6 +253,7 @@ class DecentralViewModel(
             val accountAddress: String,
             val accountHandle: String = "",
             val balanceKas: String = "",
+            val kcc20Tokens: List<Kcc20WalletToken> = emptyList(),
             val onApprove: () -> Unit,
             val onReject: () -> Unit
         ) : DappPromptState()
@@ -1234,10 +1235,52 @@ class DecentralViewModel(
 
     private var postSwapRefreshJob: kotlinx.coroutines.Job? = null
 
+    fun onSwapTransactionSigned(txJsonString: String) {
+        if (txJsonString.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val account = activeAccount.value ?: return@launch
+            val network = _selectedNetwork.value
+            val isMainnet = network.contains("Mainnet", ignoreCase = true)
+            val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
+            val keyPair = try {
+                val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
+                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
+            } catch (_: Exception) { null } ?: return@launch
+
+            try {
+                val pendingResult = Kcc20NoteScanner.registerPendingSwapTransaction(
+                    txJsonString = txJsonString,
+                    walletAddress = keyPair.kaspaAddress,
+                    walletPublicKeyHex = keyPair.publicKeyHex,
+                    network = network
+                )
+                if (pendingResult.walletTokens.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val currentMap = _kcc20Tokens.value.associateBy { it.contractId.lowercase() }
+                        val merged = pendingResult.walletTokens.map { token ->
+                            val existing = currentMap[token.contractId.lowercase()]
+                            if (existing != null) {
+                                existing.copy(
+                                    balanceRaw = token.balanceRaw,
+                                    validationStatus = "verified_onchain_note"
+                                )
+                            } else {
+                                token
+                            }
+                        }
+                        _kcc20Tokens.value = merged
+                    }
+                }
+            } catch (_: Exception) {}
+
+            triggerPostSwapRefresh()
+        }
+    }
+
     fun triggerPostSwapRefresh() {
         postSwapRefreshJob?.cancel()
         postSwapRefreshJob = viewModelScope.launch {
-            val intervals = listOf(0L, 2000L, 3500L, 5500L, 8500L, 13000L)
+            val intervals = listOf(0L, 800L, 1600L, 2600L, 4000L, 6500L, 10000L)
             for (delayMs in intervals) {
                 if (delayMs > 0L) {
                     kotlinx.coroutines.delay(delayMs)
