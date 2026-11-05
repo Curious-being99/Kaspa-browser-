@@ -29,7 +29,7 @@ use kaspasearch_core::linux_cef::LinuxCefEngine;
 let engine = LinuxCefEngine::launch("/path/to/kaspabrowser-cef", "https://kaspabrowser.xyz")?;
 ```
 
-The host uses CEF's Chrome runtime style for its native browser chrome (address bar,
+The host uses CEF's Chrome runtime style for its Chrome-runtime browser chrome (address bar,
 back/forward/reload controls and tab strip) rather than an Android WebView or a
 custom web-page toolbar. Runtime style is explicitly selected by both the browser-view
 and top-level-window delegates. The process adapter still currently controls one
