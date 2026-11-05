@@ -42,9 +42,15 @@ int main(int argc, char* argv[]) {
   if (subprocess >= 0) return subprocess;
   CefSettings settings;
   settings.log_severity = LOGSEVERITY_WARNING;
-#if !defined(CEF_USE_SANDBOX)
-  settings.no_sandbox = true;
-#endif
+  // Sandboxing remains enabled by default. Headless CI can explicitly opt out
+  // when it cannot install CEF's root-owned setuid sandbox helper.
+  for (int i = 1; i < argc; ++i) {
+    if (std::string(argv[i]) == "--no-sandbox") {
+      settings.no_sandbox = true;
+      break;
+    }
+  }
+  settings.root_cache_path = CefString("/tmp/kaspabrowser-cef-cache");
   CefRefPtr<KaspaBrowserApp> app(new KaspaBrowserApp(InitialUrl(argc, argv)));
   if (!CefInitialize(args, settings, app, nullptr)) return CefGetExitCode();
   std::thread reader(ReadCommands);
