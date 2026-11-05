@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-37 build-tools;37.0.0 emulator'
