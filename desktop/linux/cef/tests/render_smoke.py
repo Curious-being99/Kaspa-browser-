@@ -40,7 +40,7 @@ def main():
         threading.Thread(target=server.serve_forever, daemon=True).start()
         url = f"http://127.0.0.1:{server.server_port}/index.html"
         proc = subprocess.Popen(
-            [str(executable), f"--url={url}"],
+            [str(executable), "--no-sandbox", f"--url={url}"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=None,
