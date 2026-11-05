@@ -37,7 +37,7 @@ class KaspaNewsNotificationWorker(
             val prefs = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val seen = prefs.getStringSet(KEY_SEEN, emptySet()).orEmpty().toMutableSet()
             val initialized = prefs.getBoolean(KEY_INITIALIZED, false)
-            val currentKeys = articles.map(::getKaspaNewsDeduplicationKey).toSet()
+            val currentKeys = articles.map(::getKaspaNewsDeduplicationKey).distinct()
 
             if (!initialized) {
                 prefs.edit()
