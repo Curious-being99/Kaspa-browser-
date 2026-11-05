@@ -20,6 +20,7 @@ object AndroidWebResearch {
     private const val SEARCH_URL = "https://html.duckduckgo.com/html/"
     private const val MAX_SEARCH_RESULTS = 5
     private const val MAX_CRAWL_PAGES = 3
+    private const val MAX_FOLLOW_LINKS = 2
     private const val MAX_REDIRECTS = 3
     private const val MAX_BODY_BYTES = 1_500_000L
     private const val MAX_ROBOTS_BYTES = 32_000L
@@ -93,10 +94,19 @@ object AndroidWebResearch {
                 if (results.isEmpty()) return@withContext ResearchResult(cleanQuery, emptyList(),
                     "No parseable results. Search provider may have changed its markup or rate-limited this device.")
                 val fetched = ArrayList<Source>()
-                for (result in results) {
-                    if (fetched.size >= MAX_CRAWL_PAGES) break
-                    val content = fetchArticle(result.url)
-                    fetched += if (content.isNullOrBlank()) result else result.copy(excerpt = content, fetched = true)
+                val discoveredLinks = ArrayList<String>()
+                for (result in results.take(MAX_CRAWL_PAGES)) {
+                    val page = fetchArticle(result.url)
+                    if (page == null) {
+                        fetched += result
+                    } else {
+                        fetched += result.copy(title = page.title.ifBlank { result.title }, excerpt = page.text, fetched = true)
+                        discoveredLinks += page.links
+                    }
+                }
+                for (link in discoveredLinks.distinct().take(MAX_FOLLOW_LINKS)) {
+                    val page = fetchArticle(link) ?: continue
+                    fetched += Source(page.title.ifBlank { link }, link, page.text, true)
                 }
                 ResearchResult(cleanQuery, fetched)
             } catch (error: Exception) {
@@ -109,16 +119,19 @@ object AndroidWebResearch {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val safeUrl = normalizePublicHttpsUrl(url)
                 ?: return@withContext ResearchResult(url, emptyList(), "Only public HTTPS URLs are supported.")
-            val content = fetchArticle(safeUrl)
+            val page = fetchArticle(safeUrl)
                 ?: return@withContext ResearchResult(safeUrl, emptyList(), "Page could not be retrieved. It may block crawlers, disallow access in robots.txt, or contain no readable article text.")
-            val title = runCatching {
-                val html = fetchText(safeUrl, MAX_BODY_BYTES) ?: ""
-                Jsoup.parse(html, safeUrl).title().take(220)
-            }.getOrDefault(safeUrl)
-            ResearchResult(safeUrl, listOf(Source(title.ifBlank { safeUrl }, safeUrl, content, true)))
+            val sources = arrayListOf(Source(page.title.ifBlank { safeUrl }, safeUrl, page.text, true))
+            for (link in page.links.take(MAX_FOLLOW_LINKS)) {
+                val linkedPage = fetchArticle(link) ?: continue
+                sources += Source(linkedPage.title.ifBlank { link }, link, linkedPage.text, true)
+            }
+            ResearchResult(safeUrl, sources)
         }
 
-    private fun fetchArticle(url: String): String? {
+    private data class ExtractedPage(val title: String, val text: String, val links: List<String>)
+
+    private fun fetchArticle(url: String): ExtractedPage? {
         val normalized = normalizePublicHttpsUrl(url) ?: return null
         val uri = URI(normalized)
         val origin = "${uri.scheme}://${uri.host.lowercase()}"
@@ -130,7 +143,12 @@ object AndroidWebResearch {
         document.select("script, style, noscript, svg, nav, footer, header, aside, form, iframe, canvas").remove()
         val article = document.selectFirst("article, main, [role=main]") ?: document.body()
         val text = article?.text()?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
-        return text.take(MAX_TEXT_CHARS).takeIf { it.length >= 120 }
+        if (text.length < 120) return null
+        val links = article?.select("a[href]")?.mapNotNull { element ->
+            val candidate = normalizePublicHttpsUrl(element.absUrl("href")) ?: return@mapNotNull null
+            if (URI(candidate).host.equals(uri.host, ignoreCase = true)) candidate else null
+        }?.distinct()?.filter { it != normalized }?.take(MAX_FOLLOW_LINKS).orEmpty()
+        return ExtractedPage(document.title().take(220), text.take(MAX_TEXT_CHARS), links)
     }
 
     private fun fetchText(initialUrl: String, maxBytes: Long): String? {
