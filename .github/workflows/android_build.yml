@@ -49,10 +49,17 @@ jobs:
         with:
           packages: 'platform-tools'
 
-      - name: Accept Android SDK Licenses & Install API 36 Components
+      - name: Accept Android SDK Licenses & Install API 37 Components
+        shell: bash
         run: |
+          set -euo pipefail
           yes | sdkmanager --licenses || true
-          sdkmanager --channel=3 "platforms;android-37" "build-tools;37.0.0" "platform-tools"
+          sdkmanager --channel=3 --install \
+            "platforms;android-37.0" \
+            "build-tools;37.0.0" \
+            "platform-tools"
+          test -f "${ANDROID_SDK_ROOT}/platforms/android-37.0/android.jar"
+          test -x "${ANDROID_SDK_ROOT}/build-tools/37.0.0/aapt"
 
       - name: Verify Gradle installation
         run: gradle --version
