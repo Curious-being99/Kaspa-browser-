@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
     const auto cache_root = std::filesystem::path(home) / ".cache" / "kaspabrowser" / "cef";
     std::error_code cache_error;
     std::filesystem::create_directories(cache_root, cache_error);
-    if (!cache_error) settings.root_cache_path = CefString(cache_root.string());
+    if (!cache_error) CefString(&settings.root_cache_path) = cache_root.string();
   }
   CefRefPtr<KaspaBrowserApp> app(new KaspaBrowserApp(InitialUrl(argc, argv)));
   if (!CefInitialize(args, settings, app, nullptr)) return CefGetExitCode();
