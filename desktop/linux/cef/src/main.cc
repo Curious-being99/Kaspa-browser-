@@ -1,5 +1,7 @@
 #include "browser_host.h"
 #include <atomic>
+#include <cstdlib>
+#include <filesystem>
 #include <poll.h>
 #include <string>
 #include <thread>
@@ -50,7 +52,12 @@ int main(int argc, char* argv[]) {
       break;
     }
   }
-  settings.root_cache_path = CefString("/tmp/kaspabrowser-cef-cache");
+  if (const char* home = std::getenv("HOME"); home && *home) {
+    const auto cache_root = std::filesystem::path(home) / ".cache" / "kaspabrowser" / "cef";
+    std::error_code cache_error;
+    std::filesystem::create_directories(cache_root, cache_error);
+    if (!cache_error) settings.root_cache_path = CefString(cache_root.string());
+  }
   CefRefPtr<KaspaBrowserApp> app(new KaspaBrowserApp(InitialUrl(argc, argv)));
   if (!CefInitialize(args, settings, app, nullptr)) return CefGetExitCode();
   std::thread reader(ReadCommands);
