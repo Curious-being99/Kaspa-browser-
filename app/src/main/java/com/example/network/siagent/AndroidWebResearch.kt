@@ -154,9 +154,16 @@ object AndroidWebResearch {
                         !type.contains("application/xhtml+xml") && !type.contains("application/xml")) return null
                     val body = response.body ?: return null
                     if (body.contentLength() > maxBytes) return null
-                    val bytes = body.source().readByteArray(maxBytes + 1)
-                    if (bytes.size.toLong() > maxBytes) return null
-                    return bytes.toString(Charsets.UTF_8)
+                    val source = body.source()
+                    val buffer = okio.Buffer()
+                    var totalBytes = 0L
+                    while (totalBytes <= maxBytes) {
+                        val read = source.read(buffer, minOf(8_192L, maxBytes + 1 - totalBytes))
+                        if (read == -1L) break
+                        totalBytes += read
+                        if (totalBytes > maxBytes) return null
+                    }
+                    return buffer.readByteArray().toString(Charsets.UTF_8)
                 }
             }
             current = redirectTarget ?: return null
