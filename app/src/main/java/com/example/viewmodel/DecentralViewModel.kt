@@ -470,7 +470,8 @@ class DecentralViewModel(
                     
                     val newCount = fetched.size - oldNews.size
                     if (newCount > 0) {
-                        showNewsNotification(newCount)
+                        val featuredArticle = fetched.maxByOrNull { it.epochMillis }
+                        showNewsNotification(newCount, featuredArticle)
                     }
                 }
             } catch (e: Exception) {
@@ -481,23 +482,95 @@ class DecentralViewModel(
         }
     }
 
-    private fun showNewsNotification(newCount: Int) {
+    private suspend fun showNewsNotification(newCount: Int, featuredArticle: KaspaNewsItem?) {
         val context = getApplication<android.app.Application>()
         val channelId = "kaspa_news_channel"
         val notificationManager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-        
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val channel = android.app.NotificationChannel(channelId, "Kaspa News Updates", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "Kaspa News Updates",
+                android.app.NotificationManager.IMPORTANCE_DEFAULT
+            )
             notificationManager.createNotificationChannel(channel)
         }
-        
+
+        val appIcon = runCatching {
+            android.graphics.BitmapFactory.decodeResource(context.resources, com.example.R.mipmap.ic_launcher)
+        }.getOrNull()
+
+        val articleImage = featuredArticle?.imageUrl
+            ?.takeIf { it.startsWith("https://", ignoreCase = true) }
+            ?.let { imageUrl ->
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+                            .callTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val request = okhttp3.Request.Builder()
+                            .url(imageUrl)
+                            .header("User-Agent", "KaspaBrowser/1.0")
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            val body = response.body ?: return@use null
+                            if (!response.isSuccessful ||
+                                body.contentLength() > 4L * 1024L * 1024L
+                            ) return@use null
+                            val bytes = body.bytes()
+                            if (bytes.isEmpty() || bytes.size > 4 * 1024 * 1024) return@use null
+                            val bounds = android.graphics.BitmapFactory.Options().apply {
+                                inJustDecodeBounds = true
+                            }
+                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@use null
+                            val sample = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 1024)
+                            val options = android.graphics.BitmapFactory.Options().apply {
+                                inSampleSize = sample
+                            }
+                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                        }
+                    }.getOrNull()
+                }
+            }
+
+        val headline = featuredArticle?.title?.takeIf { it.isNotBlank() } ?: "New Kaspa News"
+        val detail = featuredArticle?.desc?.takeIf { it.isNotBlank() }
+            ?: "Check out $newCount new items in Kaspa Browser."
+        val openNews = android.content.Intent(context, com.example.MainActivity::class.java).apply {
+            action = android.content.Intent.ACTION_MAIN
+            addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            context,
+            4102,
+            openNews,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
         val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("New Kaspa News")
-            .setContentText("Check out $newCount new items!")
+            .setSmallIcon(com.example.R.mipmap.ic_launcher)
+            .setLargeIcon(appIcon)
+            .setContentTitle(headline)
+            .setContentText(detail)
+            .setStyle(
+                if (articleImage != null) {
+                    androidx.core.app.NotificationCompat.BigPictureStyle()
+                        .bigPicture(articleImage)
+                        .setBigContentTitle(headline)
+                        .setSummaryText("$newCount new Kaspa news item(s)")
+                } else {
+                    androidx.core.app.NotificationCompat.BigTextStyle()
+                        .bigText("$detail\n\n$newCount new Kaspa news item(s)")
+                }
+            )
+            .setSubText(featuredArticle?.author?.takeIf { it.isNotBlank() } ?: "Kaspa Browser")
+            .setContentIntent(pendingIntent)
             .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
-            
+
         notificationManager.notify(1, builder.build())
     }
 
