@@ -2395,7 +2395,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 // browser screen continues to own the active tab and URL state.
                 androidx.compose.runtime.key(activeTabId) {
                     com.example.browser.engine.CefriumRendererSurface(
-                        initialUrl = urlInput,
+                        initialUrl = resource.url,
                         navigationSessionId = navigationSessionId,
                         modifier = Modifier
                             .fillMaxSize()
