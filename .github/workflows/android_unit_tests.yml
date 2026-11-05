@@ -172,4 +172,5 @@ jobs:
             **/build/outputs/androidTest-results/connected/
             **/build/reports/androidTests/connected/
             ${{ runner.temp }}/emulator.log
+            ${{ runner.temp }}/android-browser-memory-emulator/
           if-no-files-found: warn
