@@ -103,6 +103,19 @@ object AndroidWebResearch {
             }
         }
 
+    suspend fun crawlUrl(url: String): ResearchResult =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val safeUrl = normalizePublicHttpsUrl(url)
+                ?: return@withContext ResearchResult(url, emptyList(), "Only public HTTPS URLs are supported.")
+            val content = fetchArticle(safeUrl)
+                ?: return@withContext ResearchResult(safeUrl, emptyList(), "Page could not be retrieved. It may block crawlers, disallow access in robots.txt, or contain no readable article text.")
+            val title = runCatching {
+                val html = fetchText(safeUrl, MAX_BODY_BYTES) ?: ""
+                Jsoup.parse(html, safeUrl).title().take(220)
+            }.getOrDefault(safeUrl)
+            ResearchResult(safeUrl, listOf(Source(title.ifBlank { safeUrl }, safeUrl, content, true)))
+        }
+
     private fun fetchArticle(url: String): String? {
         val normalized = normalizePublicHttpsUrl(url) ?: return null
         val uri = URI(normalized)
@@ -181,7 +194,7 @@ object AndroidWebResearch {
         }
         if (address is Inet6Address) {
             val first = bytes[0].toInt() and 0xff
-            if ((first and 0xfe) == 0xfc || first == 0xff || bytes.all { it == 0.toByte() }) return false
+            if ((first and 0xe0) != 0x20 || bytes.all { it == 0.toByte() }) return false
             return true
         }
         return false
