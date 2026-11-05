@@ -1,28 +1,37 @@
 package com.example.browser.engine
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import com.cefrium.compose.CefriumView
+import com.cefrium.compose.rememberCefriumNavigator
 import com.cefrium.compose.rememberCefriumViewState
 
 /**
- * Renderer-only Cefrium surface.
+ * Renderer-only surface for an existing browser tab.
  *
- * The caller owns tab identity, URL state, navigation UI, persistence, downloads,
- * permissions and all native bridges. Keep this composable keyed by the existing
- * browser tab ID so the renderer lifetime follows that tab.
- *
- * This is an integration seam/smoke surface; it deliberately exposes no wallet
- * signing bridge and does not change shared browser state.
+ * Tab identity, address bar, history persistence, downloads, permissions,
+ * privacy policy and native wallet authorization remain owned by KaspaBrowser.
+ * No JavaScript object or signing capability is exposed by this surface.
  */
 @Composable
 fun CefriumRendererSurface(
     initialUrl: String,
+    navigationSessionId: Long,
     modifier: Modifier = Modifier,
 ) {
     val state = rememberCefriumViewState(initialUrl)
+    val navigator = rememberCefriumNavigator()
+
+    LaunchedEffect(navigationSessionId, initialUrl) {
+        if (initialUrl.isNotBlank()) {
+            navigator.loadUrl(initialUrl)
+        }
+    }
+
     CefriumView(
         state = state,
         modifier = modifier,
+        navigator = navigator,
     )
 }
