@@ -221,6 +221,18 @@ private val SI_AGENT_COMMANDS = listOf(
         icon = Icons.Default.Sensors
     ),
     SiCommandItem(
+        command = "/search",
+        title = "Search the public web",
+        description = "Find and extract real web sources with citations",
+        icon = Icons.Default.Search
+    ),
+    SiCommandItem(
+        command = "/crawl",
+        title = "Crawl a public page",
+        description = "Extract readable content from a public HTTPS URL",
+        icon = Icons.Default.Code
+    ),
+    SiCommandItem(
         command = "/clear",
         title = "Clear chat",
         description = "Reset chat history",
