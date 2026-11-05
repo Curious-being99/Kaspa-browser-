@@ -138,6 +138,31 @@ jobs:
           "$ADB" -s emulator-5554 shell settings put global animator_duration_scale 0
           echo "Emulator ready; starting instrumentation tests."
           gradle connectedDebugAndroidTest --no-daemon --stacktrace
+          echo "Instrumentation complete; capturing emulator-only startup memory diagnostics."
+          DIAG="$RUNNER_TEMP/android-browser-memory-emulator"
+          mkdir -p "$DIAG"
+          {
+            echo "device=$( "$ADB" -s emulator-5554 shell getprop ro.product.model | tr -d '\\r' )"
+            echo "sdk=$( "$ADB" -s emulator-5554 shell getprop ro.build.version.sdk | tr -d '\\r' )"
+            echo "webview_provider:"
+            "$ADB" -s emulator-5554 shell dumpsys webviewupdate
+          } > "$DIAG/device.txt" 2>&1
+          "$ADB" -s emulator-5554 shell am force-stop org.kaspa.browser || true
+          "$ADB" -s emulator-5554 shell monkey -p org.kaspa.browser 1
+          for sample in 1 2 3 4 5 6; do
+            {
+              echo "sample=$sample"
+              date -u
+              echo "===== HOST APP PSS ====="
+              "$ADB" -s emulator-5554 shell dumpsys meminfo org.kaspa.browser
+              echo "===== ALL PROCESS NAMES ====="
+              "$ADB" -s emulator-5554 shell ps -A -o PID,NAME
+              echo "===== ACTIVITY MANAGER PROCESS CONNECTIONS ====="
+              "$ADB" -s emulator-5554 shell dumpsys activity processes org.kaspa.browser
+            } > "$DIAG/sample-$sample.txt" 2>&1
+            sleep 10
+          done
+          echo "Emulator startup memory diagnostics saved to $DIAG"
       - name: Upload instrumentation reports and emulator diagnostics
         if: always()
         uses: actions/upload-artifact@v4
