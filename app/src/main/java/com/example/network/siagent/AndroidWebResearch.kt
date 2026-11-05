@@ -121,6 +121,7 @@ object AndroidWebResearch {
     private fun fetchText(initialUrl: String, maxBytes: Long): String? {
         var current = normalizePublicHttpsUrl(initialUrl) ?: return null
         for (redirect in 0..MAX_REDIRECTS) {
+            var redirectTarget: String? = null
             val request = Request.Builder().url(current)
                 .header("User-Agent", "KaspaBrowser-SIAgent/1.0 (+https://kaspabrowser.xyz)")
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.5")
@@ -130,33 +131,38 @@ object AndroidWebResearch {
                     if (redirect == MAX_REDIRECTS) return null
                     val location = response.header("Location") ?: return null
                     val next = response.request.url.resolve(location)?.toString() ?: return null
-                    current = normalizePublicHttpsUrl(next) ?: return null
-                    continue
+                    redirectTarget = normalizePublicHttpsUrl(next) ?: return null
+                } else {
+                    if (!response.isSuccessful) return null
+                    val type = response.header("Content-Type").orEmpty().lowercase()
+                    if (type.isNotBlank() && !type.contains("text/html") && !type.contains("text/plain") &&
+                        !type.contains("application/xhtml+xml") && !type.contains("application/xml")) return null
+                    val body = response.body ?: return null
+                    if (body.contentLength() > maxBytes) return null
+                    val bytes = body.source().readByteArray(maxBytes + 1)
+                    if (bytes.size.toLong() > maxBytes) return null
+                    return bytes.toString(Charsets.UTF_8)
                 }
-                if (!response.isSuccessful) return null
-                val type = response.header("Content-Type").orEmpty().lowercase()
-                if (type.isNotBlank() && !type.contains("text/html") && !type.contains("text/plain") &&
-                    !type.contains("application/xhtml+xml") && !type.contains("application/xml")) return null
-                val body = response.body ?: return null
-                if (body.contentLength() > maxBytes) return null
-                val bytes = body.source().readByteArray(maxBytes + 1)
-                if (bytes.size.toLong() > maxBytes) return null
-                return bytes.toString(Charsets.UTF_8)
             }
+            current = redirectTarget ?: return null
         }
         return null
     }
 
-    private fun normalizePublicHttpsUrl(raw: String): String? = try {
-        val uri = URI(raw.trim())
-        if (!uri.scheme.equals("https", true) || uri.userInfo != null || uri.host.isNullOrBlank()) return null
-        val host = uri.host.lowercase()
-        if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return null
-        if (uri.port != -1 && uri.port != 443) return null
-        val resolved = Dns.SYSTEM.lookup(host)
-        if (resolved.isEmpty() || resolved.any { !isPublicAddress(it) }) return null
-        URI("https", null, host, -1, uri.rawPath.ifBlank { "/" }, uri.rawQuery, null).toASCIIString()
-    } catch (_: Exception) { null }
+    private fun normalizePublicHttpsUrl(raw: String): String? {
+        return try {
+            val uri = URI(raw.trim())
+            if (!uri.scheme.equals("https", true) || uri.userInfo != null || uri.host.isNullOrBlank()) return null
+            val host = uri.host.lowercase()
+            if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return null
+            if (uri.port != -1 && uri.port != 443) return null
+            val resolved = Dns.SYSTEM.lookup(host)
+            if (resolved.isEmpty() || resolved.any { !isPublicAddress(it) }) return null
+            URI("https", null, host, -1, uri.path.ifBlank { "/" }, uri.query, null).toASCIIString()
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     private fun isPublicAddress(address: InetAddress): Boolean {
         if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
