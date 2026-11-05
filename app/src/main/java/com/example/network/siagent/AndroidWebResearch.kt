@@ -117,16 +117,21 @@ object AndroidWebResearch {
 
     suspend fun crawlUrl(url: String): ResearchResult =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val safeUrl = normalizePublicHttpsUrl(url)
-                ?: return@withContext ResearchResult(url, emptyList(), "Only public HTTPS URLs are supported.")
-            val page = fetchArticle(safeUrl)
-                ?: return@withContext ResearchResult(safeUrl, emptyList(), "Page could not be retrieved. It may block crawlers, disallow access in robots.txt, or contain no readable article text.")
-            val sources = arrayListOf(Source(page.title.ifBlank { safeUrl }, safeUrl, page.text, true))
-            for (link in page.links.take(MAX_FOLLOW_LINKS)) {
-                val linkedPage = fetchArticle(link) ?: continue
-                sources += Source(linkedPage.title.ifBlank { link }, link, linkedPage.text, true)
+            try {
+                val safeUrl = normalizePublicHttpsUrl(url)
+                    ?: return@withContext ResearchResult(url, emptyList(), "Only public HTTPS URLs are supported.")
+                val page = fetchArticle(safeUrl)
+                    ?: return@withContext ResearchResult(safeUrl, emptyList(), "Page could not be retrieved. It may block crawlers, disallow access in robots.txt, or contain no readable article text.")
+                val sources = arrayListOf(Source(page.title.ifBlank { safeUrl }, safeUrl, page.text, true))
+                for (link in page.links.take(MAX_FOLLOW_LINKS)) {
+                    val linkedPage = fetchArticle(link) ?: continue
+                    sources += Source(linkedPage.title.ifBlank { link }, link, linkedPage.text, true)
+                }
+                ResearchResult(safeUrl, sources)
+            } catch (error: Exception) {
+                Log.w(TAG, "Direct page crawl failed", error)
+                ResearchResult(url, emptyList(), "Page crawl failed: ${error.javaClass.simpleName}. Check the URL and network connection.")
             }
-            ResearchResult(safeUrl, sources)
         }
 
     private data class ExtractedPage(val title: String, val text: String, val links: List<String>)
