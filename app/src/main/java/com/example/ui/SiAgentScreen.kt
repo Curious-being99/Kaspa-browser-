@@ -1510,28 +1510,28 @@ suspend fun executeSiAgentCommand(
 ): String {
     val trimmed = input.trim()
     val localCommand = trimmed.lowercase().removePrefix("/")
-    val crawlMatch = Regex("""^(?:/crawl|crawl)\\s+(https?://\\S+|[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}\\S*)$""", RegexOption.IGNORE_CASE)
+    val crawlMatch = Regex("""^(?:/crawl|crawl)\s+(https?://\\S+|[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}\\S*)$""", RegexOption.IGNORE_CASE)
         .find(trimmed)
     if (crawlMatch != null) {
         val target = crawlMatch.groupValues[1].trimEnd('.', ',', ')', ']')
         return try {
             val result = com.example.network.SiWebCrawler().crawl(target)
             if (result.pages.isEmpty()) {
-                "🌐 SI Web Crawl\\n• No readable pages were extracted. The site may block automated access, redirect, or disallow crawling in robots.txt.\\n• Skipped: ${result.skipped} | Robots blocked: ${result.blockedByRobots}"
+                "🌐 SI Web Crawl\n• No readable pages were extracted. The site may block automated access, redirect, or disallow crawling in robots.txt.\n• Skipped: ${result.skipped} | Robots blocked: ${result.blockedByRobots}"
             } else {
-                val sourceText = result.pages.joinToString("\\n\\n") { page ->
-                    "SOURCE: ${page.title}\\nURL: ${page.url}\\nCONTENT: ${page.text.take(2200)}"
+                val sourceText = result.pages.joinToString("\n\n") { page ->
+                    "SOURCE: ${page.title}\nURL: ${page.url}\nCONTENT: ${page.text.take(2200)}"
                 }
-                val crawlPrompt = "Analyze only the following pages actually crawled by SI Agent. Do not invent facts. Cite every factual claim with its exact source URL. Summarize the most useful findings for this request: ${trimmed}\\n\\n${sourceText}"
+                val crawlPrompt = "Analyze only the following pages actually crawled by SI Agent. Do not invent facts. Cite every factual claim with its exact source URL. Summarize the most useful findings for this request: ${trimmed}\n\n${sourceText}"
                 val answer = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     callGroqApi(crawlPrompt, target, "Crawled website")
                 }
-                val sourceList = result.pages.joinToString("\\n") { "• ${it.title}: ${it.url}" }
-                (answer?.takeIf { it.isNotBlank() } ?: result.pages.joinToString("\\n\\n") { "${it.title}\\n${it.text.take(1000)}" }) +
-                    "\\n\\nSources crawled (${result.pages.size}):\\n${sourceList}\\nSkipped: ${result.skipped} | Robots blocked: ${result.blockedByRobots}"
+                val sourceList = result.pages.joinToString("\n") { "• ${it.title}: ${it.url}" }
+                (answer?.takeIf { it.isNotBlank() } ?: result.pages.joinToString("\n\n") { "${it.title}\n${it.text.take(1000)}" }) +
+                    "\n\nSources crawled (${result.pages.size}):\n${sourceList}\nSkipped: ${result.skipped} | Robots blocked: ${result.blockedByRobots}"
             }
         } catch (error: Exception) {
-            "🌐 SI Web Crawl failed\\n• ${error.message ?: "Unable to crawl this website."}\\n• Only public HTTP/HTTPS pages are supported."
+            "🌐 SI Web Crawl failed\n• ${error.message ?: "Unable to crawl this website."}\n• Only public HTTP/HTTPS pages are supported."
         }
     }
     if (localCommand == "kb" || localCommand.startsWith("kb ") ||
