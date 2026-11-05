@@ -28,7 +28,7 @@ jobs:
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.7.1'
+          gradle-version: '9.7.0'
       - run: gradle testDebugUnitTest --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
@@ -72,7 +72,7 @@ jobs:
           adb version
       - uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: '9.7.1'
+          gradle-version: '9.7.0'
           cache-disabled: true
       - name: Create and verify API 37 AVD in explicit shared location
         run: |
