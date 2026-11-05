@@ -1536,12 +1536,12 @@ suspend fun executeSiAgentCommand(
     val directCrawlUrl = if (normalizedInput.startsWith("/crawl")) trimmed.substringAfter("/crawl").trim().takeIf { it.isNotBlank() } else null
     val webQuery = when {
         normalizedInput.startsWith("/search") -> trimmed.substringAfter("/search").trim()
+        normalizedInput.startsWith("search the web for ") -> trimmed.substringAfter("search the web for ", "").trim()
+        normalizedInput.startsWith("find online ") -> trimmed.substringAfter("find online ", "").trim()
         normalizedInput.startsWith("search ") -> trimmed.substringAfter(" ", "").trim()
         normalizedInput.startsWith("find ") -> trimmed.substringAfter(" ", "").trim()
         normalizedInput.startsWith("research ") -> trimmed.substringAfter(" ", "").trim()
         normalizedInput.startsWith("look up ") -> trimmed.substringAfter("look up ", "").trim()
-        normalizedInput.startsWith("search the web for ") -> trimmed.substringAfter("search the web for ", "").trim()
-        normalizedInput.startsWith("find online ") -> trimmed.substringAfter("find online ", "").trim()
         normalizedInput.startsWith("query ") -> trimmed.substringAfter(" ", "").trim()
         else -> null
     }?.takeIf { it.isNotBlank() }
