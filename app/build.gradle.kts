@@ -172,6 +172,7 @@ secrets {
 }
 
 dependencies {
+  implementation("org.jsoup:jsoup:1.21.2")
   implementation("org.web3j:core:4.12.3-android")
   implementation("org.web3j:abi:4.12.3") {
     exclude(group = "org.web3j", module = "utils")
