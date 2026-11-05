@@ -525,9 +525,7 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
 
             val isInvalidYoutube = item.category == "YouTube" && (item.videoId.isNullOrBlank() || item.videoId.length != 11)
 
-            !isUnavailable && !isKaspaCommunityFake && !isFakeXFeed && !isKaspaCurrencyYoutube && !isSpamOrAirdrop && !isInvalidYoutube &&
-            !item.title.contains("ecosystem", ignoreCase = true) &&
-            !item.url.contains("ecosystem", ignoreCase = true)
+            !isUnavailable && !isKaspaCommunityFake && !isFakeXFeed && !isKaspaCurrencyYoutube && !isSpamOrAirdrop && !isInvalidYoutube
         }
 
         filtered
