@@ -800,6 +800,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     LaunchedEffect(activeTabId) {
         val tabId = activeTabId ?: return@LaunchedEffect
         viewModel.webViewTabManager.activateTab(tabId)
+        viewModel.webViewTabManager.logMemorySnapshot(context, "tab-activated:$tabId")
     }
 
     LaunchedEffect(activeTabId, webViewInstance, backgroundPlaybackEnabled) {

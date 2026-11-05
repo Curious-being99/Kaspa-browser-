@@ -1,31 +1,91 @@
-pub const API_VERSION: u32 = 1;
+use std::fmt;
 
-pub fn sanitize_url(raw_url: &str) -> String {
-    crate::privacy::PrivacyGuard::sanitize_url(raw_url)
+pub const API_VERSION: u32 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserPlatform {
+    Android,
+    Linux,
+    Windows,
+    MacOs,
 }
 
-pub fn filter_html_ast(raw_html: &str) -> String {
-    crate::privacy::PrivacyGuard::filter_html_ast(raw_html)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineKind {
+    AndroidWebView,
+    ChromiumEmbeddedFramework,
 }
 
-pub fn is_tracker_or_ad(url: &str) -> bool {
-    crate::privacy::PrivacyGuard::is_tracker_or_ad(url)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EngineCapabilities {
+    pub platform: BrowserPlatform,
+    pub engine: EngineKind,
+    pub supports_javascript: bool,
+    pub supports_service_workers: bool,
+    pub supports_web_messages: bool,
+    pub supports_downloads: bool,
+    pub supports_media_playback: bool,
 }
 
-pub fn extract_host(url: &str) -> Option<String> {
-    crate::privacy::PrivacyGuard::extract_host_fast(url)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavigationKind {
+    Navigate,
+    Reload,
+    Back,
+    Forward,
+    Stop,
 }
 
-pub fn is_google_account_domain(host: &str) -> bool {
-    crate::privacy::PrivacyGuard::is_google_account_domain(host)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationCommand {
+    pub kind: NavigationKind,
+    pub url: Option<String>,
 }
 
-pub fn is_google_account_or_auth_url(url: &str) -> bool {
-    crate::privacy::PrivacyGuard::is_google_account_or_auth_url(url)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowserEvent {
+    NavigationStarted { url: String },
+    NavigationCommitted { url: String },
+    LoadProgress { percent: u8 },
+    LoadFinished { url: String },
+    LoadFailed { url: String, code: i32 },
+    TitleChanged { title: String },
+    SecurityStateChanged { secure: bool },
 }
 
-pub fn should_block(url: &str) -> bool {
-    crate::privacy::PrivacyGuard::should_block(url)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavigationError {
+    MissingUrl,
+    UnsupportedScheme,
+    InvalidUrl,
+}
+
+impl fmt::Display for NavigationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingUrl => write!(f, "navigation URL is required"),
+            Self::UnsupportedScheme => write!(f, "navigation scheme is not supported"),
+            Self::InvalidUrl => write!(f, "navigation URL is invalid"),
+        }
+    }
+}
+
+impl std::error::Error for NavigationError {}
+
+pub fn validate_navigation_url(raw: &str) -> Result<String, NavigationError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(NavigationError::MissingUrl);
+    }
+    let parsed = url::Url::parse(trimmed).map_err(|_| NavigationError::InvalidUrl)?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed.to_string()),
+        _ => Err(NavigationError::UnsupportedScheme),
+    }
+}
+
+pub fn sanitize_navigation_url(raw: &str) -> Result<String, NavigationError> {
+    validate_navigation_url(raw).map(|url| crate::privacy::PrivacyGuard::sanitize_url(&url))
 }
 
 #[cfg(test)]
@@ -33,45 +93,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn api_version_is_stable() {
-        assert_eq!(API_VERSION, 1);
-    }
-
-    #[test]
-    fn sanitize_url_preserves_non_tracking_query_parameters() {
-        let result = sanitize_url("https://example.com/page?keep=yes&utm_source=campaign");
-        assert_eq!(result, "https://example.com/page?keep=yes");
-    }
-
-    #[test]
-    fn sanitize_url_keeps_unparseable_input_unchanged() {
-        let input = "not a valid url?utm_source=campaign";
-        assert_eq!(sanitize_url(input), input);
-    }
-
-    #[test]
-    fn tracker_detection_uses_existing_privacy_policy() {
-        assert!(is_tracker_or_ad("https://doubleclick.net/ad.js"));
-        assert!(!is_tracker_or_ad("https://kaspa.org/"));
-    }
-
-    #[test]
-    fn account_and_auth_domains_remain_allowed() {
-        assert!(is_google_account_domain("accounts.google.com"));
-        assert!(is_google_account_or_auth_url("https://accounts.google.com/signin"));
-    }
-
-    #[test]
-    fn kaspa_and_internal_schemes_are_not_blocked() {
-        assert!(!should_block("kaspa:mainnet"));
-        assert!(!should_block("about:blank"));
-    }
-
-    #[test]
-    fn host_extraction_returns_the_host() {
+    fn accepts_http_and_https_and_normalizes_url() {
         assert_eq!(
-            extract_host("https://kaspa.org/path"),
-            Some("kaspa.org".to_string())
+            validate_navigation_url(" https://example.com/path ").unwrap(),
+            "https://example.com/path"
         );
+        assert_eq!(validate_navigation_url("http://example.com").unwrap(), "http://example.com/");
+    }
+
+    #[test]
+    fn rejects_missing_invalid_and_unsafe_schemes() {
+        assert_eq!(validate_navigation_url("  "), Err(NavigationError::MissingUrl));
+        assert_eq!(validate_navigation_url("not a url"), Err(NavigationError::InvalidUrl));
+        assert_eq!(validate_navigation_url("javascript:alert(1)"), Err(NavigationError::UnsupportedScheme));
+        assert_eq!(validate_navigation_url("file:///etc/passwd"), Err(NavigationError::UnsupportedScheme));
+    }
+
+    #[test]
+    fn navigation_sanitization_preserves_functional_parameters() {
+        let url = sanitize_navigation_url("https://example.com/?q=kaspa&utm_source=test").unwrap();
+        assert!(url.contains("q=kaspa"));
+        assert!(!url.contains("utm_source"));
     }
 }
