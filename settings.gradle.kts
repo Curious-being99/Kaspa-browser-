@@ -8,7 +8,6 @@ pluginManagement {
       }
     }
     mavenCentral()
-    maven("https://codeberg.org/api/packages/cefrium/maven")
     gradlePluginPortal()
   }
 }
