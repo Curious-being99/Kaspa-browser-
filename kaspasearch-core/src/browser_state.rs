@@ -154,9 +154,9 @@ impl BrowserState {
     }
 
     pub fn reopen_last_closed(&mut self) -> Option<&BrowserTab> {
-        let mut tab = self.recently_closed.pop()?;
-        let id = tab.id.clone();
+        let id = self.recently_closed.last()?.id.clone();
         if self.tabs.contains_key(&id) { return None; }
+        let tab = self.recently_closed.pop()?;
         self.tabs.insert(id.clone(), tab);
         self.active_tab = Some(id.clone());
         self.tabs.get(&id)
@@ -287,6 +287,19 @@ mod tests {
         state.close_tab("b").unwrap();
         assert_eq!(state.active_tab().unwrap().id, "a");
         assert_eq!(state.reopen_last_closed().unwrap().id, "b");
+    }
+
+    #[test]
+    fn reopening_a_duplicate_tab_id_does_not_discard_closed_history() {
+        let mut state = BrowserState::default();
+        state.open_tab("same").unwrap();
+        state.commit_navigation("same", "https://original.example", Some("Original".into())).unwrap();
+        state.close_tab("same").unwrap();
+
+        state.open_tab("same").unwrap();
+        assert!(state.reopen_last_closed().is_none());
+        assert_eq!(state.recently_closed.len(), 1);
+        assert_eq!(state.recently_closed[0].url.as_deref(), Some("https://original.example/"));
     }
 
     #[test]
