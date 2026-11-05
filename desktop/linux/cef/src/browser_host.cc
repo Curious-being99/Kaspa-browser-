@@ -39,7 +39,11 @@ bool IsHttpUrl(const std::string& value) {
   return scheme == "http" || scheme == "https";
 }
 class BrowserViewDelegate final : public CefBrowserViewDelegate {
- public: IMPLEMENT_REFCOUNTING(BrowserViewDelegate);
+ public:
+  cef_runtime_style_t GetBrowserRuntimeStyle() override {
+    return CEF_RUNTIME_STYLE_DEFAULT;
+  }
+  IMPLEMENT_REFCOUNTING(BrowserViewDelegate);
 };
 class WindowDelegate final : public CefWindowDelegate {
  public:
@@ -49,6 +53,14 @@ class WindowDelegate final : public CefWindowDelegate {
   }
   CefSize GetPreferredSize(CefRefPtr<CefView> view) override { return CefSize(1280, 800); }
   void OnWindowDestroyed(CefRefPtr<CefWindow> window) override { view_ = nullptr; }
+  bool CanClose(CefRefPtr<CefWindow> window) override {
+    if (!view_) return true;
+    const auto browser = view_->GetBrowser();
+    return !browser || browser->GetHost()->TryCloseBrowser();
+  }
+  cef_runtime_style_t GetWindowRuntimeStyle() override {
+    return CEF_RUNTIME_STYLE_DEFAULT;
+  }
  private:
   CefRefPtr<CefBrowserView> view_;
   IMPLEMENT_REFCOUNTING(WindowDelegate);
