@@ -144,7 +144,7 @@ object AndroidWebResearch {
         val article = document.selectFirst("article, main, [role=main]") ?: document.body()
         val text = article?.text()?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
         if (text.length < 120) return null
-        val links = article?.select("a[href]")?.mapNotNull { element ->
+        val links = article?.select("a[href]")?.take(8)?.mapNotNull { element ->
             val candidate = normalizePublicHttpsUrl(element.absUrl("href")) ?: return@mapNotNull null
             if (URI(candidate).host.equals(uri.host, ignoreCase = true)) candidate else null
         }?.distinct()?.filter { it != normalized }?.take(MAX_FOLLOW_LINKS).orEmpty()
