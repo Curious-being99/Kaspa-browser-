@@ -82,7 +82,9 @@ object AndroidWebResearch {
                 val results = doc.select("a.result__a, a[data-testid=result-title-a]")
                     .mapNotNull { element ->
                         val raw = element.absUrl("href").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                        val safe = normalizePublicHttpsUrl(raw) ?: return@mapNotNull null
+                        val parsedLink = HttpUrl.parse(raw)
+                        val destination = if (parsedLink?.host?.endsWith("duckduckgo.com") == true) parsedLink.queryParameter("uddg") ?: raw else raw
+                        val safe = normalizePublicHttpsUrl(destination) ?: return@mapNotNull null
                         val title = element.text().trim().take(220).ifBlank { safe }
                         val snippet = element.parent()?.parent()?.selectFirst(".result__snippet")?.text()
                             ?: element.parent()?.selectFirst(".result__snippet")?.text().orEmpty()
