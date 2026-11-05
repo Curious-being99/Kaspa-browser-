@@ -43,6 +43,9 @@ int main(int argc, char* argv[]) {
   const int subprocess = CefExecuteProcess(args, nullptr, nullptr);
   if (subprocess >= 0) return subprocess;
   CefSettings settings;
+  // Enable the CEF Chrome runtime so Chrome-style Views provide browser chrome.
+  // This runtime is experimental in CEF; keep the platform adapter isolated.
+  settings.chrome_runtime = true;
   settings.log_severity = LOGSEVERITY_WARNING;
   // Sandboxing remains enabled by default. Headless CI can explicitly opt out
   // when it cannot install CEF's root-owned setuid sandbox helper.
