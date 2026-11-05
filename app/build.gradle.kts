@@ -215,6 +215,7 @@ dependencies {
   implementation(libs.retrofit)
   implementation(libs.zxing.core)
   implementation(libs.play.integrity)
+  implementation("androidx.work:work-runtime-ktx:2.10.1")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
