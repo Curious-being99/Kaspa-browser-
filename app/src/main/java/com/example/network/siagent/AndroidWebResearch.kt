@@ -31,9 +31,9 @@ object AndroidWebResearch {
         fun toPromptContext(): String = buildString {
             appendLine("LIVE WEB RESEARCH FOR: $query")
             sources.forEachIndexed { index, source ->
-                appendLine("[\${index + 1}] \${source.title}")
-                appendLine("URL: \${source.url}")
-                appendLine("Content: \${source.excerpt}")
+                appendLine("[${index + 1}] ${source.title}")
+                appendLine("URL: ${source.url}")
+                appendLine("Content: ${source.excerpt}")
                 appendLine()
             }
             if (sources.isEmpty()) appendLine("No sources were retrieved. Do not invent sources or facts.")
@@ -43,9 +43,9 @@ object AndroidWebResearch {
             appendLine("Web research: $query")
             sources.forEachIndexed { index, source ->
                 appendLine()
-                appendLine("\${index + 1}. \${source.title}")
+                appendLine("${index + 1}. ${source.title}")
                 appendLine(source.excerpt.take(900))
-                appendLine("Source: \${source.url}")
+                appendLine("Source: ${source.url}")
             }
             append("Retrieved excerpts; not an independently verified consensus.")
         }
@@ -99,7 +99,7 @@ object AndroidWebResearch {
                 ResearchResult(cleanQuery, fetched)
             } catch (error: Exception) {
                 Log.w(TAG, "Web research failed", error)
-                ResearchResult(cleanQuery, emptyList(), "Web research failed: \${error.javaClass.simpleName}. Check connectivity and retry.")
+                ResearchResult(cleanQuery, emptyList(), "Web research failed: ${error.javaClass.simpleName}. Check connectivity and retry.")
             }
         }
 
@@ -119,7 +119,7 @@ object AndroidWebResearch {
     private fun fetchArticle(url: String): String? {
         val normalized = normalizePublicHttpsUrl(url) ?: return null
         val uri = URI(normalized)
-        val origin = "\${uri.scheme}://\${uri.host.lowercase()}"
+        val origin = "${uri.scheme}://${uri.host.lowercase()}"
         val robots = robotsCache[origin] ?: fetchText("$origin/robots.txt", MAX_ROBOTS_BYTES)
             .orEmpty().also { robotsCache[origin] = it }
         if (!isAllowedByRobots(robots, uri.rawPath.ifBlank { "/" })) return null
