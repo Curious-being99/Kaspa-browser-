@@ -17,7 +17,7 @@ import com.cefrium.compose.rememberCefriumViewState
 @Composable
 fun CefriumRendererSurface(
     initialUrl: String,
-    navigationSessionId: Long,
+    navigationSessionId: Int,
     modifier: Modifier = Modifier,
 ) {
     val state = rememberCefriumViewState(initialUrl)
