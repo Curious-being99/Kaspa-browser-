@@ -1528,12 +1528,10 @@ fun ChatBubble(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
-                Text(
-                    text = message.text,
-                    fontSize = 13.sp,
+                SiAgentMarkdown(
+                    markdown = message.text,
                     color = TextPrimary,
-                    lineHeight = 18.sp,
-                    fontFamily = FontFamily.SansSerif
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 if (message.inlineButtons.isNotEmpty()) {
