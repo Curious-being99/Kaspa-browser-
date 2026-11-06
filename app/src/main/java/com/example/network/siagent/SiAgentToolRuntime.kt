@@ -31,14 +31,14 @@ object SiAgentToolRuntime {
         addTool("search_public_web", "Search the public web and retrieve readable pages using KaspaBrowser's safe web research service.", "query")
         addTool("crawl_public_website", "Crawl a public HTTPS website and retrieve readable pages. Private, local and non-public destinations are blocked.", "url")
         addTool("browser_navigate", "Navigate the active browser tab to a public HTTP or HTTPS URL. This changes browser state but never submits a form or performs a purchase.", "url")
-        addTool("browser_open_tab", "Open a new browser tab at a public HTTP or HTTPS URL, or a blank home tab.", "url")
+        addTool("browser_open_tab", "Open a new browser tab at a public HTTP or HTTPS URL, or a blank home tab.", optional = "url")
         addTool("browser_switch_tab", "Switch to an existing browser tab by its 1-based tab number.", "tab_number")
         addTool("browser_close_tab", "Close an existing browser tab by its 1-based tab number. Do not close the final tab.", "tab_number")
     }
 
-    private fun JSONArray.addTool(name: String, description: String, required: String? = null) {
+    private fun JSONArray.addTool(name: String, description: String, required: String? = null, optional: String? = null) {
         val properties = JSONObject()
-        when (required) {
+        when (required ?: optional) {
             "query" -> properties.put("query", JSONObject().put("type", "string").put("description", "The public web search query"))
             "url" -> properties.put("url", JSONObject().put("type", "string").put("description", "An absolute public HTTP or HTTPS URL"))
             "tab_number" -> properties.put("tab_number", JSONObject().put("type", "integer").put("minimum", 1))
@@ -214,12 +214,34 @@ object SiAgentToolRuntime {
                 "get_dapp_state" -> {
                     val current = viewModel.currentPagePwa.value
                     val installed = viewModel.installedPwas.value
-                    JSONObject().put("current_pwa", current?.let {
-                        JSONObject().put("name", it.name).put("url", it.url).put("manifest_url", it.manifestUrl ?: JSONObject.NULL)
-                    } ?: JSONObject.NULL)
+                    val pending = viewModel.dappPromptState.value
+                    val pendingJson = when (pending) {
+                        is DecentralViewModel.DappPromptState.Connect ->
+                            JSONObject().put("type", "connect").put("origin", pending.origin).put("network", pending.network)
+                        is DecentralViewModel.DappPromptState.SignTransaction ->
+                            JSONObject().put("type", "sign_transaction").put("origin", pending.origin)
+                                .put("network", pending.network).put("title", pending.title).put("action", pending.action)
+                                .put("token_ticker", pending.tick).put("amount", pending.amount)
+                                .put("destination", pending.destination).put("fee_kas", pending.feeKas)
+                                .put("requires_user_approval", true)
+                        is DecentralViewModel.DappPromptState.SignMessage ->
+                            JSONObject().put("type", "sign_message").put("origin", pending.origin)
+                                .put("network", pending.network).put("requires_user_approval", true)
+                        is DecentralViewModel.DappPromptState.NoWallet ->
+                            JSONObject().put("type", "no_wallet").put("origin", pending.origin)
+                        is DecentralViewModel.DappPromptState.UnlockWallet ->
+                            JSONObject().put("type", "unlock_wallet").put("origin", pending.origin)
+                                .put("reason", pending.reason).put("requires_user_authentication", true)
+                        null -> JSONObject.NULL
+                    }
+                    JSONObject().put("selected_network", viewModel.selectedNetwork.value)
+                        .put("pending_dapp_request", pendingJson)
+                        .put("current_pwa", current?.let {
+                            JSONObject().put("name", it.name).put("url", it.url).put("manifest_url", it.manifestUrl ?: JSONObject.NULL)
+                        } ?: JSONObject.NULL)
                         .put("installed_pwas", JSONArray().apply {
                             installed.forEach { pwa -> put(JSONObject().put("name", pwa.name).put("url", pwa.url).put("has_manifest", pwa.hasManifest)) }
-                        }).put("note", "This reports browser PWA state only; it does not imply a wallet connection or dApp authorization.")
+                        }).put("note", "Pending dApp requests require the existing native user approval or authentication flow. This tool cannot approve or sign.")
                         .toString()
                 }
                 "search_public_web" -> {
