@@ -380,10 +380,12 @@ fun SiAgentScreen(
         )
     }
 
-    // Keep the newest chat entry visible when the user sends a message or SI Agent replies.
-    LaunchedEffect(messages.size) {
+    // Keep the actual bottom of the latest response visible, including while streamed text grows.
+    // The trailing anchor lets the list scroll past a response taller than the viewport.
+    LaunchedEffect(messages.size, messages.lastOrNull()?.id, messages.lastOrNull()?.text) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+            delay(70L)
+            listState.scrollToItem(messages.size)
         }
     }
 
@@ -872,6 +874,9 @@ fun SiAgentScreen(
                         onOpenWallet = { viewModel.setTab(AppTab.KASPA_WALLET) },
                         onActionClick = { handleActionClick(it) }
                     )
+                }
+                item(key = "si-agent-latest-message-anchor") {
+                    Spacer(modifier = Modifier.height(1.dp))
                 }
             }
 
