@@ -16,6 +16,7 @@ class SiAgentToolRuntimeTest {
             tools.optJSONObject(index)?.optJSONObject("function")?.optString("name")
         }.toSet()
 
+        assertTrue(names.contains("prepare_kaspa_payment"))
         assertTrue(names.contains("get_wallet_status"))
         assertTrue(names.contains("get_wallet_transactions"))
         assertTrue(names.contains("get_receive_address"))
@@ -38,14 +39,14 @@ class SiAgentToolRuntimeTest {
     }
 
     @Test
-    fun neverExposesSigningOrBroadcastToolsToTheModel() {
+    fun exposesPaymentPreparationButNeverSigningOrBroadcastTools() {
         val tools = SiAgentToolRuntime.definitions()
         val names = (0 until tools.length()).mapNotNull { index ->
             tools.optJSONObject(index)?.optJSONObject("function")?.optString("name")
         }
         assertFalse(names.any { name ->
             val normalized = name.lowercase()
-            normalized.contains("send") ||
+            normalized == "send" ||
                 normalized.contains("sign") ||
                 normalized.contains("broadcast") ||
                 normalized.contains("approve") ||
@@ -57,6 +58,11 @@ class SiAgentToolRuntimeTest {
     @Test
     fun toolSchemasRejectUnexpectedArguments() {
         val tools = SiAgentToolRuntime.definitions()
+        val payment = (0 until tools.length()).mapNotNull { tools.optJSONObject(it) }
+            .firstOrNull { it.optJSONObject("function")?.optString("name") == "prepare_kaspa_payment" }
+        val paymentParameters = payment?.optJSONObject("function")?.optJSONObject("parameters")
+        assertTrue(paymentParameters?.optBoolean("additionalProperties", true) == false)
+        assertTrue(paymentParameters?.optJSONArray("required")?.length() == 2)
         for (index in 0 until tools.length()) {
             val function = tools.optJSONObject(index)?.optJSONObject("function") ?: continue
             val parameters = function.optJSONObject("parameters") ?: continue
