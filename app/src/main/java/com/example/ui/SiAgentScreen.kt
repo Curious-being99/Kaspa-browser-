@@ -163,9 +163,9 @@ private const val KASCOV_URL = "https://kascov.io/data/price.json"
 private fun normalizeSiAgentCommand(raw: String): String {
     val input = raw.trim()
     val lower = input.lowercase()
-    val sendNatural = Regex("""^(?:please\\s+)?(?:send|transfer)\\s+([0-9]+(?:\\.[0-9]+)?)\\s*(?:kas|kaspa)?\\s+to\\s+(kaspa:[a-z0-9]+|kaspatest:[a-z0-9]+)$""", RegexOption.IGNORE_CASE).find(input)
+    val sendNatural = Regex("""^(?:please\s+)?(?:send|transfer)\s+([0-9]+(?:\.[0-9]+)?)\s*(?:kas|kaspa)?\s+to\s+(kaspa:[a-z0-9]+|kaspatest:[a-z0-9]+)$""", RegexOption.IGNORE_CASE).find(input)
     if (sendNatural != null) return "/send ${sendNatural.groupValues[2]} ${sendNatural.groupValues[1]}"
-    val addressFirstSend = Regex("""^(?:send|transfer)\\s+(kaspa:[a-z0-9]+|kaspatest:[a-z0-9]+)\\s+([0-9]+(?:\\.[0-9]+)?)\\s*(?:kas|kaspa)?$""", RegexOption.IGNORE_CASE).find(input)
+    val addressFirstSend = Regex("""^(?:send|transfer)\s+(kaspa:[a-z0-9]+|kaspatest:[a-z0-9]+)\s+([0-9]+(?:\.[0-9]+)?)\s*(?:kas|kaspa)?$""", RegexOption.IGNORE_CASE).find(input)
     if (addressFirstSend != null) return "/send ${addressFirstSend.groupValues[1]} ${addressFirstSend.groupValues[2]}"
     return when {
         lower in listOf("wallet", "my wallet", "show wallet", "open wallet", "wallet balance", "my balance", "show my balance") -> "/wallet"
@@ -451,7 +451,7 @@ fun SiAgentScreen(
     }
 
     fun parseSendArguments(input: String): Pair<String, Double>? {
-        val tokens = input.trim().split(Regex("\\s+")).drop(1)
+        val tokens = input.trim().split(Regex("\s+")).drop(1)
         if (tokens.size < 2) return null
         var address: String? = null
         var amount: Double? = null
@@ -536,24 +536,24 @@ fun SiAgentScreen(
                 messages.add(SiAgentMessage("🗂️ Opened a new browser tab.", isUser = false)); return
             }
             commandText.equals("/tabs", true) -> {
-                val summary = browserTabs.mapIndexed { i, tab -> "${i + 1}. ${tab.title.ifBlank { "New Tab" }} — ${tab.url.ifBlank { "Home" }}${if (tab.id == activeTabId) " (active)" else ""}" }.joinToString("\\n").ifBlank { "No browser tabs are open." }
-                messages.add(SiAgentMessage("🗂️ Browser tabs ( ${browserTabs.size} )\\n$summary", isUser = false)); return
+                val summary = browserTabs.mapIndexed { i, tab -> "${i + 1}. ${tab.title.ifBlank { "New Tab" }} — ${tab.url.ifBlank { "Home" }}${if (tab.id == activeTabId) " (active)" else ""}" }.joinToString("\n").ifBlank { "No browser tabs are open." }
+                messages.add(SiAgentMessage("🗂️ Browser tabs ( ${browserTabs.size} )\n$summary", isUser = false)); return
             }
             commandText.equals("/page-info", true) -> {
                 val info = if (activeUrl.isBlank()) "No active webpage is loaded." else "Current page: ${activeTitle.ifBlank { "Untitled page" }}\\nURL: $activeUrl\\nActive tab: ${activeTabId ?: "Unavailable"}"
                 messages.add(SiAgentMessage("🌐 $info", isUser = false)); return
             }
             commandText.equals("/browser-history", true) -> {
-                val summary = browserHistory.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\\n").ifBlank { "No saved browsing history is available." }
-                messages.add(SiAgentMessage("🕘 Browsing history\\n$summary", isUser = false)); return
+                val summary = browserHistory.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\n").ifBlank { "No saved browsing history is available." }
+                messages.add(SiAgentMessage("🕘 Browsing history\n$summary", isUser = false)); return
             }
             commandText.equals("/bookmarks", true) -> {
-                val summary = browserBookmarks.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\\n").ifBlank { "No saved bookmarks were found." }
-                messages.add(SiAgentMessage("🔖 Saved bookmarks\\n$summary", isUser = false)); return
+                val summary = browserBookmarks.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\n").ifBlank { "No saved bookmarks were found." }
+                messages.add(SiAgentMessage("🔖 Saved bookmarks\n$summary", isUser = false)); return
             }
             commandText.equals("/downloads", true) -> {
-                val summary = activeDownloads.mapIndexed { i, item -> "${i + 1}. ${item.fileName} — ${item.status} (${(item.progress * 100).toInt()}%)" }.joinToString("\\n").ifBlank { "No active or recent downloads are available." }
-                messages.add(SiAgentMessage("⬇️ Browser downloads\\n$summary", isUser = false)); return
+                val summary = activeDownloads.mapIndexed { i, item -> "${i + 1}. ${item.fileName} — ${item.status} (${(item.progress * 100).toInt()}%)" }.joinToString("\n").ifBlank { "No active or recent downloads are available." }
+                messages.add(SiAgentMessage("⬇️ Browser downloads\n$summary", isUser = false)); return
             }
             commandText.equals("/bookmark-current", true) -> {
                 if (activeUrl.isBlank()) messages.add(SiAgentMessage("There is no active webpage to bookmark.", isUser = false))
