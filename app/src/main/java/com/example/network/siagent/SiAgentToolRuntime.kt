@@ -123,8 +123,6 @@ object SiAgentToolRuntime {
                         errorJson("KAS payments are unavailable on the selected network: $network. Select Kaspa Mainnet or Testnet-10 in the wallet first.")
                     } else if (!amount.isFinite() || amount <= 0.0) {
                         errorJson("amount_kas must be a finite number greater than zero.")
-                    } else if (amount > 1_000_000_000.0) {
-                        errorJson("The requested amount exceeds the supported payment limit.")
                     } else if (!recipient.startsWith("$expectedPrefix:", true) ||
                         !com.example.network.CryptoUtils.isValidKaspaAddress(recipient, expectedPrefix)) {
                         errorJson("Recipient address is invalid or does not match the selected $network network.")
