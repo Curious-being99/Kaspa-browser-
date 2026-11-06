@@ -39,6 +39,24 @@ class SiAgentToolRuntimeTest {
     }
 
     @Test
+    fun resolvesKaspaL1NetworksWithoutConflatingTestnets() {
+        val mainnet = SiAgentToolRuntime.resolveKaspaNetworkContext("Kaspa Mainnet")
+        val tn10 = SiAgentToolRuntime.resolveKaspaNetworkContext("Kaspa Testnet 10")
+        val tn11 = SiAgentToolRuntime.resolveKaspaNetworkContext("Kaspa Testnet 11")
+
+        assertTrue(mainnet?.networkId == "mainnet")
+        assertTrue(mainnet?.addressPrefix == "kaspa")
+        assertTrue(tn10?.networkId == "testnet-10")
+        assertTrue(tn11?.networkId == "testnet-11")
+        assertTrue(tn10?.addressPrefix == "kaspatest")
+        assertTrue(tn11?.addressPrefix == "kaspatest")
+        assertTrue(tn10?.rpcEndpoint == "https://api-tn10.kaspa.org")
+        assertTrue(tn11?.rpcEndpoint == "https://api-tn11.kaspa.org")
+        assertTrue(SiAgentToolRuntime.resolveKaspaNetworkContext("Kasplex Mainnet") == null)
+        assertTrue(SiAgentToolRuntime.resolveKaspaNetworkContext("Igra Galleon Testnet") == null)
+    }
+
+    @Test
     fun exposesPaymentPreparationButNeverSigningOrBroadcastTools() {
         val tools = SiAgentToolRuntime.definitions()
         val names = (0 until tools.length()).mapNotNull { index ->
