@@ -696,4 +696,91 @@ class DappPsktTransactionTest {
             publicKeyHex
         )
     }
+
+    @Test
+    fun reverseSwapSigningReturnsAllInputsAtCanonicalIndicesForBraidSdk() {
+        val userScript = "20" + publicKeyHex + "ac"
+        val covenantScript = "aa20" + "33".repeat(32) + "87"
+        
+        // Input 0: Token note (unsigned covenant, presence-owned)
+        // Input 1: Wallet KAS fee input (signed, index 1)
+        val inputs = JSONArray()
+            .put(JSONObject()
+                .put("previousOutpoint", JSONObject().put("transactionId", "aa".repeat(32)).put("index", 0))
+                .put("signatureScript", "")
+                .put("sequence", 0)
+                .put("sigOpCount", 0)
+                .put("utxoEntry", JSONObject()
+                    .put("amount", "500000000000") // 5000 ICE note
+                    .put("scriptPublicKey", JSONObject().put("version", 0).put("script", covenantScript))
+                )
+            )
+            .put(JSONObject()
+                .put("previousOutpoint", JSONObject().put("transactionId", "bb".repeat(32)).put("index", 1))
+                .put("signatureScript", "")
+                .put("sequence", 0)
+                .put("sigOpCount", 1)
+                .put("utxoEntry", JSONObject()
+                    .put("amount", "100000000") // 1 KAS fee UTXO
+                    .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+                )
+            )
+
+        val outputs = JSONArray()
+            .put(JSONObject()
+                .put("amount", "90000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
+            )
+
+        val tx = JSONObject()
+            .put("version", 1)
+            .put("inputs", inputs)
+            .put("outputs", outputs)
+            .put("lockTime", 0)
+            .put("subnetworkId", KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID)
+            .put("gas", 0)
+            .put("payload", "")
+
+        val signInputsJson = JSONArray().put(
+            JSONObject().put("index", 1).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)
+        )
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            signInputsJson,
+            publicKeyHex
+        )
+
+        val result = DappPsktTransaction.signAndFormat(prepared, privateKey)
+
+        // 1. Result must have the complete inputs array containing both inputs (length 2)
+        val resultInputs = result.getJSONArray("inputs")
+        assertEquals(2, resultInputs.length())
+
+        // Input 0 (unsigned token note) must remain blank
+        assertEquals("", resultInputs.getJSONObject(0).getString("signatureScript"))
+
+        // Input 1 (signed KAS fee input) must be at index 1 and have plain SIGHASH_ALL Schnorr signature script (length 132)
+        val input1Script = resultInputs.getJSONObject(1).getString("signatureScript")
+        assertEquals(132, input1Script.length)
+        assertTrue(input1Script.matches(Regex("(?i)^41[0-9a-f]{128}01$")))
+
+        // 2. Braid SDK sigsOf regex compatibility test:
+        // /41[0-9a-f]{128}01/ extracts the 64-byte Schnorr signature
+        val sigFromRegex = Regex("(?i)^41([0-9a-f]{128})01$").matchEntire(input1Script)?.groupValues?.get(1)
+        assertTrue("Signature must match Braid SDK's sigsOf regex", sigFromRegex != null)
+
+        // 3. Cryptographic Schnorr verification
+        val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+            prepared.transaction, 1, KaspaTransactionEngine.SIGHASH_ALL, prepared.utxoEntries[1]
+        )
+        assertTrue(CryptoUtils.verifySchnorrSignature(sigFromRegex!!, sighash, CryptoUtils.hexToBytes(publicKeyHex)))
+
+        // 4. KaspaRocket rZ compatibility: result.transaction and result.tx must be JSONObjects with inputs array
+        assertTrue(result.get("transaction") is JSONObject)
+        assertTrue(result.get("tx") is JSONObject)
+        val txObj = result.getJSONObject("transaction")
+        assertEquals(2, txObj.getJSONArray("inputs").length())
+        assertEquals(input1Script, txObj.getJSONArray("inputs").getJSONObject(1).getString("signatureScript"))
+    }
 }

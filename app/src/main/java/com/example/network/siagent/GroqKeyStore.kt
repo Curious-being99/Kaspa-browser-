@@ -37,7 +37,10 @@ object GroqKeyStore {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
         String(cipher.doFinal(encrypted), Charsets.UTF_8)
-    }.getOrNull()
+    }.getOrNull().takeIf { !it.isNullOrBlank() }
+        ?: com.example.BuildConfig.GROQ_API_KEY.takeIf {
+            it.isNotBlank() && it != "placeholder" && it != "your_groq_api_key_here"
+        }
 
     fun clear(context: Context) {
         context.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit().clear().apply()
