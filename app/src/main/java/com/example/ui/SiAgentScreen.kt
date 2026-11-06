@@ -1645,7 +1645,7 @@ TOOL POLICY:
 
 KASPA BROWSER PRODUCT CONTEXT:
 - Native Android browser with tabs, bookmarks, history, downloads, web search/crawling, native Kaspa wallet, KCC-20 token support and dApp/PWA features.
-- ${' Contract/covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8. Do not call it KRC-20.
+- ${'$'}KB is the KaspaBrowser KCC-20 community token. Contract/covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8. Do not call it KRC-20.
 - KAS sends must use the wallet review screen and explicit user confirmation. Never ask for seed phrase or private key.
 
 CURRENT CONTEXT:
