@@ -21,6 +21,8 @@ object SiAgentToolRuntime {
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
         addTool("get_kcc20_tokens", "Read live KCC-20 wallet token balances, metadata, validation and indexed prices. Includes $KB when its wallet record is available.")
+        addTool("get_krc20_tokens", "Read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
+        addTool("browser_bookmark_current_page", "Save the current webpage as a bookmark if it is not already bookmarked.")
         addTool("get_kcc20_transactions", "Read recent KCC-20 token transaction history.")
         addTool("get_browser_state", "Read current page, open tabs, bookmarks, recent browsing history and download status.")
         addTool("get_dapp_state", "Read installed PWAs and the current PWA context. This does not connect to or control a dApp wallet.")
@@ -106,6 +108,26 @@ object SiAgentToolRuntime {
                             }
                         }).put("count", tokens.size).toString()
                 }
+                "get_krc20_tokens" -> {
+                    val tokens = viewModel.pinnedTokens.value
+                    JSONObject().put("protocol", "KRC-20")
+                        .put("tokens", JSONArray().apply {
+                            tokens.forEach { token ->
+                                val metadata = token.metadata
+                                put(JSONObject()
+                                    .put("ticker", token.tick)
+                                    .put("balance", token.balance)
+                                    .put("raw_balance", token.balanceRaw)
+                                    .put("decimals", token.decimals)
+                                    .put("token_id", token.tokenId)
+                                    .put("is_pinned", token.isPinned)
+                                    .put("state", metadata?.state ?: JSONObject.NULL)
+                                    .put("bonding_curve_progress_percent", metadata?.bondingCurveProgress ?: JSONObject.NULL)
+                                    .put("holder_count", metadata?.holderTotal ?: JSONObject.NULL)
+                                    .put("logo_url", token.effectiveLogoUrl ?: JSONObject.NULL))
+                            }
+                        }).put("count", tokens.size).toString()
+                }
                 "get_kcc20_transactions" -> {
                     val txs = viewModel.kcc20Transactions.value
                     JSONObject().put("transactions", JSONArray().apply {
@@ -167,12 +189,24 @@ object SiAgentToolRuntime {
                     if (!isPublicWebUrl(url)) errorJson("Only absolute public HTTP or HTTPS URLs are accepted.")
                     else AndroidWebResearch.crawlUrl(url).toPromptContext()
                 }
+                "browser_bookmark_current_page" -> {
+                    val page = viewModel.currentResource.value
+                    val url = page?.url.orEmpty()
+                    val title = page?.title.orEmpty()
+                    if (!isPublicWebUrl(url)) errorJson("There is no public webpage available to bookmark.")
+                    else {
+                        val exists = viewModel.isBookmarked(url)
+                        if (!exists) withContext(Dispatchers.Main) { viewModel.toggleBookmark(url, title) }
+                        JSONObject().put("success", true).put("already_bookmarked", exists)
+                            .put("title", title).put("url", url).toString()
+                    }
+                }
                 "browser_navigate" -> {
                     val url = args.optString("url").trim()
                     if (!isPublicWebUrl(url)) errorJson("Only absolute public HTTP or HTTPS URLs are accepted.")
                     else {
-                        viewModel.openUrlInBrowser(url, isExternal = false)
-                        viewModel.setTab(AppTab.BROWSER_GATEWAY)
+withContext(Dispatchers.Main) { viewModel.openUrlInBrowser(url, isExternal = false) }
+withContext(Dispatchers.Main) { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
                         JSONObject().put("success", true).put("action", "navigate_active_tab").put("url", url).toString()
                     }
                 }
@@ -180,8 +214,8 @@ object SiAgentToolRuntime {
                     val raw = args.optString("url").trim()
                     if (raw.isNotBlank() && !isPublicWebUrl(raw)) errorJson("Only absolute public HTTP or HTTPS URLs are accepted.")
                     else {
-                        viewModel.createNewTab(raw)
-                        viewModel.setTab(AppTab.BROWSER_GATEWAY)
+withContext(Dispatchers.Main) { viewModel.createNewTab(raw) }
+withContext(Dispatchers.Main) { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
                         JSONObject().put("success", true).put("action", "open_new_tab").put("url", raw).toString()
                     }
                 }
@@ -190,8 +224,8 @@ object SiAgentToolRuntime {
                     val tab = viewModel.browserTabs.value.getOrNull(index)
                     if (tab == null) errorJson("That browser tab number does not exist.")
                     else {
-                        viewModel.setActiveTab(tab.id)
-                        viewModel.setTab(AppTab.BROWSER_GATEWAY)
+withContext(Dispatchers.Main) { viewModel.setActiveTab(tab.id) }
+withContext(Dispatchers.Main) { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
                         JSONObject().put("success", true).put("action", "switch_tab").put("tab_number", index + 1).put("title", tab.title).toString()
                     }
                 }
@@ -202,7 +236,7 @@ object SiAgentToolRuntime {
                     if (tab == null) errorJson("That browser tab number does not exist.")
                     else if (tabs.size <= 1) errorJson("The final browser tab cannot be closed by SI Agent.")
                     else {
-                        viewModel.closeTab(tab.id)
+withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
                         JSONObject().put("success", true).put("action", "close_tab").put("tab_number", index + 1).put("title", tab.title).toString()
                     }
                 }
