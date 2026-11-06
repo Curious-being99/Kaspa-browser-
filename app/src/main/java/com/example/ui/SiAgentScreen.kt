@@ -844,7 +844,17 @@ fun SiAgentScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            executeMessage(item.command)
+                                            when (item.command) {
+                                                "/search" -> {
+                                                    inputText = "/search "
+                                                    showCommandPicker = false
+                                                }
+                                                "/crawl" -> {
+                                                    inputText = "/crawl "
+                                                    showCommandPicker = false
+                                                }
+                                                else -> executeMessage(item.command)
+                                            }
                                         }
                                         .padding(horizontal = 10.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -1777,9 +1787,16 @@ suspend fun executeSiAgentCommand(
             "💡 Concept: $subject\nKaspa uses a Directed Acyclic Graph (GHOSTDAG) where blocks coexist in parallel with sub-second finality."
         }
 
+        lower == "search" || lower == "/search" -> {
+            "🔎 Web search\nEnter a query after the command, for example:\n/search latest Kaspa news\n\nSI Agent will fetch real public search results and show their source URLs. No AI API key is required for retrieval."
+        }
+
+        lower == "crawl" || lower == "/crawl" -> {
+            "🌐 Website crawl\nEnter a public HTTPS URL after the command, for example:\n/crawl https://kaspa.org\n\nSI Agent will retrieve readable page content and show the source URL. Some sites block automated access."
+        }
+
         lower.startsWith("search") || lower.startsWith("find") || lower.startsWith("query") -> {
-            val query = trimmed.removePrefix("search").removePrefix("find").removePrefix("query").trim().ifBlank { "Kaspa" }
-            "🔎 Search: \"$query\"\nSynthesizing verified results across decentralized indexes."
+            "🔎 Web search\nUse /search <your query> to retrieve live public web results with source URLs."
         }
 
         lower.startsWith("help") || lower.startsWith("command") || lower.startsWith("menu") || lower.isEmpty() -> {
