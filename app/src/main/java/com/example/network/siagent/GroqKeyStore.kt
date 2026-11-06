@@ -41,6 +41,9 @@ object GroqKeyStore {
 
     fun clear(context: Context) {
         context.getSharedPreferences(STORE, Context.MODE_PRIVATE).edit().clear().apply()
+        runCatching {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(KEY_ALIAS)
+        }
     }
 
     private fun getOrCreateKey(): SecretKey {
