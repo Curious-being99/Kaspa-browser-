@@ -18,6 +18,7 @@ class SiAgentToolRuntimeTest {
         assertTrue(names.contains("get_receive_address"))
         assertTrue(names.contains("get_kcc20_tokens"))
         assertTrue(names.contains("get_krc20_tokens"))
+        assertTrue(names.contains("get_krc20_transactions"))
         assertTrue(names.contains("get_kcc20_transactions"))
         assertTrue(names.contains("get_browser_state"))
         assertTrue(names.contains("get_dapp_state"))
