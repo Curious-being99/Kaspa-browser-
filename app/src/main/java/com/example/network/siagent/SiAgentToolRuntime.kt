@@ -25,6 +25,9 @@ object SiAgentToolRuntime {
         addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes $KB when its wallet record is available.")
         addTool("get_krc20_tokens", "Refresh and read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
         addTool("browser_bookmark_current_page", "Save the current webpage as a bookmark if it is not already bookmarked.")
+        addTool("browser_go_back", "Go back one page in the active browser tab when history is available.")
+        addTool("browser_go_forward", "Go forward one page in the active browser tab when history is available.")
+        addTool("browser_reload", "Reload the active browser tab.")
         addTool("get_kcc20_transactions", "Read recent KCC-20 token transaction history.")
         addTool("get_browser_state", "Read current page, open tabs, bookmarks, recent browsing history and download status.")
         addTool("get_dapp_state", "Read installed PWAs and the current PWA context. This does not connect to or control a dApp wallet.")
@@ -268,6 +271,34 @@ object SiAgentToolRuntime {
                         val saved = exists || viewModel.isBookmarked(url)
                         JSONObject().put("success", saved).put("already_bookmarked", exists)
                             .put("title", title).put("url", url).toString()
+                    }
+                }
+                "browser_go_back", "browser_go_forward", "browser_reload" -> {
+                    val tabId = viewModel.activeTabId.value
+                    val webView = tabId?.let { viewModel.webViewTabManager.getWebView(it) }
+                    if (webView == null) errorJson("The active browser tab does not have an attached webpage.")
+                    else {
+                        val action = when (name) {
+                            "browser_go_back" -> "go_back"
+                            "browser_go_forward" -> "go_forward"
+                            else -> "reload"
+                        }
+                        val canNavigate = when (name) {
+                            "browser_go_back" -> webView.canGoBack()
+                            "browser_go_forward" -> webView.canGoForward()
+                            else -> true
+                        }
+                        if (!canNavigate) errorJson("The active webpage has no matching navigation history.")
+                        else {
+                            withContext(Dispatchers.Main) {
+                                when (name) {
+                                    "browser_go_back" -> webView.goBack()
+                                    "browser_go_forward" -> webView.goForward()
+                                    else -> webView.reload()
+                                }
+                            }
+                            JSONObject().put("success", true).put("action", action).toString()
+                        }
                     }
                 }
                 "browser_navigate" -> {
