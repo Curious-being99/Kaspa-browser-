@@ -19,6 +19,7 @@ object SiAgentToolRuntime {
     private const val KB_CONTRACT = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
 
     fun definitions(): JSONArray = JSONArray().apply {
+        addPaymentTool()
         addTool("get_wallet_status", "Refresh and read the current selected network, KAS balance, USD estimate, and UTXO count. Call only when the user asks about their wallet or balance.")
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
@@ -38,6 +39,19 @@ object SiAgentToolRuntime {
         addTool("browser_open_tab", "Open a new browser tab at a public HTTP or HTTPS URL, or a blank home tab.", optional = "url")
         addTool("browser_switch_tab", "Switch to an existing browser tab by its 1-based tab number.", "tab_number")
         addTool("browser_close_tab", "Close an existing browser tab by its 1-based tab number. Do not close the final tab.", "tab_number")
+    }
+
+    private fun JSONArray.addPaymentTool() {
+        val properties = JSONObject()
+            .put("recipient_address", JSONObject().put("type", "string").put("description", "Full Kaspa bech32 recipient address for the currently selected Kaspa network."))
+            .put("amount_kas", JSONObject().put("type", "number").put("exclusiveMinimum", 0))
+        val parameters = JSONObject().put("type", "object").put("properties", properties)
+            .put("required", JSONArray().put("recipient_address").put("amount_kas"))
+            .put("additionalProperties", false)
+        put(JSONObject().put("type", "function").put("function", JSONObject()
+            .put("name", "prepare_kaspa_payment")
+            .put("description", "Prepare a KAS payment in the native wallet review sheet. This never signs or broadcasts. The user must inspect and explicitly confirm in the app.")
+            .put("parameters", parameters)))
     }
 
     private fun JSONArray.addTool(name: String, description: String, required: String? = null, optional: String? = null) {
@@ -91,9 +105,45 @@ object SiAgentToolRuntime {
         } ?: false
     }
 
-    suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject): String {
+    suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject, onPaymentPrepared: (suspend (String, Double) -> Unit)? = null): String {
         return try {
             when (name) {
+                "prepare_kaspa_payment" -> {
+                    val recipient = args.optString("recipient_address").trim()
+                    val amount = args.optDouble("amount_kas", Double.NaN)
+                    val network = viewModel.selectedNetwork.value
+                    val expectedPrefix = when {
+                        network.contains("Mainnet", true) -> "kaspa"
+                        network.contains("Testnet", true) -> "kaspatest"
+                        else -> ""
+                    }
+                    if (viewModel.activeAccount.value == null) {
+                        errorJson("No active wallet is available. Open and unlock the native wallet first.")
+                    } else if (expectedPrefix.isBlank()) {
+                        errorJson("KAS payments are unavailable on the selected network: $network. Select Kaspa Mainnet or Testnet-10 in the wallet first.")
+                    } else if (!amount.isFinite() || amount <= 0.0) {
+                        errorJson("amount_kas must be a finite number greater than zero.")
+                    } else if (amount > 1_000_000_000.0) {
+                        errorJson("The requested amount exceeds the supported payment limit.")
+                    } else if (!recipient.startsWith("$expectedPrefix:", true) ||
+                        !com.example.network.CryptoUtils.isValidKaspaAddress(recipient, expectedPrefix)) {
+                        errorJson("Recipient address is invalid or does not match the selected $network network.")
+                    } else if (onPaymentPrepared == null) {
+                        errorJson("Native payment review is unavailable in this context. No transaction was created.")
+                    } else {
+                        onPaymentPrepared(recipient, amount)
+                        JSONObject().put("success", true)
+                            .put("status", "awaiting_user_review")
+                            .put("network", network)
+                            .put("asset", "KAS")
+                            .put("amount_kas", amount)
+                            .put("recipient_address", recipient)
+                            .put("signed", false)
+                            .put("broadcast", false)
+                            .put("next_step", "The native wallet review sheet is open. The user must verify the recipient, amount and live fee, then explicitly confirm.")
+                            .toString()
+                    }
+                }
                 "get_wallet_status" -> {
                     val refreshed = refreshWallet(viewModel)
                     val wallet = viewModel.kaspaWalletState.value
