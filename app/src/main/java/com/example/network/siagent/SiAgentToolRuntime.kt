@@ -296,8 +296,33 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
 
     private fun isPublicWebUrl(value: String): Boolean = try {
         val uri = URI(value)
-        (uri.scheme.equals("https", true) || uri.scheme.equals("http", true)) &&
-            !uri.host.isNullOrBlank() && uri.userInfo == null
+        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
+        if (!(uri.scheme.equals("https", true) || uri.scheme.equals("http", true)) ||
+            host.isBlank() || uri.userInfo != null ||
+            host == "localhost" || host.endsWith(".localhost") ||
+            host.endsWith(".local") || host.endsWith(".internal")) return false
+        val addresses = java.net.InetAddress.getAllByName(host)
+        addresses.isNotEmpty() && addresses.all { address ->
+            if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+                address.isLinkLocalAddress || address.isSiteLocalAddress ||
+                address.isMulticastAddress) {
+                false
+            } else {
+                val bytes = address.address.map { it.toInt() and 0xff }
+                if (bytes.size == 4) {
+                    val a = bytes[0]
+                    val b = bytes[1]
+                    !(a == 0 || a == 10 || a == 127 || a >= 224 ||
+                        (a == 169 && b == 254) ||
+                        (a == 172 && b in 16..31) ||
+                        (a == 192 && b == 168) ||
+                        (a == 100 && b in 64..127) ||
+                        (a == 198 && b in 18..19))
+                } else {
+                    (bytes[0] and 0xfe) != 0xfc
+                }
+            }
+        }
     } catch (_: Exception) { false }
 
     private fun errorJson(message: String): String =
