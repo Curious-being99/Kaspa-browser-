@@ -183,7 +183,6 @@ private fun normalizeSiAgentCommand(raw: String): String {
         lower in listOf("show tabs", "list tabs", "my tabs", "browser tabs", "how many tabs are open") -> "/tabs"
         lower in listOf("show browser history", "my browsing history", "recent websites", "web history", "browser history") -> "/browser-history"
         lower in listOf("what page is open", "what website is this", "current page", "show current page", "where am i browsing") -> "/page-info"
-        lower in listOf("show browser history", "my browsing history", "recent websites", "web history") -> "/browser-history"
         lower in listOf("show bookmarks", "my bookmarks", "list bookmarks", "open bookmarks") -> "/bookmarks"
         lower in listOf("show downloads", "my downloads", "download list", "open downloads") -> "/downloads"
         lower in listOf("browser", "open browser", "go to browser", "back to browser") -> "/browser"
