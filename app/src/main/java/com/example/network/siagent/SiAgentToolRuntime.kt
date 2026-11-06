@@ -52,42 +52,49 @@ object SiAgentToolRuntime {
             .put("name", name).put("description", description).put("parameters", parameters)))
     }
 
-    private suspend fun refreshWallet(viewModel: DecentralViewModel) {
+    private suspend fun refreshWallet(viewModel: DecentralViewModel): Boolean {
         val network = viewModel.selectedNetwork.value
         val address = if (network.contains("Mainnet", true)) viewModel.mainnetAddress.value else viewModel.testnetAddress.value
-        if (address.isBlank()) return
-        withContext(Dispatchers.Main) { viewModel.refreshKaspaWallet(address) }
-        withTimeoutOrNull(30_000L) {
-            viewModel.kaspaWalletState.first { it.isLoading }
+        if (address.isBlank()) return false
+        val alreadyLoading = viewModel.kaspaWalletState.value.isLoading
+        if (!alreadyLoading) withContext(Dispatchers.Main) { viewModel.refreshKaspaWallet(address) }
+        return withTimeoutOrNull(30_000L) {
+            if (!alreadyLoading) viewModel.kaspaWalletState.first { it.isLoading }
             viewModel.kaspaWalletState.first { !it.isLoading }
-        }
+            true
+        } ?: false
     }
 
-    private suspend fun refreshKcc20(viewModel: DecentralViewModel) {
-        if (viewModel.activeAccount.value == null) return
-        withContext(Dispatchers.Main) { viewModel.refreshKcc20Tokens() }
-        withTimeoutOrNull(45_000L) {
-            viewModel.isLoadingKcc20.first { it }
+    private suspend fun refreshKcc20(viewModel: DecentralViewModel): Boolean {
+        if (viewModel.activeAccount.value == null) return false
+        val alreadyLoading = viewModel.isLoadingKcc20.value
+        if (!alreadyLoading) withContext(Dispatchers.Main) { viewModel.refreshKcc20Tokens() }
+        return withTimeoutOrNull(45_000L) {
+            if (!alreadyLoading) viewModel.isLoadingKcc20.first { it }
             viewModel.isLoadingKcc20.first { !it }
-        }
+            true
+        } ?: false
     }
 
-    private suspend fun refreshKrc20(viewModel: DecentralViewModel) {
-        if (viewModel.activeAccount.value == null) return
-        withContext(Dispatchers.Main) { viewModel.refreshKrc20Tokens() }
-        withTimeoutOrNull(30_000L) {
-            viewModel.isLoadingKrc20.first { it }
+    private suspend fun refreshKrc20(viewModel: DecentralViewModel): Boolean {
+        if (viewModel.activeAccount.value == null) return false
+        val alreadyLoading = viewModel.isLoadingKrc20.value
+        if (!alreadyLoading) withContext(Dispatchers.Main) { viewModel.refreshKrc20Tokens() }
+        return withTimeoutOrNull(30_000L) {
+            if (!alreadyLoading) viewModel.isLoadingKrc20.first { it }
             viewModel.isLoadingKrc20.first { !it }
-        }
+            true
+        } ?: false
     }
 
     suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject): String {
         return try {
             when (name) {
                 "get_wallet_status" -> {
-                    refreshWallet(viewModel)
+                    val refreshed = refreshWallet(viewModel)
                     val wallet = viewModel.kaspaWalletState.value
                     JSONObject()
+                        .put("refresh_completed", refreshed)
                         .put("network", viewModel.selectedNetwork.value)
                         .put("balance_kas", wallet.balanceKas)
                         .put("balance_usd_estimate", wallet.balanceUsd)
@@ -98,9 +105,9 @@ object SiAgentToolRuntime {
                         .toString()
                 }
                 "get_wallet_transactions" -> {
-                    refreshWallet(viewModel)
+                    val refreshed = refreshWallet(viewModel)
                     val txs = viewModel.kaspaWalletState.value.recentTransactions
-                    JSONObject().put("transactions", JSONArray().apply {
+                    JSONObject().put("refresh_completed", refreshed).put("transactions", JSONArray().apply {
                         txs.take(30).forEach { tx ->
                             put(JSONObject()
                                 .put("tx_id", tx.txId)
@@ -120,9 +127,9 @@ object SiAgentToolRuntime {
                     else JSONObject().put("network", network).put("receive_address", address).toString()
                 }
                 "get_kcc20_tokens" -> {
-                    refreshKcc20(viewModel)
+                    val refreshed = refreshKcc20(viewModel)
                     val tokens = viewModel.kcc20Tokens.value
-                    JSONObject().put("network", viewModel.selectedNetwork.value)
+                    JSONObject().put("refresh_completed", refreshed).put("network", viewModel.selectedNetwork.value)
                         .put("tokens", JSONArray().apply {
                             tokens.forEach { token ->
                                 put(JSONObject()
@@ -143,9 +150,9 @@ object SiAgentToolRuntime {
                         }).put("count", tokens.size).toString()
                 }
                 "get_krc20_tokens" -> {
-                    refreshKrc20(viewModel)
+                    val refreshed = refreshKrc20(viewModel)
                     val tokens = viewModel.pinnedTokens.value
-                    JSONObject().put("protocol", "KRC-20")
+                    JSONObject().put("refresh_completed", refreshed).put("protocol", "KRC-20")
                         .put("tokens", JSONArray().apply {
                             tokens.forEach { token ->
                                 val metadata = token.metadata
@@ -164,8 +171,9 @@ object SiAgentToolRuntime {
                         }).put("count", tokens.size).toString()
                 }
                 "get_kcc20_transactions" -> {
+                    val refreshed = refreshKcc20(viewModel)
                     val txs = viewModel.kcc20Transactions.value
-                    JSONObject().put("transactions", JSONArray().apply {
+                    JSONObject().put("refresh_completed", refreshed).put("transactions", JSONArray().apply {
                         txs.take(40).forEach { tx ->
                             put(JSONObject()
                                 .put("tx_id", tx.txId)
@@ -231,8 +239,12 @@ object SiAgentToolRuntime {
                     if (!isPublicWebUrl(url)) errorJson("There is no public webpage available to bookmark.")
                     else {
                         val exists = viewModel.isBookmarked(url)
-                        if (!exists) withContext(Dispatchers.Main) { viewModel.toggleBookmark(url, title) }
-                        JSONObject().put("success", true).put("already_bookmarked", exists)
+                        if (!exists) {
+                            withContext(Dispatchers.Main) { viewModel.toggleBookmark(url, title) }
+                            withTimeoutOrNull(5_000L) { viewModel.bookmarks.first { list -> list.any { it.url == url } } }
+                        }
+                        val saved = exists || viewModel.isBookmarked(url)
+                        JSONObject().put("success", saved).put("already_bookmarked", exists)
                             .put("title", title).put("url", url).toString()
                     }
                 }
