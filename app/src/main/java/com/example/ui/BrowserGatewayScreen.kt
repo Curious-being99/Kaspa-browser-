@@ -407,17 +407,10 @@ private fun HubActionRow(
 }
 
 /**
- * Custom SwipeRefreshLayout designed specifically for WebViews.
- * Solves the critical bug where scrolling up and down inside a webpage
- * accidentally triggers pull-to-refresh.
+ * Compatibility container for the browser's preserved WebView.
  *
- * Requirements enforced:
- * 1. Touch gesture MUST start (ACTION_DOWN) when WebView is already at the absolute top
- *    (scrollY <= 0 && !canScrollVertically(-1)). If the user touched the screen while scrolled down,
- *    this gesture can NEVER trigger refresh even if the user scrolls to the top.
- * 2. Only vertical downward pulls with substantial distance (scaledTouchSlop * 3.5f) activate refresh.
- * 3. Horizontal panning / swipes (e.g. carousels, tabs, sliders) are never intercepted.
- * 4. Respects the user's enablePullToRefresh setting.
+ * Pull-to-refresh is intentionally disabled: the page (including nested CSS
+ * scroll areas such as token lists and dropdowns) must receive every touch gesture.
  */
 class BrowserSwipeRefreshLayout @JvmOverloads constructor(
     context: android.content.Context,
@@ -425,93 +418,22 @@ class BrowserSwipeRefreshLayout @JvmOverloads constructor(
 ) : androidx.swiperefreshlayout.widget.SwipeRefreshLayout(context, attrs) {
 
     var targetWebView: android.webkit.WebView? = null
-    var isGestureAllowed: Boolean = true
+    var isGestureAllowed: Boolean = false
         set(value) {
-            field = value
-            isEnabled = value
+            field = false
+            isEnabled = false
         }
 
-    private val density = context.resources.displayMetrics.density
-    private var startedAtTop = false
-
-    init {
-        val startOffset = -(36 * density).toInt()
-        val endOffset = (48 * density).toInt()
-        setProgressViewOffset(true, startOffset, endOffset)
-        setDistanceToTriggerSync((90 * density).toInt())
-        setColorSchemeColors(
-            android.graphics.Color.parseColor("#00E5FF"),
-            android.graphics.Color.parseColor("#10B981")
-        )
-        setProgressBackgroundColorSchemeColor(android.graphics.Color.parseColor("#131B2E"))
-    }
-
-    override fun canChildScrollUp(): Boolean {
-        val wv = targetWebView ?: (0 until childCount)
-            .mapNotNull { getChildAt(it) as? android.webkit.WebView }
-            .firstOrNull()
-        return if (wv != null) {
-            wv.canScrollVertically(-1) || wv.scrollY > 0
-        } else {
-            super.canChildScrollUp()
-        }
-    }
-
-    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (!isGestureAllowed || !isEnabled) {
-            return false
-        }
-
-        when (ev.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN -> {
-                // Only allow pull-to-refresh if the touch gesture STARTS at the very top of the webpage
-                startedAtTop = !canChildScrollUp()
-            }
-            android.view.MotionEvent.ACTION_MOVE -> {
-                // If this gesture did NOT begin at the top, NEVER intercept it mid-scroll!
-                if (!startedAtTop) {
-                    return false
-                }
-            }
-            android.view.MotionEvent.ACTION_UP,
-            android.view.MotionEvent.ACTION_CANCEL -> {
-                startedAtTop = false
-            }
-        }
-
-        if (!startedAtTop) {
-            return false
-        }
-
-        return try {
-            super.onInterceptTouchEvent(ev)
-        } catch (_: IllegalArgumentException) {
-            false
-        }
-    }
+    override fun onInterceptTouchEvent(ev: android.view.MotionEvent): Boolean = false
 
     @android.annotation.SuppressLint("ClickableViewAccessibility")
-    override fun onTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (!isGestureAllowed || !isEnabled || !startedAtTop) {
-            return false
-        }
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP ||
-            ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL) {
-            startedAtTop = false
-        }
-        return try {
-            super.onTouchEvent(ev)
-        } catch (_: IllegalArgumentException) {
-            false
-        }
-    }
+    override fun onTouchEvent(ev: android.view.MotionEvent): Boolean = false
 
     override fun performClick(): Boolean {
         super.performClick()
         return true
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @SuppressLint("SetJavaScriptEnabled", "WrongConstant", "NewApi")
 @Composable
@@ -1099,7 +1021,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val blockTrackers by viewModel.blockTrackers.collectAsState()
     val enableDownloads by viewModel.enableDownloads.collectAsState()
     val enableUploads by viewModel.enableUploads.collectAsState()
-    val enablePullToRefresh by viewModel.enablePullToRefresh.collectAsState()
     val encryptedLocalStorage by viewModel.encryptedLocalStorage.collectAsState()
     val thirdPartyCookies by viewModel.thirdPartyCookies.collectAsState()
     val blockThirdPartyCookies by viewModel.blockThirdPartyCookies.collectAsState()
@@ -3715,22 +3636,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             }
                         }
 
-                        setOnRefreshListener {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            com.example.util.BrowserStateLog.reload("User pulled to refresh")
-                            isWebLoading = true
-                            hasMainPageFinished = false
-                            webProgress = 0.15f
-                            val currentUrl = (webView.tag as? Pair<*, *>)?.first as? String
-                                ?: (if (webView.url?.startsWith("kaspa-error://") == true) urlInput else (webView.url ?: urlInput))
-                            val normalized = viewModel.normalizeUrlOrQuery(currentUrl)
-                            if (normalized.startsWith("http://", ignoreCase = true) || normalized.startsWith("https://", ignoreCase = true)) {
-                                viewModel.setIsLoading(true)
-                                webView.reload()
-                            } else {
-                                viewModel.resolveUrl()
-                            }
-                        }
                     }
                 },
                 update = { containerLayout ->
@@ -3742,8 +3647,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         val swipeRefresh = containerLayout as? BrowserSwipeRefreshLayout
                         if (swipeRefresh != null) {
                             swipeRefresh.targetWebView = webView
-                            swipeRefresh.isGestureAllowed = enablePullToRefresh && !showFindInPage && !isReaderMode
-                            swipeRefresh.isEnabled = swipeRefresh.isGestureAllowed
                             if (!isWebLoading && swipeRefresh.isRefreshing) {
                                 swipeRefresh.isRefreshing = false
                             }
