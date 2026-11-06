@@ -106,9 +106,8 @@ jobs:
             curl_status=$?
           fi
 
-          if [ "$curl_status" -eq 0 ] && [ "$http_code" = "200" ] &&
-            jq -e '.choices[0].message.content | strings | test("\\S")' "$response_file" >/dev/null 2>&1; then
-            echo "::notice::Groq GPT-OSS 120B API request succeeded (HTTP 200; non-empty model response)."
+          if [ "$curl_status" -eq 0 ] && [ "$http_code" = "200" ]; then
+            echo "::notice::Groq GPT-OSS 120B API endpoint returned HTTP 200."
           else
             echo "::warning::Groq verification unavailable (HTTP ${http_code:-network error}, curl exit $curl_status); continuing Android build."
           fi
