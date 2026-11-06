@@ -81,6 +81,43 @@
    - Dedicated YouTube channel feeds including **Kaspa Silver 𐤊** (`@KaspaSilver` - channel ID `UCv8-2oyrfqDigJAKjZ_RCzQ`), **Kaspa Official**, and **Pumpolinsky**.
    - Features inline video playback, high-definition thumbnails, video duration badges, and single-tap switching to full browser mode.
 
+
+## 🤖 SI Agent AI Provider & User-Owned Groq API Key
+
+SI Agent can use the Groq Chat Completions API for AI-generated answers. Each user can configure their **own Groq API key** on their Android device; the application does not require a shared developer key embedded in the APK.
+
+### Configure your Groq API key
+
+1. Open **Kaspa Browser** and launch **SI Agent**.
+2. Tap the **security/key icon** in the SI Agent toolbar to open Groq settings.
+3. Paste your own Groq API key (Groq keys begin with `gsk_`) and tap **Save key**.
+4. To change providers credentials, enter a replacement key and save it. Use **Remove** to delete the saved key from this device.
+
+The key is encrypted with **AES-GCM** and the encryption key is held by **Android Keystore**. The API key is not hardcoded in the app source or intended to be shared between users.
+
+### Model and response settings
+
+The current Groq request uses:
+
+- **Model:** `openai/gpt-oss-120b`
+- **Streaming:** enabled using server-sent events (SSE)
+- **Reasoning effort:** `medium`
+- **Maximum completion tokens:** `2048`
+- **Temperature:** `1`
+- **Top-p:** `1`
+
+SI Agent sends requests to the Groq OpenAI-compatible Chat Completions endpoint over HTTPS. The configured key is read from the encrypted on-device store when a request is made.
+
+### Quota, errors, and web retrieval
+
+- Each user is responsible for their own Groq account, API key, usage, quota, and rate limits.
+- If no key is configured or a Groq request fails (including quota/rate-limit errors), SI Agent uses its existing non-AI response path rather than requiring a shared key.
+- **Web search and page retrieval do not require a Groq API key.** SI Agent can return retrieved source excerpts and URLs without AI-generated synthesis.
+- Website crawling can also return the extracted page text when an AI summary cannot be generated.
+- A Groq quota reset is controlled by Groq and its account limits; the app does not reset or replenish API credits.
+
+Keep your API key private. Do not paste it into public issues, commits, screenshots, or shared logs.
+
 ---
 
 ## 🔗 Connecting & Integrating From Another Android App
