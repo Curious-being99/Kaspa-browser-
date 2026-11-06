@@ -666,7 +666,6 @@ fun SiAgentScreen(
                 attachedFileName = attachedName,
                 testnetAddress = testnetAddress,
                 mainnetAddress = mainnetAddress,
-                viewModel = viewModel,
                 kasBalance = walletState.balanceKas,
                 utxoCount = walletState.utxosCount,
                 recentTransactions = walletState.recentTransactions,
