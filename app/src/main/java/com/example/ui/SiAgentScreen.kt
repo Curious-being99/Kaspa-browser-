@@ -458,7 +458,7 @@ fun SiAgentScreen(
     }
 
     fun parseSendArguments(input: String): Pair<String, Double>? {
-        val tokens = input.trim().split(Regex("\s+")).drop(1)
+        val tokens = input.trim().split(Regex("\\s+")).drop(1)
         if (tokens.size < 2) return null
         var address: String? = null
         var amount: Double? = null
@@ -533,14 +533,14 @@ fun SiAgentScreen(
         when {
             commandText.equals("/browser", true) -> {
                 viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
-                messages.add(SiAgentMessage("🌐 Switched to the browser.", isUser = false)); return
+                messages.add(SiAgentMessage(text = "🌐 Switched to the browser.", isUser = false)); return
             }
             commandText.equals("/wallet", true) -> viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
             commandText.equals("/swap", true) -> viewModel.setTab(com.example.viewmodel.AppTab.DAPPS)
             commandText.equals("/newtab", true) -> {
                 viewModel.createNewTab()
                 viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
-                messages.add(SiAgentMessage("🗂️ Opened a new browser tab.", isUser = false)); return
+                messages.add(SiAgentMessage(text = "🗂️ Opened a new browser tab.", isUser = false)); return
             }
             commandText.equals("/send", true) -> {
                 pendingSendRecipient = ""
@@ -552,64 +552,64 @@ fun SiAgentScreen(
                 val parts = commandText.split(Regex("\\s+"))
                 val index = parts.lastOrNull()?.toIntOrNull()
                 val tab = index?.let { browserTabs.getOrNull(it - 1) }
-                if (tab == null) messages.add(SiAgentMessage("I couldn't find that tab number. Ask me to show tabs first.", isUser = false))
+                if (tab == null) messages.add(SiAgentMessage(text = "I couldn't find that tab number. Ask me to show tabs first.", isUser = false))
                 else if (commandText.startsWith("/switch-tab", true)) {
                     viewModel.setActiveTab(tab.id)
                     viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
-                    messages.add(SiAgentMessage("Switched to tab ${index}: ${tab.title}.", isUser = false))
+                    messages.add(SiAgentMessage(text = "Switched to tab ${index}: ${tab.title}.", isUser = false))
                 } else {
                     viewModel.closeTab(tab.id)
-                    messages.add(SiAgentMessage("Closed tab ${index}: ${tab.title}.", isUser = false))
+                    messages.add(SiAgentMessage(text = "Closed tab ${index}: ${tab.title}.", isUser = false))
                 }
                 return
             }
             commandText.startsWith("/open-bookmark ", true) -> {
                 val query = commandText.substringAfter(" ").trim()
                 val bookmark = browserBookmarks.find { it.title.contains(query, true) || it.url.contains(query, true) }
-                if (bookmark == null) messages.add(SiAgentMessage("I couldn't find a saved bookmark matching '$query'.", isUser = false))
+                if (bookmark == null) messages.add(SiAgentMessage(text = "I couldn't find a saved bookmark matching '$query'.", isUser = false))
                 else {
                     viewModel.openUrlInBrowser(bookmark.url, isExternal = false)
                     viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
-                    messages.add(SiAgentMessage("Opening bookmark: ${bookmark.title} — ${bookmark.url}", isUser = false))
+                    messages.add(SiAgentMessage(text = "Opening bookmark: ${bookmark.title} — ${bookmark.url}", isUser = false))
                 }
                 return
             }
             commandText.startsWith("/open-history ", true) -> {
                 val index = commandText.substringAfterLast(" ").toIntOrNull()
                 val item = index?.let { browserHistory.getOrNull(it - 1) }
-                if (item == null) messages.add(SiAgentMessage("I couldn't find that browsing-history entry.", isUser = false))
+                if (item == null) messages.add(SiAgentMessage(text = "I couldn't find that browsing-history entry.", isUser = false))
                 else {
                     viewModel.openUrlInBrowser(item.url, isExternal = false)
                     viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
-                    messages.add(SiAgentMessage("Opening ${item.title} — ${item.url}", isUser = false))
+                    messages.add(SiAgentMessage(text = "Opening ${item.title} — ${item.url}", isUser = false))
                 }
                 return
             }
             commandText.equals("/tabs", true) -> {
                 val summary = browserTabs.mapIndexed { i, tab -> "${i + 1}. ${tab.title.ifBlank { "New Tab" }} — ${tab.url.ifBlank { "Home" }}${if (tab.id == activeTabId) " (active)" else ""}" }.joinToString("\n").ifBlank { "No browser tabs are open." }
-                messages.add(SiAgentMessage("🗂️ Browser tabs ( ${browserTabs.size} )\n$summary", isUser = false)); return
+                messages.add(SiAgentMessage(text = "🗂️ Browser tabs ( ${browserTabs.size} )\n$summary", isUser = false)); return
             }
             commandText.equals("/page-info", true) -> {
                 val info = if (activeUrl.isBlank()) "No active webpage is loaded." else "Current page: ${activeTitle.ifBlank { "Untitled page" }}\\nURL: $activeUrl\\nActive tab: ${activeTabId ?: "Unavailable"}"
-                messages.add(SiAgentMessage("🌐 $info", isUser = false)); return
+                messages.add(SiAgentMessage(text = "🌐 $info", isUser = false)); return
             }
             commandText.equals("/browser-history", true) -> {
                 val summary = browserHistory.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\n").ifBlank { "No saved browsing history is available." }
-                messages.add(SiAgentMessage("🕘 Browsing history\n$summary", isUser = false)); return
+                messages.add(SiAgentMessage(text = "🕘 Browsing history\n$summary", isUser = false)); return
             }
             commandText.equals("/bookmarks", true) -> {
                 val summary = browserBookmarks.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\n").ifBlank { "No saved bookmarks were found." }
-                messages.add(SiAgentMessage("🔖 Saved bookmarks\n$summary", isUser = false)); return
+                messages.add(SiAgentMessage(text = "🔖 Saved bookmarks\n$summary", isUser = false)); return
             }
             commandText.equals("/downloads", true) -> {
                 val summary = activeDownloads.mapIndexed { i, item -> "${i + 1}. ${item.fileName} — ${item.status} (${(item.progress * 100).toInt()}%)" }.joinToString("\n").ifBlank { "No active or recent downloads are available." }
-                messages.add(SiAgentMessage("⬇️ Browser downloads\n$summary", isUser = false)); return
+                messages.add(SiAgentMessage(text = "⬇️ Browser downloads\n$summary", isUser = false)); return
             }
             commandText.equals("/bookmark-current", true) -> {
-                if (activeUrl.isBlank()) messages.add(SiAgentMessage("There is no active webpage to bookmark.", isUser = false))
+                if (activeUrl.isBlank()) messages.add(SiAgentMessage(text = "There is no active webpage to bookmark.", isUser = false))
                 else {
                     viewModel.toggleBookmark(activeUrl, activeTitle.ifBlank { activeUrl })
-                    messages.add(SiAgentMessage("🔖 Bookmark action requested for $activeTitle ($activeUrl).", isUser = false))
+                    messages.add(SiAgentMessage(text = "🔖 Bookmark action requested for $activeTitle ($activeUrl).", isUser = false))
                 }
                 return
             }
@@ -617,19 +617,19 @@ fun SiAgentScreen(
                 viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
                 val webView = activeTabId?.let { viewModel.webViewTabManager.getWebView(it) }
                 when (commandText.lowercase()) {
-                    "/back" -> if (webView?.canGoBack() == true) webView.goBack() else { messages.add(SiAgentMessage("This tab has no previous page.", isUser = false)); return }
-                    "/forward" -> if (webView?.canGoForward() == true) webView.goForward() else { messages.add(SiAgentMessage("This tab has no next page.", isUser = false)); return }
-                    "/reload" -> if (webView != null) webView.reload() else { messages.add(SiAgentMessage("The active browser page is not attached. Open the browser and try again.", isUser = false)); return }
+                    "/back" -> if (webView?.canGoBack() == true) webView.goBack() else { messages.add(SiAgentMessage(text = "This tab has no previous page.", isUser = false)); return }
+                    "/forward" -> if (webView?.canGoForward() == true) webView.goForward() else { messages.add(SiAgentMessage(text = "This tab has no next page.", isUser = false)); return }
+                    "/reload" -> if (webView != null) webView.reload() else { messages.add(SiAgentMessage(text = "The active browser page is not attached. Open the browser and try again.", isUser = false)); return }
                 }
-                messages.add(SiAgentMessage("Browser navigation command sent.", isUser = false)); return
+                messages.add(SiAgentMessage(text = "Browser navigation command sent.", isUser = false)); return
             }
             commandText.startsWith("/open ", true) -> {
                 val target = commandText.substringAfter(" ").trim()
                 if (target.startsWith("https://", true) || target.startsWith("http://", true)) {
                     viewModel.openUrlInBrowser(target, isExternal = false)
                     viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
-                    messages.add(SiAgentMessage("🌐 Opening $target", isUser = false))
-                } else messages.add(SiAgentMessage("Please provide a complete http:// or https:// URL.", isUser = false))
+                    messages.add(SiAgentMessage(text = "🌐 Opening $target", isUser = false))
+                } else messages.add(SiAgentMessage(text = "Please provide a complete http:// or https:// URL.", isUser = false))
                 return
             }
         }
@@ -1645,7 +1645,7 @@ TOOL POLICY:
 
 KASPA BROWSER PRODUCT CONTEXT:
 - Native Android browser with tabs, bookmarks, history, downloads, web search/crawling, native Kaspa wallet, KCC-20 token support and dApp/PWA features.
-- $KB is the KaspaBrowser KCC-20 community token. Contract/covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8. Do not call it KRC-20.
+- \$KB is the KaspaBrowser KCC-20 community token. Contract/covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8. Do not call it KRC-20.
 - KAS sends must use the wallet review screen and explicit user confirmation. Never ask for seed phrase or private key.
 
 CURRENT CONTEXT:
