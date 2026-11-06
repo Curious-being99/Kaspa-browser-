@@ -4,6 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
@@ -635,6 +637,27 @@ fun SiAgentScreen(
         isAgentGenerating = true
         scope.launch {
             delay(150L)
+            val browserContext = buildString {
+                appendLine("BROWSER STATE (live app data):")
+                appendLine("Open tabs: ${browserTabs.size}")
+                browserTabs.forEachIndexed { index, tab ->
+                    appendLine("Tab ${index + 1}: title=${tab.title}; url=${tab.url}; active=${tab.id == activeTabId}")
+                }
+                appendLine("Bookmarks (${browserBookmarks.size}):")
+                browserBookmarks.take(30).forEach { appendLine("- ${it.title}: ${it.url}") }
+                appendLine("Recent browsing history (${browserHistory.size}):")
+                browserHistory.take(20).forEach { appendLine("- ${it.title}: ${it.url}") }
+                appendLine("Downloads (${activeDownloads.size}):")
+                activeDownloads.take(20).forEach { appendLine("- ${it.fileName}; status=${it.status}; progress=${(it.progress * 100).toInt()}%") }
+            }
+            val streamingMessage = SiAgentMessage(
+                text = "Thinking…",
+                isUser = false,
+                isCommand = isCmd
+            )
+            messages.add(streamingMessage)
+            val streamedText = StringBuilder()
+            var receivedStream = false
             val responseText = executeSiAgentCommand(
                 context = context,
                 input = commandText,
@@ -647,7 +670,14 @@ fun SiAgentScreen(
                 utxoCount = walletState.utxosCount,
                 recentTransactions = walletState.recentTransactions,
                 selectedNetwork = viewModel.selectedNetwork.value,
-                kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) }
+                kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) },
+                browserContext = browserContext,
+                onStreamChunk = { chunk ->
+                    receivedStream = true
+                    streamedText.append(chunk)
+                    val index = messages.indexOfFirst { it.id == streamingMessage.id }
+                    if (index >= 0) messages[index] = messages[index].copy(text = streamedText.toString())
+                }
             )
             val isJsonProposal = responseText.trim().startsWith("{")
             val actionType = when {
@@ -656,15 +686,14 @@ fun SiAgentScreen(
                 else -> null
             }
             val buttons = getInlineButtonsForCommand(trimmed)
-            messages.add(
-                SiAgentMessage(
-                    text = if (isJsonProposal) "Transaction Proposal Generated: Please confirm in the wallet." else responseText,
-                    isUser = false,
-                    isCommand = isCmd,
-                    actionType = actionType,
-                    inlineButtons = buttons
-                )
+            val streamingIndex = messages.indexOfFirst { it.id == streamingMessage.id }
+            val finalMessage = streamingMessage.copy(
+                text = if (isJsonProposal) "Transaction Proposal Generated: Please confirm in the wallet." else responseText,
+                isCommand = isCmd,
+                actionType = actionType,
+                inlineButtons = buttons
             )
+            if (streamingIndex >= 0) messages[streamingIndex] = finalMessage else messages.add(finalMessage)
             isAgentGenerating = false
         }
     }
@@ -1596,7 +1625,7 @@ fun ChatBubble(
     }
 }
 
-private fun callGroqApi(context: Context, prompt: String, activeUrl: String, activeTitle: String, appContext: String = ""): String? {
+private fun callGroqApi(context: Context, prompt: String, activeUrl: String, activeTitle: String, appContext: String = "", onStreamChunk: ((String) -> Unit)? = null): String? {
     return try {
         val client = OkHttpClient.Builder()
             .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
@@ -1680,7 +1709,12 @@ $appContext""")
                         if (choices.length() == 0) continue
                         val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: continue
                         val content = delta.optString("content")
-                        if (content.isNotEmpty() && content != "null") answer.append(content)
+                        if (content.isNotEmpty() && content != "null") {
+                            answer.append(content)
+                            onStreamChunk?.let { callback ->
+                                Handler(Looper.getMainLooper()).post { callback(content) }
+                            }
+                        }
                     } catch (parseError: Exception) {
                         Log.w("SiAgent", "Ignoring an unreadable Groq stream event.", parseError)
                     }
@@ -1719,7 +1753,9 @@ suspend fun executeSiAgentCommand(
     utxoCount: Int,
     recentTransactions: List<com.example.model.KaspaTransactionItem> = emptyList(),
     selectedNetwork: String = "",
-    kbToken: com.example.network.kaspa.Kcc20WalletToken? = null
+    kbToken: com.example.network.kaspa.Kcc20WalletToken? = null,
+    browserContext: String = "",
+    onStreamChunk: ((String) -> Unit)? = null
 ): String {
     val trimmed = input.trim()
     val localCommand = trimmed.lowercase().removePrefix("/")
@@ -1737,7 +1773,7 @@ suspend fun executeSiAgentCommand(
                 }
                 val crawlPrompt = "Analyze only the following pages actually crawled by SI Agent. Do not invent facts. Cite every factual claim with its exact source URL. Summarize the most useful findings for this request: ${trimmed}\n\n${sourceText}"
                 val answer = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    callGroqApi(context, crawlPrompt, target, "Crawled website")
+                    callGroqApi(context, crawlPrompt, target, "Crawled website", onStreamChunk = onStreamChunk)
                 }
                 val sourceList = result.pages.joinToString("\n") { "• ${it.title}: ${it.url}" }
                 (answer?.takeIf { it.isNotBlank() } ?: result.pages.joinToString("\n\n") { "${it.title}\n${it.text.take(1000)}" }) +
@@ -1760,6 +1796,7 @@ suspend fun executeSiAgentCommand(
     }
     val kascovUrl = KASCOV_URL
     val liveAppContext = buildString {
+        appendLine(browserContext)
         appendLine("Current network: ${selectedNetwork.ifBlank { "Not available" }}")
         appendLine("Current KAS balance: ${kasBalance} KAS")
         appendLine("Wallet UTXO count: $utxoCount")
@@ -1784,6 +1821,12 @@ suspend fun executeSiAgentCommand(
     // Explicit web-research requests use real on-device search and bounded page extraction.
     val normalizedInput = trimmed.lowercase()
     val directCrawlUrl = if (normalizedInput.startsWith("/crawl")) trimmed.substringAfter("/crawl").trim().takeIf { it.isNotBlank() } else null
+    val shouldSearchPublicWeb = listOf(
+        "latest ", "current ", "today ", "this week ", "news ", "price ", "market ",
+        "search the web", "look online", "on the internet", "verify online", "find sources",
+        "compare sources", "research online", "what happened to", "recent updates"
+    ).any { normalizedInput.contains(it) } ||
+        (normalizedInput.startsWith("what is ") && listOf("kaspa", "kaspa browser", "kasplex", "kasparocket", "kcc-20", "krc-20", "braidswap", "kaspa ecosystem").any { normalizedInput.contains(it) })
     val webQuery = when {
         normalizedInput.startsWith("/search") -> trimmed.substringAfter("/search").trim()
         normalizedInput.startsWith("search the web for ") -> trimmed.substringAfter("search the web for ", "").trim()
@@ -1793,6 +1836,7 @@ suspend fun executeSiAgentCommand(
         normalizedInput.startsWith("research ") -> trimmed.substringAfter(" ", "").trim()
         normalizedInput.startsWith("look up ") -> trimmed.substringAfter("look up ", "").trim()
         normalizedInput.startsWith("query ") -> trimmed.substringAfter(" ", "").trim()
+        shouldSearchPublicWeb -> trimmed
         else -> null
     }?.takeIf { it.isNotBlank() }
 
@@ -1823,7 +1867,8 @@ suspend fun executeSiAgentCommand(
             prompt = if (attachedFileName != null) "Analyze file '$attachedFileName': $finalPrompt" else finalPrompt,
             activeUrl = activeUrl,
             activeTitle = activeTitle,
-            appContext = liveAppContext
+            appContext = liveAppContext,
+            onStreamChunk = onStreamChunk
         )
     }
 
