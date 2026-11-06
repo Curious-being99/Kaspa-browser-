@@ -24,6 +24,7 @@ object SiAgentToolRuntime {
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
         addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes $KB when its wallet record is available.")
         addTool("get_krc20_tokens", "Refresh and read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
+        addTool("get_krc20_transactions", "Read recent KRC-20 token transaction history from the app's pinned token records.")
         addTool("browser_bookmark_current_page", "Save the current webpage as a bookmark if it is not already bookmarked.")
         addTool("browser_go_back", "Go back one page in the active browser tab when history is available.")
         addTool("browser_go_forward", "Go forward one page in the active browser tab when history is available.")
@@ -172,6 +173,28 @@ object SiAgentToolRuntime {
                                     .put("logo_url", token.effectiveLogoUrl ?: JSONObject.NULL))
                             }
                         }).put("count", tokens.size).toString()
+                }
+                "get_krc20_transactions" -> {
+                    val refreshed = refreshKrc20(viewModel)
+                    val transactions = viewModel.pinnedTokens.value.flatMap { token ->
+                        token.recentTransactions.map { tx -> token.tick to tx }
+                    }.sortedByDescending { it.second.timestamp }.take(40)
+                    JSONObject().put("refresh_completed", refreshed).put("protocol", "KRC-20")
+                        .put("transactions", JSONArray().apply {
+                            transactions.forEach { (ticker, tx) ->
+                                put(JSONObject()
+                                    .put("ticker", ticker)
+                                    .put("tx_id", tx.txId)
+                                    .put("token_id", tx.tokenId)
+                                    .put("operation", tx.op)
+                                    .put("amount", tx.amount)
+                                    .put("from", tx.fromAddress)
+                                    .put("to", tx.toAddress)
+                                    .put("timestamp_ms", tx.timestamp)
+                                    .put("status", tx.status)
+                                    .put("fee_kas", tx.feeKas))
+                            }
+                        }).put("count", transactions.size).toString()
                 }
                 "get_kcc20_transactions" -> {
                     val refreshed = refreshKcc20(viewModel)
