@@ -80,6 +80,27 @@ jobs:
             echo "::notice::Signing secrets not detected or incomplete. Building unsigned release APK."
           fi
 
+      - name: Verify Groq free-tier API access
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GROQ_API_KEY:-}" ]; then
+            echo "::notice::GROQ_API_KEY is not configured; skipping optional Groq API verification."
+            exit 0
+          fi
+
+          response=$(curl --silent --show-error --fail-with-body \
+            --connect-timeout 10 --max-time 30 \
+            https://api.groq.com/openai/v1/chat/completions \
+            -H "Authorization: Bearer ${GROQ_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"openai/gpt-oss-20b","messages":[{"role":"user","content":"Reply with exactly: GROQ_FREE_TIER_OK"}],"temperature":0,"max_tokens":20}')
+
+          echo "$response" | jq -e '.choices[0].message.content | strings | test("GROQ_FREE_TIER_OK")' >/dev/null
+          echo "::notice::Groq API authentication and GPT-OSS 20B completion verified."
+
       - name: Run unit tests
         run: gradle testDebugUnitTest --no-daemon --stacktrace
 
