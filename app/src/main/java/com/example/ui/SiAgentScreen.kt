@@ -1879,9 +1879,10 @@ suspend fun executeSiAgentCommand(
         else -> null
     }?.takeIf { it.isNotBlank() }
 
+    val hasGroqProvider = !com.example.network.siagent.GroqKeyStore.read(context).isNullOrBlank()
     val webResearch = when {
         directCrawlUrl != null -> AndroidWebResearch.crawlUrl(directCrawlUrl)
-        webQuery != null -> AndroidWebResearch.searchAndCrawl(webQuery)
+        webQuery != null && !hasGroqProvider -> AndroidWebResearch.searchAndCrawl(webQuery)
         else -> null
     }
     if (webResearch != null && webResearch.sources.isEmpty()) return webResearch.toUserText()
@@ -1920,8 +1921,12 @@ suspend fun executeSiAgentCommand(
         return groqResult
     }
 
-    // Without a configured reasoning provider, return retrieved excerpts with real source links.
+    // If the AI provider is missing or quota-limited, preserve real web search without AI.
     if (webResearch != null) return webResearch.toUserText()
+    if (webQuery != null) {
+        val fallbackResearch = AndroidWebResearch.searchAndCrawl(webQuery)
+        return fallbackResearch.toUserText()
+    }
 
     // 3. Fallback to Telegram-bot style command responses (concise, no wordy essays)
     val lower = trimmed.lowercase().removePrefix("/")
