@@ -294,7 +294,8 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
         }
     }
 
-    private fun isPublicWebUrl(value: String): Boolean = try {
+    private fun isPublicWebUrl(value: String): Boolean {
+        return try {
         val uri = URI(value)
         val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (!(uri.scheme.equals("https", true) || uri.scheme.equals("http", true)) ||
@@ -323,7 +324,8 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
                 }
             }
         }
-    } catch (_: Exception) { false }
+        } catch (_: Exception) { false }
+    }
 
     private fun errorJson(message: String): String =
         JSONObject().put("success", false).put("error", message).toString()
