@@ -283,10 +283,12 @@ object SiAgentToolRuntime {
                             "browser_go_forward" -> "go_forward"
                             else -> "reload"
                         }
-                        val canNavigate = when (name) {
-                            "browser_go_back" -> webView.canGoBack()
-                            "browser_go_forward" -> webView.canGoForward()
-                            else -> true
+                        val canNavigate = withContext(Dispatchers.Main) {
+                            when (name) {
+                                "browser_go_back" -> webView.canGoBack()
+                                "browser_go_forward" -> webView.canGoForward()
+                                else -> true
+                            }
                         }
                         if (!canNavigate) errorJson("The active webpage has no matching navigation history.")
                         else {
@@ -349,6 +351,7 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
 
     private fun isPublicWebUrl(value: String): Boolean {
         return try {
+        if (value.length > 2048) return false
         val uri = URI(value)
         val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         if (!(uri.scheme.equals("https", true) || uri.scheme.equals("http", true)) ||
