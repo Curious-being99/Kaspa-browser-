@@ -1483,15 +1483,15 @@ private fun callGroqApi(context: Context, prompt: String, activeUrl: String, act
     return try {
         val client = OkHttpClient.Builder()
             .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .build()
 
         val apiKey = com.example.network.siagent.GroqKeyStore.read(context)
         if (apiKey.isNullOrBlank()) {
-            Log.e("SiAgent", "Groq API Key is missing or blank!")
+            Log.w("SiAgent", "Groq API key is not configured; using the existing no-AI fallback.")
             return null
         }
-        val endpoint = "https://api.groq.com/openai/v1/chat/completions"
 
         val jsonBody = JSONObject().apply {
             put("model", "openai/gpt-oss-120b")
@@ -1505,35 +1505,55 @@ private fun callGroqApi(context: Context, prompt: String, activeUrl: String, act
                     put("content", prompt)
                 })
             })
-            put("temperature", 0.5)
-            put("max_tokens", 512)
+            put("temperature", 1)
+            put("max_completion_tokens", 2048)
+            put("top_p", 1)
+            put("reasoning_effort", "medium")
+            put("stream", true)
         }
 
-        val body = jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
         val request = Request.Builder()
-            .url(endpoint)
+            .url("https://api.groq.com/openai/v1/chat/completions")
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
-            .post(body)
+            .addHeader("Accept", "text/event-stream")
+            .post(jsonBody.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
 
+        val answer = StringBuilder()
         client.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
-                val respString = response.body?.string() ?: return@use null
-                val root = JSONObject(respString)
-                val choices = root.getJSONArray("choices")
-                if (choices.length() > 0) {
-                    val firstChoice = choices.getJSONObject(0)
-                    val message = firstChoice.getJSONObject("message")
-                    return message.getString("content").trim()
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string()?.take(1200).orEmpty()
+                Log.e("SiAgent", "Groq API request failed: HTTP ${response.code} ${response.message}; ${errorBody.take(500)}")
+                return null
+            }
+
+            val body = response.body ?: return null
+            body.source().use { source ->
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val payload = line.removePrefix("data:").trim()
+                    if (payload.isEmpty()) continue
+                    if (payload == "[DONE]") break
+
+                    try {
+                        val chunk = JSONObject(payload)
+                        val choices = chunk.optJSONArray("choices") ?: continue
+                        if (choices.length() == 0) continue
+                        val delta = choices.optJSONObject(0)?.optJSONObject("delta") ?: continue
+                        val content = delta.optString("content")
+                        if (content.isNotEmpty() && content != "null") answer.append(content)
+                    } catch (parseError: Exception) {
+                        Log.w("SiAgent", "Ignoring an unreadable Groq stream event.", parseError)
+                    }
                 }
-            } else {
-                Log.e("SiAgent", "Groq API Request failed: ${response.code} ${response.message} ${response.body?.string()}")
             }
         }
-        null
+
+        answer.toString().trim().takeIf { it.isNotEmpty() }
     } catch (e: Exception) {
-        Log.e("SiAgent", "Groq API Exception: ${e.message}", e)
+        Log.e("SiAgent", "Groq streaming request failed: ${e.message}", e)
         null
     }
 }
