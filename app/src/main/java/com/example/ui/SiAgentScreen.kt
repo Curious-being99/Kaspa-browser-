@@ -76,6 +76,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -286,6 +287,9 @@ fun SiAgentScreen(
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var isAgentGenerating by remember { mutableStateOf(false) }
     var showCommandPicker by remember { mutableStateOf(false) }
+    var showGroqSettings by remember { mutableStateOf(false) }
+    var groqKeyInput by remember { mutableStateOf("") }
+    val hasGroqKey = remember { mutableStateOf(com.example.network.siagent.GroqKeyStore.read(context) != null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -567,6 +571,30 @@ fun SiAgentScreen(
         }
     }
 
+    if (showGroqSettings) {
+        AlertDialog(
+            onDismissRequest = { showGroqSettings = false },
+            title = { Text("Groq AI · Free tier") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(if (hasGroqKey.value) "A Groq key is saved encrypted on this device." else "Add your own Groq API key to enable AI answers. Web search and crawling work without it.")
+                    OutlinedTextField(value = groqKeyInput, onValueChange = { groqKeyInput = it }, label = { Text("Groq API key") }, placeholder = { Text("gsk_…") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                    Text("Model: openai/gpt-oss-20b · Free-tier limits apply.", color = TextSecondary, fontSize = 12.sp)
+                }
+            },
+            confirmButton = { Button(onClick = {
+                runCatching { com.example.network.siagent.GroqKeyStore.save(context, groqKeyInput.trim()) }.onSuccess {
+                    hasGroqKey.value = true; groqKeyInput = ""; showGroqSettings = false
+                    Toast.makeText(context, "Groq key saved securely on this device", Toast.LENGTH_SHORT).show()
+                }.onFailure { Toast.makeText(context, it.message ?: "Could not save Groq key", Toast.LENGTH_LONG).show() }
+            }, enabled = groqKeyInput.isNotBlank()) { Text("Save key") } },
+            dismissButton = { Row {
+                if (hasGroqKey.value) Button(onClick = { com.example.network.siagent.GroqKeyStore.clear(context); hasGroqKey.value = false; showGroqSettings = false }) { Text("Remove") }
+                androidx.compose.material3.TextButton(onClick = { showGroqSettings = false }) { Text("Cancel") }
+            } }
+        )
+    }
+
     // Full page standalone layout (edge-to-edge)
     Surface(
         modifier = modifier
@@ -649,6 +677,9 @@ fun SiAgentScreen(
                         )
                     }
 
+                    IconButton(onClick = { groqKeyInput = ""; showGroqSettings = true }, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.Security, contentDescription = "Groq AI key settings", tint = if (hasGroqKey.value) KaspaTea else TextMuted, modifier = Modifier.size(18.dp))
+                    }
                     // Top right actions: Quick Wallet shortcut & Clear Chat
                     IconButton(
                         onClick = { viewModel.setTab(AppTab.KASPA_WALLET) },
@@ -1437,14 +1468,14 @@ fun ChatBubble(
     }
 }
 
-private fun callGroqApi(prompt: String, activeUrl: String, activeTitle: String): String? {
+private fun callGroqApi(context: Context, prompt: String, activeUrl: String, activeTitle: String): String? {
     return try {
         val client = OkHttpClient.Builder()
             .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
             .build()
 
-        val apiKey = BuildConfig.GROQ_API_KEY
+        val apiKey = com.example.network.siagent.GroqKeyStore.read(context)
         if (apiKey.isNullOrBlank()) {
             Log.e("SiAgent", "Groq API Key is missing or blank!")
             return null
@@ -1452,7 +1483,7 @@ private fun callGroqApi(prompt: String, activeUrl: String, activeTitle: String):
         val endpoint = "https://api.groq.com/openai/v1/chat/completions"
 
         val jsonBody = JSONObject().apply {
-            put("model", "llama-3.3-70b-versatile")
+            put("model", "openai/gpt-oss-20b")
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
@@ -1537,7 +1568,7 @@ suspend fun executeSiAgentCommand(
                 }
                 val crawlPrompt = "Analyze only the following pages actually crawled by SI Agent. Do not invent facts. Cite every factual claim with its exact source URL. Summarize the most useful findings for this request: ${trimmed}\n\n${sourceText}"
                 val answer = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    callGroqApi(crawlPrompt, target, "Crawled website")
+                    callGroqApi(context, crawlPrompt, target, "Crawled website")
                 }
                 val sourceList = result.pages.joinToString("\n") { "• ${it.title}: ${it.url}" }
                 (answer?.takeIf { it.isNotBlank() } ?: result.pages.joinToString("\n\n") { "${it.title}\n${it.text.take(1000)}" }) +
@@ -1599,6 +1630,7 @@ suspend fun executeSiAgentCommand(
     // 2. Try calling custom Groq API endpoint first via IO dispatcher
     val groqResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         callGroqApi(
+            context = context,
             prompt = if (attachedFileName != null) "Analyze file '$attachedFileName': $finalPrompt" else finalPrompt,
             activeUrl = activeUrl,
             activeTitle = activeTitle
