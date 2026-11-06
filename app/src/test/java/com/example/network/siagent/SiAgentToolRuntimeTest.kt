@@ -1,6 +1,5 @@
 package com.example.network.siagent
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -57,7 +56,7 @@ class SiAgentToolRuntimeTest {
         for (index in 0 until tools.length()) {
             val function = tools.optJSONObject(index)?.optJSONObject("function") ?: continue
             val parameters = function.optJSONObject("parameters") ?: continue
-            assertEquals(false, parameters.optBoolean("additionalProperties", true))
+            assertFalse(parameters.optBoolean("additionalProperties", true))
         }
     }
 }
