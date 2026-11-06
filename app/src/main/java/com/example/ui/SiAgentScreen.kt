@@ -580,7 +580,7 @@ fun SiAgentScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(if (hasGroqKey.value) "A Groq key is saved encrypted on this device." else "Add your own Groq API key to enable AI answers. Web search and crawling work without it.")
                     OutlinedTextField(value = groqKeyInput, onValueChange = { groqKeyInput = it }, label = { Text("Groq API key") }, placeholder = { Text("gsk_…") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                    Text("Model: openai/gpt-oss-20b · Free-tier limits apply.", color = TextSecondary, fontSize = 12.sp)
+                    Text("Model: openai/gpt-oss-120b · Free-tier limits apply.", color = TextSecondary, fontSize = 12.sp)
                 }
             },
             confirmButton = { Button(onClick = {
@@ -1484,7 +1484,7 @@ private fun callGroqApi(context: Context, prompt: String, activeUrl: String, act
         val endpoint = "https://api.groq.com/openai/v1/chat/completions"
 
         val jsonBody = JSONObject().apply {
-            put("model", "openai/gpt-oss-20b")
+            put("model", "openai/gpt-oss-120b")
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
