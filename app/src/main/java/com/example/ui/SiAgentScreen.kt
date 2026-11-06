@@ -657,7 +657,6 @@ fun SiAgentScreen(
             )
             messages.add(streamingMessage)
             val streamedText = StringBuilder()
-            var receivedStream = false
             val responseText = executeSiAgentCommand(
                 context = context,
                 input = commandText,
@@ -674,7 +673,6 @@ fun SiAgentScreen(
                 browserContext = browserContext,
                 viewModel = viewModel,
                 onStreamChunk = { chunk ->
-                    receivedStream = true
                     streamedText.append(chunk)
                     val index = messages.indexOfFirst { it.id == streamingMessage.id }
                     if (index >= 0) messages[index] = messages[index].copy(text = streamedText.toString())
@@ -1759,10 +1757,11 @@ $appContext"""
                 }
             }
 
-            if (toolCalls.isEmpty() || toolExecutor == null) {
+            if (answer.isNotEmpty()) {
+                if (finalAnswer.isNotEmpty()) finalAnswer.append("\n\n")
                 finalAnswer.append(answer)
-                break
             }
+            if (toolCalls.isEmpty() || toolExecutor == null) break
 
             val assistantToolCalls = JSONArray()
             toolCalls.values.forEach { assistantToolCalls.put(it) }
