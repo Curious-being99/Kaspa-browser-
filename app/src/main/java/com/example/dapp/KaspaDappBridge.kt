@@ -84,7 +84,12 @@ object KaspaDappBridge {
                 }.getOrNull()
                 val currentSelectedNet = viewModel.selectedNetwork.value
                 val network = currentSelectedNet
-                val prefix = if (network.contains("Mainnet", true)) "kaspa" else "kaspatest"
+                val selectedNetworkId = networkId(network)
+                val prefix = when (selectedNetworkId) {
+                    "mainnet" -> "kaspa"
+                    "testnet-10", "testnet-11" -> "kaspatest"
+                    else -> ""
+                }
                 val isConnected = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .getBoolean(origin, false)
 
@@ -110,6 +115,7 @@ object KaspaDappBridge {
                 }
 
                 fun currentKeyPair(): CryptoUtils.KaspaKeyPair? {
+                    if (prefix.isBlank()) return null
                     val active = account ?: runCatching {
                         kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                             viewModel.getActiveAccountFromDb()
@@ -256,11 +262,10 @@ object KaspaDappBridge {
                                 com.example.dapp.EvmWalletEngine.address(it)
                             } ?: "0x0000000000000000000000000000000000000000"
                             val accountsObj = JSONObject()
-                                .put("mainnet", keyPair.kaspaAddress)
-                                .put("testnet-10", keyPair.kaspaAddress)
-                                .put("testnet-11", keyPair.kaspaAddress)
+                                .put(networkId(network), keyPair.kaspaAddress)
                                 .put("kasplex", evmAddress)
                                 .put("igra", evmAddress)
+                                .put("selected_network", network)
                             if (method == "requestNetworkAccounts" && !isConnected) {
                                 cryptoExecutor.execute {
                                     val balance = try {
@@ -304,7 +309,12 @@ object KaspaDappBridge {
                     }
 
                     "getNetwork" -> {
-                        respond(networkId(network))
+                        val id = networkId(network)
+                        if (id == "unsupported") {
+                            respond(errorCode = -32000, errorMessage = "Native Kaspa provider is unavailable on the selected network: $network")
+                        } else {
+                            respond(id)
+                        }
                     }
 
                     "getBalance" -> {
@@ -1642,11 +1652,10 @@ object KaspaDappBridge {
     }
 
     private fun networkId(network: String): String = when {
-        network.contains("Mainnet", true) -> "mainnet"
-        network.contains("11") -> "testnet-11"
-        network.contains("10") -> "testnet-10"
-        network.contains("Testnet", true) -> "testnet-10"
-        else -> "mainnet"
+        network.equals("Kaspa Mainnet", ignoreCase = true) -> "mainnet"
+        network.equals("Kaspa Testnet 10", ignoreCase = true) -> "testnet-10"
+        network.equals("Kaspa Testnet 11", ignoreCase = true) -> "testnet-11"
+        else -> "unsupported"
     }
 
     private fun normalizeOrigin(value: String): String? {

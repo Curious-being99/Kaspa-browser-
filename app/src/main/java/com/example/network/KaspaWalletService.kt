@@ -482,7 +482,7 @@ class KaspaWalletService(
     /**
      * Fetches live UTXOs for a Kaspa address from REST API
      */
-    suspend fun fetchLiveUtxos(address: String, networkName: String = "Kaspa Mainnet"): List<KaspaTransactionEngine.KaspaUtxo> = withContext(Dispatchers.IO) {
+    suspend fun fetchLiveUtxos(address: String, networkName: String = if (address.trim().startsWith("kaspatest:", ignoreCase = true)) "Kaspa Testnet 10" else "Kaspa Mainnet"): List<KaspaTransactionEngine.KaspaUtxo> = withContext(Dispatchers.IO) {
         val utxos = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
         val targetAddress = formatAddressForNetwork(address, networkName)
         val apiBase = getApiBase(targetAddress, networkName)
@@ -901,7 +901,7 @@ class KaspaWalletService(
                             "Insufficient funds on Kaspa BlockDAG.\n" +
                             "Required: $neededKasFormatted KAS (including $feeKasFormatted KAS network fee @ ${txPlan.calculatedMass} mass)\n" +
                             "Available UTXOs: $currentKasFormatted KAS in ${liveUtxos.size} UTXOs\n" +
-                            "Please fund address ($senderAddress) with KAS on Mainnet or Testnet."
+                            "UTXO lookup used ${if (isTestnet) "Kaspa Testnet 10" else "Kaspa Mainnet"} for $cleanSender. Refresh the wallet and verify this address on the same network before funding it."
                         )
                     )
                 }
@@ -1052,7 +1052,12 @@ class KaspaWalletService(
                 val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
 
                 // 8. Broadcast to Kaspa network nodes with failover backoff loop
-                val broadcast = broadcastTransactionWithFailover(tx, computedTxId, senderAddress)
+                val broadcast = broadcastTransactionWithFailover(
+                    tx,
+                    computedTxId,
+                    senderAddress,
+                    if (isTestnet) "Kaspa Testnet 10" else "Kaspa Mainnet"
+                )
 
                 if (!broadcast.isConfirmed) {
                     return@withLock Result.failure(
