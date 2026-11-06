@@ -1917,7 +1917,7 @@ suspend fun executeSiAgentCommand(
             activeTitle = activeTitle,
             appContext = liveAppContext,
             onStreamChunk = onStreamChunk,
-            toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args) } }
+            toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, onPaymentPrepared) } }
         )
     }
 
