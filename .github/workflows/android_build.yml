@@ -100,7 +100,7 @@ jobs:
             https://api.groq.com/openai/v1/chat/completions \
             -H "Authorization: Bearer ${GROQ_API_KEY}" \
             -H "Content-Type: application/json" \
-            -d '{"model":"openai/gpt-oss-20b","messages":[{"role":"user","content":"Reply exactly GROQ_OK"}],"max_tokens":12}')"; then
+            -d '{"model":"openai/gpt-oss-120b","messages":[{"role":"user","content":"Reply exactly GROQ_OK"}],"max_tokens":12}')"; then
             curl_status=0
           else
             curl_status=$?
