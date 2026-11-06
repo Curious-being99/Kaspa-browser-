@@ -1456,7 +1456,7 @@ private fun callGroqApi(prompt: String, activeUrl: String, activeTitle: String):
         val endpoint = "https://api.groq.com/openai/v1/chat/completions"
 
         val jsonBody = JSONObject().apply {
-            put("model", "llama-3.3-70b-versatile")
+            put("model", "openai/gpt-oss-20b")
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
