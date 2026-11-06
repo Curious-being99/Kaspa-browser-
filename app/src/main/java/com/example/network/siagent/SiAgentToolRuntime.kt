@@ -5,6 +5,8 @@ import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -17,11 +19,11 @@ object SiAgentToolRuntime {
     private const val KB_CONTRACT = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
 
     fun definitions(): JSONArray = JSONArray().apply {
-        addTool("get_wallet_status", "Read the current selected network, KAS balance, USD estimate, and UTXO count. Call only when the user asks about their wallet or balance.")
+        addTool("get_wallet_status", "Refresh and read the current selected network, KAS balance, USD estimate, and UTXO count. Call only when the user asks about their wallet or balance.")
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
-        addTool("get_kcc20_tokens", "Read live KCC-20 wallet token balances, metadata, validation and indexed prices. Includes $KB when its wallet record is available.")
-        addTool("get_krc20_tokens", "Read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
+        addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes $KB when its wallet record is available.")
+        addTool("get_krc20_tokens", "Refresh and read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
         addTool("browser_bookmark_current_page", "Save the current webpage as a bookmark if it is not already bookmarked.")
         addTool("get_kcc20_transactions", "Read recent KCC-20 token transaction history.")
         addTool("get_browser_state", "Read current page, open tabs, bookmarks, recent browsing history and download status.")
@@ -50,10 +52,40 @@ object SiAgentToolRuntime {
             .put("name", name).put("description", description).put("parameters", parameters)))
     }
 
+    private suspend fun refreshWallet(viewModel: DecentralViewModel) {
+        val network = viewModel.selectedNetwork.value
+        val address = if (network.contains("Mainnet", true)) viewModel.mainnetAddress.value else viewModel.testnetAddress.value
+        if (address.isBlank()) return
+        withContext(Dispatchers.Main) { viewModel.refreshKaspaWallet(address) }
+        withTimeoutOrNull(30_000L) {
+            viewModel.kaspaWalletState.first { it.isLoading }
+            viewModel.kaspaWalletState.first { !it.isLoading }
+        }
+    }
+
+    private suspend fun refreshKcc20(viewModel: DecentralViewModel) {
+        if (viewModel.activeAccount.value == null) return
+        withContext(Dispatchers.Main) { viewModel.refreshKcc20Tokens() }
+        withTimeoutOrNull(45_000L) {
+            viewModel.isLoadingKcc20.first { it }
+            viewModel.isLoadingKcc20.first { !it }
+        }
+    }
+
+    private suspend fun refreshKrc20(viewModel: DecentralViewModel) {
+        if (viewModel.activeAccount.value == null) return
+        withContext(Dispatchers.Main) { viewModel.refreshKrc20Tokens() }
+        withTimeoutOrNull(30_000L) {
+            viewModel.isLoadingKrc20.first { it }
+            viewModel.isLoadingKrc20.first { !it }
+        }
+    }
+
     suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject): String {
         return try {
             when (name) {
                 "get_wallet_status" -> {
+                    refreshWallet(viewModel)
                     val wallet = viewModel.kaspaWalletState.value
                     JSONObject()
                         .put("network", viewModel.selectedNetwork.value)
@@ -66,6 +98,7 @@ object SiAgentToolRuntime {
                         .toString()
                 }
                 "get_wallet_transactions" -> {
+                    refreshWallet(viewModel)
                     val txs = viewModel.kaspaWalletState.value.recentTransactions
                     JSONObject().put("transactions", JSONArray().apply {
                         txs.take(30).forEach { tx ->
@@ -87,6 +120,7 @@ object SiAgentToolRuntime {
                     else JSONObject().put("network", network).put("receive_address", address).toString()
                 }
                 "get_kcc20_tokens" -> {
+                    refreshKcc20(viewModel)
                     val tokens = viewModel.kcc20Tokens.value
                     JSONObject().put("network", viewModel.selectedNetwork.value)
                         .put("tokens", JSONArray().apply {
@@ -109,6 +143,7 @@ object SiAgentToolRuntime {
                         }).put("count", tokens.size).toString()
                 }
                 "get_krc20_tokens" -> {
+                    refreshKrc20(viewModel)
                     val tokens = viewModel.pinnedTokens.value
                     JSONObject().put("protocol", "KRC-20")
                         .put("tokens", JSONArray().apply {
