@@ -22,7 +22,7 @@ object SiAgentToolRuntime {
         addTool("get_wallet_status", "Refresh and read the current selected network, KAS balance, USD estimate, and UTXO count. Call only when the user asks about their wallet or balance.")
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
-        addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes $KB when its wallet record is available.")
+        addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes \$KB when its wallet record is available.")
         addTool("get_krc20_tokens", "Refresh and read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
         addTool("get_krc20_transactions", "Read recent KRC-20 token transaction history from the app's pinned token records.")
         addTool("browser_bookmark_current_page", "Save the current webpage as a bookmark if it is not already bookmarked.")
