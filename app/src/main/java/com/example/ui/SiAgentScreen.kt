@@ -175,7 +175,9 @@ private fun normalizeSiAgentCommand(raw: String): String {
         lower in listOf("swap", "open swap", "open dapps", "dapps", "dapp browser") -> "/swap"
         lower in listOf("help", "commands", "what can you do") -> "/help"
         lower in listOf("new tab", "open new tab", "create new tab") -> "/newtab"
-        lower in listOf("show tabs", "list tabs", "my tabs", "browser tabs") -> "/tabs"
+        lower in listOf("show tabs", "list tabs", "my tabs", "browser tabs", "how many tabs are open") -> "/tabs"
+        lower in listOf("what page is open", "what website is this", "current page", "show current page", "where am i browsing") -> "/page-info"
+        lower in listOf("show browser history", "my browsing history", "recent websites", "web history") -> "/browser-history"
         lower in listOf("show bookmarks", "my bookmarks", "list bookmarks", "open bookmarks") -> "/bookmarks"
         lower in listOf("show downloads", "my downloads", "download list", "open downloads") -> "/downloads"
         lower in listOf("browser", "open browser", "go to browser", "back to browser") -> "/browser"
@@ -307,6 +309,7 @@ fun SiAgentScreen(
     val activeTabId by viewModel.activeTabId.collectAsState()
     val browserBookmarks by viewModel.bookmarks.collectAsState()
     val activeDownloads by viewModel.activeDownloads.collectAsState()
+    val browserHistory by viewModel.history.collectAsState()
 
     // Kaspa Testnet & Mainnet Wallet real state
     val walletState by viewModel.kaspaWalletState.collectAsState()
@@ -535,6 +538,14 @@ fun SiAgentScreen(
             commandText.equals("/tabs", true) -> {
                 val summary = browserTabs.mapIndexed { i, tab -> "${i + 1}. ${tab.title.ifBlank { "New Tab" }} — ${tab.url.ifBlank { "Home" }}${if (tab.id == activeTabId) " (active)" else ""}" }.joinToString("\\n").ifBlank { "No browser tabs are open." }
                 messages.add(SiAgentMessage("🗂️ Browser tabs ( ${browserTabs.size} )\\n$summary", isUser = false)); return
+            }
+            commandText.equals("/page-info", true) -> {
+                val info = if (activeUrl.isBlank()) "No active webpage is loaded." else "Current page: ${activeTitle.ifBlank { "Untitled page" }}\\nURL: $activeUrl\\nActive tab: ${activeTabId ?: "Unavailable"}"
+                messages.add(SiAgentMessage("🌐 $info", isUser = false)); return
+            }
+            commandText.equals("/browser-history", true) -> {
+                val summary = browserHistory.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\\n").ifBlank { "No saved browsing history is available." }
+                messages.add(SiAgentMessage("🕘 Browsing history\\n$summary", isUser = false)); return
             }
             commandText.equals("/bookmarks", true) -> {
                 val summary = browserBookmarks.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\\n").ifBlank { "No saved bookmarks were found." }
