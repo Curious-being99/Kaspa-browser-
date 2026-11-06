@@ -637,19 +637,6 @@ fun SiAgentScreen(
         isAgentGenerating = true
         scope.launch {
             delay(150L)
-            val browserContext = buildString {
-                appendLine("BROWSER STATE (live app data):")
-                appendLine("Open tabs: ${browserTabs.size}")
-                browserTabs.forEachIndexed { index, tab ->
-                    appendLine("Tab ${index + 1}: title=${tab.title}; url=${tab.url}; active=${tab.id == activeTabId}")
-                }
-                appendLine("Bookmarks (${browserBookmarks.size}):")
-                browserBookmarks.take(30).forEach { appendLine("- ${it.title}: ${it.url}") }
-                appendLine("Recent browsing history (${browserHistory.size}):")
-                browserHistory.take(20).forEach { appendLine("- ${it.title}: ${it.url}") }
-                appendLine("Downloads (${activeDownloads.size}):")
-                activeDownloads.take(20).forEach { appendLine("- ${it.fileName}; status=${it.status}; progress=${(it.progress * 100).toInt()}%") }
-            }
             val streamingMessage = SiAgentMessage(
                 text = "Thinking…",
                 isUser = false,
@@ -670,7 +657,6 @@ fun SiAgentScreen(
                 recentTransactions = walletState.recentTransactions,
                 selectedNetwork = viewModel.selectedNetwork.value,
                 kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) },
-                browserContext = browserContext,
                 viewModel = viewModel,
                 onStreamChunk = { chunk ->
                     streamedText.append(chunk)
@@ -1665,8 +1651,8 @@ KASPA BROWSER PRODUCT CONTEXT:
 - KAS sends must use the wallet review screen and explicit user confirmation. Never ask for seed phrase or private key.
 
 CURRENT CONTEXT:
-Active webpage: $activeTitle ($activeUrl).
-$appContext"""
+$appContext
+Do not assume the current page, browsing history, wallet balance, receive address, transaction history or token holdings. Call the relevant tool only when the user request requires that information."""
 
         val conversation = JSONArray()
         conversation.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -1827,7 +1813,6 @@ suspend fun executeSiAgentCommand(
     recentTransactions: List<com.example.model.KaspaTransactionItem> = emptyList(),
     selectedNetwork: String = "",
     kbToken: com.example.network.kaspa.Kcc20WalletToken? = null,
-    browserContext: String = "",
     viewModel: DecentralViewModel? = null,
     onStreamChunk: ((String) -> Unit)? = null
 ): String {
@@ -1869,27 +1854,7 @@ suspend fun executeSiAgentCommand(
         return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: Active and operational on Mainnet (BIP-340 Schnorr)."
     }
     val kascovUrl = KASCOV_URL
-    val liveAppContext = buildString {
-        appendLine(browserContext)
-        appendLine("Current network: ${selectedNetwork.ifBlank { "Not available" }}")
-        appendLine("Current KAS balance: ${kasBalance} KAS")
-        appendLine("Wallet UTXO count: $utxoCount")
-        appendLine("Mainnet receive address: ${mainnetAddress.ifBlank { "Not available" }}")
-        appendLine("Testnet receive address: ${testnetAddress.ifBlank { "Not available" }}")
-        appendLine("Wallet is initialized: ${mainnetAddress.isNotBlank() || testnetAddress.isNotBlank()}")
-        appendLine("Current page title: ${activeTitle.ifBlank { "Not available" }}")
-        appendLine("Current page URL: ${activeUrl.ifBlank { "Not available" }}")
-        kbToken?.let { token ->
-            appendLine("Live KB token record:")
-            appendLine("Contract ID: ${token.contractId}")
-            appendLine("Raw balance: ${token.balanceRaw}")
-            appendLine("Decimals: ${token.decimals}")
-            appendLine("Indexed price in KAS: ${token.marketPriceKas ?: "Unavailable"}")
-            appendLine("Indexed USD price: ${token.marketPriceUsd ?: "Unavailable"}")
-            appendLine("Validation status: ${token.validationStatus}")
-            appendLine("Price source: ${token.marketPriceSource ?: "Unavailable"}")
-        } ?: appendLine("Live KB token record: unavailable")
-    }
+    val liveAppContext = "Selected network: ${selectedNetwork.ifBlank { "Not available" }}. Query wallet, token, browser and dApp state only through tools when relevant to the user's request."
     var finalPrompt = trimmed
 
     // Explicit web-research requests use real on-device search and bounded page extraction.
