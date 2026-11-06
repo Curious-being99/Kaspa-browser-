@@ -29,6 +29,9 @@ class SiAgentToolRuntimeTest {
         assertTrue(names.contains("browser_switch_tab"))
         assertTrue(names.contains("browser_close_tab"))
         assertTrue(names.contains("browser_bookmark_current_page"))
+        assertTrue(names.contains("browser_go_back"))
+        assertTrue(names.contains("browser_go_forward"))
+        assertTrue(names.contains("browser_reload"))
     }
 
     @Test
