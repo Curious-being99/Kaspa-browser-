@@ -18,9 +18,26 @@ import java.net.URI
 object SiAgentToolRuntime {
     private const val KB_CONTRACT = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
 
+    internal data class KaspaNetworkContext(
+        val name: String,
+        val networkId: String,
+        val addressPrefix: String,
+        val rpcEndpoint: String
+    )
+
+    internal fun resolveKaspaNetworkContext(selectedNetwork: String): KaspaNetworkContext? = when {
+        selectedNetwork.equals("Kaspa Mainnet", ignoreCase = true) ->
+            KaspaNetworkContext("Kaspa Mainnet", "mainnet", "kaspa", "https://api.kaspa.org")
+        selectedNetwork.equals("Kaspa Testnet 10", ignoreCase = true) ->
+            KaspaNetworkContext("Kaspa Testnet 10", "testnet-10", "kaspatest", "https://api-tn10.kaspa.org")
+        selectedNetwork.equals("Kaspa Testnet 11", ignoreCase = true) ->
+            KaspaNetworkContext("Kaspa Testnet 11", "testnet-11", "kaspatest", "https://api-tn11.kaspa.org")
+        else -> null
+    }
+
     fun definitions(): JSONArray = JSONArray().apply {
         addPaymentTool()
-        addTool("get_wallet_status", "Refresh and read the current selected network, KAS balance, USD estimate, and UTXO count. Call only when the user asks about their wallet or balance.")
+        addTool("get_wallet_status", "Refresh and read the selected Kaspa L1 network (Mainnet, Testnet-10, or Testnet-11), its network identifier, RPC endpoint, KAS balance, USD estimate, and UTXO count. Never infer Testnet-10 versus Testnet-11 from the shared kaspatest: prefix; use the selected network.")
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
         addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes \$KB when its wallet record is available.")
@@ -50,7 +67,7 @@ object SiAgentToolRuntime {
             .put("additionalProperties", false)
         put(JSONObject().put("type", "function").put("function", JSONObject()
             .put("name", "prepare_kaspa_payment")
-            .put("description", "Prepare a KAS payment in the native wallet review sheet. This never signs or broadcasts. The user must inspect and explicitly confirm in the app.")
+            .put("description", "Prepare a KAS payment only on the currently selected Kaspa L1 network (Mainnet, Testnet-10, or Testnet-11). If the user names a different network, do not prepare the payment; explain that they must select that network in the wallet first. Testnet-10 and Testnet-11 share the kaspatest: address prefix, so never infer which one from the address alone. This only opens the native review sheet; it never signs or broadcasts.")
             .put("parameters", parameters)))
     }
 
@@ -71,8 +88,8 @@ object SiAgentToolRuntime {
     }
 
     private suspend fun refreshWallet(viewModel: DecentralViewModel): Boolean {
-        val network = viewModel.selectedNetwork.value
-        val address = if (network.contains("Mainnet", true)) viewModel.mainnetAddress.value else viewModel.testnetAddress.value
+        val network = resolveKaspaNetworkContext(viewModel.selectedNetwork.value) ?: return false
+        val address = if (network.networkId == "mainnet") viewModel.mainnetAddress.value else viewModel.testnetAddress.value
         if (address.isBlank()) return false
         val alreadyLoading = viewModel.kaspaWalletState.value.isLoading
         if (!alreadyLoading) withContext(Dispatchers.Main) { viewModel.refreshKaspaWallet(address) }
@@ -112,15 +129,12 @@ object SiAgentToolRuntime {
                     val recipient = args.optString("recipient_address").trim()
                     val amount = args.optDouble("amount_kas", Double.NaN)
                     val network = viewModel.selectedNetwork.value
-                    val expectedPrefix = when {
-                        network.contains("Mainnet", true) -> "kaspa"
-                        network.contains("Testnet", true) -> "kaspatest"
-                        else -> ""
-                    }
+                    val networkContext = resolveKaspaNetworkContext(network)
+                    val expectedPrefix = networkContext?.addressPrefix.orEmpty()
                     if (viewModel.activeAccount.value == null) {
                         errorJson("No active wallet is available. Open and unlock the native wallet first.")
                     } else if (expectedPrefix.isBlank()) {
-                        errorJson("KAS payments are unavailable on the selected network: $network. Select Kaspa Mainnet or Testnet-10 in the wallet first.")
+                        errorJson("KAS payments are unavailable on the selected network: $network. Select Kaspa Mainnet, Kaspa Testnet 10, or Kaspa Testnet 11 in the wallet first. No network was changed.")
                     } else if (!amount.isFinite() || amount <= 0.0) {
                         errorJson("amount_kas must be a finite number greater than zero.")
                     } else if (!recipient.startsWith("$expectedPrefix:", true) ||
@@ -143,15 +157,21 @@ object SiAgentToolRuntime {
                     }
                 }
                 "get_wallet_status" -> {
-                    val refreshed = refreshWallet(viewModel)
+                    val selectedNetwork = viewModel.selectedNetwork.value
+                    val networkContext = resolveKaspaNetworkContext(selectedNetwork)
+                    val refreshed = if (networkContext == null) false else refreshWallet(viewModel)
                     val wallet = viewModel.kaspaWalletState.value
                     JSONObject()
                         .put("refresh_completed", refreshed)
-                        .put("network", viewModel.selectedNetwork.value)
-                        .put("balance_kas", wallet.balanceKas)
+                        .put("network", selectedNetwork)
+                        .put("network_id", networkContext?.networkId ?: JSONObject.NULL)
+                        .put("address_prefix", networkContext?.addressPrefix ?: JSONObject.NULL)
+                        .put("rpc_endpoint", networkContext?.rpcEndpoint ?: JSONObject.NULL)
+                        .put("network_supported_for_native_kas", networkContext != null)
+                        .put("balance_kas", if (networkContext != null) wallet.balanceKas else JSONObject.NULL)
                         .put("balance_usd_estimate", wallet.balanceUsd)
                         .put("kas_usd_price", wallet.priceUsd)
-                        .put("utxo_count", wallet.utxosCount)
+                        .put("utxo_count", if (networkContext != null) wallet.utxosCount else JSONObject.NULL)
                         .put("is_loading", wallet.isLoading)
                         .put("wallet_initialized", viewModel.activeAccount.value != null)
                         .toString()
@@ -174,9 +194,21 @@ object SiAgentToolRuntime {
                 }
                 "get_receive_address" -> {
                     val network = viewModel.selectedNetwork.value
-                    val address = if (network.contains("Mainnet", true)) viewModel.mainnetAddress.value else viewModel.testnetAddress.value
-                    if (address.isBlank()) errorJson("No receive address is available for the selected network.")
-                    else JSONObject().put("network", network).put("receive_address", address).toString()
+                    val networkContext = resolveKaspaNetworkContext(network)
+                    val address = when (networkContext?.networkId) {
+                        "mainnet" -> viewModel.mainnetAddress.value
+                        "testnet-10", "testnet-11" -> viewModel.testnetAddress.value
+                        else -> ""
+                    }
+                    if (networkContext == null) errorJson("Native Kaspa receive addresses are unavailable on the selected EVM network: $network.")
+                    else if (address.isBlank()) errorJson("No receive address is available for ${networkContext.name}.")
+                    else JSONObject()
+                        .put("network", networkContext.name)
+                        .put("network_id", networkContext.networkId)
+                        .put("address_prefix", networkContext.addressPrefix)
+                        .put("rpc_endpoint", networkContext.rpcEndpoint)
+                        .put("receive_address", address)
+                        .toString()
                 }
                 "get_kcc20_tokens" -> {
                     val refreshed = refreshKcc20(viewModel)
