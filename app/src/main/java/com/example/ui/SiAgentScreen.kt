@@ -160,6 +160,37 @@ data class SiCommandItem(
 
 private const val KASCOV_URL = "https://kascov.io/data/price.json"
 
+private fun normalizeSiAgentCommand(raw: String): String {
+    val input = raw.trim()
+    val lower = input.lowercase()
+    val sendNatural = Regex("""^(?:please\\s+)?(?:send|transfer)\\s+([0-9]+(?:\\.[0-9]+)?)\\s*(?:kas|kaspa)?\\s+to\\s+(kaspa:[a-z0-9]+|kaspatest:[a-z0-9]+)$""", RegexOption.IGNORE_CASE).find(input)
+    if (sendNatural != null) return "/send ${sendNatural.groupValues[2]} ${sendNatural.groupValues[1]}"
+    val addressFirstSend = Regex("""^(?:send|transfer)\\s+(kaspa:[a-z0-9]+|kaspatest:[a-z0-9]+)\\s+([0-9]+(?:\\.[0-9]+)?)\\s*(?:kas|kaspa)?$""", RegexOption.IGNORE_CASE).find(input)
+    if (addressFirstSend != null) return "/send ${addressFirstSend.groupValues[1]} ${addressFirstSend.groupValues[2]}"
+    return when {
+        lower in listOf("wallet", "my wallet", "show wallet", "open wallet", "wallet balance", "my balance", "show my balance") -> "/wallet"
+        lower in listOf("receive", "receive address", "my receive address", "show receive address") -> "/receive"
+        lower in listOf("transaction history", "my transactions", "show transactions", "recent transactions", "wallet history") -> "/history"
+        lower in listOf("kb", "my kb", "kb balance", "show kb balance", "kcc20", "kcc-20") -> "/kb"
+        lower in listOf("swap", "open swap", "open dapps", "dapps", "dapp browser") -> "/swap"
+        lower in listOf("help", "commands", "what can you do") -> "/help"
+        lower in listOf("new tab", "open new tab", "create new tab") -> "/newtab"
+        lower in listOf("show tabs", "list tabs", "my tabs", "browser tabs") -> "/tabs"
+        lower in listOf("show bookmarks", "my bookmarks", "list bookmarks", "open bookmarks") -> "/bookmarks"
+        lower in listOf("show downloads", "my downloads", "download list", "open downloads") -> "/downloads"
+        lower in listOf("browser", "open browser", "go to browser", "back to browser") -> "/browser"
+        lower in listOf("go back", "back", "previous page") -> "/back"
+        lower in listOf("go forward", "forward", "next page") -> "/forward"
+        lower in listOf("reload", "refresh", "refresh page", "reload page") -> "/reload"
+        lower in listOf("bookmark this page", "save this page", "add bookmark") -> "/bookmark-current"
+        lower.startsWith("open https://") || lower.startsWith("open http://") -> "/open " + input.substringAfter(" ")
+        lower.startsWith("search ") || lower.startsWith("find ") || lower.startsWith("look up ") -> "/search " + input.substringAfter(" ")
+        lower.startsWith("crawl ") -> "/crawl " + input.substringAfter(" ")
+        lower in listOf("summarize this page", "summarize current page", "summarize webpage", "summarize the page") -> "/summarize"
+        else -> input
+    }
+}
+
 private val SI_AGENT_COMMANDS = listOf(
     SiCommandItem(
         command = "/kb",
@@ -272,6 +303,10 @@ fun SiAgentScreen(
     val currentResource by viewModel.currentResource.collectAsState()
     val activeUrl = currentResource?.url ?: ""
     val activeTitle = currentResource?.title ?: ""
+    val browserTabs by viewModel.browserTabs.collectAsState()
+    val activeTabId by viewModel.activeTabId.collectAsState()
+    val browserBookmarks by viewModel.bookmarks.collectAsState()
+    val activeDownloads by viewModel.activeDownloads.collectAsState()
 
     // Kaspa Testnet & Mainnet Wallet real state
     val walletState by viewModel.kaspaWalletState.collectAsState()
@@ -281,6 +316,8 @@ fun SiAgentScreen(
     // Action sheet states for inline buttons
     var showSendSheet by remember { mutableStateOf(false) }
     var showReceiveSheet by remember { mutableStateOf(false) }
+    var pendingSendRecipient by remember { mutableStateOf("") }
+    var pendingSendAmount by remember { mutableStateOf("") }
 
     var inputText by remember { mutableStateOf("") }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
@@ -430,6 +467,7 @@ fun SiAgentScreen(
     fun executeMessage(rawText: String) {
         val trimmed = rawText.trim()
         if (trimmed.isEmpty() && selectedFileUri == null) return
+        val commandText = normalizeSiAgentCommand(trimmed)
 
         // Dismiss initial greeting once a command or message is used
         if (messages.isNotEmpty() && (messages[0].text.contains("Si Bot") || messages[0].text.contains("autonomous web and crypto intelligence copilot"))) {
@@ -443,7 +481,7 @@ fun SiAgentScreen(
         selectedFileName = null
         inputText = ""
 
-        val isCmd = trimmed.startsWith("/")
+        val isCmd = commandText.startsWith("/")
         messages.add(
             SiAgentMessage(
                 text = trimmed.replace(KASCOV_URL, "[Analyzing Price Data...]").ifBlank { "[Attached File: $attachedName]" },
@@ -455,7 +493,7 @@ fun SiAgentScreen(
         )
 
         // Handle client-side commands immediately if applicable
-        if (trimmed.equals("/clear", ignoreCase = true)) {
+        if (commandText.equals("/clear", ignoreCase = true)) {
             messages.clear()
             messages.add(
                 SiAgentMessage(
@@ -467,57 +505,70 @@ fun SiAgentScreen(
             return
         }
 
-        if (trimmed.startsWith("/send", ignoreCase = true)) {
-            val parsedSend = parseSendArguments(trimmed)
+        if (commandText.startsWith("/send", ignoreCase = true)) {
+            val parsedSend = parseSendArguments(commandText)
             if (parsedSend != null) {
-                val (recipient, amount) = parsedSend
-                isAgentGenerating = true
-                scope.launch {
-                    val feeSompi = viewModel.networkFeeCondition.value.normalFeerate
-                    viewModel.sendKaspaTransaction(recipient, amount, feeSompi)
-                    
-                    var attempts = 0
-                    while (viewModel.kaspaWalletState.value.isSending && attempts < 30) {
-                        delay(100L)
-                        attempts++
-                    }
-                    val state = viewModel.kaspaWalletState.value
-                    val txHash = state.lastBroadcastTxId
-                    val notice = state.statusNotice ?: ""
+                pendingSendRecipient = parsedSend.first
+                pendingSendAmount = parsedSend.second.toString()
+                showSendSheet = true
+                messages.add(SiAgentMessage(
+                    text = "🔐 Transaction prepared for review. Verify recipient, amount, network, and live fee. Nothing is broadcast until you press Confirm & Broadcast.",
+                    isUser = false,
+                    isCommand = true
+                ))
+                return
+            }
+        }
 
-                    val isMainnet = recipient.lowercase().startsWith("kaspa:")
-                    val netName = if (isMainnet) "Kaspa Mainnet" else "Kaspa Testnet-10"
-
-                    if (notice.startsWith("Error", ignoreCase = true)) {
-                        messages.add(
-                            SiAgentMessage(
-                                text = "❌ Transaction Failed\n• Amount: $amount KAS\n• Recipient: ${recipient.take(20)}...\n• Reason: ${notice.removePrefix("Error: ").removePrefix("error: ")}",
-                                isUser = false,
-                                isCommand = true
-                            )
-                        )
-                    } else {
-                        val txIdDisplay = if (!txHash.isNullOrBlank()) "${txHash.take(20)}..." else "Pending Mempool"
-                        messages.add(
-                            SiAgentMessage(
-                                text = "✅ Transaction Signed & Broadcasted!\n" +
-                                       "• Amount: $amount KAS\n" +
-                                       "• Recipient: ${recipient.take(20)}...\n" +
-                                       "• Network: $netName\n" +
-                                       "• Tx ID: $txIdDisplay\n" +
-                                       "• Status: ${notice.ifBlank { "Submitted to Mempool" }}",
-                                isUser = false,
-                                isCommand = true,
-                                inlineButtons = listOf(
-                                    InlineBotButton("Tx History", Icons.AutoMirrored.Filled.Article, "OPEN_HISTORY"),
-                                    InlineBotButton("Wallet", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
-                                ),
-                                txId = txHash
-                            )
-                        )
-                    }
-                    isAgentGenerating = false
+        when {
+            commandText.equals("/browser", true) -> {
+                viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
+                messages.add(SiAgentMessage("🌐 Switched to the browser.", isUser = false)); return
+            }
+            commandText.equals("/wallet", true) -> viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+            commandText.equals("/swap", true) -> viewModel.setTab(com.example.viewmodel.AppTab.DAPPS)
+            commandText.equals("/newtab", true) -> {
+                viewModel.createNewTab()
+                viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
+                messages.add(SiAgentMessage("🗂️ Opened a new browser tab.", isUser = false)); return
+            }
+            commandText.equals("/tabs", true) -> {
+                val summary = browserTabs.mapIndexed { i, tab -> "${i + 1}. ${tab.title.ifBlank { "New Tab" }} — ${tab.url.ifBlank { "Home" }}${if (tab.id == activeTabId) " (active)" else ""}" }.joinToString("\\n").ifBlank { "No browser tabs are open." }
+                messages.add(SiAgentMessage("🗂️ Browser tabs ( ${browserTabs.size} )\\n$summary", isUser = false)); return
+            }
+            commandText.equals("/bookmarks", true) -> {
+                val summary = browserBookmarks.take(30).mapIndexed { i, item -> "${i + 1}. ${item.title} — ${item.url}" }.joinToString("\\n").ifBlank { "No saved bookmarks were found." }
+                messages.add(SiAgentMessage("🔖 Saved bookmarks\\n$summary", isUser = false)); return
+            }
+            commandText.equals("/downloads", true) -> {
+                val summary = activeDownloads.mapIndexed { i, item -> "${i + 1}. ${item.fileName} — ${item.status} (${(item.progress * 100).toInt()}%)" }.joinToString("\\n").ifBlank { "No active or recent downloads are available." }
+                messages.add(SiAgentMessage("⬇️ Browser downloads\\n$summary", isUser = false)); return
+            }
+            commandText.equals("/bookmark-current", true) -> {
+                if (activeUrl.isBlank()) messages.add(SiAgentMessage("There is no active webpage to bookmark.", isUser = false))
+                else {
+                    viewModel.toggleBookmark(activeUrl, activeTitle.ifBlank { activeUrl })
+                    messages.add(SiAgentMessage("🔖 Bookmark action requested for $activeTitle ($activeUrl).", isUser = false))
                 }
+                return
+            }
+            commandText.equals("/back", true) || commandText.equals("/forward", true) || commandText.equals("/reload", true) -> {
+                viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
+                val webView = activeTabId?.let { viewModel.webViewTabManager.getWebView(it) }
+                when (commandText.lowercase()) {
+                    "/back" -> if (webView?.canGoBack() == true) webView.goBack() else { messages.add(SiAgentMessage("This tab has no previous page.", isUser = false)); return }
+                    "/forward" -> if (webView?.canGoForward() == true) webView.goForward() else { messages.add(SiAgentMessage("This tab has no next page.", isUser = false)); return }
+                    "/reload" -> if (webView != null) webView.reload() else { messages.add(SiAgentMessage("The active browser page is not attached. Open the browser and try again.", isUser = false)); return }
+                }
+                messages.add(SiAgentMessage("Browser navigation command sent.", isUser = false)); return
+            }
+            commandText.startsWith("/open ", true) -> {
+                val target = commandText.substringAfter(" ").trim()
+                if (target.startsWith("https://", true) || target.startsWith("http://", true)) {
+                    viewModel.openUrlInBrowser(target, isExternal = false)
+                    viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
+                    messages.add(SiAgentMessage("🌐 Opening $target", isUser = false))
+                } else messages.add(SiAgentMessage("Please provide a complete http:// or https:// URL.", isUser = false))
                 return
             }
         }
@@ -527,7 +578,7 @@ fun SiAgentScreen(
             delay(150L)
             val responseText = executeSiAgentCommand(
                 context = context,
-                input = trimmed,
+                input = commandText,
                 activeUrl = activeUrl,
                 activeTitle = activeTitle,
                 attachedFileName = attachedName,
@@ -1032,8 +1083,8 @@ fun SiAgentScreen(
             containerColor = SurfaceDark,
             scrimColor = Color.Black.copy(alpha = 0.6f)
         ) {
-            var recipientInput by remember { mutableStateOf("") }
-            var amountInput by remember { mutableStateOf("") }
+            var recipientInput by remember { mutableStateOf(pendingSendRecipient) }
+            var amountInput by remember { mutableStateOf(pendingSendAmount) }
             var selectedAsset by remember { mutableStateOf("KAS") }
             var selectedSendNetwork by remember { mutableStateOf("Mainnet") }
             var isSendingTx by remember { mutableStateOf(false) }
