@@ -331,6 +331,13 @@ fun SiAgentScreen(
         )
     }
 
+    // Keep the newest chat entry visible when the user sends a message or SI Agent replies.
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
     // Real-time transaction status listener for Si Agent messages
     LaunchedEffect(walletState.recentTransactions) {
         walletState.recentTransactions.forEach { tx ->
