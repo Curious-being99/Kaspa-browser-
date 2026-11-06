@@ -519,6 +519,7 @@ fun SiAgentScreen(
         scope.launch {
             delay(150L)
             val responseText = executeSiAgentCommand(
+                context = context,
                 input = trimmed,
                 activeUrl = activeUrl,
                 activeTitle = activeTitle,
@@ -1540,6 +1541,7 @@ private fun fetchUrlContent(url: String): String? {
 }
 
 suspend fun executeSiAgentCommand(
+    context: android.content.Context,
     input: String,
     activeUrl: String,
     activeTitle: String,
