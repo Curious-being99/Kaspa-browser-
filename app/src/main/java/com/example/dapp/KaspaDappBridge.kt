@@ -617,7 +617,18 @@ object KaspaDappBridge {
                                     tick = "KAS",
                                     amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
                                     amountLabel = "Total outputs (includes wallet change)",
-                                    destination = prepared.transaction.outputs.firstOrNull()?.scriptPublicKey?.script?.take(22).orEmpty(),
+                                    destination = prepared.transaction.outputs.mapIndexed { index, output ->
+                                        val amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                            com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(output.amount)
+                                        )
+                                        val script = output.scriptPublicKey.script.replace(" ", "").lowercase()
+                                        val outputKind = if (script == "20" + keyPair.publicKeyHex.lowercase() + "ac") {
+                                            "Wallet change"
+                                        } else {
+                                            "External or contract output"
+                                        }
+                                        "Output ${index + 1} — $outputKind — $amount KAS\\nscriptVersion=${output.scriptPublicKey.version}\\nscript=$script"
+                                    }.joinToString("\\n\\n"),
                                     inputsCount = prepared.signInputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
