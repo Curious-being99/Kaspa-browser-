@@ -273,49 +273,71 @@ object CryptoUtils {
         }
     }
 
-    fun encryptAes256(plainText: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
-        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
-        val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-        
-        val secureRandom = java.security.SecureRandom()
-        val iv = ByteArray(12)
-        secureRandom.nextBytes(iv)
-        
-        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
-        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-        
-        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-        
-        val combined = ByteArray(iv.size + encrypted.size)
-        System.arraycopy(iv, 0, combined, 0, iv.size)
-        System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
-        
-        return encodeBase64(combined)
+    private const val SEED_ENCRYPTION_KEY_ALIAS = "kaspa_browser_seed_v1"
+    private const val LEGACY_SEED_KEY_PHRASE = "DecentralNetStorageKey2026"
+    private const val KEYSTORE_CIPHERTEXT_PREFIX = "ks1:"
+
+    private fun seedEncryptionKey(): java.security.Key {
+        val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        keyStore.getKey(SEED_ENCRYPTION_KEY_ALIAS, null)?.let { return it }
+        val generator = javax.crypto.KeyGenerator.getInstance("AES", "AndroidKeyStore")
+        val spec = android.security.keystore.KeyGenParameterSpec.Builder(
+            SEED_ENCRYPTION_KEY_ALIAS,
+            android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or
+                android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .setRandomizedEncryptionRequired(true)
+            .build()
+        generator.init(spec)
+        return generator.generateKey()
     }
 
-    fun decryptAes256(cipherTextBase64: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
+    /**
+     * New seed records use a non-exportable AES-256 key generated and held by Android Keystore.
+     * The version prefix allows legacy records to be read and migrated without changing their
+     * wallet derivation or address.
+     */
+    fun encryptAes256(plainText: String): String {
         val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
-        val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-        
-        val combined = decodeBase64(cipherTextBase64)
-        if (combined.size < 12) {
-            throw IllegalArgumentException("Invalid cipher text length")
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, seedEncryptionKey())
+        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+        val iv = cipher.iv
+        require(iv.size == 12) { "Unexpected Android Keystore GCM IV length" }
+        return KEYSTORE_CIPHERTEXT_PREFIX + encodeBase64(iv + encrypted)
+    }
+
+    fun decryptAes256(cipherTextBase64: String): String {
+        if (cipherTextBase64.startsWith(KEYSTORE_CIPHERTEXT_PREFIX)) {
+            val combined = decodeBase64(cipherTextBase64.removePrefix(KEYSTORE_CIPHERTEXT_PREFIX))
+            require(combined.size >= 12 + 16) { "Invalid cipher text length" }
+            val iv = combined.copyOfRange(0, 12)
+            val encrypted = combined.copyOfRange(12, combined.size)
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                javax.crypto.Cipher.DECRYPT_MODE,
+                seedEncryptionKey(),
+                javax.crypto.spec.GCMParameterSpec(128, iv)
+            )
+            return String(cipher.doFinal(encrypted), Charsets.UTF_8)
         }
-        
-        val iv = ByteArray(12)
-        System.arraycopy(combined, 0, iv, 0, 12)
-        
-        val encryptedSize = combined.size - 12
-        val encrypted = ByteArray(encryptedSize)
-        System.arraycopy(combined, 12, encrypted, 0, encryptedSize)
-        
-        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
-        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-        
-        val decryptedBytes = cipher.doFinal(encrypted)
-        return String(decryptedBytes, Charsets.UTF_8)
+
+        // Read-only compatibility path for existing installations. New writes never use this
+        // embedded phrase. Callers can re-encrypt successfully decrypted legacy seeds on save.
+        val combined = decodeBase64(cipherTextBase64)
+        require(combined.size >= 12 + 16) { "Invalid legacy cipher text length" }
+        val iv = combined.copyOfRange(0, 12)
+        val encrypted = combined.copyOfRange(12, combined.size)
+        val keyBytes = sha256Raw(LEGACY_SEED_KEY_PHRASE.toByteArray(Charsets.UTF_8))
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            javax.crypto.Cipher.DECRYPT_MODE,
+            javax.crypto.spec.SecretKeySpec(keyBytes, "AES"),
+            javax.crypto.spec.GCMParameterSpec(128, iv)
+        )
+        return String(cipher.doFinal(encrypted), Charsets.UTF_8)
     }
 
     @android.annotation.SuppressLint("NewApi")
