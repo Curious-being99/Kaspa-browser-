@@ -1909,10 +1909,11 @@ suspend fun executeSiAgentCommand(
         else -> null
     }?.takeIf { it.isNotBlank() }
 
-    val hasGroqProvider = !com.example.network.siagent.GroqKeyStore.read(context).isNullOrBlank()
     val webResearch = when {
         directCrawlUrl != null -> AndroidWebResearch.crawlUrl(directCrawlUrl)
-        webQuery != null && !hasGroqProvider -> AndroidWebResearch.searchAndCrawl(webQuery)
+        // Retrieve real sources even when Groq is configured; the model summarizes evidence,
+        // but never substitutes its own memory for a requested live search.
+        webQuery != null -> AndroidWebResearch.searchAndCrawl(webQuery)
         else -> null
     }
     if (webResearch != null && webResearch.sources.isEmpty()) return webResearch.toUserText()
