@@ -841,13 +841,17 @@ object KaspaDappBridge {
                                         return@execute
                                     }
 
-                                    // KRC-20 fallback path remains separate from KCC-20 covenant transfers.
-                                    val destination = if (toAddr.isNotBlank() && (toAddr.startsWith("kaspa:") || toAddr.startsWith("kaspatest:"))) {
-                                        toAddr
-                                    } else {
-                                        // Standard deployer / router recipient for KRC-20 inscriptions
-                                        if (network.contains("Mainnet", true)) "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
-                                        else "kaspatest:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
+                                    // Never substitute a developer-controlled destination. The dApp must
+                                    // explicitly supply a valid recipient on the currently selected network.
+                                    val expectedPrefix = if (network.contains("Mainnet", true)) "kaspa" else "kaspatest"
+                                    if (!com.example.network.CryptoUtils.isValidKaspaAddress(toAddr, expectedPrefix)) {
+                                        mainHandler.post {
+                                            respond(
+                                                errorCode = -32602,
+                                                errorMessage = "KRC-20 commit requires an explicit valid $expectedPrefix recipient. No fallback wallet is permitted."
+                                            )
+                                        }
+                                        return@execute
                                     }
 
                                     val sendResult = try {
@@ -855,8 +859,8 @@ object KaspaDappBridge {
                                             viewModel.walletService.sendKaspa(
                                                 senderAddress = keyPair.kaspaAddress,
                                                 senderSeed = active.seedPhrase,
-                                                recipientAddress = destination,
-                                                amountKas = 0.2 // Standard inscription commit amount on Kaspa BlockDAG
+                                                recipientAddress = toAddr,
+                                                amountKas = 0.2
                                             )
                                         }
                                     } catch (e: Throwable) {
@@ -884,6 +888,7 @@ object KaspaDappBridge {
                                                     .put("tick", tick)
                                                     .put("op", op)
                                                     .put("amt", amtStr)
+                                                    .put("to", toAddr)
                                             )
                                         } else {
                                             respond(
