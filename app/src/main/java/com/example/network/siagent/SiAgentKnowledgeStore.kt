@@ -81,7 +81,8 @@ object SiAgentKnowledgeStore {
                     ))
                 }
             }
-        }.sortedByDescending { it.fetchedAt }.take(MAX_ENTRIES)
+        }.filter { it.fetchedAt >= System.currentTimeMillis() - RETENTION_DAYS * 24L * 60L * 60L * 1000L }
+            .sortedByDescending { it.fetchedAt }.take(MAX_ENTRIES)
     }.getOrDefault(emptyList())
 
     fun relevant(context: Context, query: String, maxEntries: Int = 3): List<Entry> {
