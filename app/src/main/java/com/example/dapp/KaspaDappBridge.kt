@@ -626,7 +626,7 @@ object KaspaDappBridge {
                                         viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
                                             val signingOutcome = try {
-                                                Result.success(DappPsktTransaction.signAndFormat(prepared, keyPair.privateKey))
+                                                Result.success(DappPsktTransaction.signForDapp(prepared, keyPair.privateKey))
                                             } catch (error: Throwable) {
                                                 Result.failure(error)
                                             }
