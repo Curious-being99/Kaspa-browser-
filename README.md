@@ -167,76 +167,20 @@ KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It com
 | **Browser UI & Navigation** | **Jetpack Compose + Android GPU (Skia)** | Address bar, tab bar, settings, mesh radar, and dialogs are rendered using Jetpack Compose and Skia hardware acceleration. |
 
 ### Engine Specifications
-- **Core Rendering Engine**: Android System WebView (Chromium/Blink WebCore with V8 JavaScript engine & Skia 2D rendering).
-- **Native Rust v9 JNI Module**: Native Rust engine (`libkaspasearch.so`) performing zero-tracking federated search (DuckDuckGo, Bing, Wikipedia), AST ad/tracker filtering, and URL parameter sanitization.
-- **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `kas://`, `mesh://`, `dweb://`, `.kas`, `.hns`, `.eth`, and P2P CID targets).
-- **Network Pipeline**: Asynchronous OkHttp3 client with pure **HTTP/3 (QUIC over UDP)** transport layer, 0-RTT handshakes, zero head-of-line blocking, and connection migration (HTTP/2 removed).
-- **Decentralized DNS Engine**: Multi-chain DoH & ledger resolver querying Handshake (HNS) PoW root chain, Kaspa Block DAG (KNS), ENS (.eth), EmerDNS, and OpenNIC directly.
-- **Cryptographic Verification Engine**: Local SHA-256 digest calculation for diagnostics. A digest alone does not establish authenticity; ordinary web pages remain unverified unless an applicable integrity check succeeds.
-- **Local Mesh Seeding Engine**: Room SQLite database engine (`AppDatabase` / `ContentDao`) storing content-addressed blocks with `isSeeding = true` for peer mesh seeding and zero single point of failure during server outages.
-- **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and secure cryptographic signing without exposing private keys.
-- **Privacy & Content Shield Engine**: Real-time URL blocklist evaluator inspecting incoming DOM resources against ad-trackers and telemetry scripts before passing sanitized streams into the rendering pipeline.
 
----
+The following describes the implemented Android architecture, not a promise of anonymity or universal protocol support:
 
-## 🛡️ Kaspa Relay Protocol (KRP/1) Specification
+- **Web rendering**: Android System WebView (Chromium/Blink). The Rust modules do not replace the Android page renderer.
+- **Rust JNI**: `libkaspasearch.so` provides selected native search and content-processing functions when the library is built and loaded. It is not a standalone browser engine.
+- **Networking**: The app uses its configured OkHttp/Cronet networking stack. It does **not** enforce HTTP/3-only transport; protocol negotiation and fallback depend on the client, server, and platform.
+- **Protocol handling**: WebView request interception and app-specific resolvers handle only the schemes and domains implemented by their respective adapters. This is not a general decentralized network.
+- **Privacy controls**: Tracker/blocklist filtering and request-header controls are best-effort features. They do not provide Tor anonymity, guarantee zero telemetry, or prevent all tracking.
+- **Relay status**: The in-app relay/onion components are experimental and are not an independently audited Tor network or a verified multi-hop anonymity service. Do not rely on them to conceal an IP address.
+- **Peer-to-peer**: Local node, peer discovery, and content-storage components do not establish a production-grade, censorship-resistant mesh or guarantee availability.
+- **Wallet security**: Wallet keys must be generated from cryptographically random seed material. OAuth email addresses are account metadata only. New seed encryption uses Android Keystore; legacy records require migration and are not retroactively protected by that change.
+- **Transaction review**: dApp signing review displays each output's amount and complete locking script. Scripts that cannot be decoded to a human-readable address must remain visibly identified as scripts, not presented as verified recipients.
 
-KaspaBrowser implements **KRP/1 (Kaspa Relay Protocol v1)**, a dual-hop oblivious transport protocol designed to cryptographically separate user network identity (IP address) from destination targets while preserving mobile browsing performance.
-
-### 1. Oblivious Dual-Hop Topology
-
-```
-+---------------+              +--------------------+              +-------------------+              +----------------+
-| Client Device |  === [E1] => |    Entry Relay     |  === [E2] => |    Exit Relay     |  === [TLS] =>| Target Server  |
-|  (User IP)    |              | (Knows Client IP)  |              | (Knows Target URL)|              | (Destination)  |
-+---------------+              +--------------------+              +-------------------+              +----------------+
-                               | Knows: Client + E2 |              | Knows: E1 + Target|
-                               | Denied: Target URL |              | Denied: Client IP |
-```
-
-### 2. Cryptographic Parameters & Layering
-
-* **Key Exchange**: Ephemeral X25519 (ECDH) negotiated per established circuit.
-* **Symmetric Encryption**: ChaCha20-Poly1305 authenticated encryption with 12-byte initialization vectors (IV).
-* **Key Derivation**: HKDF-SHA256 with domain-separated salts.
-* **Layered Onion Envelopes**: Double-wrapped ciphertext ($E_{entry}(E_{exit}(\text{Payload})) $).
-  * **Outer Layer ($E_{entry}$)**: Addressed to Entry Node. Contains the Exit Node routing identifier and the opaque inner payload.
-  * **Inner Layer ($E_{exit}$)**: Addressed to Exit Node. Contains destination URI, HTTP method, headers, and request body.
-
-### 3. Wire Format & Cell Framing
-
-```
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Magic: "KRP1"                 | Frame Type    | Stream ID     |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Payload Length (Big-Endian)   | Reserved / Flags              |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Nonce / IV (12 Bytes)                                         |
-|                                                               |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Poly1305 Auth Tag (16 Bytes)                                  |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Encrypted Body Data (Variable) ...                            |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Padding to 1024-Byte Boundary (PKCS#7 / Chaff)                |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
-### 4. Anti-Traffic Analysis Defenses
-
-* **Poisson Micro-Jitter Injection**: Randomized timing delay of $\Delta t = 10\text{ms} + \text{CSPRNG}(0, 25)\text{ms}$ injected before dispatching frames to defeat passive ISP timing correlation.
-* **Traffic Morphing (Uniform 1024-Byte Quanta)**: All payloads are padded to exact 1024-byte multiples using random chaff bytes to prevent packet size fingerprinting.
-* **Non-Deterministic Circuit Auto-Rotation**:
-  * **Randomized Query Stride**: Evaluates a dynamic threshold generated via `SecureRandom` ($N \in [2, 7]$ queries).
-  * **Randomized Time Jitter**: Rotates circuit lifetime on unpredictable intervals ($T \in [50\text{s}, 160\text{s}]$).
-* **Client-Side Leak Neutralization**:
-  * **DNS Leak Shield**: DNS resolutions occur exclusively at the exit relay.
-  * **WebRTC STUN/TURN Neutralizer**: Blocks local and public candidate IP probing via `RTCPeerConnection` interception.
-  * **Zero-Tracking Standards**: Injects `Sec-GPC: 1` and `DNT: 1` while stripping identifying headers (`X-Forwarded-For`, `Client-IP`).
+Features that have not passed end-to-end tests on supported devices and real network endpoints must be described as experimental or unavailable. No claim of Tor, HTTP/3-only, universal P2P mesh, or independent Rust page rendering is made here.
 
 ---
 
