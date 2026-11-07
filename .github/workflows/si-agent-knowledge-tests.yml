@@ -1,0 +1,56 @@
+name: SI Agent Knowledge Tests
+
+on:
+  push:
+    branches:
+      - feature/si-agent-continuous-knowledge
+  pull_request:
+    branches:
+      - feature/si-agent-memory-web-intelligence
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  si-agent-knowledge-unit-tests:
+    name: SI Agent knowledge store unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out PR source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '9.7.0'
+
+      - name: Run Android debug unit tests
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Upload SI Agent test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: si-agent-knowledge-unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
