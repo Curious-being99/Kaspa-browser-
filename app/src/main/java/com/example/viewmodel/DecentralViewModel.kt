@@ -2647,62 +2647,15 @@ class DecentralViewModel(
         batches: Int = 1,
         onResult: (Boolean, String, String?) -> Unit
     ) {
-        val account = activeAccount.value
-        if (account == null) {
-            onResult(false, "No active Kaspa wallet found", null)
-            return
-        }
-        viewModelScope.launch {
-            val upper = tick.uppercase().trim()
-            val meta = krc20Service.fetchTokenMetadata(upper).getOrNull()
-            val limitDouble = meta?.limitPerMint?.toDoubleOrNull()?.div(100_000_000.0) ?: 1000.0
-            val totalTokens = limitDouble * batches
-            val kasCommitAmount = 0.2 * batches
-
-            val destination = if (_selectedNetwork.value.contains("Mainnet", true)) {
-                "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
-            } else {
-                "kaspatest:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
-            }
-
-            val sendResult = try {
-                kaspaWalletService.sendKaspa(
-                    senderAddress = account.kaspaAddress,
-                    senderSeed = account.seedPhrase,
-                    recipientAddress = destination,
-                    amountKas = kasCommitAmount
-                )
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-
-            if (sendResult.isSuccess) {
-                val txItem = sendResult.getOrThrow()
-                val rawJson = org.json.JSONObject()
-                    .put("p", "krc-20")
-                    .put("op", "mint")
-                    .put("tick", upper)
-                    .put("amt", (totalTokens * 100_000_000).toLong().toString())
-                    .put("txId", txItem.txId)
-                    .put("batches", batches)
-                    .put("feeKas", kasCommitAmount)
-                    .put("status", "ACCEPTED")
-                    .toString(2)
-
-                recordAndPinToken(
-                    tick = upper,
-                    op = "MINT (BONDING CURVE)",
-                    amount = totalTokens,
-                    txId = txItem.txId,
-                    rawJson = rawJson
-                )
-                refreshTestnetWallet()
-                onResult(true, "Successfully bought %,.2f %s on bonding curve! Broadcasted on Kaspa BlockDAG.".format(totalTokens, upper), txItem.txId)
-            } else {
-                val errorMsg = sendResult.exceptionOrNull()?.message ?: "Transaction failed on BlockDAG"
-                onResult(false, errorMsg, null)
-            }
-        }
+        // The previous implementation broadcast a fixed 0.2 KAS payment to a
+        // hardcoded address without a protocol-verified quote or native review.
+        // Fail closed until the bonding-curve destination and transaction intent
+        // can be verified and shown in the wallet's native confirmation screen.
+        onResult(
+            false,
+            "Bonding-curve purchases are temporarily paused for security. No KAS was sent.",
+            null
+        )
     }
 
     fun calculateFeeBreakdown(
