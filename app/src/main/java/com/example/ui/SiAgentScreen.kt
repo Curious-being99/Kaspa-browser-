@@ -535,7 +535,7 @@ fun SiAgentScreen(
                 "🧠 No saved web knowledge yet. Use /search <topic> or /crawl <HTTPS URL> to research and learn from fetched pages."
             } else {
                 "🧠 Saved web knowledge (most recently fetched first):\n" + learned.joinToString("\n\n") { entry ->
-                    "• ${entry.title}\n  ${entry.url}\n  Fetched: ${java.time.Instant.ofEpochMilli(entry.fetchedAt)}"
+                    "• ${entry.title}\n  ${entry.url}\n  Fetched: ${java.util.Date(entry.fetchedAt)}"
                 } + "\n\nUse /forgetknowledge to clear these saved sources."
             }
             messages.add(SiAgentMessage(text = summary, isUser = false, isCommand = true))
