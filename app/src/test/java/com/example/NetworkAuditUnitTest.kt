@@ -738,12 +738,11 @@ class NetworkAuditUnitTest {
         assertEquals(50000000L, prepared.utxoEntries[0].amount)
 
         // Sign with the matching private key for the UTXO locking script.
-        val signedResult = com.example.dapp.DappPsktTransaction.signAndFormat(
+        val signedResult = com.example.dapp.DappPsktTransaction.signForDapp(
             prepared,
             testKeyPair.privateKey
         )
-        assertTrue(signedResult.has("psktTransactionJson"))
-        val signedTx = org.json.JSONObject(signedResult.getString("psktTransactionJson"))
+        val signedTx = org.json.JSONObject(signedResult)
         val firstInput = signedTx.getJSONArray("inputs").getJSONObject(0)
         assertTrue(firstInput.getString("signatureScript").startsWith("41"))
     }

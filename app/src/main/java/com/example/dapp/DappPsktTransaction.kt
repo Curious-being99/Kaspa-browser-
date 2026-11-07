@@ -190,96 +190,15 @@ internal object DappPsktTransaction {
             input.signatureScript = signatureScript
             val originalInput = inputArray.optJSONObject(request.index)
                 ?: throw IllegalArgumentException("Transaction input is malformed")
+            // Safe-JSON carries the serialized unlocking script in this canonical field.
+            // Do not add wallet-specific signature aliases to the transaction input.
             originalInput.put("signatureScript", signatureScript)
-            originalInput.put("signature_script", signatureScript)
-            originalInput.put("sigScript", signatureScript)
-            originalInput.put("sig_script", signatureScript)
-            originalInput.put("signature", signature)
-            originalInput.put("rawSignature", signature)
-            originalInput.put("sighashType", request.sighashType)
         }
         return signedRoot.toString()
     }
 
-    fun signAndFormat(prepared: Prepared, privateKey: BigInteger): JSONObject {
-        val signedJsonString = sign(prepared, privateKey)
-        val signedRootObj = JSONObject(signedJsonString)
-        val signedTxObj = signedRootObj.optJSONObject("transaction") ?: signedRootObj
-        val sourceInputsArray = signedTxObj.optJSONArray("inputs")
-            ?: signedRootObj.optJSONArray("inputs")
-            ?: JSONArray()
-
-        val fullInputsArray = JSONArray()
-        val signedRequestsMap = prepared.signInputs.associateBy { it.index }
-
-        for (i in 0 until prepared.transaction.inputs.size) {
-            val rawInput = sourceInputsArray.optJSONObject(i) ?: JSONObject()
-            val inputObj = JSONObject(rawInput.toString())
-            val txInput = prepared.transaction.inputs.getOrNull(i)
-            val script = txInput?.signatureScript.orEmpty()
-
-            if (script.isNotBlank()) {
-                inputObj.put("signatureScript", script)
-                inputObj.put("signature_script", script)
-                inputObj.put("sigScript", script)
-                inputObj.put("sig_script", script)
-                if (script.length >= 130) {
-                    val rawSig = if (script.startsWith("41", ignoreCase = true) && script.length >= 132) {
-                        script.substring(2, 130)
-                    } else {
-                        script.take(128)
-                    }
-                    inputObj.put("signature", rawSig)
-                    inputObj.put("rawSignature", rawSig)
-                }
-                inputObj.put("sighashType", signedRequestsMap[i]?.sighashType ?: KaspaTransactionEngine.SIGHASH_ALL)
-            } else {
-                if (!inputObj.has("signatureScript")) inputObj.put("signatureScript", "")
-                if (!inputObj.has("signature_script")) inputObj.put("signature_script", "")
-            }
-            fullInputsArray.put(inputObj)
-        }
-
-        val signedInputsSubset = JSONArray()
-        for (request in prepared.signInputs) {
-            val input = prepared.transaction.inputs.getOrNull(request.index)
-            val script = input?.signatureScript.orEmpty()
-            val rawSig = if (script.startsWith("41", ignoreCase = true) && script.length >= 132) {
-                script.substring(2, 130)
-            } else {
-                script.take(128)
-            }
-            signedInputsSubset.put(
-                JSONObject()
-                    .put("index", request.index)
-                    .put("inputIndex", request.index)
-                    .put("signature", rawSig)
-                    .put("rawSignature", rawSig)
-                    .put("sighashType", request.sighashType)
-                    .put("signatureScript", script)
-                    .put("signature_script", script)
-            )
-        }
-
-        signedTxObj.put("inputs", fullInputsArray)
-        if (signedRootObj.has("transaction")) {
-            signedRootObj.put("transaction", signedTxObj)
-        }
-        signedRootObj.put("inputs", fullInputsArray)
-
-        return JSONObject()
-            .put("inputs", fullInputsArray)
-            .put("transaction", signedTxObj)
-            .put("tx", signedTxObj)
-            .put("signedTx", signedTxObj)
-            .put("psktTransactionJson", signedJsonString)
-            .put("signedTxJson", signedJsonString)
-            .put("pskt", signedJsonString)
-            .put("rawTx", signedJsonString)
-            .put("txJsonString", signedJsonString)
-            .put("signedInputs", signedInputsSubset)
-            .put("signInputs", signedInputsSubset)
-    }
+    fun signForDapp(prepared: Prepared, privateKey: BigInteger): String =
+        sign(prepared, privateKey)
 
     private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>, redeemScript: String): Prepared {
         require(txJsonString.isNotBlank() && txJsonString.length <= MAX_TRANSACTION_JSON_CHARS) {
