@@ -1094,6 +1094,36 @@ object CryptoUtils {
             isActive = true
         )
     }
+    /**
+     * Detects accounts created by the historical public-email-to-mnemonic algorithm.
+     * Such accounts are compromised by design and must not be allowed to sign or spend.
+     */
+    fun isLegacyEmailDerivedGoogleWallet(
+        accountType: String,
+        email: String?,
+        storedSeed: String
+    ): Boolean {
+        if (accountType != "GOOGLE_ZK_BRIDGE" || email.isNullOrBlank()) return false
+        val cleanEmail = email.trim().lowercase()
+        val legacyMnemonic = try {
+            val entropy = sha256("google_oauth_bridge_" + cleanEmail + "_zkDecentralNet2026")
+            (0 until 12).map { index ->
+                val start = (index * 2) % entropy.length
+                val end = (start + 2) % entropy.length
+                val byteValue = entropy.substring(start, end).toIntOrNull(16) ?: index
+                MNEMONIC_WORDS[byteValue % MNEMONIC_WORDS.size]
+            }.joinToString(" ")
+        } catch (_: Throwable) {
+            return false
+        }
+        val storedMnemonic = try {
+            getDecryptedSeed(storedSeed)
+        } catch (_: Throwable) {
+            return false
+        }
+        return storedMnemonic == legacyMnemonic
+    }
+
 }
 
 
