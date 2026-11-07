@@ -137,7 +137,7 @@ object SiAgentKnowledgeStore {
     private fun sanitize(raw: String): String {
         var value = raw
         value = value.replace(Regex("(?i)gsk_[A-Za-z0-9_-]{20,}"), "[REDACTED API KEY]")
-        value = value.replace(Regex("(?i)(seed phrase|recovery phrase|mnemonic|private key|secret key)\\s*[:=]?\\s*[^\\n]+"), "[REDACTED SECRET]")
+        value = value.replace(Regex("(?i)(seed phrase|recovery phrase|mnemonic|private key|secret key)\\s*[:=]?\\s*[^.!?\\n]+"), "[REDACTED SECRET]")
         value = value.replace(Regex("(?i)(txJsonString|signingPayload|privateKey|seedPhrase)\\s*[:=]\\s*[^,}\\n]+"), "[REDACTED SIGNING DATA]")
         return value
     }
