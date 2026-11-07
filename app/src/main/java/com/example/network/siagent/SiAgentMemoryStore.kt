@@ -33,7 +33,7 @@ object SiAgentMemoryStore {
     fun save(context: Context, turns: List<Turn>) {
         val array = JSONArray()
         turns.takeLast(MAX_MESSAGES).forEach { turn ->
-            val text = turn.text.take(MAX_MESSAGE_CHARS)
+            val text = sanitize(turn.text).take(MAX_MESSAGE_CHARS)
             if (text.isNotBlank()) array.put(
                 JSONObject().put("text", text).put("user", turn.isUser)
             )
@@ -41,6 +41,16 @@ object SiAgentMemoryStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_MESSAGES, array.toString())
             .apply()
+    }
+
+    private fun sanitize(value: String): String {
+        var safe = value
+        // Never persist likely credentials or signing material even if pasted into chat.
+        safe = safe.replace(Regex("(?i)gsk_[A-Za-z0-9_-]{20,}"), "[REDACTED API KEY]")
+        safe = safe.replace(Regex("(?i)(seed phrase|recovery phrase|mnemonic|private key|secret key)\\s*[:=]?\\s*[^\\n]+"), "$1 [REDACTED]")
+        safe = safe.replace(Regex("(?i)\\b[0-9a-f]{64}\\b"), "[REDACTED 32-BYTE SECRET/ID]")
+        safe = safe.replace(Regex("(?i)(txJsonString|signingPayload|privateKey|seedPhrase)\\s*[:=]\\s*[^,}\\n]+"), "$1=[REDACTED]")
+        return safe
     }
 
     fun clear(context: Context) {
