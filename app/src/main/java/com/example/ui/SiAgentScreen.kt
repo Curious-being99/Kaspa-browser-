@@ -1665,6 +1665,72 @@ fun ChatBubble(
     }
 }
 
+internal object SiAgentResponseQuality {
+    private val wordPattern = Regex("""[\\p{L}\\p{N}][\\p{L}\\p{N}'’_-]*""")
+
+    fun clean(raw: String): String {
+        var text = raw.replace("\\r\\n", "\\n").trim()
+        repeat(2) {
+            text = collapseRepeatedSentences(text)
+            text = collapseAdjacentRepeatedPhrases(text)
+            text = collapseRepeatedWords(text)
+            text = collapseDuplicateLines(text)
+        }
+        return text.trim()
+    }
+
+    private fun collapseRepeatedSentences(value: String): String {
+        val repeatedSentence = Regex("""(?is)([^.!?\\n]{12,}[.!?])(?:[ \\t]*\\n?[ \\t]+\\1)+""")
+        return repeatedSentence.replace(value) { it.groupValues[1] }
+    }
+
+    private fun collapseRepeatedWords(value: String): String {
+        val repeatedWord = Regex("""(?iu)\\b([\\p{L}\\p{N}][\\p{L}\\p{N}'’_-]*)\\b(?:[ \\t]+\\1\\b)+""")
+        return repeatedWord.replace(value) { it.groupValues[1] }
+    }
+
+    private fun collapseDuplicateLines(value: String): String {
+        val lines = value.split('\\n')
+        val result = ArrayList<String>(lines.size)
+        for (line in lines) {
+            if (line.isNotBlank() && result.lastOrNull()?.trim() == line.trim()) continue
+            result.add(line)
+        }
+        return result.joinToString("\\n")
+    }
+
+    private fun collapseAdjacentRepeatedPhrases(value: String): String {
+        var text = value
+        var passes = 0
+        while (passes < 4) {
+            val words = wordPattern.findAll(text).toList()
+            var changed = false
+            outer@ for (start in words.indices) {
+                val maxLength = minOf(8, (words.size - start) / 2)
+                for (length in maxLength downTo 1) {
+                    val first = words.subList(start, start + length)
+                    val second = words.subList(start + length, start + length * 2)
+                    if (!first.indices.all { index ->
+                            first[index].value.equals(second[index].value, ignoreCase = true)
+                        }) continue
+
+                    val firstEnd = first.last().range.last + 1
+                    val secondStart = second.first().range.first
+                    if (text.substring(firstEnd, secondStart).any { !it.isWhitespace() }) continue
+
+                    val secondEnd = second.last().range.last + 1
+                    text = text.removeRange(firstEnd, secondEnd)
+                    changed = true
+                    break@outer
+                }
+            }
+            if (!changed) break
+            passes++
+        }
+        return text
+    }
+}
+
 private suspend fun callGroqApi(
     context: Context,
     prompt: String,
@@ -1688,7 +1754,7 @@ private suspend fun callGroqApi(
         }
 
         val systemPrompt = """You are SI Agent, the intelligent native command centre inside KaspaBrowser.
-You are a reflective, context-aware assistant: understand your role, available tools, current task, known facts, uncertainty, and limits. Before answering, check whether you have direct evidence, whether a tool is needed, and whether your answer conflicts with reliable context. If you discover an error, acknowledge it plainly and correct it. Track the user's immediate goal across the conversation without claiming human feelings, subjective experience, independent consciousness, or abilities you do not have. Never claim an action succeeded unless the tool confirms it.
+You are a reflective, context-aware assistant: understand your role, available tools, current task, known facts, uncertainty, and limits. For complex requests, reason carefully through the goal, constraints, evidence, and available tool results before choosing an answer. Present the conclusion, concise rationale, and relevant evidence; do not expose private chain-of-thought. Before answering, check whether you have direct evidence, whether a tool is needed, and whether your answer conflicts with reliable context. If you discover an error, acknowledge it plainly and correct it. Track the user's immediate goal across the conversation without claiming human feelings, subjective experience, independent consciousness, or abilities you do not have. Never claim an action succeeded unless the tool confirms it. Write each fact or instruction once: do not repeat words, phrases, sentences, paragraphs, headings, or conclusions. Avoid restating the user's question. If a point has already been made, add new information or stop. Prefer a direct, well-structured answer over filler.
 You are not a generic browser chatbot. Use the available app tools whenever a user asks for live information or an action that a tool supports. Do not guess from old context when a live tool can answer.
 
 TOOL POLICY:
@@ -1726,10 +1792,10 @@ Do not assume the current page, browsing history, wallet balance, receive addres
             val requestJson = JSONObject().apply {
                 put("model", "openai/gpt-oss-120b")
                 put("messages", conversation)
-                put("temperature", 1)
+                put("temperature", 0.6)
                 put("max_completion_tokens", 2048)
                 put("top_p", 1)
-                put("reasoning_effort", "medium")
+                put("reasoning_effort", "high")
                 put("stream", true)
                 if (toolsAvailable && toolRounds < 4 && totalToolCalls < 8) {
                     put("tools", toolDefinitions)
@@ -1841,7 +1907,7 @@ Do not assume the current page, browsing history, wallet balance, receive addres
             }
         }
 
-        finalAnswer.toString().trim().takeIf { it.isNotEmpty() }
+        SiAgentResponseQuality.clean(finalAnswer.toString()).takeIf { it.isNotEmpty() }
     } catch (e: Exception) {
         Log.e("SiAgent", "Groq streaming/tool request failed: ${e.message}", e)
         null
