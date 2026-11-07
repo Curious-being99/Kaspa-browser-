@@ -382,10 +382,13 @@ fun SiAgentScreen(
     }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.id, messages.lastOrNull()?.text) {
-        com.example.network.siagent.SiAgentMemoryStore.save(
-            context,
-            messages.map { com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser) }
-        )
+        val memorySnapshot = messages.map {
+            com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser)
+        }
+        delay(250L)
+        withContext(Dispatchers.IO) {
+            com.example.network.siagent.SiAgentMemoryStore.save(context, memorySnapshot)
+        }
     }
 
     // Keep the actual bottom of the latest response visible, including while streamed text grows.
