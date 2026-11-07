@@ -371,12 +371,20 @@ fun SiAgentScreen(
     )
 
     val messages = remember {
-        mutableStateListOf(
-            SiAgentMessage(
-                text = initialGreeting,
-                isUser = false,
-                inlineButtons = initialButtons
-            )
+        mutableStateListOf<SiAgentMessage>().apply {
+            val restored = com.example.network.siagent.SiAgentMemoryStore.load(context)
+            if (restored.isEmpty()) {
+                add(SiAgentMessage(text = initialGreeting, isUser = false, inlineButtons = initialButtons))
+            } else {
+                restored.forEach { turn -> add(SiAgentMessage(text = turn.text, isUser = turn.isUser)) }
+            }
+        }
+    }
+
+    LaunchedEffect(messages.size, messages.lastOrNull()?.id, messages.lastOrNull()?.text) {
+        com.example.network.siagent.SiAgentMemoryStore.save(
+            context,
+            messages.map { com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser) }
         )
     }
 
@@ -509,6 +517,7 @@ fun SiAgentScreen(
         // Handle client-side commands immediately if applicable
         if (commandText.equals("/clear", ignoreCase = true)) {
             messages.clear()
+            com.example.network.siagent.SiAgentMemoryStore.clear(context)
             messages.add(
                 SiAgentMessage(
                     text = initialGreeting,
@@ -662,6 +671,9 @@ fun SiAgentScreen(
                 selectedNetwork = viewModel.selectedNetwork.value,
                 kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) },
                 viewModel = viewModel,
+                conversationContext = com.example.network.siagent.SiAgentMemoryStore.promptContext(
+                    messages.dropLast(1).map { com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser) }
+                ),
                 onPaymentPrepared = { recipient, amount ->
                     withContext(Dispatchers.Main) {
                         pendingSendRecipient = recipient
@@ -1829,6 +1841,7 @@ suspend fun executeSiAgentCommand(
     selectedNetwork: String = "",
     kbToken: com.example.network.kaspa.Kcc20WalletToken? = null,
     viewModel: DecentralViewModel? = null,
+    conversationContext: String = "",
     onStreamChunk: ((String) -> Unit)? = null,
     onPaymentPrepared: (suspend (String, Double) -> Unit)? = null
 ): String {
@@ -1871,7 +1884,8 @@ suspend fun executeSiAgentCommand(
     }
     val kascovUrl = KASCOV_URL
     val liveAppContext = "Selected network: ${selectedNetwork.ifBlank { "Not available" }}. Treat this exact selection as authoritative. Kaspa Mainnet is mainnet; Kaspa Testnet 10 is testnet-10; Kaspa Testnet 11 is testnet-11. Testnet 10 and 11 both use kaspatest: addresses, so never infer between them from the prefix. Do not silently switch networks or use another network's balance, UTXOs, address, fee or endpoint. Kasplex and Igra are EVM networks, not native Kaspa L1. Query wallet, token, browser and dApp state only through tools when relevant to the user's request."
-    var finalPrompt = trimmed
+    var finalPrompt = if (conversationContext.isBlank()) trimmed else
+        "$conversationContext\\n\\nCURRENT USER MESSAGE: $trimmed"
 
     // Explicit web-research requests use real on-device search and bounded page extraction.
     val normalizedInput = trimmed.lowercase()
