@@ -74,8 +74,8 @@ class SiAgentKnowledgeStoreTest {
         SiAgentKnowledgeStore.saveFetched(
             context,
             listOf(
-                SiAgentKnowledgeStore.KnowledgeItem("Old title", "https://example.org/page", repeatedContent, 1L),
-                SiAgentKnowledgeStore.KnowledgeItem("Updated title", "https://example.org/page", repeatedContent, 2L)
+                SiAgentKnowledgeStore.KnowledgeItem("Old title", "https://example.org/page", repeatedContent, System.currentTimeMillis() - 1_000L),
+                SiAgentKnowledgeStore.KnowledgeItem("Updated title", "https://example.org/page", repeatedContent, System.currentTimeMillis())
             )
         )
         assertEquals(1, SiAgentKnowledgeStore.load(context).size)
@@ -86,11 +86,11 @@ class SiAgentKnowledgeStoreTest {
                 "Page $index",
                 "https://example.org/$index",
                 repeatedContent,
-                index.toLong()
+                System.currentTimeMillis() + index
             )
         }
         SiAgentKnowledgeStore.saveFetched(context, many)
-        assertEquals(100, SiAgentKnowledgeStore.load(context).size)
+        assertEquals(40, SiAgentKnowledgeStore.load(context).size)
         assertEquals("Page 110", SiAgentKnowledgeStore.load(context).first().title)
     }
 
