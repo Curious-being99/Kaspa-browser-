@@ -382,10 +382,13 @@ fun SiAgentScreen(
     }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.id, messages.lastOrNull()?.text) {
-        com.example.network.siagent.SiAgentMemoryStore.save(
-            context,
-            messages.map { com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser) }
-        )
+        val memorySnapshot = messages.map {
+            com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser)
+        }
+        delay(250L)
+        withContext(Dispatchers.IO) {
+            com.example.network.siagent.SiAgentMemoryStore.save(context, memorySnapshot)
+        }
     }
 
     // Keep the actual bottom of the latest response visible, including while streamed text grows.
@@ -1885,7 +1888,7 @@ suspend fun executeSiAgentCommand(
     val kascovUrl = KASCOV_URL
     val liveAppContext = "Selected network: ${selectedNetwork.ifBlank { "Not available" }}. Treat this exact selection as authoritative. Kaspa Mainnet is mainnet; Kaspa Testnet 10 is testnet-10; Kaspa Testnet 11 is testnet-11. Testnet 10 and 11 both use kaspatest: addresses, so never infer between them from the prefix. Do not silently switch networks or use another network's balance, UTXOs, address, fee or endpoint. Kasplex and Igra are EVM networks, not native Kaspa L1. Query wallet, token, browser and dApp state only through tools when relevant to the user's request."
     var finalPrompt = if (conversationContext.isBlank()) trimmed else
-        "$conversationContext\\n\\nCURRENT USER MESSAGE: $trimmed"
+        "$conversationContext\n\nCURRENT USER MESSAGE: $trimmed"
 
     // Explicit web-research requests use real on-device search and bounded page extraction.
     val normalizedInput = trimmed.lowercase()
