@@ -121,6 +121,14 @@ object KaspaDappBridge {
                             viewModel.getActiveAccountFromDb()
                         }
                     }.getOrNull() ?: return null
+                    if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(
+                            active.accountType,
+                            active.googleEmail,
+                            active.seedPhrase
+                        )
+                    ) {
+                        return null
+                    }
                     return try {
                         val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
                         CryptoUtils.deriveKaspaKeyPair(seed, prefix)
