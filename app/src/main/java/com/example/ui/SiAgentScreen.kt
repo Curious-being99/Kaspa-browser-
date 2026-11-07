@@ -1666,10 +1666,10 @@ fun ChatBubble(
 }
 
 internal object SiAgentResponseQuality {
-    private val wordPattern = Regex("""[\\p{L}\\p{N}][\\p{L}\\p{N}'’_-]*""")
+    private val wordPattern = Regex("""[\p{L}\p{N}][\p{L}\p{N}'’_-]*""")
 
     fun clean(raw: String): String {
-        var text = raw.replace("\\r\\n", "\\n").trim()
+        var text = raw.replace("\r\n", "\n").trim()
         repeat(2) {
             text = collapseRepeatedSentences(text)
             text = collapseAdjacentRepeatedPhrases(text)
@@ -1680,23 +1680,23 @@ internal object SiAgentResponseQuality {
     }
 
     private fun collapseRepeatedSentences(value: String): String {
-        val repeatedSentence = Regex("""(?is)([^.!?\\n]{12,}[.!?])(?:[ \\t]*\\n?[ \\t]+\\1)+""")
+        val repeatedSentence = Regex("""(?is)([^.!?\n]{12,}[.!?])(?:[ \t]*\n?[ \t]+\1)+""")
         return repeatedSentence.replace(value) { it.groupValues[1] }
     }
 
     private fun collapseRepeatedWords(value: String): String {
-        val repeatedWord = Regex("""(?iu)\\b([\\p{L}\\p{N}][\\p{L}\\p{N}'’_-]*)\\b(?:[ \\t]+\\1\\b)+""")
+        val repeatedWord = Regex("""(?iu)\b([\p{L}\p{N}][\p{L}\p{N}'’_-]*)\b(?:[ \t]+\1\b)+""")
         return repeatedWord.replace(value) { it.groupValues[1] }
     }
 
     private fun collapseDuplicateLines(value: String): String {
-        val lines = value.split('\\n')
+        val lines = value.split('\n')
         val result = ArrayList<String>(lines.size)
         for (line in lines) {
             if (line.isNotBlank() && result.lastOrNull()?.trim() == line.trim()) continue
             result.add(line)
         }
-        return result.joinToString("\\n")
+        return result.joinToString("\n")
     }
 
     private fun collapseAdjacentRepeatedPhrases(value: String): String {
