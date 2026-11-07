@@ -439,7 +439,22 @@ fun DappPromptBottomSheet(
                             }
 
                             if (prompt.destination.isNotBlank()) {
-                                Row(
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("All transaction outputs", fontSize = 13.sp, color = TextSecondary)
+                                    SelectionContainer {
+                                        Text(
+                                            text = prompt.destination,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextPrimary,
+                                            softWrap = true
+                                        )
+                                    }
+                                }
+                                HorizontalDivider(color = SurfaceCardBorder)
+                            }
+
+                            Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
