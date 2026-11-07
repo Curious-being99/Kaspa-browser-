@@ -1062,11 +1062,9 @@ object CryptoUtils {
         displayName: String
     ): com.example.data.AccountEntity {
         val cleanEmail = email.trim().lowercase()
-        val bridgeEntropy = sha256("google_oauth_bridge_" + cleanEmail + "_zkDecentralNet2026")
-        val mnemonic = (0 until 12).map { idx ->
-            val byteVal = bridgeEntropy.substring((idx * 2) % bridgeEntropy.length, ((idx * 2) + 2) % bridgeEntropy.length).toIntOrNull(16) ?: idx
-            MNEMONIC_WORDS[byteVal % MNEMONIC_WORDS.size]
-        }.joinToString(" ")
+        // OAuth identity is metadata only. Wallet entropy must be generated independently
+        // with SecureRandom; an email address is public and cannot be a wallet secret.
+        val mnemonic = generateMnemonic()
 
         val kaspaKey = deriveKaspaKeyPair(mnemonic)
         val did = "did:key:z6Mkg" + kaspaKey.publicKeyHex.take(38)
