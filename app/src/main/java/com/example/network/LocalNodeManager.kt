@@ -224,7 +224,7 @@ class LocalNodeManager(
                                         multiaddress = "/dns4/$host/tcp/443/https",
                                         latencyMs = 0L,
                                         isOnline = true,
-                                        blocksShared = (50..300).random(),
+                                        blocksShared = 0,
                                         region = "Global P2P WAN Node",
                                         isBootstrap = true
                                     )
@@ -384,7 +384,7 @@ class LocalNodeManager(
                 if (peers.isNotEmpty()) {
                     val updatedPeers = peers.map { peer ->
                         if (peer.isOnline) {
-                            peer.copy(blocksShared = peer.blocksShared + (1..3).random())
+                            peer.copy(blocksShared = peer.blocksShared + 1)
                         } else peer
                     }
                     database.peerDao().insertPeers(updatedPeers)

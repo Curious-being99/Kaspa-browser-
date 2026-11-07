@@ -1018,7 +1018,7 @@ private fun GoogleBridgeTab(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Generates a deterministic zero-knowledge DID and Kaspa address bound to your Google account with local cryptographic recovery.",
+                    text = "Binds your Google Account to a non-custodial Kaspa wallet protected by CSPRNG BIP-39 mnemonic generation and Android KeyStore hardware encryption.",
                     fontSize = 11.sp,
                     color = TextSecondary
                 )
@@ -1078,7 +1078,7 @@ private fun GoogleBridgeTab(
                 ) {
                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Generate & Activate zk-Decentralized Bridge", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("Connect & Activate Secure Wallet", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
         }

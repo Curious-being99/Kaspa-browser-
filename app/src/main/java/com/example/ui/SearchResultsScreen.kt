@@ -232,7 +232,7 @@ fun SearchResultsScreen(
                         CircularProgressIndicator(color = KaspaTea, modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Executing zero-tracking Rust query...",
+                            text = "Searching privacy web sources on-device...",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )

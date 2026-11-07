@@ -9,6 +9,7 @@ import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.example.network.CryptoUtils
+import com.example.network.kaspa.KaspaTransactionEngine
 import com.example.viewmodel.DecentralViewModel
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,6 +43,23 @@ object KaspaDappBridge {
 
     private fun markListenerRegistered(webView: WebView) {
         synchronized(listenerRegisteredWebViews) { listenerRegisteredWebViews.add(webView) }
+    }
+
+    private fun scriptToAddress(scriptPublicKey: KaspaTransactionEngine.KaspaScriptPublicKey, prefix: String): String {
+        val s = scriptPublicKey.script.replace(" ", "").lowercase()
+        return try {
+            if (scriptPublicKey.version == 0 && s.matches(Regex("20[0-9a-f]{64}ac"))) {
+                val pubBytes = CryptoUtils.hexToBytes(s.substring(2, 66))
+                CryptoUtils.encodeRealKaspaAddress(pubBytes, prefix)
+            } else if (scriptPublicKey.version == 0 && s.matches(Regex("aa20[0-9a-f]{64}87"))) {
+                val hashBytes = CryptoUtils.hexToBytes(s.substring(4, 68))
+                CryptoUtils.encodeP2shAddress(hashBytes, prefix)
+            } else {
+                s.take(22)
+            }
+        } catch (_: Throwable) {
+            s.take(22)
+        }
     }
 
     fun install(context: Context, webView: WebView, viewModel: DecentralViewModel) {
@@ -607,6 +625,15 @@ object KaspaDappBridge {
                                 }
                                 return@execute
                             }
+                            val externalOutput = prepared.transaction.outputs.firstOrNull { out ->
+                                val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
+                                val walletScript = ("20" + keyPair.publicKeyHex.lowercase() + "ac")
+                                script != walletScript
+                            } ?: prepared.transaction.outputs.firstOrNull()
+                            val resolvedDest = externalOutput?.let { out ->
+                                scriptToAddress(out.scriptPublicKey, prefix)
+                            } ?: keyPair.kaspaAddress
+
                             mainHandler.post {
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                     origin = origin,
@@ -617,7 +644,7 @@ object KaspaDappBridge {
                                     tick = "KAS",
                                     amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
                                     amountLabel = "Total outputs (includes wallet change)",
-                                    destination = prepared.transaction.outputs.firstOrNull()?.scriptPublicKey?.script?.take(22).orEmpty(),
+                                    destination = resolvedDest,
                                     inputsCount = prepared.signInputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
@@ -693,19 +720,64 @@ object KaspaDappBridge {
                         val rawTxJson = paramsObj.optString("txJsonString", paramsObj.optString("transaction", ""))
                         val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KRC-20"
 
+                        val isStructuredTx = rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("version"))
+                        val options = paramsObj.optJSONObject("options")
+                        val signInputs = options?.optJSONArray("signInputs")
+                            ?: JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL))
+                        val rScript = options?.optString("redeemScript", options?.optString("redeem_script", "")).orEmpty()
+
+                        val prePrepared = if (isStructuredTx) {
+                            try {
+                                DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex, redeemScript = rScript)
+                            } catch (e: Throwable) {
+                                respond(errorCode = -32602, errorMessage = "Malformed transaction payload: ${e.message}")
+                                return@addWebMessageListener
+                            }
+                        } else null
+
+                        // SECURITY: Verify prompt parameters against the ACTUAL transaction payload being signed!
+                        val externalOutputs = prePrepared?.transaction?.outputs?.filter { out ->
+                            val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
+                            val walletScript = ("20" + keyPair.publicKeyHex.lowercase() + "ac")
+                            script != walletScript
+                        } ?: emptyList()
+
+                        val externalSompi = externalOutputs.sumOf { it.amount }
+                        val actualOutgoingKas = if (prePrepared != null) {
+                            if (externalOutputs.isNotEmpty()) {
+                                KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(externalSompi))
+                            } else {
+                                KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(prePrepared.outputSumSompi))
+                            }
+                        } else null
+
+                        val resolvedDestination = if (prePrepared != null) {
+                            externalOutputs.firstOrNull()?.let { out ->
+                                scriptToAddress(out.scriptPublicKey, prefix)
+                            } ?: (if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress)
+                        } else {
+                            if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
+                        }
+
+                        val resolvedAmount = if (actualOutgoingKas != null) {
+                            if (amtStr.isNotBlank() && amtStr != "0") "$amtStr $tick ($actualOutgoingKas KAS)" else "$actualOutgoingKas KAS"
+                        } else {
+                            amtStr
+                        }
+
                         mainHandler.post {
                             viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                 origin = origin,
                                 network = network,
                                 accountAddress = keyPair.kaspaAddress,
-                                title = "Confirm $tick Transaction",
+                                title = if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
                                 action = "${op.uppercase()} $tick ($protocolLabel)",
                                 tick = tick,
-                                amount = amtStr,
-                                destination = if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress,
-                                inputsCount = 1,
-                                feeKas = "0.0001 KAS",
-                                totalAmountKas = amtStr,
+                                amount = resolvedAmount,
+                                destination = resolvedDestination,
+                                inputsCount = prePrepared?.transaction?.inputs?.size ?: 1,
+                                feeKas = prePrepared?.feeKas ?: "0.0001 KAS",
+                                totalAmountKas = actualOutgoingKas ?: amtStr,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
                                     val contractId = paramsObj.optString("contractId",
@@ -718,16 +790,8 @@ object KaspaDappBridge {
                                     }
                                 cryptoExecutor.execute {
                                     // Case A: dApp provided structured PSKT/transaction JSON to sign
-                                    if (rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("version"))) {
-                                        val prepared = try {
-                                            val options = paramsObj.optJSONObject("options")
-                                            val signInputs = options?.optJSONArray("signInputs")
-                                                ?: throw IllegalArgumentException("KCC-20 PSKT requires explicit options.signInputs")
-                                            val rScript = options?.optString("redeemScript", options.optString("redeem_script", "")).orEmpty()
-                                            DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex, redeemScript = rScript)
-                                        } catch (e: Throwable) {
-                                            null
-                                        }
+                                    if (prePrepared != null) {
+                                        val prepared = prePrepared
                                         if (prepared != null) {
                                             val signedJson = try {
                                                 DappPsktTransaction.sign(prepared, keyPair.privateKey)
@@ -833,10 +897,17 @@ object KaspaDappBridge {
                                     // KRC-20 fallback path remains separate from KCC-20 covenant transfers.
                                     val destination = if (toAddr.isNotBlank() && (toAddr.startsWith("kaspa:") || toAddr.startsWith("kaspatest:"))) {
                                         toAddr
+                                    } else if (op == "transfer") {
+                                        mainHandler.post {
+                                            respond(
+                                                errorCode = -32602,
+                                                errorMessage = "KRC-20 transfer requires a valid recipient address (kaspa: or kaspatest:)"
+                                            )
+                                        }
+                                        return@execute
                                     } else {
-                                        // Standard deployer / router recipient for KRC-20 inscriptions
-                                        if (network.contains("Mainnet", true)) "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
-                                        else "kaspatest:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
+                                        // For KRC-20 deploy/mint commit inscriptions, the commit UTXO must be self-addressed to the user's own wallet!
+                                        keyPair.kaspaAddress
                                     }
 
                                     val sendResult = try {

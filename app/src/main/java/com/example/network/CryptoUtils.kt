@@ -273,50 +273,131 @@ object CryptoUtils {
         }
     }
 
-    fun encryptAes256(plainText: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
+    private const val ANDROID_KEYSTORE_NAME = "AndroidKeyStore"
+    private const val MASTER_KEY_ALIAS = "KaspaWalletMasterKey_v1"
+    private const val HARDWARE_KEY_PREFIX = "hw1:"
+
+    private fun getOrCreateHardwareKey(): javax.crypto.SecretKey? {
+        return try {
+            val keyStore = java.security.KeyStore.getInstance(ANDROID_KEYSTORE_NAME).apply { load(null) }
+            if (keyStore.containsAlias(MASTER_KEY_ALIAS)) {
+                (keyStore.getEntry(MASTER_KEY_ALIAS, null) as? java.security.KeyStore.SecretKeyEntry)?.secretKey
+            } else {
+                val keyGen = javax.crypto.KeyGenerator.getInstance(
+                    android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,
+                    ANDROID_KEYSTORE_NAME
+                )
+                val keyGenSpec = android.security.keystore.KeyGenParameterSpec.Builder(
+                    MASTER_KEY_ALIAS,
+                    android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+                )
+                    .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .build()
+                keyGen.init(keyGenSpec)
+                keyGen.generateKey()
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun encryptAes256(plainText: String, keyPhrase: String = ""): String {
+        val hwKey = getOrCreateHardwareKey()
+        if (hwKey != null) {
+            try {
+                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, hwKey)
+                val iv = cipher.iv
+                val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+                val combined = ByteArray(iv.size + encrypted.size)
+                System.arraycopy(iv, 0, combined, 0, iv.size)
+                System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
+                return HARDWARE_KEY_PREFIX + encodeBase64(combined)
+            } catch (_: Throwable) {}
+        }
+
+        // Fallback for non-AndroidKeyStore environments (e.g. headless unit tests)
         val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
+        val effectivePhrase = keyPhrase.ifBlank { "KaspaSecureLocalKey_V2" }
+        val keyBytes = sha256Raw(effectivePhrase.toByteArray(Charsets.UTF_8))
         val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-        
+
         val secureRandom = java.security.SecureRandom()
         val iv = ByteArray(12)
         secureRandom.nextBytes(iv)
-        
+
         val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
         cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, keySpec, gcmSpec)
-        
+
         val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
-        
+
         val combined = ByteArray(iv.size + encrypted.size)
         System.arraycopy(iv, 0, combined, 0, iv.size)
         System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
-        
+
         return encodeBase64(combined)
     }
 
-    fun decryptAes256(cipherTextBase64: String, keyPhrase: String = "DecentralNetStorageKey2026"): String {
-        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
-        val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-        
-        val combined = decodeBase64(cipherTextBase64)
+    fun decryptAes256(cipherTextBase64: String, keyPhrase: String = ""): String {
+        if (cipherTextBase64.startsWith(HARDWARE_KEY_PREFIX)) {
+            val hwKey = getOrCreateHardwareKey()
+            if (hwKey != null) {
+                val rawBase64 = cipherTextBase64.removePrefix(HARDWARE_KEY_PREFIX)
+                val combined = decodeBase64(rawBase64)
+                if (combined.size < 12) {
+                    throw IllegalArgumentException("Invalid cipher text length")
+                }
+                val iv = ByteArray(12)
+                System.arraycopy(combined, 0, iv, 0, 12)
+                val encryptedSize = combined.size - 12
+                val encrypted = ByteArray(encryptedSize)
+                System.arraycopy(combined, 12, encrypted, 0, encryptedSize)
+
+                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE, hwKey, gcmSpec)
+                val decryptedBytes = cipher.doFinal(encrypted)
+                return String(decryptedBytes, Charsets.UTF_8)
+            }
+        }
+
+        // Try decrypting with provided or fallback phrase, including legacy key migration
+        val cleanCipher = cipherTextBase64.removePrefix(HARDWARE_KEY_PREFIX)
+        val combined = decodeBase64(cleanCipher)
         if (combined.size < 12) {
             throw IllegalArgumentException("Invalid cipher text length")
         }
-        
+
         val iv = ByteArray(12)
         System.arraycopy(combined, 0, iv, 0, 12)
-        
+
         val encryptedSize = combined.size - 12
         val encrypted = ByteArray(encryptedSize)
         System.arraycopy(combined, 12, encrypted, 0, encryptedSize)
-        
-        val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
-        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-        
-        val decryptedBytes = cipher.doFinal(encrypted)
-        return String(decryptedBytes, Charsets.UTF_8)
+
+        val phrasesToTry = listOfNotNull(
+            keyPhrase.takeIf { it.isNotBlank() },
+            "KaspaSecureLocalKey_V2",
+            "DecentralNetStorageKey2026" // Legacy fallback for seamless migration
+        ).distinct()
+
+        for (phrase in phrasesToTry) {
+            try {
+                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                val keyBytes = sha256Raw(phrase.toByteArray(Charsets.UTF_8))
+                val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+                val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+                cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+                val decryptedBytes = cipher.doFinal(encrypted)
+                return String(decryptedBytes, Charsets.UTF_8)
+            } catch (_: Throwable) {}
+        }
+
+        throw IllegalStateException("Failed to decrypt seed with available keys")
     }
+
 
     @android.annotation.SuppressLint("NewApi")
     fun encodeBase64(bytes: ByteArray): String {
@@ -1037,14 +1118,19 @@ object CryptoUtils {
 
     fun deriveGoogleBridgeAccount(
         email: String,
-        displayName: String
+        displayName: String,
+        existingSeedPhrase: String? = null
     ): com.example.data.AccountEntity {
         val cleanEmail = email.trim().lowercase()
-        val bridgeEntropy = sha256("google_oauth_bridge_" + cleanEmail + "_zkDecentralNet2026")
-        val mnemonic = (0 until 12).map { idx ->
-            val byteVal = bridgeEntropy.substring((idx * 2) % bridgeEntropy.length, ((idx * 2) + 2) % bridgeEntropy.length).toIntOrNull(16) ?: idx
-            MNEMONIC_WORDS[byteVal % MNEMONIC_WORDS.size]
-        }.joinToString(" ")
+        // SECURITY FIX: Never derive seed or private keys from email!
+        // An email address is public knowledge. Deriving keys from it allows anyone knowing the email to steal funds.
+        // We generate a true, cryptographically secure 12-word BIP-39 mnemonic with SecureRandom
+        // or link the user's existing locally secured wallet seed.
+        val mnemonic = if (!existingSeedPhrase.isNullOrBlank()) {
+            getDecryptedSeed(existingSeedPhrase)
+        } else {
+            generateMnemonic()
+        }
 
         val kaspaKey = deriveKaspaKeyPair(mnemonic)
         val did = "did:key:z6Mkg" + kaspaKey.publicKeyHex.take(38)

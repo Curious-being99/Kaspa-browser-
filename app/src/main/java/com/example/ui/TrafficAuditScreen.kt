@@ -363,20 +363,20 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("You", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
+                                    Text("Client", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
                                     Text(" ➔ ", fontSize = 11.sp, color = ElectricCyan)
-                                    Text("Guard [${activeTorCircuit.guardHop.countryCode}]", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Medium)
+                                    Text("Privacy Shield", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Medium)
                                     Text(" ➔ ", fontSize = 11.sp, color = AmberCentral)
-                                    Text("Mixer [${activeTorCircuit.middleHop.countryCode}]", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Medium)
+                                    Text("Encrypted DoH", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Medium)
                                     Text(" ➔ ", fontSize = 11.sp, color = EmeraldMesh)
                                     val destinationText = liveAuditResult?.let {
                                         "${it.countryCode} (${it.latencyMs}ms)"
-                                    } ?: "Exit [${activeTorCircuit.exitHop.countryCode}]"
+                                    } ?: "Secure TLS"
                                     Text(destinationText, fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold)
                                 }
 
                                 Text(
-                                    text = "3-Hop Onion",
+                                    text = "Privacy Shield",
                                     fontSize = 10.sp,
                                     color = EmeraldMesh,
                                     fontWeight = FontWeight.Bold

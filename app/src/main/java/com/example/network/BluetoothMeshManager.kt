@@ -258,7 +258,7 @@ class BluetoothMeshManager(
                         multiaddress = "/bluetooth/mesh/$shortPeerId",
                         latencyMs = latency,
                         isOnline = true,
-                        blocksShared = (1..5).random(),
+                        blocksShared = 0,
                         region = "Bluetooth Mesh",
                         isBootstrap = false
                     )

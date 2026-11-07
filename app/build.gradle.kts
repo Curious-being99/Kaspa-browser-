@@ -124,7 +124,12 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+    }
+  }
+
   sourceSets {
     getByName("main") {
       jniLibs.srcDirs("src/main/jniLibs", "build/rustJniLibs")
@@ -238,6 +243,8 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty("robolectric.offline", "true")
+    systemProperty("robolectric.dependency.dir", "/home/appuser/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7")
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

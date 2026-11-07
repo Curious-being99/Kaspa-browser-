@@ -2103,7 +2103,8 @@ class DecentralViewModel(
                             val refreshedAcc = if (acc.accountType == "GOOGLE_ZK_BRIDGE" && acc.googleEmail != null) {
                                 CryptoUtils.deriveGoogleBridgeAccount(
                                     email = acc.googleEmail,
-                                    displayName = acc.googleDisplayName ?: cleanHandle
+                                    displayName = acc.googleDisplayName ?: cleanHandle,
+                                    existingSeedPhrase = acc.seedPhrase
                                 ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
                             } else {
                                 CryptoUtils.deriveDecentralizedAccount(
@@ -2659,11 +2660,9 @@ class DecentralViewModel(
             val totalTokens = limitDouble * batches
             val kasCommitAmount = 0.2 * batches
 
-            val destination = if (_selectedNetwork.value.contains("Mainnet", true)) {
-                "kaspa:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
-            } else {
-                "kaspatest:qzrsq2mfj9sf7uye3u5q7juejzlr0axk5jz9fpg4vqe76erdyvxxze84k9nk7"
-            }
+            // In KRC-20 commit-reveal minting, the commit funds must be self-addressed to the user's own wallet!
+            val destination = account.kaspaAddress
+
 
             val sendResult = try {
                 kaspaWalletService.sendKaspa(
@@ -3526,9 +3525,23 @@ class DecentralViewModel(
     fun linkGoogleDecentralizedAccount(email: String, displayName: String) {
         viewModelScope.launch {
             try {
+                val cleanEmail = email.trim().lowercase()
+                // 1. If an account already exists with this Google email, reactivate it without generating new keys or losing funds!
+                val existingGoogleAcc = database.accountDao().getAccountByGoogleEmail(cleanEmail)
+                if (existingGoogleAcc != null) {
+                    database.accountDao().deactivateAll()
+                    database.accountDao().setActive(existingGoogleAcc.did)
+                    _statusMessage.value = "Reconnected Google Account: ${existingGoogleAcc.handle}"
+                    return@launch
+                }
+
+                // 2. If the user currently has an active wallet, bind this Google account to it!
+                val currentAccount = activeAccount.value
+                val existingSeed = currentAccount?.seedPhrase
                 val googleAcc = CryptoUtils.deriveGoogleBridgeAccount(
-                    email = email,
-                    displayName = displayName
+                    email = cleanEmail,
+                    displayName = displayName,
+                    existingSeedPhrase = existingSeed
                 )
                 database.accountDao().deactivateAll()
                 database.accountDao().insertAccount(googleAcc)

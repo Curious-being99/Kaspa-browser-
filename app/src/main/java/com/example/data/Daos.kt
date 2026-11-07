@@ -97,6 +97,9 @@ interface AccountDao {
     @Query("SELECT * FROM decentralized_accounts WHERE did = :did LIMIT 1")
     suspend fun getAccountByDid(did: String): AccountEntity?
 
+    @Query("SELECT * FROM decentralized_accounts WHERE googleEmail = :email LIMIT 1")
+    suspend fun getAccountByGoogleEmail(email: String): AccountEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAccount(account: AccountEntity)
 
