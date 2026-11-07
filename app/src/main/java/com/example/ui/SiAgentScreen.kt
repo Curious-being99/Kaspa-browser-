@@ -547,8 +547,12 @@ fun SiAgentScreen(
         }
 
         if (commandText.equals("/forgetknowledge", ignoreCase = true)) {
-            com.example.network.siagent.SiAgentKnowledgeStore.clear(context)
-            messages.add(SiAgentMessage(text = "🧹 Saved web knowledge cleared. Conversation memory is unchanged.", isUser = false, isCommand = true))
+            scope.launch {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.example.network.siagent.SiAgentKnowledgeStore.clear(context)
+                }
+                messages.add(SiAgentMessage(text = "🧹 Saved web knowledge cleared. Conversation memory is unchanged.", isUser = false, isCommand = true))
+            }
             return
         }
 
