@@ -105,7 +105,7 @@ object SiAgentKnowledgeStore {
             matches.forEachIndexed { index, entry ->
                 appendLine("[Knowledge ${index + 1}] ${entry.title}")
                 appendLine("Source: ${entry.url}")
-                appendLine("Fetched: ${java.time.Instant.ofEpochMilli(entry.fetchedAt)}")
+                appendLine("Fetched: ${java.util.Date(entry.fetchedAt)}")
                 appendLine("Extract: ${entry.content.take(1_500)}")
                 appendLine()
             }
