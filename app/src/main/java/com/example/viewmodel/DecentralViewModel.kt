@@ -2695,6 +2695,11 @@ class DecentralViewModel(
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
+        if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(account.accountType, account.googleEmail, account.seedPhrase)) {
+            return@withContext Result.failure(
+                SecurityException("This legacy Google wallet is compromised because its key was derived from a public email address. Import its recovery phrase into a newly generated wallet and move funds using a trusted wallet before using this account again.")
+            )
+        }
 
         val currentNet = _selectedNetwork.value
         val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
@@ -2985,6 +2990,16 @@ class DecentralViewModel(
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ) {
         val senderAcc = activeAccount.value ?: return
+        if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase)) {
+            val warning = "This legacy Google wallet is compromised because its key was derived from a public email address. Import its recovery phrase into a newly generated wallet and move funds using a trusted wallet. No transaction was sent."
+            _statusMessage.value = warning
+            _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                isSending = false,
+                lastBroadcastTxId = null,
+                statusNotice = warning
+            )
+            return
+        }
         val currentNet = _selectedNetwork.value
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
