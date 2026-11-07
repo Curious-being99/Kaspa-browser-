@@ -739,7 +739,7 @@ class DappPsktTransactionTest {
             publicKeyHex
         )
 
-        val result = DappPsktTransaction.signAndFormat(prepared, privateKey)
+        val result = DappPsktTransaction.signForDapp(prepared, privateKey)
 
         // 1. Result must have the complete inputs array containing both inputs (length 2)
         val resultInputs = JSONObject(result).getJSONArray("inputs")
