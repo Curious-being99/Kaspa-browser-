@@ -315,8 +315,8 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                             )
                             MissionRow(
                                 icon = Icons.Default.Security,
-                                title = "Zero-Surveillance Privacy",
-                                description = "Zero trackers, no telemetry, and local cryptographic key custody for complete browsing autonomy."
+                                title = "Privacy & Security Controls",
+                                description = "Includes tracker filtering and local wallet-key protection. These controls cannot guarantee zero tracking or anonymity."
                             )
                         }
 
