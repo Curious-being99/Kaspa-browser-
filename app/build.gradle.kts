@@ -243,8 +243,8 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-    systemProperty("robolectric.offline", "true")
-    systemProperty("robolectric.dependency.dir", "/home/appuser/.m2/repository/org/robolectric/android-all-instrumented/16-robolectric-13921718-i7")
+    // Let Robolectric resolve its Android SDK artifact through the normal
+    // Gradle/Maven dependency cache. A machine-specific offline path breaks CI.
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
