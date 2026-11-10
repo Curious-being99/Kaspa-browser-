@@ -69,7 +69,8 @@ class KaspaTestnetWalletUnitTest {
             customHandle = "Kaspa Setup Test Wallet",
             seedMnemonic = mnemonic,
             networkPrefix = "kaspatest",
-            passphrase = "setup_passphrase_test"
+            passphrase = "setup_passphrase_test",
+            encryptionKeyPhrase = "unit-test-only-wallet-key"
         )
         assertNotNull(account)
         assertTrue("Account must have kaspatest: address", account.kaspaAddress.startsWith("kaspatest:"))
