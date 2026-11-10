@@ -25,7 +25,7 @@ object KaspaWebViewConfigurator {
             if (KaspaPrivacyEngine.isGoogleAuthUrl(url)) {
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
-                cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
+                cookieManager.setAcceptThirdPartyCookies(webView, true)
             }
         } catch (_: Throwable) {}
     }
@@ -135,11 +135,12 @@ object KaspaWebViewConfigurator {
             }
         }
 
-        // Cookie Configuration
+        // Cookie Configuration. Third-party cookies remain disabled unless the
+        // caller explicitly opts in for a compatibility-sensitive flow.
         try {
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
+            cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
         } catch (e: Exception) {
             Log.w(TAG, "CookieManager setup notice: ${e.message}")
         }
