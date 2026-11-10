@@ -1028,13 +1028,15 @@ object CryptoUtils {
                 .replace("\\s+".toRegex(), " ")
                 .lowercase()
             val decWords = decCleaned.split(" ").filter { it.isNotBlank() }
-            if (decWords.isNotEmpty()) {
-                decWords.joinToString(" ")
-            } else {
-                if (words.isNotEmpty()) words.joinToString(" ") else rawTrimmed
-            }
-        } catch (_: Exception) {
-            if (words.isNotEmpty()) words.joinToString(" ") else rawTrimmed
+            require(decWords.size in 12..24 && decWords.all { word ->
+                word.isNotBlank() && word.all { char -> char in 'a'..'z' }
+            }) { "Decrypted wallet recovery phrase is invalid" }
+            decWords.joinToString(" ")
+        } catch (error: Exception) {
+            throw IllegalStateException(
+                "Unable to decrypt wallet recovery phrase; refusing to derive keys from encrypted storage",
+                error
+            )
         }
     }
 
