@@ -16,8 +16,6 @@ import java.net.URI
  * Wallet details are returned only when the model explicitly invokes the matching tool.
  */
 object SiAgentToolRuntime {
-    private const val KB_CONTRACT = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
-
     internal data class KaspaNetworkContext(
         val name: String,
         val networkId: String,
@@ -40,7 +38,7 @@ object SiAgentToolRuntime {
         addTool("get_wallet_status", "Refresh and read the selected Kaspa L1 network (Mainnet, Testnet-10, or Testnet-11), its network identifier, RPC endpoint, KAS balance, USD estimate, and UTXO count. Never infer Testnet-10 versus Testnet-11 from the shared kaspatest: prefix; use the selected network.")
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
         addTool("get_receive_address", "Read the receive address for the currently selected network. Call only when the user asks to receive KAS or requests their address.")
-        addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices. Includes \$KB when its wallet record is available.")
+        addTool("get_kcc20_tokens", "Refresh and read KCC-20 wallet token balances, metadata, validation and indexed prices for contracts the user has chosen to track.")
         addTool("get_krc20_tokens", "Refresh and read the app's current KRC-20 pinned token balances and metadata. Keep KRC-20 distinct from KCC-20.")
         addTool("get_krc20_transactions", "Read recent KRC-20 token transaction history from the app's pinned token records.")
         addTool("browser_bookmark_current_page", "Save the current webpage as a bookmark if it is not already bookmarked.")
@@ -229,7 +227,7 @@ object SiAgentToolRuntime {
                                     .put("price_source", token.marketPriceSource ?: JSONObject.NULL)
                                     .put("price_updated_at_ms", token.priceUpdatedAtMs ?: JSONObject.NULL)
                                     .put("change_24h_percent", token.priceChange24hPercent ?: JSONObject.NULL)
-                                    .put("is_kb", token.contractId.equals(KB_CONTRACT, true)))
+                                    )
                             }
                         }).put("count", tokens.size).toString()
                 }
