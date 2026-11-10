@@ -10,6 +10,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.Jsoup
 import java.net.InetAddress
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.util.ArrayDeque
 import java.util.concurrent.TimeUnit
 
@@ -40,8 +42,7 @@ class SiWebCrawler(
             override fun lookup(hostname: String): List<InetAddress> {
                 val addresses = Dns.SYSTEM.lookup(hostname)
                 require(addresses.isNotEmpty() && addresses.all { address ->
-                    !address.isAnyLocalAddress && !address.isLoopbackAddress &&
-                        !address.isLinkLocalAddress && !address.isSiteLocalAddress
+                    isPublicAddress(address)
                 }) { "Non-public DNS target blocked" }
                 return addresses
             }
@@ -91,8 +92,8 @@ class SiWebCrawler(
                           response.header("Content-Type").orEmpty().contains("application/xhtml+xml", true)) ||
                         body.contentLength() > maxBytes
                     ) return@use null
-                    val bytes = body.bytes()
-                    if (bytes.isEmpty() || bytes.size.toLong() > maxBytes) return@use null
+                    val bytes = readBounded(body.byteStream(), maxBytes)
+                    if (bytes.isEmpty()) return@use null
                     val doc = Jsoup.parse(bytes.inputStream(), null, response.request.url.toString())
                     doc.select("script,style,noscript,svg,canvas,nav,footer,header,form,iframe").remove()
                     val title = doc.title().ifBlank { response.request.url.host }
@@ -134,7 +135,8 @@ class SiWebCrawler(
                 .build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use emptyList()
-                (response.body?.string() ?: "").lineSequence()
+                val body = response.body ?: return@use emptyList()
+                readBounded(body.byteStream(), 64 * 1024L).toString(Charsets.UTF_8).lineSequence()
                     .map { it.substringBefore("#").trim() }
                     .filter { it.startsWith("Disallow:", true) }
                     .mapNotNull { line ->
@@ -152,7 +154,10 @@ class SiWebCrawler(
     private fun normalizePublicUrl(raw: String): HttpUrl? {
         val candidate = raw.trim().let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
         val url = candidate.toHttpUrlOrNull() ?: return null
-        if (url.scheme !in setOf("http", "https") || !isPublicHost(url.host)) return null
+        if (url.scheme !in setOf("http", "https") ||
+            (url.port != 80 && url.port != 443) ||
+            !isPublicHost(url.host)
+        ) return null
         return url
     }
 
@@ -162,9 +167,60 @@ class SiWebCrawler(
             normalized.endsWith(".local") || normalized.endsWith(".internal")
         ) return false
         return runCatching {
-            val address = InetAddress.getByName(normalized)
-            !address.isAnyLocalAddress && !address.isLoopbackAddress &&
-                !address.isLinkLocalAddress && !address.isSiteLocalAddress
+            val addresses = Dns.SYSTEM.lookup(normalized)
+            addresses.isNotEmpty() && addresses.all(::isPublicAddress)
         }.getOrDefault(false)
     }
+
+    private fun readBounded(input: InputStream, limit: Long): ByteArray {
+        require(limit > 0L)
+        input.use { stream ->
+            val output = ByteArrayOutputStream(minOf(limit, 16_384L).toInt())
+            val buffer = ByteArray(8 * 1024)
+            var total = 0L
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= limit) { "Crawler response exceeded the configured size limit" }
+                output.write(buffer, 0, count)
+            }
+            return output.toByteArray()
+        }
+    }
+}
+
+private fun isPublicAddress(address: InetAddress): Boolean {
+    val bytes = address.address
+    if (address.isAnyLocalAddress || address.isLoopbackAddress ||
+        address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress
+    ) return false
+
+    if (bytes.size == 16) {
+        // Reject IPv6 unique-local, multicast, and IPv4-mapped addresses unless the
+        // mapped IPv4 address itself is globally routable.
+        val first = bytes[0].toInt() and 0xff
+        if ((first and 0xfe) == 0xfc || first == 0xff) return false
+        val mapped = bytes.take(10).all { it == 0.toByte() } &&
+            bytes[10] == 0xff.toByte() && bytes[11] == 0xff.toByte()
+        if (mapped) return isPublicAddress(InetAddress.getByAddress(bytes.copyOfRange(12, 16)))
+        return true
+    }
+
+    if (bytes.size == 4) {
+        val a = bytes[0].toInt() and 0xff
+        val b = bytes[1].toInt() and 0xff
+        val c = bytes[2].toInt() and 0xff
+        return when {
+            a == 0 || a == 10 || a == 127 || a >= 224 -> false
+            a == 100 && b in 64..127 -> false
+            a == 169 && b == 254 -> false
+            a == 172 && b in 16..31 -> false
+            a == 192 && (b == 168 || (b == 0 && c == 0) || (b == 0 && c == 2)) -> false
+            a == 198 && (b == 18 || b == 19 || (b == 51 && c == 100)) -> false
+            a == 203 && b == 0 && c == 113 -> false
+            else -> true
+        }
+    }
+    return false
 }
