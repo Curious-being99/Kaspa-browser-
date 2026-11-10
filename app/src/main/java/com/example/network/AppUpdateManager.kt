@@ -317,12 +317,53 @@ class AppUpdateManager(
     }
 
     /**
+     * Verifies that a downloaded APK belongs to this app and is signed by the
+     * same current signing certificate as the installed application.
+     */
+    private fun hasMatchingInstalledSigner(context: Context, apkFile: File): Boolean {
+        return try {
+            val packageManager = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+            val installed = packageManager.getPackageInfo(context.packageName, flags)
+            val candidate = packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags)
+                ?: return false
+            if (candidate.packageName != context.packageName) return false
+
+            @Suppress("DEPRECATION")
+            fun signatures(info: android.content.pm.PackageInfo): Set<String> {
+                val values = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    info.signingInfo?.apkContentsSigners
+                } else {
+                    info.signatures
+                } ?: return emptySet()
+                return values.map { bytesToHex(it.toByteArray()) }.toSet()
+            }
+
+            val installedSigners = signatures(installed)
+            val candidateSigners = signatures(candidate)
+            installedSigners.isNotEmpty() && installedSigners == candidateSigners
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
      * Triggers the native Android package installer for sideloaded update installation.
      */
     fun installApk(context: Context, apkFile: File): Result<Unit> {
         return try {
             if (!apkFile.exists() || apkFile.length() == 0L) {
                 return Result.failure(IllegalArgumentException("APK file does not exist or is empty"))
+            }
+            if (!hasMatchingInstalledSigner(context, apkFile)) {
+                return Result.failure(
+                    SecurityException("Downloaded APK package name or signing certificate does not match the installed Kaspa Browser app.")
+                )
             }
 
             // Android 8.0 (API 26) and above requires checking Unknown App Sources permission
