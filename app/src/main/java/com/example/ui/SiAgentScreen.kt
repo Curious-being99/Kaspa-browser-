@@ -175,7 +175,7 @@ private fun normalizeSiAgentCommand(raw: String): String {
         lower in listOf("wallet", "my wallet", "show wallet", "open wallet", "wallet balance", "my balance", "show my balance") -> "/wallet"
         lower in listOf("receive", "receive address", "my receive address", "show receive address") -> "/receive"
         lower in listOf("transaction history", "my transactions", "show transactions", "recent transactions", "wallet history") -> "/history"
-        lower in listOf("kb", "my kb", "kb balance", "show kb balance", "kcc20", "kcc-20") -> "/kb"
+        lower in listOf("kcc20", "kcc-20", "token balances", "token holdings") -> "/kcc20"
         lower in listOf("swap", "open swap", "open dapps", "dapps", "dapp browser") -> "/swap"
         lower in listOf("help", "commands", "what can you do") -> "/help"
         lower in listOf("new tab", "open new tab", "create new tab") -> "/newtab"
@@ -204,9 +204,9 @@ private fun normalizeSiAgentCommand(raw: String): String {
 
 private val SI_AGENT_COMMANDS = listOf(
     SiCommandItem(
-        command = "/kb",
-        title = "Kaspa Browser token intelligence",
-        description = "Wallet balance, indexed KCC-20 price and contract status",
+        command = "/kcc20",
+        title = "KCC-20 token balances",
+        description = "View balances and metadata for contracts you choose to track",
         icon = Icons.Default.AutoAwesome
     ),
     SiCommandItem(
@@ -235,7 +235,7 @@ private val SI_AGENT_COMMANDS = listOf(
     ),
     SiCommandItem(
         command = "/swap",
-        title = "Native KB wallet tools",
+        title = "KCC-20 token tracker",
         description = "Open the native Kaspa Browser dApp command center",
         icon = Icons.Default.SwapHoriz
     ),
@@ -360,7 +360,7 @@ fun SiAgentScreen(
 
     val isSlashMode = inputText.startsWith("/") || showCommandPicker
 
-    val initialGreeting = "🤖 SI Agent\n\nLive wallet and Kaspa intelligence. Commands: /wallet  /kb  /send  /receive  /history  /help"
+    val initialGreeting = "🤖 SI Agent\n\nLive wallet and Kaspa intelligence. Commands: /wallet  /kcc20  /send  /receive  /history  /help"
 
     val initialButtons = listOf(
         InlineBotButton("Wallet", Icons.Default.AccountBalanceWallet, "OPEN_WALLET"),
@@ -580,7 +580,7 @@ fun SiAgentScreen(
                 messages.add(SiAgentMessage(text = "🌐 Switched to the browser.", isUser = false)); return
             }
             commandText.equals("/wallet", true) -> viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
-            commandText.equals("/swap", true) -> viewModel.setTab(com.example.viewmodel.AppTab.DAPPS)
+            commandText.equals("/swap", true) || commandText.equals("/kcc20", true) -> viewModel.setTab(com.example.viewmodel.AppTab.DAPPS)
             commandText.equals("/newtab", true) -> {
                 viewModel.createNewTab()
                 viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
@@ -2206,7 +2206,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.startsWith("help") || lower.startsWith("command") || lower.startsWith("menu") || lower.isEmpty() -> {
-            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kb — Live KB KCC-20 balance and indexed price\n/search <query> — Search and crawl public web sources\n/crawl <https-url> — Extract a public HTTPS page\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/learned — View saved web knowledge\n/forgetknowledge — Clear saved web knowledge\n/clear — Clear chat"
+            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kcc20 — KCC-20 balances for tracked contracts\n/search <query> — Search and crawl public web sources\n/crawl <https-url> — Extract a public HTTPS page\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/learned — View saved web knowledge\n/forgetknowledge — Clear saved web knowledge\n/clear — Clear chat"
         }
 
         else -> {
