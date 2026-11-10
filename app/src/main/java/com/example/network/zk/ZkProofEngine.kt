@@ -172,18 +172,6 @@ object ZkProofEngine {
         }
     }
 
-    /**
-     * Generates a Zero-Knowledge Proof for a Google Account Decentralized Bridge
-     */
-    fun generateGoogleBridgeZkProof(
-        privateKey: BigInteger,
-        googleEmail: String,
-        did: String
-    ): ZkProof {
-        val statement = "zk-bridge:google:${googleEmail.trim().lowercase()}|did:$did|network:decentralnet"
-        return generateZkProof(privateKey, statement)
-    }
-
     private fun computeFiatShamirChallenge(
         pubKeyPoint: CryptoUtils.ECPoint,
         commitmentR: CryptoUtils.ECPoint,
