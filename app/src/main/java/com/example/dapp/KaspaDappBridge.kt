@@ -141,9 +141,11 @@ object KaspaDappBridge {
                     }.getOrNull() ?: return null
                     return try {
                         val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
+                        require(seed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
                         CryptoUtils.deriveKaspaKeyPair(seed, prefix)
-                    } catch (_: Throwable) {
-                        try { CryptoUtils.deriveKaspaKeyPair(active.seedPhrase, prefix) } catch (_: Throwable) { null }
+                    } catch (error: Throwable) {
+                        Log.e(LOG_TAG, "Active wallet seed could not be decrypted; refusing dApp key derivation", error)
+                        null
                     }
                 }
 
