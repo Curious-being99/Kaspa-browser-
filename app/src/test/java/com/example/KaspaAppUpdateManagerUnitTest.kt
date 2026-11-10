@@ -106,7 +106,6 @@ class KaspaAppUpdateManagerUnitTest {
                     }
                 ],
                 "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                ]
             }
         """.trimIndent()
 
@@ -115,7 +114,7 @@ class KaspaAppUpdateManagerUnitTest {
         // Assert that once updated to the same latest release tag, isUpdateAvailable is false (won't nag again!)
         assertFalse(info.isUpdateAvailable)
         assertEquals("1.0.0", info.latestVersionName)
-        assertEquals("https://github.com/kaspa-browser/kaspa-browser/releases/download/v1.0.0/kaspa-browser-v1.0.0.apk", info.downloadUrl)
+        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.0/KaspaBrowser-release-signed.apk", info.downloadUrl)
         assertEquals(29884416L, info.apkSizeBytes)
     }
 
@@ -144,7 +143,7 @@ class KaspaAppUpdateManagerUnitTest {
         // Assert that JSON arrays are supported and properly parsed from the first index
         assertTrue(info.isUpdateAvailable)
         assertEquals("1.0.1", info.latestVersionName)
-        assertEquals("https://github.com/kaspa-browser/kaspa-browser/releases/download/1.0.1/app-release.apk", info.downloadUrl)
+        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/KaspaBrowser-release-signed.apk", info.downloadUrl)
         assertEquals(1500000L, info.apkSizeBytes)
     }
     @Test
