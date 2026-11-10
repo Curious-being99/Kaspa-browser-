@@ -5,34 +5,26 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -55,10 +47,8 @@ fun DappsScreen(
     modifier: Modifier = Modifier
 ) {
     val tokens by viewModel.kcc20Tokens.collectAsState()
-    val contractIds by viewModel.kcc20ContractIds.collectAsState()
     val loading by viewModel.isLoadingKcc20.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
-    var contractInput by remember { mutableStateOf("") }
 
     BackHandler { viewModel.setTab(AppTab.KASPA_WALLET) }
     LaunchedEffect(Unit) { viewModel.refreshKcc20Tokens() }
@@ -80,7 +70,7 @@ fun DappsScreen(
                 }
                 IconButton(onClick = { viewModel.refreshKcc20Tokens() }) {
                     if (loading) CircularProgressIndicator()
-                    else Icon(Icons.Default.Refresh, contentDescription = "Refresh KCC-20 tokens", tint = ElectricCyan)
+                    else Icon(Icons.Default.Refresh, contentDescription = "Refresh verified KCC-20 holdings", tint = ElectricCyan)
                 }
             }
         }
@@ -90,35 +80,21 @@ fun DappsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                "Track KCC-20 contracts by covenant ID. Token balances and metadata are loaded from the configured indexer; no token is preselected or forced.",
+                "Only KCC-20 holdings discovered from this wallet's on-chain covenant notes and validated indexer records are shown. No token is generated, preloaded, or assumed.",
                 color = TextSecondary,
                 fontSize = 12.sp
             )
-            OutlinedTextField(
-                value = contractInput,
-                onValueChange = { contractInput = it },
-                modifier = Modifier.fillMaxWidth().testTag("kcc20_contract_id_input"),
-                label = { Text("KCC-20 covenant ID") },
-                placeholder = { Text("64-character contract ID") },
-                singleLine = true
-            )
-            Button(
-                onClick = {
-                    viewModel.addTrackedKcc20Contract(contractInput)
-                    contractInput = ""
-                },
-                enabled = contractInput.trim().matches(Regex("[0-9a-fA-F]{64}")),
-                modifier = Modifier.fillMaxWidth().testTag("add_kcc20_contract_button")
-            ) {
-                Text("Add KCC-20 token")
-            }
-            Text("Tracked contracts: ${contractIds.size}", color = TextMuted, fontSize = 11.sp)
             if (loading && tokens.isEmpty()) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
             } else if (tokens.isEmpty()) {
-                Card(colors = CardDefaults.cardColors(containerColor = SurfaceCard), shape = RoundedCornerShape(14.dp)) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
-                        "No KCC-20 token balances loaded. Add a contract ID above or refresh after selecting a wallet.",
+                        "No verified KCC-20 holdings were found for this wallet on $selectedNetwork. Refresh to scan the wallet again.",
                         color = TextSecondary,
                         modifier = Modifier.padding(16.dp),
                         fontSize = 12.sp
@@ -148,12 +124,11 @@ fun DappsScreen(
                             }
                             Text(token.name, color = TextSecondary, fontSize = 12.sp)
                             Text("Contract: ${token.contractId}", color = TextMuted, fontSize = 10.sp)
-                            Text("Validation: ${token.validationStatus}", color = TextMuted, fontSize = 10.sp)
+                            Text("Source status: ${token.validationStatus}", color = TextMuted, fontSize = 10.sp)
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
         }
     }
 }
