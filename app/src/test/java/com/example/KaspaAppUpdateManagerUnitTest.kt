@@ -133,7 +133,8 @@ class KaspaAppUpdateManagerUnitTest {
                             "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/KaspaBrowser-release-signed.apk",
                             "size": 1500000
                         }
-                    ]
+                    ],
+                    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 }
             ]
         """.trimIndent()
