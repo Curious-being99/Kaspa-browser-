@@ -172,14 +172,12 @@ fun DecentralizedAccountDialog(
                             modifier = Modifier.size(32.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp)) else {
-                                    Icon(
-                                        imageVector = Icons.Default.AccountCircle,
-                                        contentDescription = null,
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
@@ -376,9 +374,12 @@ private fun ActiveProfileTab(
                             modifier = Modifier.size(38.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp)) else {
-                                    Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
@@ -1047,14 +1048,12 @@ private fun AllAccountsTab(
                             modifier = Modifier.size(34.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp)) else {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = if (isActive) ElectricCyan else TextMuted,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isActive) ElectricCyan else TextMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
