@@ -100,10 +100,12 @@ class KaspaAppUpdateManagerUnitTest {
                 "published_at": "2026-10-06T12:00:00Z",
                 "assets": [
                     {
-                        "name": "kaspa-browser-v1.0.0.apk",
-                        "browser_download_url": "https://github.com/kaspa-browser/kaspa-browser/releases/download/v1.0.0/kaspa-browser-v1.0.0.apk",
+                        "name": "KaspaBrowser-release-signed.apk",
+                        "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.0/KaspaBrowser-release-signed.apk",
                         "size": 29884416
                     }
+                ],
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 ]
             }
         """.trimIndent()
@@ -128,8 +130,8 @@ class KaspaAppUpdateManagerUnitTest {
                     "published_at": "2026-10-06T15:30:00Z",
                     "assets": [
                         {
-                            "name": "app-release.apk",
-                            "browser_download_url": "https://github.com/kaspa-browser/kaspa-browser/releases/download/1.0.1/app-release.apk",
+                            "name": "KaspaBrowser-release-signed.apk",
+                            "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/KaspaBrowser-release-signed.apk",
                             "size": 1500000
                         }
                     ]
@@ -145,4 +147,27 @@ class KaspaAppUpdateManagerUnitTest {
         assertEquals("https://github.com/kaspa-browser/kaspa-browser/releases/download/1.0.1/app-release.apk", info.downloadUrl)
         assertEquals(1500000L, info.apkSizeBytes)
     }
+    @Test
+    fun testParseReleaseJson_RejectsDraftAndPrerelease() {
+        val draft = """{"draft":true,"tag_name":"v1.0.2","assets":[]}"""
+        val prerelease = """{"prerelease":true,"tag_name":"v1.0.2","assets":[]}"""
+        try {
+            updateManager.parseReleaseJson(draft, "1.0.0", 1)
+            throw AssertionError("Draft release must be rejected")
+        } catch (_: IllegalArgumentException) { }
+        try {
+            updateManager.parseReleaseJson(prerelease, "1.0.0", 1)
+            throw AssertionError("Pre-release must be rejected")
+        } catch (_: IllegalArgumentException) { }
+    }
+
+    @Test
+    fun testParseReleaseJson_RejectsMissingChecksum() {
+        val release = """{"tag_name":"v1.0.2","assets":[{"name":"KaspaBrowser-release-signed.apk","browser_download_url":"https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.2/KaspaBrowser-release-signed.apk","size":1000}]}"""
+        try {
+            updateManager.parseReleaseJson(release, "1.0.0", 1)
+            throw AssertionError("Release without checksum must be rejected")
+        } catch (_: IllegalArgumentException) { }
+    }
+
 }
