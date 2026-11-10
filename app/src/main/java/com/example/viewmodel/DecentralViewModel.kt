@@ -2099,19 +2099,13 @@ class DecentralViewModel(
                         }
 
                         if (!CryptoUtils.isAnyValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
-                            val refreshedAcc = if (acc.accountType == "GOOGLE_ZK_BRIDGE" && acc.googleEmail != null) {
-                                CryptoUtils.deriveGoogleBridgeAccount(
-                                    email = acc.googleEmail,
-                                    displayName = acc.googleDisplayName ?: cleanHandle,
-                                    existingSeedPhrase = acc.seedPhrase
-                                ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
-                            } else {
-                                CryptoUtils.deriveDecentralizedAccount(
-                                    customHandle = cleanHandle,
-                                    seedMnemonic = acc.seedPhrase,
-                                    networkPrefix = "kaspatest"
-                                ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
-                            }
+                            // Legacy Google bridge metadata is ignored. Rebuild the wallet identity
+                            // from the existing locally stored seed only; never use email for wallet identity.
+                            val refreshedAcc = CryptoUtils.deriveDecentralizedAccount(
+                                customHandle = cleanHandle,
+                                seedMnemonic = acc.seedPhrase,
+                                networkPrefix = "kaspatest"
+                            ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
                             database.accountDao().insertAccount(refreshedAcc)
                         }
                     }
