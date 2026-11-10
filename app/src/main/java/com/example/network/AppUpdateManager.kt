@@ -264,7 +264,7 @@ class AppUpdateManager(
                 (updateInfo.apkSizeBytes <= 0 || targetFile.length() == updateInfo.apkSizeBytes) &&
                 verifySha256(targetFile, expectedHash) &&
                 hasMatchingInstalledSigner(context, targetFile) &&
-                hasExpectedNewerVersion(context, targetFile, updateInfo.latestVersionName)) {
+                hasExpectedNewerVersion(context, targetFile)) {
                 onProgress(100, targetFile.length(), targetFile.length())
                 return@withContext Result.success(targetFile)
             }
@@ -321,7 +321,7 @@ class AppUpdateManager(
                 throw SecurityException("Downloaded APK size does not match release metadata.")
             }
             if (!hasMatchingInstalledSigner(context, targetFile) ||
-                !hasExpectedNewerVersion(context, targetFile, updateInfo.latestVersionName)) {
+                !hasExpectedNewerVersion(context, targetFile)) {
                 targetFile.delete()
                 throw SecurityException("Downloaded APK package, signing certificate, or version does not match the installed app and release.")
             }
@@ -368,7 +368,7 @@ class AppUpdateManager(
         }
     }
 
-    private fun hasExpectedNewerVersion(context: Context, apkFile: File, expectedVersionName: String): Boolean {
+    private fun hasExpectedNewerVersion(context: Context, apkFile: File): Boolean {
         return try {
             val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else {
                 @Suppress("DEPRECATION")
@@ -385,7 +385,7 @@ class AppUpdateManager(
                 candidate.versionCode.toLong()
             }
             candidate.packageName == context.packageName &&
-                candidate.versionName == expectedVersionName && candidateCode > installedCode
+                candidate.versionName != null && compareVersions(candidate.versionName, installed.versionName ?: "0.0.0") > 0 && candidateCode > installedCode
         } catch (_: Exception) {
             false
         }
@@ -466,7 +466,7 @@ class AppUpdateManager(
         }
         require(!json.optBoolean("draft", false)) { "Draft releases are not eligible for updates." }
         require(!json.optBoolean("prerelease", false)) { "Pre-releases are not eligible for updates." }
-        val rawTag = json.optString("tag_name", "").ifBlank { json.optString("name", "") }.trim()
+        val rawTag = json.optString("tag_name", "").trim()
         require(rawTag.matches(Regex("(?i)^v?\\d+\\.\\d+\\.\\d+$"))) { "Release tag must use stable vMAJOR.MINOR.PATCH format." }
         val targetVersionName = rawTag.removePrefix("v").removePrefix("V")
         val isNewer = compareVersions(targetVersionName, currentVersionName) > 0
@@ -490,7 +490,7 @@ class AppUpdateManager(
         }
         val digest = assetDigest?.removePrefix("sha256:")?.takeIf { it.matches(Regex("(?i)[a-f0-9]{64}")) }
         val shaJson = json.optString("sha256", "").takeIf { it.isNotBlank() }
-        val shaBody = Regex("""(?i)(?:sha256|sha-256|hash)\\s*[:=]\\s*([a-f0-9]{64})""").find(releaseBody)?.groupValues?.get(1)
+        val shaBody = Regex("""(?i)(?:sha256|sha-256|hash)\s*[:=]\s*([a-f0-9]{64})""").find(releaseBody)?.groupValues?.get(1)
         val checksum = (digest ?: shaJson ?: shaBody)?.lowercase(Locale.ROOT)
         require(checksum != null && checksum.matches(Regex("[a-f0-9]{64}"))) { "Stable release is missing a valid SHA-256 checksum." }
         require(apkSize > 0L) { "Stable release APK asset has no valid size." }
