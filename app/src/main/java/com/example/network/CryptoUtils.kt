@@ -318,10 +318,14 @@ object CryptoUtils {
             } catch (_: Throwable) {}
         }
 
-        // Fallback for non-AndroidKeyStore environments (e.g. headless unit tests)
+        // Fail closed when Android Keystore is unavailable. Never encrypt wallet secrets
+        // with a source-code-known fallback key. Explicit phrases are retained only for
+        // controlled legacy/test workflows; production callers must use the Keystore.
+        require(keyPhrase.isNotBlank()) {
+            "Android Keystore is unavailable; refusing to encrypt wallet secrets with a fallback key"
+        }
         val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-        val effectivePhrase = keyPhrase.ifBlank { "KaspaSecureLocalKey_V2" }
-        val keyBytes = sha256Raw(effectivePhrase.toByteArray(Charsets.UTF_8))
+        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
         val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
 
         val secureRandom = java.security.SecureRandom()
