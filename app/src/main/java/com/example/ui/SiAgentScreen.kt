@@ -700,7 +700,6 @@ fun SiAgentScreen(
                 utxoCount = walletState.utxosCount,
                 recentTransactions = walletState.recentTransactions,
                 selectedNetwork = viewModel.selectedNetwork.value,
-                kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) },
                 viewModel = viewModel,
                 conversationContext = com.example.network.siagent.SiAgentMemoryStore.promptContext(
                     messages.dropLast(1).map { com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser) }
@@ -1937,7 +1936,6 @@ suspend fun executeSiAgentCommand(
     utxoCount: Int,
     recentTransactions: List<com.example.model.KaspaTransactionItem> = emptyList(),
     selectedNetwork: String = "",
-    kbToken: com.example.network.kaspa.Kcc20WalletToken? = null,
     viewModel: DecentralViewModel? = null,
     conversationContext: String = "",
     onStreamChunk: ((String) -> Unit)? = null,
@@ -1976,17 +1974,6 @@ suspend fun executeSiAgentCommand(
         } catch (error: Exception) {
             "🌐 SI Web Crawl failed\n• ${error.message ?: "Unable to crawl this website."}\n• Only public HTTP/HTTPS pages are supported."
         }
-    }
-    if (localCommand == "kb" || localCommand.startsWith("kb ") ||
-        localCommand == "kcc20" || localCommand.contains("kaspa browser token")) {
-        val token = kbToken
-        if (token == null) {
-            return "KB / KCC-20\n• Wallet token record: unavailable\n• Price: unavailable\n• No estimate is substituted for missing indexer data.\n• Use /kb again after the wallet refreshes its KCC-20 token data."
-        }
-        val tokenBalance = runCatching {
-            java.math.BigDecimal(token.balanceRaw).movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
-        }.getOrDefault("Unavailable")
-        return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: Active and operational on Mainnet (BIP-340 Schnorr)."
     }
     val kascovUrl = KASCOV_URL
     val liveAppContext = "Selected network: ${selectedNetwork.ifBlank { "Not available" }}. Treat this exact selection as authoritative. Kaspa Mainnet is mainnet; Kaspa Testnet 10 is testnet-10; Kaspa Testnet 11 is testnet-11. Testnet 10 and 11 both use kaspatest: addresses, so never infer between them from the prefix. Do not silently switch networks or use another network's balance, UTXOs, address, fee or endpoint. Kasplex and Igra are EVM networks, not native Kaspa L1. Query wallet, token, browser and dApp state only through tools when relevant to the user's request."
