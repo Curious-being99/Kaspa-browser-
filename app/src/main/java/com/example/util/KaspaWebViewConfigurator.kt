@@ -25,7 +25,7 @@ object KaspaWebViewConfigurator {
             if (KaspaPrivacyEngine.isGoogleAuthUrl(url)) {
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
-                cookieManager.setAcceptThirdPartyCookies(webView, true)
+                cookieManager.setAcceptThirdPartyCookies(webView, acceptThirdPartyCookies)
             }
         } catch (_: Throwable) {}
     }
@@ -42,8 +42,8 @@ object KaspaWebViewConfigurator {
         try {
             val swController = ServiceWorkerController.getInstance()
             val swSettings = swController.serviceWorkerWebSettings
-            swSettings.allowContentAccess = true
-            swSettings.allowFileAccess = true
+            swSettings.allowContentAccess = false
+            swSettings.allowFileAccess = false
             swSettings.blockNetworkLoads = false
             swSettings.cacheMode = WebSettings.LOAD_DEFAULT
             swController.setServiceWorkerClient(object : ServiceWorkerClient() {
@@ -85,7 +85,7 @@ object KaspaWebViewConfigurator {
      * Complies with Google Play policy and web standards.
      */
     @SuppressLint("SetJavaScriptEnabled")
-    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false, acceptThirdPartyCookies: Boolean = true) {
+    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false, acceptThirdPartyCookies: Boolean = false) {
         val defaultDeviceUa = try {
             WebSettings.getDefaultUserAgent(context)
         } catch (_: Throwable) {
@@ -99,8 +99,8 @@ object KaspaWebViewConfigurator {
             domStorageEnabled = true
             @Suppress("DEPRECATION")
             databaseEnabled = true
-            allowFileAccess = true
-            allowContentAccess = true
+            allowFileAccess = false
+            allowContentAccess = false
             @Suppress("DEPRECATION")
             allowFileAccessFromFileURLs = false
             @Suppress("DEPRECATION")
@@ -122,7 +122,7 @@ object KaspaWebViewConfigurator {
             offscreenPreRaster = false
 
             // Web Platform Parity: Compatibility mode allows secure webapps and modern PWAs to render seamlessly
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
