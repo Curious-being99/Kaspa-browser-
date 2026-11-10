@@ -1,6 +1,10 @@
 package com.example
 
 import com.example.network.CryptoUtils
+import com.example.util.KaspaWebViewConfigurator
+import android.webkit.WebView
+import android.webkit.CookieManager
+import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -53,12 +57,13 @@ class SecurityFixesVerificationTest {
     @Test
     fun seedEncryptionAndDecryptionRoundTrip() {
         val secretPhrase = "cat dog elephant fox grape horse igloo jaguar kite lemon mango nut"
-        val encrypted = CryptoUtils.encryptAes256(secretPhrase)
+        val testKeyPhrase = "unit-test-only-key-phrase-2026"
+        val encrypted = CryptoUtils.encryptAes256(secretPhrase, keyPhrase = testKeyPhrase)
         
         assertNotNull(encrypted)
         assertNotEquals("Encrypted text must not be plaintext", secretPhrase, encrypted)
         
-        val decrypted = CryptoUtils.decryptAes256(encrypted)
+        val decrypted = CryptoUtils.decryptAes256(encrypted, keyPhrase = testKeyPhrase)
         assertEquals("Decrypted seed must match original plaintext phrase", secretPhrase, decrypted)
     }
 
@@ -71,6 +76,28 @@ class SecurityFixesVerificationTest {
         // Decrypt without specifying phrase must successfully migrate and decrypt
         val decrypted = CryptoUtils.decryptAes256(legacyEncrypted)
         assertEquals("Legacy encrypted seed must decrypt successfully", secretPhrase, decrypted)
+    }
+
+    @Test
+    fun webViewDefaultsBlockLocalFileAccessMixedContentAndThirdPartyCookies() {
+        val context = RuntimeEnvironment.getApplication()
+        val webView = WebView(context)
+        try {
+            KaspaWebViewConfigurator.applyWebSettings(webView, context)
+            assertTrue("Local file access must be disabled", !webView.settings.allowFileAccess)
+            assertTrue("Content URI access must be disabled", !webView.settings.allowContentAccess)
+            assertEquals(
+                "Mixed content must be blocked",
+                android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW,
+                webView.settings.mixedContentMode
+            )
+            assertTrue(
+                "Third-party cookies must be disabled by default",
+                !CookieManager.getInstance().acceptThirdPartyCookies(webView)
+            )
+        } finally {
+            webView.destroy()
+        }
     }
 
     @Test
