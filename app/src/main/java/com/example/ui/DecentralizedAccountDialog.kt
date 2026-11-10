@@ -172,9 +172,7 @@ fun DecentralizedAccountDialog(
                             modifier = Modifier.size(32.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 18.dp)
-                                } else {
+                                Icon(Icons.Default.AccountCircle, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp)) else {
                                     Icon(
                                         imageVector = Icons.Default.AccountCircle,
                                         contentDescription = null,
@@ -378,9 +376,7 @@ private fun ActiveProfileTab(
                             modifier = Modifier.size(38.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (account.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 20.dp)
-                                } else {
+                                Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp)) else {
                                     Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
                                 }
                             }
@@ -418,31 +414,7 @@ private fun ActiveProfileTab(
                     }
                 }
 
-                if (!account.googleEmail.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = SurfaceDark,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Link, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(12.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Bridged Google Account: ${account.googleEmail}",
-                                fontSize = 11.sp,
-                                color = TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
+           }
         }
 
         // DID Key String
@@ -1070,14 +1042,12 @@ private fun AllAccountsTab(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = if (acc.accountType == "GOOGLE_ZK_BRIDGE") Color(0xFF1E293B) else SurfaceDark,
+                            color = SurfaceDark,
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                             modifier = Modifier.size(34.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (acc.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 18.dp)
-                                } else {
+                                Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp)) else {
                                     Icon(
                                         imageVector = Icons.Default.Person,
                                         contentDescription = null,
