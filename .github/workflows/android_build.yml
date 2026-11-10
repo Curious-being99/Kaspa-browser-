@@ -222,6 +222,17 @@ jobs:
           fi
           echo "TITLE=$TITLE" >> "$GITHUB_OUTPUT"
 
+      - name: Generate release APK SHA-256
+        id: apk_checksum
+        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="release-artifacts/KaspaBrowser-release-signed.apk"
+          test -s "$APK"
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+
       - name: Publish to GitHub Releases
         if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
         uses: softprops/action-gh-release@v2
@@ -237,6 +248,7 @@ jobs:
 
             - Android release APK
             - Built from commit ${{ github.sha }}
+            - SHA-256: ${{ steps.apk_checksum.outputs.sha256 }}
           files: |
             release-artifacts/*.apk
         env:
