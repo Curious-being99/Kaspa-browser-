@@ -448,12 +448,12 @@ fun SiAgentScreen(
                 InlineBotButton("Compose Send", Icons.Default.Send, "OPEN_SEND"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
-            lower.contains("kb") || lower.contains("kcc20") || lower.contains("kaspa browser token") -> listOf(
-                InlineBotButton("Open \$KB Center", Icons.Default.AutoAwesome, "OPEN_SWAP"),
+            lower.contains("kcc20") || lower.contains("token balance") || lower.contains("token holdings") -> listOf(
+                InlineBotButton("Open KCC-20 Tokens", Icons.Default.AutoAwesome, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("swap") || lower.contains("dapp") -> listOf(
-                InlineBotButton("Open \$KB Center", Icons.Default.SwapHoriz, "OPEN_SWAP"),
+                InlineBotButton("Open dApps", Icons.Default.SwapHoriz, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("send") -> listOf(
@@ -1771,7 +1771,6 @@ TOOL POLICY:
 
 KASPA BROWSER PRODUCT CONTEXT:
 - Native Android browser with tabs, bookmarks, history, downloads, web search/crawling, native Kaspa wallet, KCC-20 token support and dApp/PWA features.
-- ${'$'}KB is the KaspaBrowser KCC-20 community token. Contract/covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8. Do not call it KRC-20.
 - KAS sends must use the wallet review screen and explicit user confirmation. Never ask for seed phrase or private key.
 
 CURRENT CONTEXT:
@@ -2160,7 +2159,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") || lower.contains("dapp") -> {
-            "Kaspa Browser dApp Command Center\n• Native destination: \$KB KCC-20 wallet tools\n• Live indexed token data: /kb\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
+            "Kaspa Browser dApp Command Center\n• KCC-20 balances and metadata are available in the KCC-20 Tokens screen for contracts the user chooses to track.\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
         }
 
         lower.contains("price") -> {
