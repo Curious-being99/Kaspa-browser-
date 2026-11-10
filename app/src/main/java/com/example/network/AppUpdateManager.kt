@@ -384,8 +384,11 @@ class AppUpdateManager(
                 @Suppress("DEPRECATION")
                 candidate.versionCode.toLong()
             }
+            val candidateVersionName = candidate.versionName
             candidate.packageName == context.packageName &&
-                candidate.versionName != null && compareVersions(candidate.versionName, installed.versionName ?: "0.0.0") > 0 && candidateCode > installedCode
+                candidateVersionName != null &&
+                compareVersions(candidateVersionName, installed.versionName ?: "0.0.0") > 0 &&
+                candidateCode > installedCode
         } catch (_: Exception) {
             false
         }
