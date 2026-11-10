@@ -249,15 +249,27 @@ class AppUpdateManager(
             val apkFileName = "kaspa_browser_v${updateInfo.latestVersionName.replace(".", "_")}.apk"
             val targetFile = File(updatesDir, apkFileName)
 
-            // If file already exists and matches expected size, verify or reuse
-            if (targetFile.exists() && targetFile.length() > 0 && updateInfo.apkSizeBytes > 0 && targetFile.length() == updateInfo.apkSizeBytes) {
-                if (updateInfo.sha256Checksum == null || verifySha256(targetFile, updateInfo.sha256Checksum)) {
-                    onProgress(100, targetFile.length(), targetFile.length())
-                    return@withContext Result.success(targetFile)
-                }
+            val expectedHash = updateInfo.sha256Checksum?.trim()?.lowercase(Locale.ROOT)
+                ?: throw SecurityException("Release is missing its required SHA-256 checksum.")
+            if (!expectedHash.matches(Regex("[a-f0-9]{64}"))) {
+                throw SecurityException("Release SHA-256 checksum is invalid.")
+            }
+            val downloadUri = Uri.parse(updateInfo.downloadUrl)
+            if (downloadUri.scheme != "https" || !downloadUri.host.equals("github.com", ignoreCase = true) ||
+                !downloadUri.path.orEmpty().contains("/releases/download/")) {
+                throw SecurityException("APK download URL is not an approved GitHub release asset.")
             }
 
-            // Execute network download stream
+            if (targetFile.exists() && targetFile.length() > 0 &&
+                (updateInfo.apkSizeBytes <= 0 || targetFile.length() == updateInfo.apkSizeBytes) &&
+                verifySha256(targetFile, expectedHash) &&
+                hasMatchingInstalledSigner(context, targetFile) &&
+                hasExpectedNewerVersion(context, targetFile, updateInfo.latestVersionName)) {
+                onProgress(100, targetFile.length(), targetFile.length())
+                return@withContext Result.success(targetFile)
+            }
+            targetFile.delete()
+
             val request = Request.Builder()
                 .url(updateInfo.downloadUrl)
                 .header("User-Agent", "KaspaBrowser-UpdateDownloader/1.0")
@@ -299,15 +311,19 @@ class AppUpdateManager(
                 }
             }
 
-            // Verify checksum if provided in update metadata
-            if (!updateInfo.sha256Checksum.isNullOrBlank()) {
-                val computedHash = bytesToHex(digest.digest())
-                if (!computedHash.equals(updateInfo.sha256Checksum.trim(), ignoreCase = true)) {
-                    targetFile.delete()
-                    return@withContext Result.failure(
-                        SecurityException("SHA-256 integrity verification failed. Downloaded APK may be compromised.")
-                    )
-                }
+            val computedHash = bytesToHex(digest.digest())
+            if (!computedHash.equals(expectedHash, ignoreCase = true)) {
+                targetFile.delete()
+                throw SecurityException("SHA-256 integrity verification failed.")
+            }
+            if (updateInfo.apkSizeBytes > 0 && targetFile.length() != updateInfo.apkSizeBytes) {
+                targetFile.delete()
+                throw SecurityException("Downloaded APK size does not match release metadata.")
+            }
+            if (!hasMatchingInstalledSigner(context, targetFile) ||
+                !hasExpectedNewerVersion(context, targetFile, updateInfo.latestVersionName)) {
+                targetFile.delete()
+                throw SecurityException("Downloaded APK package, signing certificate, or version does not match the installed app and release.")
             }
 
             Result.success(targetFile)
@@ -347,6 +363,29 @@ class AppUpdateManager(
             val installedSigners = signatures(installed)
             val candidateSigners = signatures(candidate)
             installedSigners.isNotEmpty() && installedSigners == candidateSigners
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun hasExpectedNewerVersion(context: Context, apkFile: File, expectedVersionName: String): Boolean {
+        return try {
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+            val installed = getPackageInfo(context)
+            val candidate = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, flags) ?: return false
+            val installedCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) installed.longVersionCode else {
+                @Suppress("DEPRECATION")
+                installed.versionCode.toLong()
+            }
+            val candidateCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) candidate.longVersionCode else {
+                @Suppress("DEPRECATION")
+                candidate.versionCode.toLong()
+            }
+            candidate.packageName == context.packageName &&
+                candidate.versionName == expectedVersionName && candidateCode > installedCode
         } catch (_: Exception) {
             false
         }
@@ -414,94 +453,58 @@ class AppUpdateManager(
     /**
      * Parses GitHub Releases or standard release manifest JSON.
      */
-    internal fun parseReleaseJson(
-        jsonString: String,
-        currentVersionName: String,
-        currentVersionCode: Int
-    ): AppUpdateInfo {
+    internal fun parseReleaseJson(jsonString: String, currentVersionName: String, currentVersionCode: Int): AppUpdateInfo {
         val trimmed = jsonString.trim()
-        val json: JSONObject = try {
+        val json = try {
             if (trimmed.startsWith("[")) {
                 val array = org.json.JSONArray(trimmed)
-                if (array.length() > 0) {
-                    array.getJSONObject(0)
-                } else {
-                    throw IllegalArgumentException("Empty releases array.")
-                }
-            } else {
-                JSONObject(trimmed)
-            }
+                require(array.length() > 0) { "No published stable release found." }
+                array.getJSONObject(0)
+            } else JSONObject(trimmed)
         } catch (e: Exception) {
             throw IllegalArgumentException("Invalid release JSON: ${e.message}")
         }
-
-        val rawTag = json.optString("tag_name", "").ifBlank { json.optString("name", "") }
-        val tagName = rawTag.trim().removePrefix("v").removePrefix("V")
-        val releaseName = json.optString("name", "").ifBlank { "Kaspa Browser Release v$tagName" }
-        val releaseBody = json.optString("body", "").ifBlank { "• Performance improvements\n• Enhanced Kaspa Testnet 10 support\n• Security and stability updates" }
-        val publishedAt = json.optString("published_at", "")
-        val formattedDate = formatIsoDate(publishedAt)
-
+        require(!json.optBoolean("draft", false)) { "Draft releases are not eligible for updates." }
+        require(!json.optBoolean("prerelease", false)) { "Pre-releases are not eligible for updates." }
+        val rawTag = json.optString("tag_name", "").ifBlank { json.optString("name", "") }.trim()
+        require(rawTag.matches(Regex("(?i)^v?\\d+\\.\\d+\\.\\d+$"))) { "Release tag must use stable vMAJOR.MINOR.PATCH format." }
+        val targetVersionName = rawTag.removePrefix("v").removePrefix("V")
+        val isNewer = compareVersions(targetVersionName, currentVersionName) > 0
+        val releaseBody = json.optString("body", "")
+        val assets = json.optJSONArray("assets")
         var downloadUrl = ""
         var apkSize = 0L
-
-        // Look for .apk asset in GitHub release assets
-        val assets = json.optJSONArray("assets")
-        if (assets != null) {
-            for (i in 0 until assets.length()) {
-                val asset = assets.getJSONObject(i)
-                val name = asset.optString("name", "")
-                val url = asset.optString("browser_download_url", "")
-                if (url.isNotBlank() && (name.endsWith(".apk", ignoreCase = true) || name.contains("kaspa", ignoreCase = true) || name.contains("app", ignoreCase = true))) {
-                    downloadUrl = url
-                    apkSize = asset.optLong("size", 0L)
-                    if (name.endsWith(".apk", ignoreCase = true)) break
-                }
+        var assetDigest: String? = null
+        if (assets != null) for (i in 0 until assets.length()) {
+            val asset = assets.getJSONObject(i)
+            if (asset.optString("name") == "KaspaBrowser-release-signed.apk") {
+                downloadUrl = asset.optString("browser_download_url", "")
+                apkSize = asset.optLong("size", 0L)
+                assetDigest = asset.optString("digest", "").takeIf { it.isNotBlank() }
+                break
             }
         }
-
-        val htmlUrl = json.optString("html_url", "")
-        if (downloadUrl.isBlank() && htmlUrl.isNotBlank()) {
-            val cleanTag = if (rawTag.isNotBlank()) rawTag else "v1.1.0"
-            downloadUrl = "$htmlUrl/download/$cleanTag/kaspa-browser.apk"
+        val uri = Uri.parse(downloadUrl)
+        require(downloadUrl.isNotBlank() && uri.scheme == "https" && uri.host.equals("github.com", true) && uri.path.orEmpty().contains("/releases/download/")) {
+            "Stable release does not contain the expected signed APK asset."
         }
-
-        if (downloadUrl.isBlank()) {
-            downloadUrl = json.optString("download_url", "https://github.com/Curious-being99/Kaspa-browser-/releases/latest/download/KaspaBrowser-release-signed.apk")
-        }
-
-        val targetVersionName = if (tagName.isNotBlank()) tagName else "1.1.0"
-        val isNewer = compareVersions(targetVersionName, currentVersionName) > 0
-
-        val formattedSize = if (apkSize > 0) {
-            "%.1f MB".format(apkSize / (1024.0 * 1024.0))
-        } else {
-            "28.5 MB"
-        }
-
-        val shaInJson = if (json.has("sha256")) json.optString("sha256") else null
-        val shaInBody = if (shaInJson.isNullOrBlank()) {
-            val regex = Regex("""(?i)(?:sha256|sha-256|hash)\s*[:=]\s*([a-fA-F0-9]{64})""")
-            regex.find(releaseBody)?.groupValues?.get(1)
-        } else null
-        val finalSha = shaInJson?.takeIf { it.isNotBlank() } ?: shaInBody
-
+        val digest = assetDigest?.removePrefix("sha256:")?.takeIf { it.matches(Regex("(?i)[a-f0-9]{64}")) }
+        val shaJson = json.optString("sha256", "").takeIf { it.isNotBlank() }
+        val shaBody = Regex("""(?i)(?:sha256|sha-256|hash)\\s*[:=]\\s*([a-f0-9]{64})""").find(releaseBody)?.groupValues?.get(1)
+        val checksum = (digest ?: shaJson ?: shaBody)?.lowercase(Locale.ROOT)
+        require(checksum != null && checksum.matches(Regex("[a-f0-9]{64}"))) { "Stable release is missing a valid SHA-256 checksum." }
+        require(apkSize > 0L) { "Stable release APK asset has no valid size." }
         return AppUpdateInfo(
-            latestVersionName = targetVersionName,
-            latestVersionCode = currentVersionCode + 1,
-            currentVersionName = currentVersionName,
-            currentVersionCode = currentVersionCode,
+            latestVersionName = targetVersionName, latestVersionCode = currentVersionCode,
+            currentVersionName = currentVersionName, currentVersionCode = currentVersionCode,
             isUpdateAvailable = isNewer,
-            releaseTitle = releaseName,
-            releaseNotes = releaseBody,
-            releaseDate = formattedDate,
-            downloadUrl = downloadUrl,
-            apkSizeBytes = apkSize,
-            apkSizeFormatted = formattedSize,
-            sha256Checksum = finalSha
+            releaseTitle = json.optString("name", "").ifBlank { "Kaspa Browser Release v$targetVersionName" },
+            releaseNotes = releaseBody, releaseDate = formatIsoDate(json.optString("published_at", "")),
+            downloadUrl = downloadUrl, apkSizeBytes = apkSize,
+            apkSizeFormatted = "%.1f MB".format(Locale.US, apkSize / (1024.0 * 1024.0)),
+            sha256Checksum = checksum
         )
     }
-
 
     /**
      * Semantic version comparator (e.g. 1.1.0 vs 1.0.0).
