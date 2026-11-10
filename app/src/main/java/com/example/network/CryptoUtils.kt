@@ -999,7 +999,7 @@ object CryptoUtils {
         }
     }
 
-    fun getDecryptedSeed(seedPhrase: String): String {
+    fun getDecryptedSeed(seedPhrase: String, keyPhrase: String = ""): String {
         val rawTrimmed = seedPhrase.trim()
         if (rawTrimmed.isBlank()) return ""
 
@@ -1019,7 +1019,7 @@ object CryptoUtils {
         }
 
         return try {
-            val decrypted = decryptAes256(rawTrimmed)
+            val decrypted = decryptAes256(rawTrimmed, keyPhrase = keyPhrase)
             val decCleaned = decrypted.trim()
                 .replace(",", " ")
                 .replace("\n", " ")
@@ -1085,9 +1085,10 @@ object CryptoUtils {
         customHandle: String? = null,
         seedMnemonic: String? = null,
         networkPrefix: String = "kaspatest",
-        passphrase: String = ""
+        passphrase: String = "",
+        encryptionKeyPhrase: String = ""
     ): com.example.data.AccountEntity {
-        val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it) } ?: generateMnemonic()
+        val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it, keyPhrase = encryptionKeyPhrase) } ?: generateMnemonic()
         val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase)
         
         // Form W3C Compliant DID (did:key with multibase format)
@@ -1097,7 +1098,7 @@ object CryptoUtils {
         val handle = customHandle?.trim()?.ifBlank { null }
             ?: "Kaspa Account (${kaspaKey.kaspaAddress.takeLast(6)})"
 
-        val encryptedMnemonic = encryptAes256(plainMnemonic)
+        val encryptedMnemonic = encryptAes256(plainMnemonic, keyPhrase = encryptionKeyPhrase)
 
         val zkProof = com.example.network.zk.ZkProofEngine.generateZkProof(
             privateKey = kaspaKey.privateKey,
@@ -1123,7 +1124,8 @@ object CryptoUtils {
     fun deriveGoogleBridgeAccount(
         email: String,
         displayName: String,
-        existingSeedPhrase: String? = null
+        existingSeedPhrase: String? = null,
+        encryptionKeyPhrase: String = ""
     ): com.example.data.AccountEntity {
         val cleanEmail = email.trim().lowercase()
         // SECURITY FIX: Never derive seed or private keys from email!
@@ -1131,7 +1133,7 @@ object CryptoUtils {
         // We generate a true, cryptographically secure 12-word BIP-39 mnemonic with SecureRandom
         // or link the user's existing locally secured wallet seed.
         val mnemonic = if (!existingSeedPhrase.isNullOrBlank()) {
-            getDecryptedSeed(existingSeedPhrase)
+            getDecryptedSeed(existingSeedPhrase, keyPhrase = encryptionKeyPhrase)
         } else {
             generateMnemonic()
         }
@@ -1141,7 +1143,7 @@ object CryptoUtils {
         val peerId = "12D3KooW" + kaspaKey.publicKeyHex.take(24)
         val handle = "@" + cleanEmail.substringBefore("@") + ".google.dnet"
 
-        val encryptedMnemonic = encryptAes256(mnemonic)
+        val encryptedMnemonic = encryptAes256(mnemonic, keyPhrase = encryptionKeyPhrase)
 
         val zkProof = com.example.network.zk.ZkProofEngine.generateGoogleBridgeZkProof(
             privateKey = kaspaKey.privateKey,
