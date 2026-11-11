@@ -355,7 +355,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             color = SurfaceCard,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(44.dp)
+                                .defaultMinSize(minHeight = 40.dp)
                         ) {
                             Row(
                                 modifier = Modifier
