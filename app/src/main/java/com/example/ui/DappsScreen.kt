@@ -79,11 +79,6 @@ fun DappsScreen(
             modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                "Only KCC-20 holdings discovered from this wallet's on-chain covenant notes and validated indexer records are shown. No token is generated, preloaded, or assumed.",
-                color = TextSecondary,
-                fontSize = 12.sp
-            )
             if (loading && tokens.isEmpty()) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
             } else if (tokens.isEmpty()) {
