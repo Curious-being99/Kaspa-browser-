@@ -353,34 +353,33 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = SurfaceCard,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Client", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
-                                    Text(" ➔ ", fontSize = 11.sp, color = ElectricCyan)
-                                    Text("Privacy Shield", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Medium)
-                                    Text(" ➔ ", fontSize = 11.sp, color = AmberCentral)
-                                    Text("Encrypted DoH", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Medium)
-                                    Text(" ➔ ", fontSize = 11.sp, color = EmeraldMesh)
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .horizontalScroll(rememberScrollState()),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Client", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
+                                    Text(" ➔ ", fontSize = 11.sp, color = ElectricCyan, maxLines = 1)
+                                    Text("Privacy Shield", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Medium, maxLines = 1)
+                                    Text(" ➔ ", fontSize = 11.sp, color = AmberCentral, maxLines = 1)
+                                    Text("Encrypted DoH", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Medium, maxLines = 1)
+                                    Text(" ➔ ", fontSize = 11.sp, color = EmeraldMesh, maxLines = 1)
                                     val destinationText = liveAuditResult?.let {
                                         "${it.countryCode} (${it.latencyMs}ms)"
                                     } ?: "Secure TLS"
-                                    Text(destinationText, fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold)
+                                    Text(destinationText, fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                 }
-
-                                Text(
-                                    text = "Privacy Shield",
-                                    fontSize = 10.sp,
-                                    color = EmeraldMesh,
-                                    fontWeight = FontWeight.Bold
-                                )
                             }
                         }
 
