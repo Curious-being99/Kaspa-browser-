@@ -3316,7 +3316,6 @@ class DecentralViewModel(
                         statusNotice = "Compounded UTXOs successfully broadcasted!"
                     )
 
-                    val networkAtBroadcast = _selectedNetwork.value
                     viewModelScope.launch {
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
