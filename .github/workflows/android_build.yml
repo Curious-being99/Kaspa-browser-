@@ -250,7 +250,7 @@ jobs:
             - Built from commit ${{ github.sha }}
             - SHA-256: ${{ steps.apk_checksum.outputs.sha256 }}
           files: |
-            release-artifacts/*.apk
+            release-artifacts/KaspaBrowser-release-signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
