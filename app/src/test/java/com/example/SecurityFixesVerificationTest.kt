@@ -60,14 +60,19 @@ class SecurityFixesVerificationTest {
     }
 
     @Test
-    fun legacyEncryptedSeedCanStillBeDecryptedForMigration() {
+    fun nonKeystoreCiphertextRequiresExplicitDecryptionPhrase() {
         val secretPhrase = "one two three four five six seven eight nine ten eleven twelve"
-        // Encrypt using legacy key phrase to test backwards compatibility migration
-        val legacyEncrypted = CryptoUtils.encryptAes256(secretPhrase, keyPhrase = "DecentralNetStorageKey2026")
-        
-        // Decrypt without specifying phrase must successfully migrate and decrypt
-        val decrypted = CryptoUtils.decryptAes256(legacyEncrypted)
-        assertEquals("Legacy encrypted seed must decrypt successfully", secretPhrase, decrypted)
+        val testKeyPhrase = "unit-test-only-migration-key"
+        val encrypted = CryptoUtils.encryptAes256(secretPhrase, keyPhrase = testKeyPhrase)
+
+        try {
+            CryptoUtils.decryptAes256(encrypted)
+            throw AssertionError("Decryption without an explicit phrase must fail")
+        } catch (_: IllegalArgumentException) {
+            // Expected: no implicit or source-code-known fallback keys are accepted.
+        }
+
+        assertEquals(secretPhrase, CryptoUtils.decryptAes256(encrypted, keyPhrase = testKeyPhrase))
     }
 
     @Test
