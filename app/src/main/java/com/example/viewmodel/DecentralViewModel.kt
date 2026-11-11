@@ -3274,15 +3274,7 @@ class DecentralViewModel(
             )
             try {
                 val isMainnet = networkAtBroadcast.contains("Mainnet", ignoreCase = true)
-                val senderAddress = if (isMainnet) {
-                    getMainnetAddressForAccount(senderAcc)
-                } else {
-                    getTestnetAddressForAccount(senderAcc)
-                }
-                val expectedPrefix = if (isMainnet) "kaspa:" else "kaspatest:"
-                require(senderAddress.startsWith(expectedPrefix, ignoreCase = true)) {
-                    "The active wallet address does not match the selected Kaspa network."
-                }
+                val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
                 val decryptedSeed = try {
                     CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
                 } catch (e: Exception) {
@@ -3293,6 +3285,17 @@ class DecentralViewModel(
                         statusNotice = "Error: $errMsg"
                     )
                     return@launch
+                }
+
+                // Derive the sender from the network captured for this operation,
+                // not the mutable currently selected network.
+                val senderAddress = CryptoUtils.deriveKaspaKeyPair(
+                    decryptedSeed,
+                    prefix = expectedPrefix
+                ).kaspaAddress
+                val addressPrefix = "$expectedPrefix:"
+                require(senderAddress.startsWith(addressPrefix, ignoreCase = true)) {
+                    "The active wallet address does not match the selected Kaspa network."
                 }
 
                 val result = kaspaWalletService.compoundUtxos(
