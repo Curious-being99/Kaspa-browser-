@@ -342,8 +342,8 @@ class NetworkAuditUnitTest {
         val tamperedProof = zkProof.copy(responseHex = zkProof.responseHex.dropLast(1) + if (zkProof.responseHex.takeLast(1) == "0") "1" else "0")
         val tamperedResult = com.example.network.zk.ZkProofEngine.verifyZkProof(tamperedProof)
         assertFalse("Tampered ZK proof must fail verification", tamperedResult.isValid)
+    }
 
-        // 4. Test Google zk-Bridge proof generation and verification
     @Test
     fun testKabDomainNormalizationAndValidation() {
         // Test suffix formatting and normalization
