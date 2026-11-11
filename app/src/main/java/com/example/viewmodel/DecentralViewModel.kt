@@ -3273,7 +3273,16 @@ class DecentralViewModel(
                 statusNotice = "Compounding UTXOs..."
             )
             try {
-                val senderAddress = getTestnetAddressForAccount(senderAcc)
+                val isMainnet = networkAtBroadcast.contains("Mainnet", ignoreCase = true)
+                val senderAddress = if (isMainnet) {
+                    getMainnetAddressForAccount(senderAcc)
+                } else {
+                    getTestnetAddressForAccount(senderAcc)
+                }
+                val expectedPrefix = if (isMainnet) "kaspa:" else "kaspatest:"
+                require(senderAddress.startsWith(expectedPrefix, ignoreCase = true)) {
+                    "The active wallet address does not match the selected Kaspa network."
+                }
                 val decryptedSeed = try {
                     CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
                 } catch (e: Exception) {
@@ -3335,7 +3344,12 @@ class DecentralViewModel(
                                         network = networkAtBroadcast
                                     ))
                                 }
-                                refreshTestnetWallet()
+                                // Refresh only against the network/address used for this broadcast.
+                                // If the user switched networks while confirmation was pending,
+                                // leave the newly selected wallet state untouched.
+                                if (_selectedNetwork.value == networkAtBroadcast) {
+                                    refreshKaspaWallet(senderAddress)
+                                }
                             }
                         } catch (_: Exception) {}
                     }
