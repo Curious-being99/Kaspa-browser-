@@ -17,7 +17,7 @@ jobs:
   testnet-rpc:
     name: Verify ${{ matrix.network }} Testnet RPC
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -44,8 +44,8 @@ jobs:
             local curl_status
             response_file="$(mktemp)"
             metadata_file="$(mktemp)"
-            if curl --silent --show-error --connect-timeout 10 --max-time 30 \
-              --retry 3 --retry-all-errors --retry-delay 2 --retry-max-time 90 \
+            if curl --silent --show-error --connect-timeout 30 --max-time 45 \
+              --retry 3 --retry-all-errors --retry-delay 5 --retry-max-time 150 \
               -H 'content-type: application/json' \
               --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
               --output "$response_file" \
