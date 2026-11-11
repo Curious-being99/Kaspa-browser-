@@ -3190,7 +3190,6 @@ class DecentralViewModel(
                     triggerPostSwapRefresh()
 
                     // Poll acceptance in the background; the user should not need to refresh manually.
-                    val networkAtBroadcast = _selectedNetwork.value
                     viewModelScope.launch {
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
@@ -3260,6 +3259,14 @@ class DecentralViewModel(
     fun compoundUtxos() {
         val senderAcc = activeAccount.value ?: return
         viewModelScope.launch {
+            val networkAtBroadcast = _selectedNetwork.value
+            if (isEvmNetwork(networkAtBroadcast)) {
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isSending = false,
+                    statusNotice = "UTXO compounding is only available on Kaspa networks."
+                )
+                return@launch
+            }
             _kaspaWalletState.value = _kaspaWalletState.value.copy(
                 isSending = true,
                 lastBroadcastTxId = null,
@@ -3281,7 +3288,8 @@ class DecentralViewModel(
 
                 val result = kaspaWalletService.compoundUtxos(
                     senderAddress = senderAddress,
-                    senderSeed = decryptedSeed
+                    senderSeed = decryptedSeed,
+                    networkName = networkAtBroadcast
                 )
                 result.onSuccess { txItem ->
                     withContext(Dispatchers.IO) {
@@ -3293,7 +3301,7 @@ class DecentralViewModel(
                             isAccepted = false,
                             feeKas = txItem.feeKas,
                             counterpartyAddress = txItem.counterpartyAddress,
-                            network = _selectedNetwork.value
+                            network = networkAtBroadcast
                         ))
                     }
                     val pendingTx = txItem.copy(isAccepted = false)
