@@ -363,23 +363,36 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .horizontalScroll(rememberScrollState()),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Client", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.Bold, maxLines = 1)
-                                    Text(" ➔ ", fontSize = 11.sp, color = ElectricCyan, maxLines = 1)
-                                    Text("Privacy Shield", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Medium, maxLines = 1)
-                                    Text(" ➔ ", fontSize = 11.sp, color = AmberCentral, maxLines = 1)
-                                    Text("Encrypted DoH", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Medium, maxLines = 1)
-                                    Text(" ➔ ", fontSize = 11.sp, color = EmeraldMesh, maxLines = 1)
-                                    val destinationText = liveAuditResult?.let {
-                                        "${it.countryCode} (${it.latencyMs}ms)"
-                                    } ?: "Secure TLS"
-                                    Text(destinationText, fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                }
+                                val destinationText = liveAuditResult?.let {
+                                    "${it.countryCode} (${it.latencyMs}ms)"
+                                } ?: "Secure TLS"
+                                Text(
+                                    text = androidx.compose.ui.text.buildAnnotatedString {
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = TextPrimary, fontWeight = FontWeight.Bold))
+                                        append("Client")
+                                        pop()
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = ElectricCyan))
+                                        append(" ➔ ")
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
+                                        append("Privacy Shield")
+                                        pop()
+                                        pop()
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = AmberCentral))
+                                        append(" ➔ ")
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
+                                        append("Encrypted DoH")
+                                        pop()
+                                        pop()
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = EmeraldMesh))
+                                        append(" ➔ ")
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold))
+                                        append(destinationText)
+                                        pop()
+                                        pop()
+                                    },
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp
+                                )
                             }
                         }
 
