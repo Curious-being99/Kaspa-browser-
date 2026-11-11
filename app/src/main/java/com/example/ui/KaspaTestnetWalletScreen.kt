@@ -6728,7 +6728,7 @@ fun WalletSetupFlow(
                             shape = RoundedCornerShape(14.dp),
                             modifier = Modifier.fillMaxWidth().height(52.dp)
                         ) {
-                            Text("I Have Saved My Recovery Phrase", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("I’ve Saved My Seed Phrase", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, softWrap = false)
                         }
                         Spacer(modifier = Modifier.height(48.dp))
                     }
