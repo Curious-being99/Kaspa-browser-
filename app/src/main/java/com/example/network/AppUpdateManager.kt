@@ -320,10 +320,13 @@ class AppUpdateManager(
                 targetFile.delete()
                 throw SecurityException("Downloaded APK size does not match release metadata.")
             }
-            if (!hasMatchingInstalledSigner(context, targetFile) ||
-                !hasExpectedNewerVersion(context, targetFile)) {
+            if (!hasMatchingInstalledSigner(context, targetFile)) {
                 targetFile.delete()
-                throw SecurityException("Downloaded APK package, signing certificate, or version does not match the installed app and release.")
+                throw SecurityException("Downloaded APK package name or signing certificate does not match the installed app. The update was blocked.")
+            }
+            if (!hasExpectedNewerVersion(context, targetFile)) {
+                targetFile.delete()
+                throw SecurityException("Downloaded APK version is not newer than the installed app, or its package metadata could not be read. The update was blocked.")
             }
 
             Result.success(targetFile)
@@ -351,18 +354,39 @@ class AppUpdateManager(
             if (candidate.packageName != context.packageName) return false
 
             @Suppress("DEPRECATION")
-            fun signatures(info: android.content.pm.PackageInfo): Set<String> {
-                val values = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    info.signingInfo?.apkContentsSigners
-                } else {
-                    info.signatures
-                } ?: return emptySet()
-                return values.map { bytesToHex(it.toByteArray()) }.toSet()
-            }
+            val installedSignatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                installed.signingInfo?.apkContentsSigners
+            } else {
+                installed.signatures
+            } ?: return false
+            @Suppress("DEPRECATION")
+            val candidateSignatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                candidate.signingInfo?.apkContentsSigners
+            } else {
+                candidate.signatures
+            } ?: return false
 
-            val installedSigners = signatures(installed)
-            val candidateSigners = signatures(candidate)
-            installedSigners.isNotEmpty() && installedSigners == candidateSigners
+            if (installedSignatures.isEmpty() || candidateSignatures.isEmpty()) return false
+            val installedSignerBytes = installedSignatures.map { it.toByteArray() }
+            val candidateSignerBytes = candidateSignatures.map { it.toByteArray() }
+
+            // Multiple-signer APKs must match exactly. For a single-signer APK,
+            // accept Android's v3 signing-certificate rotation only when the
+            // candidate APK's verified signing lineage contains the installed signer.
+            if (installedSignerBytes.size != 1 || candidateSignerBytes.size != 1) {
+                installedSignerBytes.any { installedBytes ->
+                    candidateSignerBytes.any { candidateBytes -> installedBytes.contentEquals(candidateBytes) }
+                } && installedSignerBytes.size == candidateSignerBytes.size
+            } else if (installedSignerBytes.single().contentEquals(candidateSignerBytes.single())) {
+                true
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val candidateHistory = candidate.signingInfo?.signingCertificateHistory ?: return false
+                candidateHistory.any { historyCert ->
+                    historyCert.toByteArray().contentEquals(installedSignerBytes.single())
+                }
+            } else {
+                false
+            }
         } catch (_: Exception) {
             false
         }
