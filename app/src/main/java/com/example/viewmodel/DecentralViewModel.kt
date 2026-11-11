@@ -3109,8 +3109,9 @@ class DecentralViewModel(
                 return@launch
             }
             try {
+                val networkAtBroadcast = _selectedNetwork.value
                 val rawRecipient = recipientAddress.trim().lowercase()
-                val isMainnetTarget = rawRecipient.startsWith("kaspa:") || _selectedNetwork.value.lowercase().contains("mainnet")
+                val isMainnetTarget = rawRecipient.startsWith("kaspa:") || networkAtBroadcast.lowercase().contains("mainnet")
                 val expectedPrefix = if (isMainnetTarget) "kaspa" else "kaspatest"
                 
                 val senderAddress = if (isMainnetTarget) {

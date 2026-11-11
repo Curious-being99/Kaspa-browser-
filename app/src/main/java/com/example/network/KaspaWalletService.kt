@@ -883,7 +883,7 @@ class KaspaWalletService(
                 val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
 
                 // 3. Fetch live UTXOs & calculate authentic transaction mass & real dynamic fee
-                val liveUtxos = fetchLiveUtxos(cleanSender, networkName)
+                val liveUtxos = fetchLiveUtxos(cleanSender)
                 val txPlan = KaspaTransactionEngine.selectUtxosAndPlanTransaction(
                     availableUtxos = liveUtxos,
                     targetAmountSompis = amountSompis,
