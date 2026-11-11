@@ -367,7 +367,11 @@ object CryptoUtils {
             }
         }
 
-        // Try decrypting with provided or fallback phrase, including legacy key migration
+        // Password-based decryption is allowed only with a caller-supplied phrase.
+        // No source-code-known or implicit legacy keys are ever attempted.
+        require(keyPhrase.isNotBlank()) {
+            "A decryption phrase is required for non-Keystore ciphertext"
+        }
         val cleanCipher = cipherTextBase64.removePrefix(HARDWARE_KEY_PREFIX)
         val combined = decodeBase64(cleanCipher)
         if (combined.size < 12) {
@@ -381,25 +385,24 @@ object CryptoUtils {
         val encrypted = ByteArray(encryptedSize)
         System.arraycopy(combined, 12, encrypted, 0, encryptedSize)
 
-        val phrasesToTry = listOfNotNull(
-            keyPhrase.takeIf { it.isNotBlank() },
-            "KaspaSecureLocalKey_V2",
-            "DecentralNetStorageKey2026" // Legacy fallback for seamless migration
-        ).distinct()
-
-        for (phrase in phrasesToTry) {
-            try {
-                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-                val keyBytes = sha256Raw(phrase.toByteArray(Charsets.UTF_8))
-                val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-                val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
-                cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
-                val decryptedBytes = cipher.doFinal(encrypted)
-                return String(decryptedBytes, Charsets.UTF_8)
-            } catch (_: Throwable) {}
+        val keyBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
+        try {
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val keySpec = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+            val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec, gcmSpec)
+            val decryptedBytes = cipher.doFinal(encrypted)
+            return try {
+                String(decryptedBytes, Charsets.UTF_8)
+            } finally {
+                decryptedBytes.fill(0)
+            }
+        } finally {
+            keyBytes.fill(0)
+            encrypted.fill(0)
+            combined.fill(0)
+            iv.fill(0)
         }
-
-        throw IllegalStateException("Failed to decrypt seed with available keys")
     }
 
 
