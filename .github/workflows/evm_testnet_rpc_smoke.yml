@@ -17,7 +17,7 @@ jobs:
   testnet-rpc:
     name: Verify ${{ matrix.network }} Testnet RPC
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
