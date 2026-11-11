@@ -636,8 +636,10 @@ private fun ActiveProfileTab(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                if (isZkValid == true) "ZK Proof Verified (s·G == R + e·P)" else "Verify Real ZK Proof",
+                                if (isZkValid == true) "ZK Proof Verified" else "Verify ZK Proof",
                                 fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isZkValid == true) ObsidianBg else ElectricCyan
                             )
