@@ -1091,6 +1091,7 @@ class KaspaWalletService(
     suspend fun compoundUtxos(
         senderAddress: String,
         senderSeed: String,
+        networkName: String = if (senderAddress.trim().startsWith("kaspatest:", ignoreCase = true)) "Kaspa Testnet 10" else "Kaspa Mainnet",
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ): Result<KaspaTransactionItem> = transactionMutex.withLock {
         withContext(Dispatchers.IO) {
@@ -1101,7 +1102,7 @@ class KaspaWalletService(
 
             try {
                 val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
-                val liveUtxos = fetchLiveUtxos(cleanSender)
+                val liveUtxos = fetchLiveUtxos(cleanSender, networkName)
 
                 if (liveUtxos.size <= 1) {
                     return@withContext Result.failure(
@@ -1201,7 +1202,7 @@ class KaspaWalletService(
 
                 val finalFee = totalInputSompis - tx.outputs[0].amount
                 val computedTxId = KaspaTransactionEngine.calcTransactionId(tx)
-                val broadcast = broadcastTransactionWithFailover(tx, computedTxId, senderAddress)
+                val broadcast = broadcastTransactionWithFailover(tx, computedTxId, cleanSender, networkName)
 
                 if (!broadcast.isConfirmed) {
                     return@withContext Result.failure(

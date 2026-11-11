@@ -3190,12 +3190,11 @@ class DecentralViewModel(
                     triggerPostSwapRefresh()
 
                     // Poll acceptance in the background; the user should not need to refresh manually.
-                    val networkAtBroadcast = _selectedNetwork.value
                     viewModelScope.launch {
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
                                 txId = txItem.txId,
-                                networkName = networkAtBroadcast,
+                                networkName = _selectedNetwork.value,
                                 timeoutMs = 5 * 60_000L,
                                 pollIntervalMs = 3_000L
                             )
@@ -3209,7 +3208,7 @@ class DecentralViewModel(
                                         isAccepted = true,
                                         feeKas = txItem.feeKas,
                                         counterpartyAddress = txItem.counterpartyAddress,
-                                        network = networkAtBroadcast
+                                        network = _selectedNetwork.value
                                     ))
                                 }
                                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
@@ -3260,13 +3259,22 @@ class DecentralViewModel(
     fun compoundUtxos() {
         val senderAcc = activeAccount.value ?: return
         viewModelScope.launch {
+            val networkAtBroadcast = _selectedNetwork.value
+            if (isEvmNetwork(networkAtBroadcast)) {
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isSending = false,
+                    statusNotice = "UTXO compounding is only available on Kaspa networks."
+                )
+                return@launch
+            }
             _kaspaWalletState.value = _kaspaWalletState.value.copy(
                 isSending = true,
                 lastBroadcastTxId = null,
                 statusNotice = "Compounding UTXOs..."
             )
             try {
-                val senderAddress = getTestnetAddressForAccount(senderAcc)
+                val isMainnet = networkAtBroadcast.contains("Mainnet", ignoreCase = true)
+                val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
                 val decryptedSeed = try {
                     CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
                 } catch (e: Exception) {
@@ -3279,9 +3287,21 @@ class DecentralViewModel(
                     return@launch
                 }
 
+                // Derive the sender from the network captured for this operation,
+                // not the mutable currently selected network.
+                val senderAddress = CryptoUtils.deriveKaspaKeyPair(
+                    decryptedSeed,
+                    prefix = expectedPrefix
+                ).kaspaAddress
+                val addressPrefix = "$expectedPrefix:"
+                require(senderAddress.startsWith(addressPrefix, ignoreCase = true)) {
+                    "The active wallet address does not match the selected Kaspa network."
+                }
+
                 val result = kaspaWalletService.compoundUtxos(
                     senderAddress = senderAddress,
-                    senderSeed = decryptedSeed
+                    senderSeed = decryptedSeed,
+                    networkName = networkAtBroadcast
                 )
                 result.onSuccess { txItem ->
                     withContext(Dispatchers.IO) {
@@ -3293,7 +3313,7 @@ class DecentralViewModel(
                             isAccepted = false,
                             feeKas = txItem.feeKas,
                             counterpartyAddress = txItem.counterpartyAddress,
-                            network = _selectedNetwork.value
+                            network = networkAtBroadcast
                         ))
                     }
                     val pendingTx = txItem.copy(isAccepted = false)
@@ -3308,7 +3328,6 @@ class DecentralViewModel(
                         statusNotice = "Compounded UTXOs successfully broadcasted!"
                     )
 
-                    val networkAtBroadcast = _selectedNetwork.value
                     viewModelScope.launch {
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
@@ -3328,7 +3347,12 @@ class DecentralViewModel(
                                         network = networkAtBroadcast
                                     ))
                                 }
-                                refreshTestnetWallet()
+                                // Refresh only against the network/address used for this broadcast.
+                                // If the user switched networks while confirmation was pending,
+                                // leave the newly selected wallet state untouched.
+                                if (_selectedNetwork.value == networkAtBroadcast) {
+                                    refreshKaspaWallet(senderAddress)
+                                }
                             }
                         } catch (_: Exception) {}
                     }
