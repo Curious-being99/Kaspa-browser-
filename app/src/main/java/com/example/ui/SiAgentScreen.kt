@@ -1418,9 +1418,9 @@ fun SiAgentScreen(
         ) {
             var selectedReceiveNet by remember { mutableStateOf("Mainnet") }
             val activeReceiveAddress = if (selectedReceiveNet == "Mainnet") {
-                mainnetAddress.ifBlank { "kaspa:qq0000000000000000000000000000000000000000" }
+                mainnetAddress
             } else {
-                testnetAddress.ifBlank { "kaspatest:qq0000000000000000000000000000000000000000" }
+                testnetAddress
             }
 
             Column(
@@ -1475,40 +1475,49 @@ fun SiAgentScreen(
                     }
                 }
 
-                KaspaQrCodeView(
-                    data = activeReceiveAddress,
-                    size = 180.dp
-                )
-
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = SurfaceCard,
-                    border = BorderStroke(1.dp, SurfaceCardBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                if (activeReceiveAddress.isBlank()) {
                     Text(
-                        text = activeReceiveAddress,
-                        fontSize = 11.5.sp,
-                        color = TextPrimary,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(12.dp),
-                        textAlign = TextAlign.Center
+                        text = "No receive address is available for this network.",
+                        color = TextMuted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp)
                     )
-                }
+                } else {
+                    KaspaQrCodeView(
+                        data = activeReceiveAddress,
+                        size = 180.dp
+                    )
 
-                Button(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa Address", activeReceiveAddress))
-                        Toast.makeText(context, "Address copied to clipboard!", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Color.Black),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Copy Bech32 Address", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = SurfaceCard,
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = activeReceiveAddress,
+                            fontSize = 11.5.sp,
+                            color = TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(12.dp),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Kaspa Address", activeReceiveAddress))
+                            Toast.makeText(context, "Address copied to clipboard!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Copy Bech32 Address", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    }
                 }
             }
         }
