@@ -3109,9 +3109,8 @@ class DecentralViewModel(
                 return@launch
             }
             try {
-                val networkAtBroadcast = _selectedNetwork.value
                 val rawRecipient = recipientAddress.trim().lowercase()
-                val isMainnetTarget = rawRecipient.startsWith("kaspa:") || networkAtBroadcast.lowercase().contains("mainnet")
+                val isMainnetTarget = rawRecipient.startsWith("kaspa:") || _selectedNetwork.value.lowercase().contains("mainnet")
                 val expectedPrefix = if (isMainnetTarget) "kaspa" else "kaspatest"
                 
                 val senderAddress = if (isMainnetTarget) {
@@ -3195,7 +3194,7 @@ class DecentralViewModel(
                         try {
                             val confirmation = kaspaWalletService.waitForAcceptance(
                                 txId = txItem.txId,
-                                networkName = networkAtBroadcast,
+                                networkName = _selectedNetwork.value,
                                 timeoutMs = 5 * 60_000L,
                                 pollIntervalMs = 3_000L
                             )
@@ -3209,7 +3208,7 @@ class DecentralViewModel(
                                         isAccepted = true,
                                         feeKas = txItem.feeKas,
                                         counterpartyAddress = txItem.counterpartyAddress,
-                                        network = networkAtBroadcast
+                                        network = _selectedNetwork.value
                                     ))
                                 }
                                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
