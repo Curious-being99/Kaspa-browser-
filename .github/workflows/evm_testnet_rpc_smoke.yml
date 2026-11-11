@@ -44,7 +44,8 @@ jobs:
             local curl_status
             response_file="$(mktemp)"
             metadata_file="$(mktemp)"
-            if curl --silent --show-error --max-time 20 \
+            if curl --silent --show-error --connect-timeout 10 --max-time 30 \
+              --retry 3 --retry-all-errors --retry-delay 2 --retry-max-time 90 \
               -H 'content-type: application/json' \
               --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}" \
               --output "$response_file" \
