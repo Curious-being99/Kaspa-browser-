@@ -224,14 +224,16 @@ jobs:
 
       - name: Generate release APK SHA-256
         id: apk_checksum
-        if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
+        if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
         shell: bash
         run: |
           set -euo pipefail
           APK="release-artifacts/KaspaBrowser-release-signed.apk"
           test -s "$APK"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          printf '%s  %s\\n' "$SHA256" "$(basename "$APK")" > "$APK.sha256"
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "Generated SHA-256 for $APK: $SHA256"
 
       - name: Publish to GitHub Releases
         if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && startsWith(inputs.tag_name, 'v'))
@@ -258,5 +260,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kaspabrowser-release-apk
-          path: release-artifacts/*.apk
+          path: |
+            release-artifacts/KaspaBrowser-release-signed.apk
+            release-artifacts/KaspaBrowser-release-signed.apk.sha256
           if-no-files-found: error
