@@ -231,7 +231,7 @@ jobs:
           APK="release-artifacts/KaspaBrowser-release-signed.apk"
           test -s "$APK"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
-          printf '%s  %s\\n' "$SHA256" "$(basename "$APK")" > "$APK.sha256"
+          printf '%s  %s\\n' "$SHA256" "$(basename "$APK")" > "release-artifacts/KaspaBrowser-release-signed.sha256"
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
           echo "Generated SHA-256 for $APK: $SHA256"
 
@@ -262,5 +262,5 @@ jobs:
           name: kaspabrowser-release-apk
           path: |
             release-artifacts/KaspaBrowser-release-signed.apk
-            release-artifacts/KaspaBrowser-release-signed.apk.sha256
+            release-artifacts/KaspaBrowser-release-signed.sha256
           if-no-files-found: error
