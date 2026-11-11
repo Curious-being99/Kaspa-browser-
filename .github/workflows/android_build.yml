@@ -219,7 +219,7 @@ jobs:
           elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            TAG="v1.0.$(date +'%Y%m%d%H%M%S')"
+            TAG="v1.0.${GITHUB_RUN_NUMBER}"
           fi
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
 
