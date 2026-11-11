@@ -361,7 +361,8 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 val destinationText = liveAuditResult?.let {
                                     "${it.countryCode} (${it.latencyMs}ms)"
@@ -390,8 +391,16 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         pop()
                                         pop()
                                     },
+                                    modifier = Modifier.weight(1f),
                                     fontSize = 11.sp,
                                     lineHeight = 16.sp
+                                )
+                                Text(
+                                    text = "Privacy Shield",
+                                    fontSize = 10.sp,
+                                    color = EmeraldMesh,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
                                 )
                             }
                         }
