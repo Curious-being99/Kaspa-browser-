@@ -342,15 +342,6 @@ class NetworkAuditUnitTest {
         val tamperedProof = zkProof.copy(responseHex = zkProof.responseHex.dropLast(1) + if (zkProof.responseHex.takeLast(1) == "0") "1" else "0")
         val tamperedResult = com.example.network.zk.ZkProofEngine.verifyZkProof(tamperedProof)
         assertFalse("Tampered ZK proof must fail verification", tamperedResult.isValid)
-
-        // 4. Test Google zk-Bridge proof generation and verification
-        val googleZkProof = com.example.network.zk.ZkProofEngine.generateGoogleBridgeZkProof(
-            privateKey = keyPair.privateKey,
-            googleEmail = "satoshi@gmail.com",
-            did = "did:key:z6MkgTest"
-        )
-        val googleVerifyResult = com.example.network.zk.ZkProofEngine.verifyZkProof(googleZkProof)
-        assertTrue("Google zk-bridge proof must verify mathematically valid", googleVerifyResult.isValid)
     }
 
     @Test

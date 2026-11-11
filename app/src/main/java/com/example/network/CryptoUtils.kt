@@ -1123,51 +1123,7 @@ object CryptoUtils {
         )
     }
 
-    fun deriveGoogleBridgeAccount(
-        email: String,
-        displayName: String,
-        existingSeedPhrase: String? = null,
-        encryptionKeyPhrase: String = ""
-    ): com.example.data.AccountEntity {
-        val cleanEmail = email.trim().lowercase()
-        // SECURITY FIX: Never derive seed or private keys from email!
-        // An email address is public knowledge. Deriving keys from it allows anyone knowing the email to steal funds.
-        // We generate a true, cryptographically secure 12-word BIP-39 mnemonic with SecureRandom
-        // or link the user's existing locally secured wallet seed.
-        val mnemonic = if (!existingSeedPhrase.isNullOrBlank()) {
-            getDecryptedSeed(existingSeedPhrase, keyPhrase = encryptionKeyPhrase)
-        } else {
-            generateMnemonic()
-        }
 
-        val kaspaKey = deriveKaspaKeyPair(mnemonic)
-        val did = "did:key:z6Mkg" + kaspaKey.publicKeyHex.take(38)
-        val peerId = "12D3KooW" + kaspaKey.publicKeyHex.take(24)
-        val handle = "@" + cleanEmail.substringBefore("@") + ".google.dnet"
-
-        val encryptedMnemonic = encryptAes256(mnemonic, keyPhrase = encryptionKeyPhrase)
-
-        val zkProof = com.example.network.zk.ZkProofEngine.generateGoogleBridgeZkProof(
-            privateKey = kaspaKey.privateKey,
-            googleEmail = cleanEmail,
-            did = did
-        )
-
-        return com.example.data.AccountEntity(
-            did = did,
-            handle = handle,
-            kaspaAddress = kaspaKey.kaspaAddress,
-            peerId = peerId,
-            publicKeyHex = kaspaKey.publicKeyHex,
-            seedPhrase = encryptedMnemonic,
-            accountType = "GOOGLE_ZK_BRIDGE",
-            googleEmail = cleanEmail,
-            googleDisplayName = displayName.ifBlank { cleanEmail.substringBefore("@") },
-            zkProofJson = zkProof.toJsonString(),
-            createdAt = System.currentTimeMillis(),
-            isActive = true
-        )
-    }
 }
 
 

@@ -1302,9 +1302,8 @@ class DecentralViewModel(
     }
 
     private fun loadTrackedContractIds(): List<String> {
-        val defaultList = listOf("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8")
         val saved = try { kcc20Prefs.getStringSet("tracked_ids", null) } catch (_: Exception) { null }
-        return if (saved.isNullOrEmpty()) defaultList else (defaultList + saved.map { it.lowercase() }).distinct()
+        return saved.orEmpty().map { it.lowercase() }.distinct()
     }
 
     private fun persistTrackedContractIds(ids: List<String>) {
@@ -2100,19 +2099,14 @@ class DecentralViewModel(
                         }
 
                         if (!CryptoUtils.isAnyValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
-                            val refreshedAcc = if (acc.accountType == "GOOGLE_ZK_BRIDGE" && acc.googleEmail != null) {
-                                CryptoUtils.deriveGoogleBridgeAccount(
-                                    email = acc.googleEmail,
-                                    displayName = acc.googleDisplayName ?: cleanHandle,
-                                    existingSeedPhrase = acc.seedPhrase
-                                ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
-                            } else {
-                                CryptoUtils.deriveDecentralizedAccount(
-                                    customHandle = cleanHandle,
-                                    seedMnemonic = acc.seedPhrase,
-                                    networkPrefix = "kaspatest"
-                                ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
-                            }
+                            // Legacy Google bridge metadata is ignored. Rebuild the wallet identity
+                            // from the existing locally stored seed only; never use email for wallet identity.
+                            val existingNetworkPrefix = if (acc.kaspaAddress.startsWith("kaspa:", ignoreCase = true)) "kaspa" else "kaspatest"
+                            val refreshedAcc = CryptoUtils.deriveDecentralizedAccount(
+                                customHandle = cleanHandle,
+                                seedMnemonic = acc.seedPhrase,
+                                networkPrefix = existingNetworkPrefix
+                            ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
                             database.accountDao().insertAccount(refreshedAcc)
                         }
                     }
@@ -3522,35 +3516,6 @@ class DecentralViewModel(
         }
     }
 
-    fun linkGoogleDecentralizedAccount(email: String, displayName: String) {
-        viewModelScope.launch {
-            try {
-                val cleanEmail = email.trim().lowercase()
-                // 1. If an account already exists with this Google email, reactivate it without generating new keys or losing funds!
-                val existingGoogleAcc = database.accountDao().getAccountByGoogleEmail(cleanEmail)
-                if (existingGoogleAcc != null) {
-                    database.accountDao().deactivateAll()
-                    database.accountDao().setActive(existingGoogleAcc.did)
-                    _statusMessage.value = "Reconnected Google Account: ${existingGoogleAcc.handle}"
-                    return@launch
-                }
-
-                // 2. If the user currently has an active wallet, bind this Google account to it!
-                val currentAccount = activeAccount.value
-                val existingSeed = currentAccount?.seedPhrase
-                val googleAcc = CryptoUtils.deriveGoogleBridgeAccount(
-                    email = cleanEmail,
-                    displayName = displayName,
-                    existingSeedPhrase = existingSeed
-                )
-                database.accountDao().deactivateAll()
-                database.accountDao().insertAccount(googleAcc)
-                _statusMessage.value = "Linked Google Account to zk-Decentralized ID: ${googleAcc.did.take(18)}..."
-            } catch (e: Exception) {
-                _statusMessage.value = "Failed to link Google account: ${e.message}"
-            }
-        }
-    }
 
     fun switchAccount(did: String) {
         viewModelScope.launch {

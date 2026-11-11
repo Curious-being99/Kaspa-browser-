@@ -175,7 +175,7 @@ private fun normalizeSiAgentCommand(raw: String): String {
         lower in listOf("wallet", "my wallet", "show wallet", "open wallet", "wallet balance", "my balance", "show my balance") -> "/wallet"
         lower in listOf("receive", "receive address", "my receive address", "show receive address") -> "/receive"
         lower in listOf("transaction history", "my transactions", "show transactions", "recent transactions", "wallet history") -> "/history"
-        lower in listOf("kb", "my kb", "kb balance", "show kb balance", "kcc20", "kcc-20") -> "/kb"
+        lower in listOf("kcc20", "kcc-20", "token balances", "token holdings") -> "/kcc20"
         lower in listOf("swap", "open swap", "open dapps", "dapps", "dapp browser") -> "/swap"
         lower in listOf("help", "commands", "what can you do") -> "/help"
         lower in listOf("new tab", "open new tab", "create new tab") -> "/newtab"
@@ -204,9 +204,9 @@ private fun normalizeSiAgentCommand(raw: String): String {
 
 private val SI_AGENT_COMMANDS = listOf(
     SiCommandItem(
-        command = "/kb",
-        title = "Kaspa Browser token intelligence",
-        description = "Wallet balance, indexed KCC-20 price and contract status",
+        command = "/kcc20",
+        title = "KCC-20 token balances",
+        description = "View balances and metadata for contracts you choose to track",
         icon = Icons.Default.AutoAwesome
     ),
     SiCommandItem(
@@ -235,7 +235,7 @@ private val SI_AGENT_COMMANDS = listOf(
     ),
     SiCommandItem(
         command = "/swap",
-        title = "Native KB wallet tools",
+        title = "KCC-20 token tracker",
         description = "Open the native Kaspa Browser dApp command center",
         icon = Icons.Default.SwapHoriz
     ),
@@ -360,7 +360,7 @@ fun SiAgentScreen(
 
     val isSlashMode = inputText.startsWith("/") || showCommandPicker
 
-    val initialGreeting = "🤖 SI Agent\n\nLive wallet and Kaspa intelligence. Commands: /wallet  /kb  /send  /receive  /history  /help"
+    val initialGreeting = "🤖 SI Agent\n\nLive wallet and Kaspa intelligence. Commands: /wallet  /kcc20  /send  /receive  /history  /help"
 
     val initialButtons = listOf(
         InlineBotButton("Wallet", Icons.Default.AccountBalanceWallet, "OPEN_WALLET"),
@@ -448,12 +448,12 @@ fun SiAgentScreen(
                 InlineBotButton("Compose Send", Icons.Default.Send, "OPEN_SEND"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
-            lower.contains("kb") || lower.contains("kcc20") || lower.contains("kaspa browser token") -> listOf(
-                InlineBotButton("Open \$KB Center", Icons.Default.AutoAwesome, "OPEN_SWAP"),
+            lower.contains("kcc20") || lower.contains("token balance") || lower.contains("token holdings") -> listOf(
+                InlineBotButton("Open KCC-20 Tokens", Icons.Default.AutoAwesome, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("swap") || lower.contains("dapp") -> listOf(
-                InlineBotButton("Open \$KB Center", Icons.Default.SwapHoriz, "OPEN_SWAP"),
+                InlineBotButton("Open dApps", Icons.Default.SwapHoriz, "OPEN_SWAP"),
                 InlineBotButton("Wallet Details", Icons.Default.AccountBalanceWallet, "OPEN_WALLET")
             )
             lower.contains("send") -> listOf(
@@ -580,7 +580,7 @@ fun SiAgentScreen(
                 messages.add(SiAgentMessage(text = "🌐 Switched to the browser.", isUser = false)); return
             }
             commandText.equals("/wallet", true) -> viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
-            commandText.equals("/swap", true) -> viewModel.setTab(com.example.viewmodel.AppTab.DAPPS)
+            commandText.equals("/swap", true) || commandText.equals("/kcc20", true) -> viewModel.setTab(com.example.viewmodel.AppTab.DAPPS)
             commandText.equals("/newtab", true) -> {
                 viewModel.createNewTab()
                 viewModel.setTab(com.example.viewmodel.AppTab.BROWSER_GATEWAY)
@@ -700,7 +700,6 @@ fun SiAgentScreen(
                 utxoCount = walletState.utxosCount,
                 recentTransactions = walletState.recentTransactions,
                 selectedNetwork = viewModel.selectedNetwork.value,
-                kbToken = viewModel.kcc20Tokens.value.firstOrNull { it.contractId.equals("b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8", true) },
                 viewModel = viewModel,
                 conversationContext = com.example.network.siagent.SiAgentMemoryStore.promptContext(
                     messages.dropLast(1).map { com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser) }
@@ -1772,7 +1771,6 @@ TOOL POLICY:
 
 KASPA BROWSER PRODUCT CONTEXT:
 - Native Android browser with tabs, bookmarks, history, downloads, web search/crawling, native Kaspa wallet, KCC-20 token support and dApp/PWA features.
-- ${'$'}KB is the KaspaBrowser KCC-20 community token. Contract/covenant ID: b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8. Do not call it KRC-20.
 - KAS sends must use the wallet review screen and explicit user confirmation. Never ask for seed phrase or private key.
 
 CURRENT CONTEXT:
@@ -1937,7 +1935,6 @@ suspend fun executeSiAgentCommand(
     utxoCount: Int,
     recentTransactions: List<com.example.model.KaspaTransactionItem> = emptyList(),
     selectedNetwork: String = "",
-    kbToken: com.example.network.kaspa.Kcc20WalletToken? = null,
     viewModel: DecentralViewModel? = null,
     conversationContext: String = "",
     onStreamChunk: ((String) -> Unit)? = null,
@@ -1976,17 +1973,6 @@ suspend fun executeSiAgentCommand(
         } catch (error: Exception) {
             "🌐 SI Web Crawl failed\n• ${error.message ?: "Unable to crawl this website."}\n• Only public HTTP/HTTPS pages are supported."
         }
-    }
-    if (localCommand == "kb" || localCommand.startsWith("kb ") ||
-        localCommand == "kcc20" || localCommand.contains("kaspa browser token")) {
-        val token = kbToken
-        if (token == null) {
-            return "KB / KCC-20\n• Wallet token record: unavailable\n• Price: unavailable\n• No estimate is substituted for missing indexer data.\n• Use /kb again after the wallet refreshes its KCC-20 token data."
-        }
-        val tokenBalance = runCatching {
-            java.math.BigDecimal(token.balanceRaw).movePointLeft(token.decimals).stripTrailingZeros().toPlainString()
-        }.getOrDefault("Unavailable")
-        return "Kaspa Browser Token (\$KB)\n• Contract: ${token.contractId}\n• Wallet balance: $tokenBalance KB\n• Indexed price: ${token.marketPriceKas?.let { "$it KAS" } ?: "Unavailable"}\n• USD price: ${token.marketPriceUsd?.let { "$it" } ?: "Unavailable"}\n• Price source: ${token.marketPriceSource ?: "Unavailable"}\n• Validation: ${token.validationStatus}\n• Price timestamp: ${token.priceUpdatedAtMs?.toString() ?: "Not supplied"}\n• Transfer signing: Active and operational on Mainnet (BIP-340 Schnorr)."
     }
     val kascovUrl = KASCOV_URL
     val liveAppContext = "Selected network: ${selectedNetwork.ifBlank { "Not available" }}. Treat this exact selection as authoritative. Kaspa Mainnet is mainnet; Kaspa Testnet 10 is testnet-10; Kaspa Testnet 11 is testnet-11. Testnet 10 and 11 both use kaspatest: addresses, so never infer between them from the prefix. Do not silently switch networks or use another network's balance, UTXOs, address, fee or endpoint. Kasplex and Igra are EVM networks, not native Kaspa L1. Query wallet, token, browser and dApp state only through tools when relevant to the user's request."
@@ -2173,7 +2159,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") || lower.contains("dapp") -> {
-            "Kaspa Browser dApp Command Center\n• Native destination: \$KB KCC-20 wallet tools\n• Live indexed token data: /kb\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
+            "Kaspa Browser dApp Command Center\n• KCC-20 balances and metadata are available in the KCC-20 Tokens screen for contracts the user chooses to track.\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
         }
 
         lower.contains("price") -> {
@@ -2220,7 +2206,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.startsWith("help") || lower.startsWith("command") || lower.startsWith("menu") || lower.isEmpty() -> {
-            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kb — Live KB KCC-20 balance and indexed price\n/search <query> — Search and crawl public web sources\n/crawl <https-url> — Extract a public HTTPS page\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/learned — View saved web knowledge\n/forgetknowledge — Clear saved web knowledge\n/clear — Clear chat"
+            "🤖 Commands:\n/wallet — Kaspa live balance & wallet\n/send <addr> <amt> — Sign & broadcast tx\n/receive — Show receive QR & addresses\n/history — Live on-chain tx history\n/kcc20 — KCC-20 balances for tracked contracts\n/search <query> — Search and crawl public web sources\n/crawl <https-url> — Extract a public HTTPS page\n/swap — Open the native dApp command center\n/summarize — Webpage summary\n/security — Security audit\n/blockdag — BlockDAG metrics\n/mesh — P2P discovery\n/learned — View saved web knowledge\n/forgetknowledge — Clear saved web knowledge\n/clear — Clear chat"
         }
 
         else -> {

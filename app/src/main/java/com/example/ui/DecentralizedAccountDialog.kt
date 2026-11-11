@@ -117,7 +117,6 @@ fun DecentralizedAccountDialog(
     activeAccount: AccountEntity?,
     allAccounts: List<AccountEntity>,
     onDismiss: () -> Unit,
-    onLinkGoogle: (email: String, displayName: String) -> Unit,
     onOpenGoogleLogin: () -> Unit,
     onSwitchAccount: (did: String) -> Unit,
     onDeleteAccount: (account: AccountEntity) -> Unit,
@@ -168,21 +167,17 @@ fun DecentralizedAccountDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(
                             shape = CircleShape,
-                            color = if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") Color(0xFF1E293B) else SurfaceDark,
+                            color = SurfaceDark,
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                             modifier = Modifier.size(32.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 18.dp)
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.AccountCircle,
-                                        contentDescription = null,
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.AccountCircle,
+                                    contentDescription = null,
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
@@ -195,8 +190,7 @@ fun DecentralizedAccountDialog(
                             )
                             Text(
                                 text = activeAccount?.let { acc ->
-                                    if (acc.accountType == "GOOGLE_ZK_BRIDGE") acc.googleEmail ?: acc.handle
-                                    else "${acc.handle} • ${acc.kaspaAddress.take(14)}..."
+                                    "${acc.handle} • ${acc.kaspaAddress.take(14)}..."
                                 } ?: "No Active Account",
                                 fontSize = 11.sp,
                                 color = if (activeAccount != null) EmeraldMesh else TextMuted,
@@ -291,12 +285,7 @@ fun DecentralizedAccountDialog(
                             onVerifyPassword = onVerifyPassword
                         )
                         1 -> GoogleBridgeTab(
-                            activeAccount = activeAccount,
-                            onOpenGoogleLogin = onOpenGoogleLogin,
-                            onLinkGoogle = { email, name ->
-                                onLinkGoogle(email, name)
-                                selectedTab = 0
-                            }
+                            onOpenGoogleLogin = onOpenGoogleLogin
                         )
                         2 -> AllAccountsTab(
                             accounts = allAccounts,
@@ -337,7 +326,7 @@ private fun ActiveProfileTab(
             Spacer(modifier = Modifier.height(12.dp))
             Text("No Active Decentralized Account", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(6.dp))
-            Text("Bridge your Google account to create a zero-knowledge identity.", color = TextMuted, fontSize = 12.sp)
+            Text("Google sign-in for websites is separate from your Kaspa wallet and recovery phrase.", color = TextMuted, fontSize = 12.sp)
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = onNavigateToGoogle,
@@ -385,11 +374,12 @@ private fun ActiveProfileTab(
                             modifier = Modifier.size(38.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (account.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 20.dp)
-                                } else {
-                                    Icon(Icons.Default.Person, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = ElectricCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
@@ -400,7 +390,7 @@ private fun ActiveProfileTab(
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
-                            val badgeLabel = if (account.accountType == "GOOGLE_ZK_BRIDGE") "Google zk-Bridge Identity" else "Native Self-Custodial BlockDAG"
+                            val badgeLabel = "Native Self-Custodial BlockDAG"
                             Text(
                                 text = badgeLabel,
                                 fontSize = 11.sp,
@@ -425,31 +415,7 @@ private fun ActiveProfileTab(
                     }
                 }
 
-                if (!account.googleEmail.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = SurfaceDark,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Link, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(12.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Bridged Google Account: ${account.googleEmail}",
-                                fontSize = 11.sp,
-                                color = TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
+           }
         }
 
         // DID Key String
@@ -927,20 +893,12 @@ private fun IdentityFieldCard(
 
 @Composable
 private fun GoogleBridgeTab(
-    activeAccount: AccountEntity?,
-    onOpenGoogleLogin: () -> Unit,
-    onLinkGoogle: (email: String, displayName: String) -> Unit
+    onOpenGoogleLogin: () -> Unit
 ) {
-    var googleEmailInput by remember { mutableStateOf(activeAccount?.googleEmail ?: "") }
-    var displayNameInput by remember { mutableStateOf(activeAccount?.handle?.let { DomainConstants.removeDomainSuffix(it.removePrefix("@")) } ?: "") }
-
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Explainer Hero
         Card(
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             shape = RoundedCornerShape(14.dp),
@@ -951,24 +909,17 @@ private fun GoogleBridgeTab(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     GoogleLogoIcon(iconSize = 22.dp)
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Google Support & zk-Decentralized Bridge",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
+                    Text("Google Sign-In for Websites", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Seamlessly use your Google Account across Web2 services (Google Search, YouTube, OAuth) while binding it to a zero-knowledge self-sovereign BlockDAG identity. Your keys remain non-custodial.",
+                    "Use Google OAuth inside the browser for websites that support it. This sign-in does not create, unlock, recover, or link a Kaspa wallet. Your wallet seed phrase and optional BIP-39 passphrase remain separate.",
                     fontSize = 11.sp,
                     color = TextMuted,
                     lineHeight = 16.sp
                 )
             }
         }
-
-        // Direct Web Gateway Login
         Card(
             colors = CardDefaults.cardColors(containerColor = SurfaceDark),
             shape = RoundedCornerShape(12.dp),
@@ -979,11 +930,11 @@ private fun GoogleBridgeTab(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("1. In-Browser Google Accounts Login", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Google Accounts Login", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Open Google Accounts login directly inside the DecentralNet browser gateway with full OAuth and cookie persistence support.",
+                    "Open Google Accounts login in the browser gateway. Wallet credentials are never requested or passed to Google sign-in.",
                     fontSize = 11.sp,
                     color = TextSecondary
                 )
@@ -992,93 +943,11 @@ private fun GoogleBridgeTab(
                     onClick = onOpenGoogleLogin,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("open_google_login_browser_button")
+                    modifier = Modifier.fillMaxWidth().testTag("open_google_login_browser_button")
                 ) {
                     GoogleLogoIcon(iconSize = 16.dp)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Launch Google Sign-In in Gateway", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-            }
-        }
-
-        // Bind Google Account to zk-DID
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Link, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("2. Connect Google ID to Decentralized Identity", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Binds your Google Account to a non-custodial Kaspa wallet protected by CSPRNG BIP-39 mnemonic generation and Android KeyStore hardware encryption.",
-                    fontSize = 11.sp,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedTextField(
-                    value = googleEmailInput,
-                    onValueChange = { googleEmailInput = it },
-                    label = { Text("Google Account Email", fontSize = 12.sp) },
-                    placeholder = { Text("user@gmail.com", fontSize = 12.sp) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = EmeraldMesh,
-                        unfocusedBorderColor = SurfaceCardBorder,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedContainerColor = SurfaceCard,
-                        unfocusedContainerColor = SurfaceCard
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = displayNameInput,
-                    onValueChange = { displayNameInput = it },
-                    label = { Text("Display Name / Alias", fontSize = 12.sp) },
-                    placeholder = { Text("e.g. Satoshi", fontSize = 12.sp) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = EmeraldMesh,
-                        unfocusedBorderColor = SurfaceCardBorder,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedContainerColor = SurfaceCard,
-                        unfocusedContainerColor = SurfaceCard
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Button(
-                    onClick = {
-                        val email = googleEmailInput.trim().ifBlank { "user@gmail.com" }
-                        val name = displayNameInput.trim().ifBlank { "GoogleUser" }
-                        onLinkGoogle(email, name)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldMesh),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("link_google_bridge_button")
-                ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Connect & Activate Secure Wallet", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
         }
@@ -1174,21 +1043,17 @@ private fun AllAccountsTab(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = if (acc.accountType == "GOOGLE_ZK_BRIDGE") Color(0xFF1E293B) else SurfaceDark,
+                            color = SurfaceDark,
                             border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
                             modifier = Modifier.size(34.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                if (acc.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 18.dp)
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Person,
-                                        contentDescription = null,
-                                        tint = if (isActive) ElectricCyan else TextMuted,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isActive) ElectricCyan else TextMuted,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
