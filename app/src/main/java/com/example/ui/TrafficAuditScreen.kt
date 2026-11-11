@@ -353,33 +353,45 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = SurfaceCard,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 40.dp)
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Client", fontSize = 11.sp, color = TextPrimary, fontWeight = FontWeight.Bold)
-                                    Text(" ➔ ", fontSize = 11.sp, color = ElectricCyan)
-                                    Text("Privacy Shield", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.Medium)
-                                    Text(" ➔ ", fontSize = 11.sp, color = AmberCentral)
-                                    Text("Encrypted DoH", fontSize = 11.sp, color = AmberCentral, fontWeight = FontWeight.Medium)
-                                    Text(" ➔ ", fontSize = 11.sp, color = EmeraldMesh)
-                                    val destinationText = liveAuditResult?.let {
-                                        "${it.countryCode} (${it.latencyMs}ms)"
-                                    } ?: "Secure TLS"
-                                    Text(destinationText, fontSize = 11.sp, color = EmeraldMesh, fontWeight = FontWeight.SemiBold)
-                                }
-
+                                val destinationText = liveAuditResult?.let {
+                                    "${it.countryCode} (${it.latencyMs}ms)"
+                                } ?: "Secure TLS"
                                 Text(
-                                    text = "Privacy Shield",
-                                    fontSize = 10.sp,
-                                    color = EmeraldMesh,
-                                    fontWeight = FontWeight.Bold
+                                    text = androidx.compose.ui.text.buildAnnotatedString {
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = TextPrimary, fontWeight = FontWeight.Bold))
+                                        append("Client")
+                                        pop()
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = ElectricCyan))
+                                        append(" ➔ ")
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
+                                        append("Privacy Shield")
+                                        pop()
+                                        pop()
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = AmberCentral))
+                                        append(" ➔ ")
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
+                                        append("Encrypted DoH")
+                                        pop()
+                                        pop()
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = EmeraldMesh))
+                                        append(" ➔ ")
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold))
+                                        append(destinationText)
+                                        pop()
+                                        pop()
+                                    },
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp
                                 )
                             }
                         }
