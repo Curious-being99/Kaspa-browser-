@@ -1102,7 +1102,7 @@ class KaspaWalletService(
 
             try {
                 val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
-                val liveUtxos = fetchLiveUtxos(cleanSender)
+                val liveUtxos = fetchLiveUtxos(cleanSender, networkName)
 
                 if (liveUtxos.size <= 1) {
                     return@withContext Result.failure(
