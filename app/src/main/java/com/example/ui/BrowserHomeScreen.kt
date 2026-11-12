@@ -267,7 +267,7 @@ fun BrowserHomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .offset(y = (-40).dp)
+                    .offset(y = (-54).dp)
                     .height(48.dp)
             ) {
                 Row(
@@ -335,7 +335,174 @@ fun BrowserHomeScreen(
 
         Spacer(modifier = Modifier.height(0.dp))
 
-        // Scrollable Shortcuts & Kaspa News Content
+        // FIXED SPEED DIAL DOCK: stays visible while the news feed scrolls.
+            // 1. ORIGINAL SPEED DIAL SHORTCUTS CONTAINER (Floating modern rounded dock)
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = SurfaceCard,
+                border = BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .offset(y = (-36).dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Item 1: Kaspa.org
+                    SpeedDialCircleItem(
+                        label = "Kaspa.org",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://kaspa.org") }
+                    ) {
+                        KaspaLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 2: Braid
+                    SpeedDialCircleItem(
+                        label = "Braid",
+                        iconColor = Color(0xFFFBBF24),
+                        onClick = { onNavigate("https://app.braidswap.com") }
+                    ) {
+                        BraidSwapLogoIcon(iconSize = 30.dp)
+                    }
+
+                    // Item 3: Kaspa.com
+                    SpeedDialCircleItem(
+                        label = "Kaspa.com",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://kaspa.com") }
+                    ) {
+                        KaspaComLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 4: Kaspa.stream
+                    SpeedDialCircleItem(
+                        label = "Kaspa.stream",
+                        iconColor = Color(0xFF8B5CF6),
+                        onClick = { onNavigate("https://kaspa.stream") }
+                    ) {
+                        KaspaStreamLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 5: igralabs.com
+                    SpeedDialCircleItem(
+                        label = "igralabs.com",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://igralabs.com") }
+                    ) {
+                        IgraLabsLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 6: Kaskad.live
+                    SpeedDialCircleItem(
+                        label = "Kaskad.live",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://kaskad.live") }
+                    ) {
+                        KaskadLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 7: KaChat
+                    SpeedDialCircleItem(
+                        label = "KaChat",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://kachat.app/home/") }
+                    ) {
+                        KaChatLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 8: Kasplay
+                    SpeedDialCircleItem(
+                        label = "Kasplay",
+                        iconColor = Color(0xFF35B1B1),
+                        onClick = { onNavigate("https://kasplay.fun/") }
+                    ) {
+                        KasplayLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 9: Dotk
+                    SpeedDialCircleItem(
+                        label = "Dotk",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://dotk.name/") }
+                    ) {
+                        DotkLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 10: Kasmap
+                    SpeedDialCircleItem(
+                        label = "Kasmap",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = { onNavigate("https://kasmap.org") }
+                    ) {
+                        KasmapLogoIcon(iconSize = 36.dp)
+                    }
+
+                    // Item 11: KaspaRocket
+                    SpeedDialCircleItem(
+                        label = "KaspaRocket",
+                        iconColor = Color(0xFF3CD9B8),
+                        onClick = { onNavigate("https://kasparocket.fun") }
+                    ) {
+                        KaspaRocketLogoIcon(iconSize = 30.dp)
+                    }
+
+                    // Custom User Shortcuts
+                    customShortcuts.forEach { shortcut ->
+                        SpeedDialCircleItem(
+                            label = shortcut.name,
+                            iconColor = Color(0xFF70C7BA),
+                            onClick = { onNavigate(shortcut.url) },
+                            onLongClick = { shortcutToDelete = shortcut }
+                        ) {
+                            CustomShortcutLogo(
+                                url = shortcut.url,
+                                name = shortcut.name,
+                                iconSize = 30.dp
+                            )
+                        }
+                    }
+
+                    // Item: Add New
+                    SpeedDialCircleItem(
+                        label = "Add new",
+                        iconColor = Color(0xFF70C7BA),
+                        onClick = {
+                            addShortcutName = ""
+                            addShortcutUrl = "https://"
+                            showAddDialog = true
+                        }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFF161D2B), CircleShape)
+                                .border(
+                                    width = 1.5.dp,
+                                    color = SurfaceCardBorder,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add new shortcut",
+                                tint = Color(0xFF70C7BA),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+
+        
+        // SCROLLABLE KASPA NEWS FEED: shortcuts remain outside this scroll container.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -343,6 +510,7 @@ fun BrowserHomeScreen(
                 .offset(y = (-28).dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
 
             // 1. ORIGINAL SPEED DIAL SHORTCUTS CONTAINER (Floating modern rounded dock)
             Surface(
