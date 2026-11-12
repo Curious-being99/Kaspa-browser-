@@ -405,13 +405,19 @@ object Kcc20NoteScanner {
                     }
                 }
 
-                // Check signature script / redeem script pushes
+                // Check signature script / redeem script pushes and input UTXO scriptPublicKey
+                val inUtxoSpk = inObj.optJSONObject("utxoEntry")?.optJSONObject("scriptPublicKey")?.optString("script", "").orEmpty().lowercase()
                 val sig = inObj.optString("signature_script", inObj.optString("signatureScript", ""))
                 val redeem = inObj.optString("redeemScript", inObj.optString("redeem_script", ""))
                 val scriptText = (sig + redeem).lowercase()
-                if (scriptText.isNotBlank()) {
-                    for ((outpointKey, cached) in cachedNotesByOutpoint) {
-                        if (cached.isUnspent && (scriptText.contains(cached.targetScriptHash) || (cached.redeemScriptHex.isNotBlank() && scriptText.contains(cached.redeemScriptHex)))) {
+                for ((outpointKey, cached) in cachedNotesByOutpoint) {
+                    if (cached.isUnspent) {
+                        val matchesSpk = inUtxoSpk.isNotBlank() && inUtxoSpk.contains(cached.targetScriptHash)
+                        val matchesScript = scriptText.isNotBlank() && (
+                            scriptText.contains(cached.targetScriptHash) || 
+                            (cached.redeemScriptHex.isNotBlank() && scriptText.contains(cached.redeemScriptHex))
+                        )
+                        if (matchesSpk || matchesScript) {
                             cachedNotesByOutpoint[outpointKey] = cached.copy(isUnspent = false)
                         }
                     }

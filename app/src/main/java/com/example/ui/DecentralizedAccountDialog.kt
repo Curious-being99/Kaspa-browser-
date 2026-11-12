@@ -23,8 +23,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -117,7 +119,9 @@ fun DecentralizedAccountDialog(
     activeAccount: AccountEntity?,
     allAccounts: List<AccountEntity>,
     onDismiss: () -> Unit,
-    onOpenGoogleLogin: () -> Unit,
+    onOpenGoogleLogin: () -> Unit = {},
+    onCreateAccount: (name: String, passphrase: String) -> Unit = { _, _ -> },
+    onImportAccount: (mnemonic: String, name: String, passphrase: String) -> Unit = { _, _, _ -> },
     onSwitchAccount: (did: String) -> Unit,
     onDeleteAccount: (account: AccountEntity) -> Unit,
     onOpenUrl: (url: String) -> Unit = {},
@@ -213,7 +217,7 @@ fun DecentralizedAccountDialog(
                 }
 
                 // Tab Navigation
-                val tabTitles = listOf("Active Profile", "Google Login", "All Accounts (${allAccounts.size})")
+                val tabTitles = listOf("Active Profile", "Create / Import", "All Accounts (${allAccounts.size})")
                 ScrollableTabRow(
                     selectedTabIndex = selectedTab.coerceIn(0, tabTitles.size - 1),
                     containerColor = SurfaceDark,
@@ -279,13 +283,15 @@ fun DecentralizedAccountDialog(
                                 clipboardManager.setText(AnnotatedString(text))
                                 copiedNotice = label
                             },
-                            onNavigateToGoogle = { selectedTab = 1 },
+                            onNavigateToCreate = { selectedTab = 1 },
                             hasAccountPassword = hasAccountPassword,
                             biometricEnabled = biometricEnabled,
                             onVerifyPassword = onVerifyPassword
                         )
-                        1 -> GoogleBridgeTab(
-                            onOpenGoogleLogin = onOpenGoogleLogin
+                        1 -> CreateOrImportWalletTab(
+                            onCreateWallet = onCreateAccount,
+                            onImportWallet = onImportAccount,
+                            onSuccess = { selectedTab = 0 }
                         )
                         2 -> AllAccountsTab(
                             accounts = allAccounts,
@@ -311,7 +317,7 @@ fun DecentralizedAccountDialog(
 private fun ActiveProfileTab(
     account: AccountEntity?,
     onCopy: (label: String, text: String) -> Unit,
-    onNavigateToGoogle: () -> Unit,
+    onNavigateToCreate: () -> Unit,
     hasAccountPassword: Boolean,
     biometricEnabled: Boolean,
     onVerifyPassword: (password: String, onResult: (Boolean) -> Unit) -> Unit
@@ -322,20 +328,20 @@ private fun ActiveProfileTab(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(Icons.Default.AccountCircle, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
+            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
             Spacer(modifier = Modifier.height(12.dp))
-            Text("No Active Decentralized Account", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("No Active Cryptographic Account", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(6.dp))
-            Text("Google sign-in for websites is separate from your Kaspa wallet and recovery phrase.", color = TextMuted, fontSize = 12.sp)
+            Text("Wallets are 100% self-sovereign cryptographic keys. Never linked to any email address.", color = TextMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(16.dp))
             Button(
-                onClick = onNavigateToGoogle,
+                onClick = onNavigateToCreate,
                 colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                GoogleLogoIcon(iconSize = 16.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Google Login", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Icon(Icons.Default.Add, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Create / Import Wallet", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
         return
@@ -894,13 +900,24 @@ private fun IdentityFieldCard(
 }
 
 @Composable
-private fun GoogleBridgeTab(
-    onOpenGoogleLogin: () -> Unit
+private fun CreateOrImportWalletTab(
+    onCreateWallet: (name: String, passphrase: String) -> Unit,
+    onImportWallet: (mnemonic: String, name: String, passphrase: String) -> Unit,
+    onSuccess: () -> Unit
 ) {
+    var mode by remember { mutableIntStateOf(0) } // 0 = Create New, 1 = Import Existing
+    var walletName by remember { mutableStateOf("") }
+    var passphraseInput by remember { mutableStateOf("") }
+    var mnemonicInput by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
     Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Zero-Link Cryptographic Policy Banner
         Card(
             colors = CardDefaults.cardColors(containerColor = SurfaceCard),
             shape = RoundedCornerShape(14.dp),
@@ -909,47 +926,155 @@ private fun GoogleBridgeTab(
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    GoogleLogoIcon(iconSize = 22.dp)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("Google Sign-In for Websites", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Non-Custodial Cryptography", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    "Use Google OAuth inside the browser for websites that support it. This sign-in does not create, unlock, recover, or link a Kaspa wallet. Your wallet seed phrase and optional BIP-39 passphrase remain separate.",
-                    fontSize = 11.sp,
-                    color = TextMuted,
+                    "All wallets are 100% self-sovereign cryptographic keys derived from BIP-39 seed phrases. Email addresses or online logins are never linked to seed phrases, private keys, or wallet accounts.",
+                    fontSize = 11.5.sp,
+                    color = TextSecondary,
                     lineHeight = 16.sp
                 )
             }
         }
-        Card(
-            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
-            shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-            modifier = Modifier.fillMaxWidth()
+
+        // Toggle buttons: Create New vs Import
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Google Accounts Login", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                }
-                Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = { mode = 0; errorMessage = null },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (mode == 0) ElectricCyan else SurfaceDark
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
-                    "Open Google Accounts login in the browser gateway. Wallet credentials are never requested or passed to Google sign-in.",
-                    fontSize = 11.sp,
-                    color = TextSecondary
+                    "Create New",
+                    color = if (mode == 0) ObsidianBg else TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
                 )
-                Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = onOpenGoogleLogin,
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("open_google_login_browser_button")
-                ) {
-                    GoogleLogoIcon(iconSize = 16.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Launch Google Sign-In in Gateway", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+            Button(
+                onClick = { mode = 1; errorMessage = null },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (mode == 1) ElectricCyan else SurfaceDark
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    "Import Phrase",
+                    color = if (mode == 1) ObsidianBg else TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp
+                )
+            }
+        }
+
+        if (errorMessage != null) {
+            Text(errorMessage!!, color = RedTamper, fontSize = 11.5.sp)
+        }
+
+        if (mode == 0) {
+            // CREATE NEW WALLET
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Generate Native Kaspa Wallet", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Generates 12 cryptographic words with secure entropy on device.", fontSize = 11.sp, color = TextMuted)
+                    
+                    OutlinedTextField(
+                        value = walletName,
+                        onValueChange = { walletName = it },
+                        label = { Text("Wallet Name (optional)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = passphraseInput,
+                        onValueChange = { passphraseInput = it },
+                        label = { Text("Optional BIP-39 Passphrase", fontSize = 11.sp) },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            onCreateWallet(walletName, passphraseInput)
+                            onSuccess()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Generate 12-Word Wallet", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        } else {
+            // IMPORT EXISTING PHRASE
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Import Recovery Seed Phrase", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Enter your 12 or 24 BIP-39 mnemonic seed words separated by spaces.", fontSize = 11.sp, color = TextMuted)
+                    
+                    OutlinedTextField(
+                        value = mnemonicInput,
+                        onValueChange = { mnemonicInput = it; errorMessage = null },
+                        label = { Text("12 or 24-Word Seed Phrase", fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        maxLines = 4
+                    )
+                    OutlinedTextField(
+                        value = walletName,
+                        onValueChange = { walletName = it },
+                        label = { Text("Wallet Name (optional)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = passphraseInput,
+                        onValueChange = { passphraseInput = it },
+                        label = { Text("Optional BIP-39 Passphrase", fontSize = 11.sp) },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            val words = mnemonicInput.trim().split("\\s+".toRegex()).filter { it.isNotBlank() }
+                            if (words.size != 12 && words.size != 24) {
+                                errorMessage = "Please enter 12 or 24 valid words (entered ${words.size})."
+                            } else {
+                                onImportWallet(mnemonicInput.trim(), walletName, passphraseInput)
+                                onSuccess()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = EmeraldMesh),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null, tint = ObsidianBg, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Restore Cryptographic Keys", color = ObsidianBg, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 }
             }
         }

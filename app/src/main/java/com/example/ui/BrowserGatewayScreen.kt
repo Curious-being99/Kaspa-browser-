@@ -1040,7 +1040,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var showSecuritySheet by remember { mutableStateOf(false) }
     var showInstallSheet by remember { mutableStateOf(false) }
     var showProtocolMenu by remember { mutableStateOf(false) }
-    var showAccountDialog by remember { mutableStateOf(false) }
+
     var accountDialogInitialTab by remember { mutableStateOf(0) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val installSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1257,9 +1257,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             .imePadding()
             .then(backgroundModifier)
     ) {
-        // TOP BROWSER BAR: Directly starting with the search/URL bar (Hidden in Standalone PWA Native App Mode)
+        // TOP BROWSER BAR: Shown when viewing an active web page or when input is focused
         val scope = rememberCoroutineScope()
-        if (!isStandalonePwaMode) {
+        val isViewingWebPage = currentResource != null
+        if (!isStandalonePwaMode && (isViewingWebPage || isInputFocused)) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1838,51 +1839,28 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         Spacer(modifier = Modifier.width(4.dp))
 
-                        Surface(
-                            shape = CircleShape,
-                            color = SurfaceCard,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .clickable {
-                                    accountDialogInitialTab = 0
-                                    showAccountDialog = true
-                                }
-                                .testTag("account_identity_button")
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                if (activeAccount?.accountType == "GOOGLE_ZK_BRIDGE") {
-                                    GoogleLogoIcon(iconSize = 18.dp)
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.AccountCircle,
-                                        contentDescription = "Decentralized Account",
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
+
 
                         Spacer(modifier = Modifier.width(4.dp))
                         
                         Box(contentAlignment = Alignment.TopEnd) {
-                            IconButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    showBrowserMenu = true
-                                },
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .testTag("three_dots_menu_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "More Options",
-                                    tint = TextPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            if (currentResource != null) {
+                                IconButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        showBrowserMenu = true
+                                    },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .testTag("three_dots_menu_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More Options",
+                                        tint = TextPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                             
                             DropdownMenu(
@@ -2305,11 +2283,44 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             val resource = currentResource
 
             if (resource == null) {
-                // Speed Dial / Empty State
-                BrowserSpeedDial(
+                // Redesigned Kaspa Browser Home Screen matching reference design
+                BrowserHomeScreen(
                     pinnedContents = pinnedContents,
                     viewModel = viewModel,
-                    onNavigate = { url -> viewModel.resolveUrl(url) }
+                    onNavigate = { url ->
+                        viewSourceMode = false
+                        viewModel.onUserSubmitUrl(url)
+                    },
+
+                    onOpenShield = { showSecuritySheet = true },
+                    onOpenSettings = { viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT) },
+                    onOpenBookmarks = { viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY) },
+                    onOpenHistory = { viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY) },
+                    onOpenQrScanner = { isInputFocused = true },
+                    onSelectTab = { appTab -> viewModel.setTab(appTab) },
+                    onOpenBrowser = { isInputFocused = true },
+                    onOpenNewTab = { viewModel.createNewTab() },
+                    onOpenDevConsole = {
+                        showProviderDiagnostics = true
+                        refreshProviderDiagnostics()
+                    },
+                    onToggleDesktopMode = {
+                        val newMode = !desktopModeEnabled
+                        viewModel.toggleDesktopMode(newMode)
+                    },
+                    onOpenInstallSheet = { showInstallSheet = true },
+                    onToggleReaderMode = { toggleReaderMode() },
+                    onOpenTranslate = { showTranslateBar = true },
+                    onOpenThemeDialog = { showThemeDialog = true },
+                    onToggleBookmark = {
+                        val targetUrl = urlInput.ifBlank { "https://kaspa.org" }
+                        viewModel.toggleBookmark(targetUrl, currentResource?.title ?: "Kaspa Browser")
+                    },
+                    isBookmarked = bookmarks.any { it.url == (urlInput.ifBlank { "https://kaspa.org" }) },
+                    desktopModeEnabled = desktopModeEnabled,
+                    isReaderMode = isReaderMode,
+                    isPageTranslated = isPageTranslated,
+                    hasUpdateAvailable = updateStatus is com.example.model.UpdateStatus.Available
                 )
             } else if (isHtml && !viewSourceMode) {
                 // IN-APP WEB VIEW: Renders full web pages inside its own dedicated isolated container!
@@ -4401,39 +4412,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
 
 
-    // Decentralized Identity & Google zk-Bridge Dialog
-    if (showAccountDialog) {
-        DecentralizedAccountDialog(
-            activeAccount = activeAccount,
-            allAccounts = allAccounts,
-            initialTab = accountDialogInitialTab,
-            onDismiss = { showAccountDialog = false },
-            hasAccountPassword = hasWalletPassword,
-            biometricEnabled = biometricsEnabled,
-            onVerifyPassword = { password, onResult -> viewModel.unlockWalletWithPassword(password, onResult) },
-            onOpenGoogleLogin = {
-                showAccountDialog = false
-                viewModel.openUrlInBrowser("https://accounts.google.com")
-            },
-            onSwitchAccount = { did ->
-                viewModel.switchAccount(did)
-            },
-            onDeleteAccount = { acc ->
-                viewModel.deleteAccount(acc)
-            },
-            onOpenUrl = { url ->
-                showAccountDialog = false
-                viewModel.openUrlInBrowser(url)
-            },
-            onSignOut = {
-                val acc = activeAccount
-                if (acc != null) {
-                    viewModel.deleteAccount(acc)
-                }
-                showAccountDialog = false
-            }
-        )
-    }
+
 
     if (showPhotoThemeDialog) {
         com.example.ui.theme.PhotoThemeSelectorDialog(

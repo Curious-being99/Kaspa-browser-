@@ -152,7 +152,7 @@ internal object DappPsktTransaction {
         return prepared
     }
 
-    fun sign(prepared: Prepared, privateKey: BigInteger): String {
+    fun sign(prepared: Prepared, privateKey: BigInteger, isDappSigning: Boolean = false): String {
         val signedRoot = JSONObject(prepared.originalJson.toString())
         val txRoot = signedRoot.optJSONObject("transaction") ?: signedRoot
         val inputArray = txRoot.optJSONArray("inputs")
@@ -175,7 +175,7 @@ internal object DappPsktTransaction {
                 "Input ${request.index} signature failed local Schnorr verification for the active wallet key"
             }
             val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
-            val redeem = if (Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
+            val redeem = if (!isDappSigning && Regex("aa20[0-9a-f]{64}87").matches(lockingScript)) {
                 val prevOut = input.previousOutpoint
                 val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(lockingScript)?.groupValues?.get(1)
                 val redeemScript = request.redeemScript.takeIf { it.isNotBlank() }
@@ -186,6 +186,9 @@ internal object DappPsktTransaction {
             } else {
                 ""
             }
+            // For external dApp PSKT signing (isDappSigning=true), the dApp coordinator requires a plain
+            // SIGHASH_ALL Schnorr signature script: 0x41 (OP_DATA_65) + 64-byte Schnorr signature + 0x01 (SIGHASH_ALL).
+            // Exactly 66 bytes (132 hex characters), matching Braid SDK / Kaspa dApp sigsOf regex /^41[0-9a-f]{128}01$/i.
             val signatureScript = "41" + signature + "01" + redeem
             input.signatureScript = signatureScript
             val originalInput = inputArray.optJSONObject(request.index)
@@ -198,7 +201,7 @@ internal object DappPsktTransaction {
     }
 
     fun signForDapp(prepared: Prepared, privateKey: BigInteger): String =
-        sign(prepared, privateKey)
+        sign(prepared, privateKey, isDappSigning = true)
 
     private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>, redeemScript: String): Prepared {
         require(txJsonString.isNotBlank() && txJsonString.length <= MAX_TRANSACTION_JSON_CHARS) {

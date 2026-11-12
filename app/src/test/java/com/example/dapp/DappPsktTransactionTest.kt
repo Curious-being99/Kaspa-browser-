@@ -583,10 +583,11 @@ class DappPsktTransactionTest {
         val signedInput0 = signedTxJson.getJSONArray("inputs").getJSONObject(0)
         val sigScript = signedInput0.getString("signatureScript")
 
-        // Signature script must contain the 65-byte Schnorr signature push + pushed covenant redeem script
+        // For Braid Router / dApp compatibility, signForDapp MUST return a plain SIGHASH_ALL Schnorr signature:
+        // 0x41 (OP_DATA_65) + 64-byte Schnorr + 0x01 (SIGHASH_ALL), exactly 132 hex characters without trailing redeem bytecode.
         assertTrue("Signature script must not be empty", sigScript.isNotBlank())
-        assertTrue("Signature script must start with Schnorr signature push", sigScript.startsWith("41"))
-        assertTrue("Signature script must contain the pushed covenant redeem script", sigScript.contains(covenantRedeemScript))
+        assertEquals("Signature script must be exactly 132 hex characters (66 bytes)", 132, sigScript.length)
+        assertTrue("Signature script must match Braid SDK's plain SIGHASH_ALL Schnorr regex", sigScript.matches(Regex("(?i)^41[0-9a-f]{128}01$")))
 
         // Verify cryptographic Schnorr signature
         val schnorrSigHex = sigScript.substring(2, 130)

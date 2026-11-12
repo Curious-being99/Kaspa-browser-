@@ -1338,7 +1338,7 @@ object KaspaDappBridge {
                     getBalance: () => request('getBalance'),
                     getUtxoEntries: () => request('getUtxoEntries'),
                     signMessage: message => request('signMessage', message),
-                    signPskt: payload => request('signPskt', payload),
+                    signPskt: (payload, options) => request('signPskt', (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload)),
                     signKrc20Transaction: payload => request('signKrc20Transaction', payload),
                     signKcc20Transaction: payload => request('signKcc20Transaction', payload),
                     signKcc20: payload => request('signKcc20Transaction', payload),
@@ -1480,7 +1480,12 @@ object KaspaDappBridge {
                         return request('signMessage', message);
                       }
                       case 'signPskt': {
-                        const payload = (params && typeof params === 'object') ? params : (value && typeof value === 'object' ? value : {});
+                        let payload = (params && typeof params === 'object') ? params : (value && typeof value === 'object' ? value : {});
+                        if (typeof value === 'string' && !payload.txJsonString) {
+                          payload = { txJsonString: value, options: typeof params === 'object' ? params : {} };
+                        } else if (typeof params === 'string') {
+                          payload = { txJsonString: params, options: (typeof secondArg === 'object' && secondArg) ? secondArg : {} };
+                        }
                         const txJson = payload.txJsonString || payload.psktTransactionJson || payload.signedTxJson || '';
                         const options = payload.options || { signInputs: payload.signInputs || payload.signInputIndexes || [] };
                         const signInputs = options.signInputs || payload.signInputs;
@@ -1561,7 +1566,7 @@ object KaspaDappBridge {
                     getNetwork: () => requestCompat({ method: 'getNetwork' }),
                     getPublicKey: () => requestCompat({ method: 'getPublicKey' }),
                     getBalance: () => requestCompat({ method: 'getBalance' }),
-                    signPskt: payload => requestCompat({ method: 'signPskt', params: payload }),
+                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
@@ -1574,7 +1579,7 @@ object KaspaDappBridge {
                     isInstalled: true,
                     isKaspa: true,
                     version: '1.2.0',
-                    signPskt: payload => requestCompat({ method: 'signPskt', params: payload }),
+                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
@@ -1591,7 +1596,7 @@ object KaspaDappBridge {
                     requestAccounts: () => requestCompat({ method: 'kaspa:requestAccounts' }),
                     getBalance: () => requestCompat({ method: 'kaspa:getBalance' }),
                     getPublicKey: () => requestCompat({ method: 'kaspa:getPublicKey' }),
-                    signPskt: payload => requestCompat({ method: 'signPskt', params: payload }),
+                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
                     signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
                     signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
                     sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
