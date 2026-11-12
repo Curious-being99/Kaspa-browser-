@@ -506,12 +506,13 @@ fun BrowserHomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .offset(y = (-44).dp)
                 .verticalScroll(rememberScrollState())
         ) {
             // 2. ORIGINAL KASPA NEWS SECTION & CARD PAGE
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = (-44).dp)
             ) {
                 // Render Original Live Kaspa News Feed (Categories, Videos, News Cards)
                 KaspaNewsSection(
