@@ -241,8 +241,8 @@ fun BrowserHomeScreen(
                 // Title overlay: Kaspa BlockDAG Real Time Decentralized
                 Column(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 16.dp, bottom = 16.dp)
+                        .align(Alignment.TopStart)
+                        .padding(start = 16.dp, top = 16.dp)
                 ) {
                     Text(
                         text = "Kaspa BlockDAG",
@@ -267,7 +267,7 @@ fun BrowserHomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .offset(y = (-20).dp)
+                    .offset(y = (-40).dp)
                     .height(48.dp)
             ) {
                 Row(
@@ -333,17 +333,16 @@ fun BrowserHomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(0.dp))
 
         // Scrollable Shortcuts & Kaspa News Content
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .offset(y = (-28).dp)
                 .verticalScroll(rememberScrollState())
         ) {
-
-            Spacer(modifier = Modifier.height(14.dp))
 
             // 1. ORIGINAL SPEED DIAL SHORTCUTS CONTAINER (Floating modern rounded dock)
             Surface(
@@ -508,7 +507,7 @@ fun BrowserHomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // 2. ORIGINAL KASPA NEWS SECTION & CARD PAGE
             Column(
