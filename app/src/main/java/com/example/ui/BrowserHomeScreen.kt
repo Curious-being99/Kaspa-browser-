@@ -267,8 +267,8 @@ fun BrowserHomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .offset(y = (-14).dp)
-                    .height(52.dp)
+                    .offset(y = (-20).dp)
+                    .height(48.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -292,7 +292,10 @@ fun BrowserHomeScreen(
                             Text(
                                 text = "Search or enter address...",
                                 color = Color(0xFF8E9BAE),
-                                fontSize = 14.5.sp
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         BasicTextField(
@@ -509,9 +512,7 @@ fun BrowserHomeScreen(
 
             // 2. ORIGINAL KASPA NEWS SECTION & CARD PAGE
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 // Section Header with "See All" action toggle
                 Row(
