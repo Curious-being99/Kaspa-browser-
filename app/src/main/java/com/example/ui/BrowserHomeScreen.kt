@@ -48,7 +48,6 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -115,7 +114,7 @@ import com.example.viewmodel.DecentralViewModel
  * matching the user reference design:
  * - Top Header & Hero Banner with Anime character, Kaspa cap/hoodie, and "Kaspa The Fastest Blockchain"
  * - Interactive hotspot overlays for Logo (Account), Shield (Security), and Gear (Settings / 3-dot menu)
- * - Rounded Pill Search Omnibox with QR Scanner
+ * - Rounded Pill Search Omnibox
  * - Original Speed Dial Shortcuts Dock (Kaspa.org, Braid, Kaspa.com, Kaspa.stream, igralabs, Kaskad, KaChat, Kasplay, Dotk, Kasmap, KaspaRocket, user custom shortcuts & Add shortcut dialog)
  * - Original Kaspa News section connected directly to live BlockDAG & RSS feeds (categories filter, video cards, news cards, live refresh)
  * - Bottom Navigation Bar with Home, Browser, Wallet, SI Agent, More (3 dots -> triggers 3-dot menu)
@@ -317,18 +316,7 @@ fun BrowserHomeScreen(
                                 .testTag("home_search_omnibox_input")
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = onOpenQrScanner,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "Scan QR",
-                            tint = Color(0xFF70C7BA),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+
                 }
             }
         }
