@@ -573,7 +573,6 @@ fun BrowserHomeScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
         }
 
         // BOTTOM NAVIGATION BAR (Shown ONLY on Home Screen!)
