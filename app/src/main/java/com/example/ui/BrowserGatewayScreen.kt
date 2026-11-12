@@ -650,6 +650,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var viewSourceMode by remember { mutableStateOf(false) }
     val urlFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
 
     LaunchedEffect(isWebLoading) {
         if (!isWebLoading) {
@@ -691,6 +692,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         if (isInputFocused) {
             try {
                 urlFocusRequester.requestFocus()
+                keyboardController?.show()
             } catch (_: Exception) {}
             if (textFieldValue.text.isNotEmpty()) {
                 textFieldValue = textFieldValue.copy(
@@ -699,6 +701,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             }
         } else {
             focusManager.clearFocus()
+            keyboardController?.hide()
         }
     }
 
@@ -2296,7 +2299,14 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     onOpenSettings = { viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT) },
                     onOpenBookmarks = { viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY) },
                     onOpenHistory = { viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY) },
-                    onOpenQrScanner = { isInputFocused = true },
+                    onOpenQrScanner = {
+                        viewSourceMode = false
+                        textFieldValue = androidx.compose.ui.text.input.TextFieldValue(
+                            text = urlInput,
+                            selection = androidx.compose.ui.text.TextRange(0, urlInput.length)
+                        )
+                        isInputFocused = true
+                    },
                     onSelectTab = { appTab -> viewModel.setTab(appTab) },
                     onOpenBrowser = { isInputFocused = true },
                     onOpenNewTab = { viewModel.createNewTab() },
