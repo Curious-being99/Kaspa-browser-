@@ -2296,7 +2296,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     onOpenSettings = { viewModel.setTab(com.example.viewmodel.AppTab.TRAFFIC_AUDIT) },
                     onOpenBookmarks = { viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY) },
                     onOpenHistory = { viewModel.setTab(com.example.viewmodel.AppTab.LIBRARY) },
-                    onOpenQrScanner = { isInputFocused = true },
                     onSelectTab = { appTab -> viewModel.setTab(appTab) },
                     onOpenBrowser = { isInputFocused = true },
                     onOpenNewTab = { viewModel.createNewTab() },
