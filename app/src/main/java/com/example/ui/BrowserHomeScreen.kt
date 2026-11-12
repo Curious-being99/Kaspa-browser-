@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.layout
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -343,7 +344,13 @@ fun BrowserHomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .offset(y = (-44).dp)
+                    .layout { measurable, constraints ->
+                        val dockOffset = 44.dp.roundToPx()
+                        val placeable = measurable.measure(constraints)
+                        layout(placeable.width, placeable.height - dockOffset) {
+                            placeable.place(0, -dockOffset)
+                        }
+                    }
             ) {
                 Row(
                     modifier = Modifier
@@ -512,7 +519,6 @@ fun BrowserHomeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .offset(y = (-44).dp)
             ) {
                 // Render Original Live Kaspa News Feed (Categories, Videos, News Cards)
                 KaspaNewsSection(
