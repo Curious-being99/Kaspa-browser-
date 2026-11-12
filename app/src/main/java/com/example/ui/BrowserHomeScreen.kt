@@ -157,7 +157,6 @@ fun BrowserHomeScreen(
     var shortcutToDelete by remember { mutableStateOf<CustomShortcut?>(null) }
     var addShortcutName by remember { mutableStateOf("") }
     var addShortcutUrl by remember { mutableStateOf("https://") }
-    var showFullNewsPage by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
     val photoThemePrefs = remember { PhotoThemePreferences(context) }
@@ -344,7 +343,7 @@ fun BrowserHomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .offset(y = (-36).dp)
+                    .offset(y = (-44).dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -507,65 +506,12 @@ fun BrowserHomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .offset(y = (-28).dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
             // 2. ORIGINAL KASPA NEWS SECTION & CARD PAGE
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Section Header with "See All" action toggle
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .width(4.dp)
-                                .height(18.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(Color(0xFF70C7BA))
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Kaspa News",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { showFullNewsPage = !showFullNewsPage }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = if (showFullNewsPage) "Collapse" else "See All",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF70C7BA)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "See All News",
-                            tint = Color(0xFF70C7BA),
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 // Render Original Live Kaspa News Feed (Categories, Videos, News Cards)
                 KaspaNewsSection(
                     viewModel = viewModel,
