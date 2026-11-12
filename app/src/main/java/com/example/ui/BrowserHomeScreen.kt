@@ -506,6 +506,7 @@ fun BrowserHomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .offset(y = (-44).dp)
                 .verticalScroll(rememberScrollState())
         ) {
             // 2. ORIGINAL KASPA NEWS SECTION & CARD PAGE
