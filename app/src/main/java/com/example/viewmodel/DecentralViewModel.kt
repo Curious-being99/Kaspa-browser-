@@ -2694,60 +2694,13 @@ class DecentralViewModel(
         batches: Int = 1,
         onResult: (Boolean, String, String?) -> Unit
     ) {
-        val account = activeAccount.value
-        if (account == null) {
-            onResult(false, "No active Kaspa wallet found", null)
-            return
-        }
-        viewModelScope.launch {
-            val upper = tick.uppercase().trim()
-            val meta = krc20Service.fetchTokenMetadata(upper).getOrNull()
-            val limitDouble = meta?.limitPerMint?.toDoubleOrNull()?.div(100_000_000.0) ?: 1000.0
-            val totalTokens = limitDouble * batches
-            val kasCommitAmount = 0.2 * batches
-
-            // In KRC-20 commit-reveal minting, the commit funds must be self-addressed to the user's own wallet!
-            val destination = account.kaspaAddress
-
-
-            val sendResult = try {
-                kaspaWalletService.sendKaspa(
-                    senderAddress = account.kaspaAddress,
-                    senderSeed = account.seedPhrase,
-                    recipientAddress = destination,
-                    amountKas = kasCommitAmount
-                )
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-
-            if (sendResult.isSuccess) {
-                val txItem = sendResult.getOrThrow()
-                val rawJson = org.json.JSONObject()
-                    .put("p", "krc-20")
-                    .put("op", "mint")
-                    .put("tick", upper)
-                    .put("amt", (totalTokens * 100_000_000).toLong().toString())
-                    .put("txId", txItem.txId)
-                    .put("batches", batches)
-                    .put("feeKas", kasCommitAmount)
-                    .put("status", "ACCEPTED")
-                    .toString(2)
-
-                recordAndPinToken(
-                    tick = upper,
-                    op = "MINT (BONDING CURVE)",
-                    amount = totalTokens,
-                    txId = txItem.txId,
-                    rawJson = rawJson
-                )
-                refreshTestnetWallet()
-                onResult(true, "Successfully bought %,.2f %s on bonding curve! Broadcasted on Kaspa BlockDAG.".format(totalTokens, upper), txItem.txId)
-            } else {
-                val errorMsg = sendResult.exceptionOrNull()?.message ?: "Transaction failed on BlockDAG"
-                onResult(false, errorMsg, null)
-            }
-        }
+        // Fail closed until the bonding-curve destination and transaction intent
+        // are protocol-verified and shown in the native wallet confirmation screen.
+        onResult(
+            false,
+            "Bonding-curve purchases are temporarily paused for security. No KAS was sent.",
+            null
+        )
     }
 
     fun calculateFeeBreakdown(
@@ -2787,6 +2740,11 @@ class DecentralViewModel(
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
+        if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(account.accountType, account.googleEmail, account.seedPhrase)) {
+            return@withContext Result.failure(
+                SecurityException("This legacy Google wallet is compromised because its key was derived from a public email address. Import its recovery phrase into a newly generated wallet and move funds using a trusted wallet before using this account again.")
+            )
+        }
 
         val currentNet = _selectedNetwork.value
         val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
@@ -3077,6 +3035,16 @@ class DecentralViewModel(
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ) {
         val senderAcc = activeAccount.value ?: return
+        if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase)) {
+            val warning = "This legacy Google wallet is compromised because its key was derived from a public email address. Import its recovery phrase into a newly generated wallet and move funds using a trusted wallet. No transaction was sent."
+            _statusMessage.value = warning
+            _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                isSending = false,
+                lastBroadcastTxId = null,
+                statusNotice = warning
+            )
+            return
+        }
         val currentNet = _selectedNetwork.value
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
