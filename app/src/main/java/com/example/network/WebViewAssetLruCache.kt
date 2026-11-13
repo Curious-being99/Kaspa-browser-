@@ -47,7 +47,7 @@ object WebViewAssetLruCache {
         val mimeType: String,
         val encoding: String?,
         val contentLength: Long,
-        var lastAccessed: Long,
+        @Volatile var lastAccessed: Long,
         val responseHeaders: Map<String, String>
     )
 
@@ -107,8 +107,12 @@ object WebViewAssetLruCache {
 
         val lowerUrl = url.lowercase()
 
-        // Never cache sensitive auth / login endpoints
+        // Never cache sensitive auth, login, or anti-bot/CAPTCHA challenge endpoints
         if (KaspaPrivacyEngine.isGoogleAccountOrAuthUrl(lowerUrl) ||
+            KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url) ||
+            lowerUrl.contains("/cdn-cgi/") || lowerUrl.contains("cloudflare") ||
+            lowerUrl.contains("hcaptcha") || lowerUrl.contains("recaptcha") ||
+            lowerUrl.contains("arkose") ||
             lowerUrl.contains("/login") || lowerUrl.contains("/auth") ||
             lowerUrl.contains("/oauth") || lowerUrl.contains("/token")
         ) {
@@ -209,55 +213,55 @@ object WebViewAssetLruCache {
                 }
             }
             
-            // Inject Webview cookies to bypass Cloudflare Bot Management and other auth gates
+            // Inject WebView cookies to support auth-gated fetches (do not persist cookie-authenticated responses to shared disk cache)
             val cookies = android.webkit.CookieManager.getInstance().getCookie(url)
-            if (!cookies.isNullOrEmpty()) {
+            val hasCookies = !cookies.isNullOrEmpty()
+            if (hasCookies) {
                 reqBuilder.addHeader("Cookie", cookies)
             }
 
-            val response = httpClient.newCall(reqBuilder.build()).execute()
-            if (!response.isSuccessful) {
-                response.close()
-                return null
-            }
+            httpClient.newCall(reqBuilder.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return null
+                }
 
-            val body = response.body ?: run {
-                response.close()
-                return null
-            }
+                val body = response.body ?: return null
+                val bytes = body.bytes()
+                val rawContentType = response.header("Content-Type") ?: deduceMimeType(url)
+                val (mimeType, encoding) = parseContentType(rawContentType, url)
 
-            val bytes = body.bytes()
-            val rawContentType = response.header("Content-Type") ?: deduceMimeType(url)
-            val (mimeType, encoding) = parseContentType(rawContentType, url)
+                val cacheControlHeader = response.header("Cache-Control").orEmpty().lowercase()
+                val isPrivateOrNoStore = cacheControlHeader.contains("no-store") ||
+                    cacheControlHeader.contains("private") ||
+                    cacheControlHeader.contains("no-cache")
 
-            val headers = mutableMapOf<String, String>()
-            headers["Access-Control-Allow-Origin"] = "*"
-            headers["Cache-Control"] = "public, max-age=31536000"
-            headers["X-Kaspa-LRU-Cache"] = "HIT"
-
-            response.headers.names().forEach { name ->
-                response.header(name)?.let { valStr ->
-                    if (!name.equals("content-type", ignoreCase = true)) {
-                        headers[name] = valStr
+                val headers = mutableMapOf<String, String>()
+                response.headers.names().forEach { name ->
+                    response.header(name)?.let { valStr ->
+                        if (!name.equals("content-type", ignoreCase = true)) {
+                            headers[name] = valStr
+                        }
                     }
                 }
+                headers["X-Kaspa-LRU-Cache"] = if (!hasCookies && !isPrivateOrNoStore) "STORED" else "BYPASS"
+
+                val finalEncoding = if (mimeType == "application/wasm") null else encoding
+                headers["Content-Type"] = if (finalEncoding != null) "$mimeType; charset=$finalEncoding" else mimeType
+
+                // Store in disk LRU cache only when response is non-personalized and cacheable
+                if (!hasCookies && !isPrivateOrNoStore) {
+                    put(url, mimeType, finalEncoding, headers, bytes)
+                }
+
+                WebResourceResponse(
+                    mimeType,
+                    finalEncoding,
+                    200,
+                    "OK",
+                    headers,
+                    ByteArrayInputStream(bytes)
+                )
             }
-            val finalEncoding = if (mimeType == "application/wasm") null else encoding
-            // CRITICAL: Ensure the Content-Type header matches our corrected mimeType, 
-            // because Chromium WebAssembly compiler checks the header map, not just the WebResourceResponse mimeType argument.
-            headers["Content-Type"] = if (finalEncoding != null) "$mimeType; charset=$finalEncoding" else mimeType
-
-            // Store in disk LRU cache
-            put(url, mimeType, finalEncoding, headers, bytes)
-
-            WebResourceResponse(
-                mimeType,
-                finalEncoding,
-                200,
-                "OK",
-                headers,
-                ByteArrayInputStream(bytes)
-            )
         } catch (e: Exception) {
             null
         }
@@ -346,15 +350,16 @@ object WebViewAssetLruCache {
     fun getEntryCount(): Int = memoryIndex.size
 
     private fun writeMetaFile(file: File, meta: CacheMetadata) {
+        fun cleanLine(s: String): String = s.replace("\r", "").replace("\n", "")
         file.bufferedWriter().use { writer ->
-            writer.write("key=${meta.key}\n")
-            writer.write("url=${meta.url}\n")
-            writer.write("mimeType=${meta.mimeType}\n")
-            writer.write("encoding=${meta.encoding ?: ""}\n")
+            writer.write("key=${cleanLine(meta.key)}\n")
+            writer.write("url=${cleanLine(meta.url)}\n")
+            writer.write("mimeType=${cleanLine(meta.mimeType)}\n")
+            writer.write("encoding=${cleanLine(meta.encoding ?: "")}\n")
             writer.write("contentLength=${meta.contentLength}\n")
             writer.write("lastAccessed=${meta.lastAccessed}\n")
             meta.responseHeaders.forEach { (k, v) ->
-                writer.write("header:$k=$v\n")
+                writer.write("header:${cleanLine(k)}=${cleanLine(v)}\n")
             }
         }
     }

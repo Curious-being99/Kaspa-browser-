@@ -257,6 +257,7 @@ fun WebpagePreviewHubCard(
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
+                                @Suppress("DEPRECATION")
                                 databaseEnabled = true
                                 loadWithOverviewMode = true
                                 useWideViewPort = true
@@ -267,6 +268,15 @@ fun WebpagePreviewHubCard(
                                 userAgentString = CHROME_MOBILE_USER_AGENT
                                 allowFileAccess = false
                                 allowContentAccess = false
+                                @Suppress("DEPRECATION")
+                                allowFileAccessFromFileURLs = false
+                                @Suppress("DEPRECATION")
+                                allowUniversalAccessFromFileURLs = false
+                                javaScriptCanOpenWindowsAutomatically = false
+                                setGeolocationEnabled(false)
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                    safeBrowsingEnabled = true
+                                }
                             }
 
                             setInitialScale(45) // Scale down for a rich miniature overview
@@ -288,9 +298,21 @@ fun WebpagePreviewHubCard(
                                         pageTitle = title
                                     }
                                 }
+
+                                override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                                    request?.deny()
+                                }
                             }
 
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?
+                                ): Boolean {
+                                    val scheme = request?.url?.scheme?.lowercase(java.util.Locale.ROOT)
+                                    return scheme != "https" && scheme != "http"
+                                }
+
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     isLoading = true
                                     hasError = false
@@ -302,6 +324,20 @@ fun WebpagePreviewHubCard(
                                     val currentTitle = view?.title
                                     if (!currentTitle.isNullOrBlank() && !currentTitle.startsWith("http", ignoreCase = true)) {
                                         pageTitle = currentTitle
+                                    }
+                                }
+
+                                override fun onSafeBrowsingHit(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?,
+                                    threatType: Int,
+                                    callback: android.webkit.SafeBrowsingResponse?
+                                ) {
+                                    hasError = true
+                                    errorMessage = "Blocked unsafe site"
+                                    isLoading = false
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                        callback?.backToSafety(true)
                                     }
                                 }
 

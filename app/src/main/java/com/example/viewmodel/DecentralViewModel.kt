@@ -337,6 +337,34 @@ class DecentralViewModel(
     }
 
     private val database = AppDatabase.getDatabase(application)
+    val passwordVaultRepository by lazy {
+        com.example.security.PasswordVaultRepository(database.vaultCredentialDao())
+    }
+    val vaultCredentials: StateFlow<List<com.example.data.VaultCredentialEntity>> =
+        passwordVaultRepository.allCredentials.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    private val _showPasswordVaultSheet = MutableStateFlow(false)
+    val showPasswordVaultSheet: StateFlow<Boolean> = _showPasswordVaultSheet.asStateFlow()
+
+    private val _isVaultUnlocked = MutableStateFlow(false)
+    val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
+
+    fun setShowPasswordVaultSheet(show: Boolean) {
+        _showPasswordVaultSheet.value = show
+    }
+
+    fun unlockVault() {
+        _isVaultUnlocked.value = true
+    }
+
+    fun lockVault() {
+        _isVaultUnlocked.value = false
+    }
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -462,17 +490,11 @@ class DecentralViewModel(
                 // Delete stale articles containing outdated author tags
                 database.newsArticleDao().purgeStaleArticles()
 
-                val oldNews = database.newsArticleDao().getAllNewsList()
                 val fetched = fetchLatestKaspaFeeds()
                 if (fetched.isNotEmpty()) {
                     val entities = fetched.map { it.toEntity() }
                     database.newsArticleDao().insertAll(entities)
-                    
-                    val newCount = fetched.size - oldNews.size
-                    if (newCount > 0) {
-                        val featuredArticle = fetched.maxByOrNull { it.epochMillis }
-                        showNewsNotification(newCount, featuredArticle)
-                    }
+                    com.example.news.KaspaNewsNotificationWorker.markItemsSeen(getApplication(), fetched)
                 }
             } catch (e: Exception) {
                 android.util.Log.d("DecentralViewModel", "News refresh notice: ${e.message}")
@@ -480,109 +502,6 @@ class DecentralViewModel(
                 _isNewsRefreshing.value = false
             }
         }
-    }
-
-    private suspend fun showNewsNotification(newCount: Int, featuredArticle: KaspaNewsItem?) {
-        val context = getApplication<android.app.Application>()
-        val channelId = "kaspa_news_channel"
-        val notificationManager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val channel = android.app.NotificationChannel(
-                channelId,
-                "Kaspa News Updates",
-                android.app.NotificationManager.IMPORTANCE_DEFAULT
-            )
-            notificationManager.createNotificationChannel(channel)
-        }
-
-        val appIcon = runCatching {
-            val drawable = context.packageManager.getApplicationIcon(context.applicationInfo)
-            val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 128
-            val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 128
-            android.graphics.Bitmap.createBitmap(
-                width.coerceAtMost(512),
-                height.coerceAtMost(512),
-                android.graphics.Bitmap.Config.ARGB_8888
-            ).also { bitmap ->
-                val canvas = android.graphics.Canvas(bitmap)
-                drawable.setBounds(0, 0, canvas.width, canvas.height)
-                drawable.draw(canvas)
-            }
-        }.getOrNull()
-
-        val articleImage = featuredArticle?.imageUrl
-            ?.takeIf { it.startsWith("https://", ignoreCase = true) }
-            ?.let { imageUrl ->
-                withContext(Dispatchers.IO) {
-                    runCatching {
-                        val client = okhttp3.OkHttpClient.Builder()
-                            .connectTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                            .readTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
-                            .callTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-                            .build()
-                        val request = okhttp3.Request.Builder()
-                            .url(imageUrl)
-                            .header("User-Agent", "KaspaBrowser/1.0")
-                            .build()
-                        client.newCall(request).execute().use { response ->
-                            val body = response.body ?: return@use null
-                            if (!response.isSuccessful ||
-                                body.contentLength() > 4L * 1024L * 1024L
-                            ) return@use null
-                            val bytes = body.bytes()
-                            if (bytes.isEmpty() || bytes.size > 4 * 1024 * 1024) return@use null
-                            val bounds = android.graphics.BitmapFactory.Options().apply {
-                                inJustDecodeBounds = true
-                            }
-                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@use null
-                            val sample = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 1024)
-                            val options = android.graphics.BitmapFactory.Options().apply {
-                                inSampleSize = sample
-                            }
-                            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-                        }
-                    }.getOrNull()
-                }
-            }
-
-        val headline = featuredArticle?.title?.takeIf { it.isNotBlank() } ?: "New Kaspa News"
-        val detail = featuredArticle?.desc?.takeIf { it.isNotBlank() }
-            ?: "Check out $newCount new items in Kaspa Browser."
-        val openNews = android.content.Intent(context, com.example.MainActivity::class.java).apply {
-            action = android.content.Intent.ACTION_MAIN
-            addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        }
-        val pendingIntent = android.app.PendingIntent.getActivity(
-            context,
-            4102,
-            openNews,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
-            .setLargeIcon(appIcon)
-            .setContentTitle(headline)
-            .setContentText(detail)
-            .setStyle(
-                if (articleImage != null) {
-                    androidx.core.app.NotificationCompat.BigPictureStyle()
-                        .bigPicture(articleImage)
-                        .setBigContentTitle(headline)
-                        .setSummaryText("$newCount new Kaspa news item(s)")
-                } else {
-                    androidx.core.app.NotificationCompat.BigTextStyle()
-                        .bigText("$detail\n\n$newCount new Kaspa news item(s)")
-                }
-            )
-            .setSubText(featuredArticle?.author?.takeIf { it.isNotBlank() } ?: "Kaspa Browser")
-            .setContentIntent(pendingIntent)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-
-        notificationManager.notify(1, builder.build())
     }
 
     private val securityPrefs = application.getSharedPreferences("kaspa_wallet_security", android.content.Context.MODE_PRIVATE)
@@ -899,6 +818,7 @@ class DecentralViewModel(
     fun lockWallet() {
         // Invalidate password checks already in flight before changing lock state.
         walletLockGeneration.incrementAndGet()
+        lockVault()
         // Do not lock an account that has no configured wallet password:
         // the lock screen cannot authenticate it or enroll a password safely.
         // Once a password is configured, normal auto-lock behavior applies.
@@ -1028,6 +948,30 @@ class DecentralViewModel(
                 savedStateHandle["active_tab_url"] = tab.url
                 savedStateHandle["active_tab_title"] = tab.title
                 database.browserTabDao().insert(tab.copy(lastAccessed = System.currentTimeMillis()))
+                val hibernatedRecords = mutableListOf<Triple<String, ByteArray?, Pair<Int, Int>?>>()
+                val hibernatedHistories = mutableMapOf<String, String>()
+                webViewTabManager.hibernateColdTabsIfNeeded(activeTabId = id, maxLiveWebViews = 6) { coldId, bundle, scroll, historyJson ->
+                    val bytes = BrowserTabWebViewManager.bundleToByteArray(bundle)
+                    hibernatedRecords.add(Triple(coldId, bytes, scroll))
+                    if (historyJson != "[]") {
+                        hibernatedHistories[coldId] = historyJson
+                    }
+                }
+                if (hibernatedRecords.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        hibernatedRecords.forEach { (coldId, bytes, scroll) ->
+                            val coldTab = database.browserTabDao().getTabById(coldId) ?: return@forEach
+                            database.browserTabDao().insert(
+                                coldTab.copy(
+                                    webViewState = bytes ?: coldTab.webViewState,
+                                    scrollX = scroll?.first ?: coldTab.scrollX,
+                                    scrollY = scroll?.second ?: coldTab.scrollY,
+                                    historyJson = hibernatedHistories[coldId] ?: coldTab.historyJson
+                                )
+                            )
+                        }
+                    }
+                }
                 if (tab.url.isBlank()) {
                     resetToHome()
                 } else {
@@ -1634,10 +1578,14 @@ class DecentralViewModel(
     private val _encryptedLocalStorage = MutableStateFlow(true)
     val encryptedLocalStorage: StateFlow<Boolean> = _encryptedLocalStorage.asStateFlow()
 
-    private val _thirdPartyCookies = MutableStateFlow(false)
+    private val browserSettingsPrefs = application.getSharedPreferences("kaspa_browser_settings", android.content.Context.MODE_PRIVATE)
+
+    private val _thirdPartyCookies = MutableStateFlow(
+        browserSettingsPrefs.getBoolean("third_party_cookies_enabled", true)
+    )
     val thirdPartyCookies: StateFlow<Boolean> = _thirdPartyCookies.asStateFlow()
 
-    private val _blockThirdPartyCookies = MutableStateFlow(false)
+    private val _blockThirdPartyCookies = MutableStateFlow(!_thirdPartyCookies.value)
     val blockThirdPartyCookies: StateFlow<Boolean> = _blockThirdPartyCookies.asStateFlow()
 
     private val _strictDecentralizedMode = MutableStateFlow(false)
@@ -1648,8 +1596,6 @@ class DecentralViewModel(
 
     private val _incognitoMode = MutableStateFlow(false)
     val incognitoMode: StateFlow<Boolean> = _incognitoMode.asStateFlow()
-
-    private val browserSettingsPrefs = application.getSharedPreferences("kaspa_browser_settings", android.content.Context.MODE_PRIVATE)
 
     private val _desktopModeEnabled = MutableStateFlow(browserSettingsPrefs.getBoolean("desktop_mode_enabled", false))
     val desktopModeEnabled: StateFlow<Boolean> = _desktopModeEnabled.asStateFlow()
@@ -1665,7 +1611,9 @@ class DecentralViewModel(
     private val _httpsOnlyMode = MutableStateFlow(true)
     val httpsOnlyMode: StateFlow<Boolean> = _httpsOnlyMode.asStateFlow()
 
-    private val _webAuthEnabled = MutableStateFlow(true)
+    private val _webAuthEnabled = MutableStateFlow(
+        browserSettingsPrefs.getBoolean("web_auth_enabled", true)
+    )
     val webAuthEnabled: StateFlow<Boolean> = _webAuthEnabled.asStateFlow()
 
     private val _showWebAuthnRpIdDialog = MutableStateFlow(false)
@@ -1713,7 +1661,7 @@ class DecentralViewModel(
     fun rotatePrivacyRelayCircuit() {
         val newCircuit = KaspaPrivacyRelayEngine.rotateCircuit()
         _activeRelayCircuit.value = newCircuit
-        _statusMessage.value = "Rotated Privacy Circuit: ${newCircuit.circuitId} (${newCircuit.entryNode.countryCode} ➔ ${newCircuit.exitNode.countryCode})"
+        _statusMessage.value = "Refreshed Relay Session: ${newCircuit.circuitId} (${newCircuit.entryNode.countryCode} ➔ ${newCircuit.exitNode.countryCode})"
     }
 
     fun refreshRelayCircuitState() {
@@ -1865,10 +1813,12 @@ class DecentralViewModel(
     fun toggleThirdPartyCookies(enabled: Boolean) {
         _thirdPartyCookies.value = enabled
         _blockThirdPartyCookies.value = !enabled
+        browserSettingsPrefs.edit().putBoolean("third_party_cookies_enabled", enabled).apply()
     }
     fun toggleBlockThirdPartyCookies(enabled: Boolean) {
         _blockThirdPartyCookies.value = enabled
         _thirdPartyCookies.value = !enabled
+        browserSettingsPrefs.edit().putBoolean("third_party_cookies_enabled", !enabled).apply()
     }
     fun toggleStrictDecentralizedMode(enabled: Boolean) { _strictDecentralizedMode.value = enabled }
     fun toggleSendDntHeaders(enabled: Boolean) { _sendDntHeaders.value = enabled }
@@ -1887,8 +1837,107 @@ class DecentralViewModel(
         browserSettingsPrefs.edit().putBoolean("background_playback_enabled", enabled).apply()
     }
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
-    fun toggleWebAuth(enabled: Boolean) { _webAuthEnabled.value = enabled }
+    fun toggleWebAuth(enabled: Boolean) {
+        _webAuthEnabled.value = enabled
+        browserSettingsPrefs.edit().putBoolean("web_auth_enabled", enabled).apply()
+    }
     fun setShowWebAuthnRpIdDialog(show: Boolean) { _showWebAuthnRpIdDialog.value = show }
+
+    suspend fun getMatchingVaultCredentials(url: String): List<com.example.data.VaultCredentialEntity> {
+        return try {
+            passwordVaultRepository.getMatchingCredentialsForUrl(url)
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    fun decryptVaultPassword(entity: com.example.data.VaultCredentialEntity): String? {
+        return passwordVaultRepository.decryptPassword(entity)
+    }
+
+    fun saveVaultPassword(
+        url: String,
+        siteName: String,
+        username: String,
+        rawPassword: String,
+        notes: String = "",
+        onDone: ((Result<com.example.data.VaultCredentialEntity>) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val res = runCatching {
+                passwordVaultRepository.savePasswordCredential(
+                    url = url,
+                    siteName = siteName,
+                    username = username,
+                    rawPassword = rawPassword,
+                    notes = notes
+                )
+            }
+            if (res.isSuccess) {
+                val host = res.getOrNull()?.host ?: ""
+                _statusMessage.value = "Login encrypted & saved for $host"
+            } else {
+                _statusMessage.value = "Failed to save login: ${res.exceptionOrNull()?.message ?: "Unknown error"}"
+            }
+            onDone?.invoke(res)
+        }
+    }
+
+    fun updateVaultCredential(
+        id: String,
+        siteName: String,
+        originUrl: String,
+        username: String,
+        newRawPassword: String?,
+        notes: String,
+        onDone: ((Boolean) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val updated = runCatching {
+                passwordVaultRepository.updateCredential(
+                    id = id,
+                    siteName = siteName,
+                    originUrl = originUrl,
+                    username = username,
+                    newRawPassword = newRawPassword,
+                    notes = notes
+                )
+            }.getOrNull()
+            if (updated != null) {
+                _statusMessage.value = "Saved login updated for ${updated.host}"
+                onDone?.invoke(true)
+            } else {
+                _statusMessage.value = "Could not update credential"
+                onDone?.invoke(false)
+            }
+        }
+    }
+
+    fun deleteVaultCredential(id: String) {
+        viewModelScope.launch {
+            passwordVaultRepository.deleteCredential(id)
+            _statusMessage.value = "Credential removed from vault"
+        }
+    }
+
+    fun recordPasskeyCredential(url: String, rpId: String, username: String, siteName: String = "") {
+        viewModelScope.launch {
+            runCatching {
+                passwordVaultRepository.recordPasskeyCredential(
+                    url = url,
+                    rpId = rpId,
+                    username = username,
+                    siteName = siteName
+                )
+            }
+        }
+    }
+
+    fun markVaultCredentialUsed(id: String) {
+        viewModelScope.launch {
+            runCatching { passwordVaultRepository.markUsed(id) }
+        }
+    }
     fun setSearchEngine(engine: SearchEngine) {
         _searchEngine.value = engine
         browserSettingsPrefs.edit().putString("default_search_engine", engine.name).apply()
@@ -3687,6 +3736,10 @@ class DecentralViewModel(
                     target
                 }
                 _urlInput.value = displayInput
+                com.example.engine.BrowserEngineManager.preconnectOrigin(
+                    rawUrl = target,
+                    isPrivacyRelayActive = _isPrivacyRelayEnabled.value || _incognitoMode.value
+                )
 
                 val activeId = _activeTabId.value
                 val activeTab = if (activeId != null) {
@@ -4248,8 +4301,10 @@ class DecentralViewModel(
             android.webkit.CookieManager.getInstance().flush()
             // 3. Clear Web Storage (LocalStorage, IndexedDB)
             android.webkit.WebStorage.getInstance().deleteAllData()
+            // 4. Clear Kazview isolated Stealth Chromium profile if active
+            com.example.engine.BrowserEngineManager.clearStealthProfile()
             
-            _statusMessage.value = "All browsing data, cookies, and cache cleared"
+            _statusMessage.value = "Browsing data, cookies, and cache cleared (saved logins preserved)"
         }
     }
 

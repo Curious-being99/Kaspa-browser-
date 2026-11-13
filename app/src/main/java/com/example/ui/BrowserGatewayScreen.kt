@@ -97,6 +97,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
@@ -563,6 +564,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var lastDownloadedUrl by remember { mutableStateOf<String?>(null) }
     var lastDownloadTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var lastSuccessfulWebUrl by remember { mutableStateOf("") }
+    var activeAutofillEvent by remember { mutableStateOf<com.example.security.AutofillFormEvent?>(null) }
+    var matchingAutofillCredentials by remember { mutableStateOf<List<com.example.data.VaultCredentialEntity>>(emptyList()) }
+    var pendingCredentialSave by remember { mutableStateOf<com.example.security.PendingCredentialSave?>(null) }
+    val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
+
+    LaunchedEffect(activeAutofillEvent) {
+        val ev = activeAutofillEvent
+        matchingAutofillCredentials = if (ev != null) {
+            viewModel.getMatchingVaultCredentials(ev.url)
+        } else {
+            emptyList()
+        }
+    }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -999,6 +1013,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             } catch (_: Exception) {}
             webProgress = 0f
             isWebLoading = false
+            activeAutofillEvent = null
+            matchingAutofillCredentials = emptyList()
+            pendingCredentialSave = null
         }
     }
 
@@ -1013,6 +1030,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         jsPromptResult?.cancel()
         jsPromptResult = null
         jsPromptMessage = null
+        activeAutofillEvent = null
+        matchingAutofillCredentials = emptyList()
     }
 
     val isLoading by viewModel.isLoading.collectAsState()
@@ -1033,6 +1052,42 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
     val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
+    val challengeCookieHosts = remember { java.util.concurrent.ConcurrentHashMap.newKeySet<String>() }
+
+    fun applyDesktopModeAndReload(newMode: Boolean) {
+        viewModel.toggleDesktopMode(newMode)
+        webViewInstance?.let { wv ->
+            val defaultDeviceUa = try {
+                WebSettings.getDefaultUserAgent(context)
+            } catch (_: Throwable) {
+                null
+            }
+            val rawUrl = KaspaPrivacyEngine.resolveUrlForDesktopToggle(
+                webViewUrl = wv.url,
+                urlInput = urlInput,
+                resourceUrl = currentResource?.url
+            )
+            wv.stopLoading()
+            KaspaPrivacyEngine.applyUserAgentAndMetadata(wv.settings, newMode, defaultDeviceUa)
+            val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
+                KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
+            } else if (!newMode && !rawUrl.isNullOrBlank()) {
+                KaspaPrivacyEngine.convertDesktopUrlToMobile(rawUrl)
+            } else {
+                rawUrl
+            }
+            if (!curUrl.isNullOrBlank() && curUrl != rawUrl) {
+                viewModel.setUrlInput(curUrl)
+            }
+            if (!curUrl.isNullOrBlank() && (curUrl.startsWith("http://", ignoreCase = true) || curUrl.startsWith("https://", ignoreCase = true))) {
+                wv.loadUrl(curUrl, KaspaPrivacyEngine.getDesktopHeaders(newMode, defaultDeviceUa))
+            } else if (!curUrl.isNullOrBlank()) {
+                wv.loadUrl(curUrl)
+            } else {
+                viewModel.setStatusMessage("No page URL available to reload after changing desktop mode")
+            }
+        }
+    }
 
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -1117,16 +1172,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     LaunchedEffect(webAuthEnabled) {
         webViewInstance?.let { wv ->
-            if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
-                val supportLevel = if (webAuthEnabled) {
-                    androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
-                } else {
-                    androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
-                }
-                try {
-                    androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(wv.settings, supportLevel)
-                } catch (_: Throwable) {}
-            }
+            com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, webAuthEnabled)
         }
     }
 
@@ -1931,52 +1977,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     },
                                     onClick = {
                                         showBrowserMenu = false
-                                        val newMode = !desktopModeEnabled
-                                        viewModel.toggleDesktopMode(newMode)
-                                        webViewInstance?.let { wv ->
-                                            val defaultDeviceUa = try {
-                                                WebSettings.getDefaultUserAgent(context)
-                                            } catch (_: Throwable) {
-                                                null
-                                            }
-                                            val currentUa = if (newMode) {
-                                                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
-                                            } else {
-                                                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
-                                            }
-                                            // Stop the current document before changing its UA. Android WebView may
-                                            // initiate an automatic reload when the UA changes; stopping first prevents
-                                            // the old mobile document from rendering while the desktop reload is pending.
-                                            val rawUrl = KaspaPrivacyEngine.resolveUrlForDesktopToggle(
-                                                webViewUrl = wv.url,
-                                                urlInput = urlInput,
-                                                resourceUrl = currentResource?.url
-                                            )
-                                            wv.stopLoading()
-                                            // Configure the viewport before changing UA, so any reload sees desktop
-                                            // viewport settings from its first layout pass.
-                                            wv.settings.useWideViewPort = newMode
-                                            wv.settings.loadWithOverviewMode = newMode
-                                            wv.settings.userAgentString = currentUa
-                                            val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
-                                                KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
-                                            } else if (!newMode && !rawUrl.isNullOrBlank()) {
-                                                KaspaPrivacyEngine.convertDesktopUrlToMobile(rawUrl)
-                                            } else {
-                                                rawUrl
-                                            }
-                                            if (!curUrl.isNullOrBlank() && curUrl != rawUrl) {
-                                                viewModel.setUrlInput(curUrl)
-                                            }
-                                            if (!curUrl.isNullOrBlank() && (curUrl.startsWith("http://", ignoreCase = true) || curUrl.startsWith("https://", ignoreCase = true))) {
-                                                wv.loadUrl(curUrl, KaspaPrivacyEngine.getDesktopHeaders(newMode, defaultDeviceUa))
-                                            } else if (!curUrl.isNullOrBlank()) {
-                                                // Preserve supported internal protocols; never reload an empty/about:blank document.
-                                                wv.loadUrl(curUrl)
-                                            } else {
-                                                viewModel.setStatusMessage("No page URL available to reload after changing desktop mode")
-                                            }
-                                        }
+                                        applyDesktopModeAndReload(!desktopModeEnabled)
                                     }
                                 )
                                 DropdownMenuItem(
@@ -2048,6 +2049,35 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         viewModel.setTab(com.example.viewmodel.AppTab.MESH_RADAR)
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Passwords & Passkeys", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = ElectricCyan) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setShowPasswordVaultSheet(true)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Passkey Diagnostics", color = TextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Fingerprint, contentDescription = null, tint = EmeraldMesh) },
+                                    onClick = {
+                                        showBrowserMenu = false
+                                        viewModel.setShowWebAuthnRpIdDialog(true)
+                                    }
+                                )
+                                val activeHttpUrl = (webViewInstance?.url ?: urlInput).takeIf {
+                                    it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+                                }
+                                if (activeHttpUrl != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Open in Custom Tab", color = TextPrimary) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = ElectricCyan) },
+                                        onClick = {
+                                            showBrowserMenu = false
+                                            com.example.engine.BrowserEngineManager.openInCustomTab(context, activeHttpUrl)
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Settings & Traffic Audit", color = TextPrimary) },
                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = ElectricCyan) },
@@ -2304,8 +2334,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         refreshProviderDiagnostics()
                     },
                     onToggleDesktopMode = {
-                        val newMode = !desktopModeEnabled
-                        viewModel.toggleDesktopMode(newMode)
+                        applyDesktopModeAndReload(!desktopModeEnabled)
                     },
                     onOpenInstallSheet = { showInstallSheet = true },
                     onToggleReaderMode = { toggleReaderMode() },
@@ -2354,6 +2383,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 context = ctx,
                                 savedStateBundle = savedBundle
                             ) { newWv ->
+                                com.example.engine.BrowserEngineManager.assignProfileForTab(
+                                    newWv,
+                                    viewModel.incognitoMode.value
+                                )
                                 newWv.apply {
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -2391,8 +2424,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 databaseEnabled = true
                                 mediaPlaybackRequiresUserGesture = false
                                 setGeolocationEnabled(false)
-                                allowFileAccess = true
-                                allowContentAccess = true
+                                allowFileAccess = false
+                                allowContentAccess = false
                                 @Suppress("DEPRECATION")
                                 allowFileAccessFromFileURLs = false
                                 @Suppress("DEPRECATION")
@@ -2410,17 +2443,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 // Dynamic theme rendering based on system theme is disabled to allow sites to render their own CSS
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
                                 
-                                // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit
-                                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
-                                    val supportLevel = if (webAuthEnabled) {
-                                        androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
-                                    } else {
-                                        androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
-                                    }
-                                    try {
-                                        androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(this, supportLevel)
-                                    } catch (_: Throwable) {}
-                                }
+                                // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit (FOR_BROWSER)
+                                com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(this, webAuthEnabled)
+                                com.example.util.KaspaWebViewConfigurator.applyKazviewSettings(this)
 
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                     safeBrowsingEnabled = true
@@ -2436,15 +2461,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 } catch (_: Throwable) {
                                     null
                                 }
-                                userAgentString = if (desktopModeEnabled) {
-                                    KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
-                                } else {
-                                    KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
-                                }
-                                // Set UA + viewport as one pre-navigation configuration. Do not allow
-                                // WebView to render an initial mobile-width layout in desktop mode.
-                                useWideViewPort = desktopModeEnabled
-                                loadWithOverviewMode = desktopModeEnabled
+                                KaspaPrivacyEngine.applyUserAgentAndMetadata(this, desktopModeEnabled, defaultDeviceUa)
                             }
 
                             // Early document-start JavaScript injection for WebGL stability, privacy shield, and Web3 wallet bridge
@@ -2787,12 +2804,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return false
                                     }
 
+                                    var tempCleanedUp = false
+                                    var tempWebViewRef: WebView? = null
+                                    fun destroyTempWebView() {
+                                        if (tempCleanedUp) return
+                                        tempCleanedUp = true
+                                        val wv = tempWebViewRef ?: return
+                                        wv.post {
+                                            try {
+                                                wv.stopLoading()
+                                                wv.webViewClient = WebViewClient()
+                                                (wv.parent as? ViewGroup)?.removeView(wv)
+                                                wv.destroy()
+                                            } catch (_: Throwable) {}
+                                        }
+                                    }
+
                                     fun handleTargetUrl(wv: WebView?, target: String, gesture: Boolean): Boolean {
                                         if (target.isBlank() || target == "about:blank") return false
                                         wv?.stopLoading()
                                         if (isDirectDownloadableUrl(target)) {
                                             if (!enableDownloads) {
                                                 viewModel.setStatusMessage("Downloads are disabled in Settings")
+                                                destroyTempWebView()
                                                 return true
                                             }
                                             val filename = android.webkit.URLUtil.guessFileName(target, null, null)
@@ -2804,9 +2838,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.startDownload(view.context, downloadId, target, filename, cookies, userAgent, referer)
                                             viewModel.setStatusMessage("Download started: $filename")
                                             android.widget.Toast.makeText(view.context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                            destroyTempWebView()
                                             return true
                                         }
                                         viewModel.createNewTab(target, title = "New Tab", isExternal = true)
+                                        destroyTempWebView()
                                         return true
                                     }
 
@@ -2823,6 +2859,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             stopLoading()
                                             if (!enableDownloads) {
                                                 viewModel.setStatusMessage("Downloads are disabled in Settings")
+                                                destroyTempWebView()
                                                 return@setDownloadListener
                                             }
                                             val filename = android.webkit.URLUtil.guessFileName(dUrl, dContentDisposition, dMimetype)
@@ -2833,6 +2870,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.startDownload(view.context, downloadId, dUrl, filename, cookies, dUserAgent, referer)
                                             viewModel.setStatusMessage("Download started: $filename")
                                             android.widget.Toast.makeText(view.context, "Downloading $filename", android.widget.Toast.LENGTH_SHORT).show()
+                                            destroyTempWebView()
                                         }
                                         webViewClient = object : WebViewClient() {
                                             override fun onPageStarted(wv: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
@@ -2853,6 +2891,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, gesture)
                                                 if (!intercepted) {
                                                     handleTargetUrl(wv, target, gesture)
+                                                } else {
+                                                    destroyTempWebView()
                                                 }
                                                 return true
                                             }
@@ -2863,17 +2903,22 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                 val intercepted = handleDeepLinkOrNavigate(view, target, isUserGesture)
                                                 if (!intercepted) {
                                                     handleTargetUrl(wv, target, isUserGesture)
+                                                } else {
+                                                    destroyTempWebView()
                                                 }
                                                 return true
                                             }
                                         }
                                     }
+                                    tempWebViewRef = tempWebView
                                     val transport = resultMsg.obj as? WebView.WebViewTransport
                                     if (transport != null) {
                                         transport.webView = tempWebView
                                         resultMsg.sendToTarget()
+                                        view.postDelayed({ destroyTempWebView() }, 15_000L)
                                         return true
                                     }
+                                    destroyTempWebView()
                                     return false
                                 }
 
@@ -2986,15 +3031,37 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     webViewInstance?.loadUrl("about:blank")
                                 }
                                 }
+                                override fun onLoadResource(view: WebView?, url: String?) {
+                                    super.onLoadResource(view, url)
+                                    if (view != null && url != null) {
+                                        val host = KaspaPrivacyEngine.extractHostFast(url)
+                                        if (KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                            (host != null && KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain(host))
+                                        ) {
+                                            com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
+                                        }
+                                    }
+                                }
+
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     if (view != null) {
                                         val isDesktop = viewModel.desktopModeEnabled.value
-                                        if (view.settings.useWideViewPort != isDesktop) {
-                                            view.settings.useWideViewPort = isDesktop
+                                        val startDefaultUa = try {
+                                            WebSettings.getDefaultUserAgent(view.context)
+                                        } catch (_: Throwable) {
+                                            null
                                         }
-                                        if (view.settings.loadWithOverviewMode != isDesktop) {
-                                            view.settings.loadWithOverviewMode = isDesktop
-                                        }
+                                        KaspaPrivacyEngine.applyUserAgentAndMetadata(view.settings, isDesktop, startDefaultUa)
+                                        try {
+                                            val pageHost = url?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                            val allowChallengeCookies = (pageHost != null && challengeCookieHosts.contains(pageHost)) ||
+                                                (url != null && (
+                                                    KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                                        KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
+                                                    ))
+                                            android.webkit.CookieManager.getInstance()
+                                                .setAcceptThirdPartyCookies(view, thirdPartyCookies || allowChallengeCookies)
+                                        } catch (_: Throwable) {}
                                     }
                                     if (view != null && url != null) {
                                         com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
@@ -3043,11 +3110,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
-                                    // Inject WebRTC STUN/TURN UDP Leak Shield (Zero IP Exposure)
-                                    view?.evaluateJavascript(
-                                        KaspaPrivacyRelayEngine.getWebRtcLeakShieldScript(),
-                                        null
-                                    )
+                                    // Inject WebRTC STUN/TURN UDP Leak Shield ONLY when a custom proxy/relay is active;
+                                    // stripping WebRTC on direct connections causes sites to falsely demand "turn off your VPN" and fail bot checks.
+                                    val isCustomProxyActive = try {
+                                        view?.context?.getSharedPreferences("kaspa_proxy_prefs", android.content.Context.MODE_PRIVATE)
+                                            ?.getBoolean("custom_proxy_enabled", false) ?: false
+                                    } catch (_: Throwable) {
+                                        false
+                                    }
+                                    if (isCustomProxyActive) {
+                                        view?.evaluateJavascript(
+                                            "window.__kaspa_relay_shield = true;\n" + KaspaPrivacyRelayEngine.getWebRtcLeakShieldScript(),
+                                            null
+                                        )
+                                    }
 
                                     if (backgroundPlaybackEnabled) {
                                         view?.evaluateJavascript(
@@ -3144,6 +3220,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             com.example.util.BrowserBackgroundPlayback.getBackgroundPlaybackScript(),
                                             null
                                         )
+                                    }
+
+                                    if (com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
+                                        com.example.security.PasswordAutofillBridge.scanPageForPasswordForms(view, url)
+                                    } else {
+                                        activeAutofillEvent = null
+                                        matchingAutofillCredentials = emptyList()
                                     }
 
                                     // Automatic PWA Manifest and Metadata extraction for Device Installation
@@ -3265,8 +3348,24 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         return null
                                     }
 
-                                    val isAuthOrCaptcha = KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(reqUrl)
+                                    val isAuthOrCaptcha = KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(reqUrl) ||
+                                        reqUrlLower.contains("/cdn-cgi/")
                                     if (isAuthOrCaptcha) {
+                                        val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer")
+                                        val topHost = referer?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                            ?: viewModel.urlInput.value.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                        if (!topHost.isNullOrBlank()) {
+                                            challengeCookieHosts.add(topHost)
+                                        }
+                                        if (view != null) {
+                                            view.post {
+                                                try {
+                                                    val cm = android.webkit.CookieManager.getInstance()
+                                                    cm.setAcceptCookie(true)
+                                                    cm.setAcceptThirdPartyCookies(view, true)
+                                                } catch (_: Throwable) {}
+                                            }
+                                        }
                                         return null
                                     }
 
@@ -3379,8 +3478,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.updateCurrentUrl(cleanUrl)
                                             viewModel.setIsLoading(true)
                                             val isWebStore = cleanUrl.contains("chromewebstore.google.com") || cleanUrl.contains("chrome.google.com/webstore")
-                                            val headers = KaspaPrivacyEngine.getDesktopHeaders(viewModel.desktopModeEnabled.value || isWebStore, defaultDeviceUa)
-                                            view?.tag = Pair(cleanUrl, System.currentTimeMillis().toInt())
+                                             val headers = KaspaPrivacyEngine.getDesktopHeaders(viewModel.desktopModeEnabled.value || isWebStore, defaultDeviceUa)
+                                            view?.tag = Pair(cleanUrl, navigationSessionId)
                                             view?.loadUrl(cleanUrl, headers)
                                         } else {
                                             isWebLoading = true
@@ -3413,7 +3512,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (effectiveUrl != targetUrl) {
                                         val isWebStore = effectiveUrl.contains("chromewebstore.google.com") || effectiveUrl.contains("chrome.google.com/webstore")
                                         val headers = KaspaPrivacyEngine.getDesktopHeaders(true, defaultDeviceUa)
-                                        view?.tag = Pair(effectiveUrl, System.currentTimeMillis().toInt())
+                                        view?.tag = Pair(effectiveUrl, navigationSessionId)
                                         view?.loadUrl(effectiveUrl, headers)
                                         return true
                                     }
@@ -3438,7 +3537,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             viewModel.setIsLoading(true)
                                             val isWebStore = cleanUrl.contains("chromewebstore.google.com") || cleanUrl.contains("chrome.google.com/webstore")
                                             val headers = KaspaPrivacyEngine.getDesktopHeaders(viewModel.desktopModeEnabled.value || isWebStore, defaultDeviceUa)
-                                            view?.tag = Pair(cleanUrl, System.currentTimeMillis().toInt())
+                                            view?.tag = Pair(cleanUrl, navigationSessionId)
                                             view?.loadUrl(cleanUrl, headers)
                                         } else {
                                             isWebLoading = true
@@ -3468,7 +3567,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         if (converted != targetUrl) {
                                             val isWebStore = converted.contains("chromewebstore.google.com") || converted.contains("chrome.google.com/webstore")
                                             val headers = KaspaPrivacyEngine.getDesktopHeaders(true, defaultDeviceUa)
-                                            view?.tag = Pair(converted, System.currentTimeMillis().toInt())
+                                            view?.tag = Pair(converted, navigationSessionId)
                                             view?.loadUrl(converted, headers)
                                             return true
                                         }
@@ -3505,71 +3604,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         viewModel.setIsLoading(false)
                                         (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
                                         if (failingUrl.startsWith("http://", ignoreCase = true) || failingUrl.startsWith("https://", ignoreCase = true)) {
-                                            val desc = error?.description?.toString()
-                                            val errorMsg = when {
-                                                desc?.contains("ERR_INTERNET_DISCONNECTED", ignoreCase = true) == true ->
-                                                    "No internet connection. Please check your network and tap Retry Connection."
-                                                desc?.contains("ERR_NAME_NOT_RESOLVED", ignoreCase = true) == true ->
-                                                    "DNS server resolution failed. The website host could not be reached."
-                                                desc?.contains("ERR_CONNECTION_TIMED_OUT", ignoreCase = true) == true ->
-                                                    "Connection timed out. The server took too long to respond."
-                                                desc?.contains("ERR_CONNECTION_REFUSED", ignoreCase = true) == true ->
-                                                    "The server refused the connection."
-                                                !desc.isNullOrBlank() -> desc
-                                                else -> "Network connection lost or web server unreachable."
-                                            }
-                                            val escapedUrl = failingUrl.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "&quot;")
-                                            val errorPage = """
-                                                <!DOCTYPE html>
-                                                <html>
-                                                <head>
-                                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                                    <style>
-                                                        * { box-sizing: border-box; }
-                                                        body { background-color: #0B0F17; color: #E2E8F0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 85vh; margin: 0; padding: 24px; text-align: center; }
-                                                        .card { background: #151A26; border: 1px solid #1E293B; border-radius: 18px; padding: 32px 24px; max-width: 380px; width: 100%; box-shadow: 0 12px 30px rgba(0,0,0,0.55); }
-                                                        .icon { font-size: 38px; margin-bottom: 14px; line-height: 1; }
-                                                        h2 { color: #FFFFFF; font-size: 20px; margin: 0 0 10px; font-weight: 700; }
-                                                        p { color: #94A3B8; font-size: 13.5px; line-height: 1.55; margin: 0 0 16px; }
-                                                        .url { color: #00E5FF; font-family: monospace; font-size: 11.5px; word-break: break-all; background: #0B0F17; padding: 10px 12px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #1E293B; }
-                                                        .btn { background: #00E5FF; color: #0B0F17; border: none; padding: 13px 32px; border-radius: 10px; font-weight: 700; font-size: 14.5px; cursor: pointer; width: 100%; display: inline-block; box-sizing: border-box; transition: all 0.2s ease; text-decoration: none; }
-                                                        .btn:active { transform: scale(0.97); opacity: 0.85; }
-                                                        .btn:disabled { background: #1E293B; color: #64748B; cursor: not-allowed; transform: none; }
-                                                        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #64748B; border-top-color: #00E5FF; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
-                                                        @keyframes spin { to { transform: rotate(360deg); } }
-                                                    </style>
-                                                    <script>
-                                                        var isRetrying = false;
-                                                        function retryLoading() {
-                                                            if (isRetrying) return;
-                                                            isRetrying = true;
-                                                            var btn = document.getElementById('retryBtn');
-                                                            if (btn) {
-                                                                btn.disabled = true;
-                                                                btn.innerHTML = '<span class="spinner"></span>Reconnecting...';
-                                                            }
-                                                            var targetUrl = '$escapedUrl';
-                                                            try {
-                                                                if (window.KaspaNative && typeof window.KaspaNative.retryConnection === 'function') {
-                                                                    window.KaspaNative.retryConnection(targetUrl);
-                                                                    return;
-                                                                }
-                                                            } catch(e) {}
-                                                            window.location.href = 'kaspa-action://retry?url=' + encodeURIComponent(targetUrl);
-                                                        }
-                                                    </script>
-                                                </head>
-                                                <body>
-                                                    <div class="card">
-                                                        <div class="icon">📡</div>
-                                                        <h2>Connection Lost</h2>
-                                                        <p>$errorMsg</p>
-                                                        <div class="url">$failingUrl</div>
-                                                        <button id="retryBtn" class="btn" onclick="retryLoading()">Retry Connection</button>
-                                                    </div>
-                                                </body>
-                                                </html>
-                                            """.trimIndent()
+                                            val errorPage = com.example.util.KaspaWebViewConfigurator.generateErrorHtml(
+                                                failingUrl = failingUrl,
+                                                errorDescription = error?.description?.toString()
+                                            )
                                             view?.loadDataWithBaseURL("kaspa-error://offline/", errorPage, "text/html", "UTF-8", failingUrl)
                                         }
                                     }
@@ -3591,31 +3629,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         android.net.http.SslError.SSL_DATE_INVALID -> "The device or certificate clock/date is invalid."
                                         else -> "SSL Certificate handshake verification failed."
                                     }
-                                    val sslWarningPage = """
-                                        <!DOCTYPE html>
-                                        <html>
-                                        <head>
-                                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                            <style>
-                                                body { font-family: -apple-system, sans-serif; background: #0A0E17; color: #F0F4F8; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
-                                                .card { background: #131B2E; border: 1px solid #EF4444; border-radius: 12px; padding: 24px; max-width: 400px; text-align: center; }
-                                                h2 { color: #EF4444; margin-top: 0; font-size: 18px; }
-                                                p { color: #94A3B8; font-size: 13px; line-height: 1.5; }
-                                                .url { word-break: break-all; font-family: monospace; background: #0D121D; padding: 8px; border-radius: 6px; font-size: 11px; margin: 12px 0; color: #F59E0B; }
-                                                .btn { background: #EF4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-                                            </style>
-                                        </head>
-                                        <body>
-                                            <div class="card">
-                                                <h2>Security Warning: Untrusted Certificate</h2>
-                                                <p>$sslReason</p>
-                                                <p>Kaspa Privacy Shield blocked this connection to prevent eavesdropping and data interception.</p>
-                                                <div class="url">$failingUrl</div>
-                                                <button class="btn" onclick="history.back()">Return to Safety</button>
-                                            </div>
-                                        </body>
-                                        </html>
-                                    """.trimIndent()
+                                    val sslWarningPage = com.example.util.KaspaWebViewConfigurator.generateSslErrorHtml(failingUrl, sslReason)
                                     view?.loadDataWithBaseURL(null, sslWarningPage, "text/html", "UTF-8", null)
                                 }
                             }
@@ -3630,6 +3644,16 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             context = ctx,
                             webView = webView,
                             viewModel = viewModel
+                        )
+
+                        com.example.security.PasswordAutofillBridge.install(
+                            webView = webView,
+                            onPasswordFormDetected = { event ->
+                                activeAutofillEvent = event
+                            },
+                            onCredentialSubmitted = { pending ->
+                                pendingCredentialSave = pending
+                            }
                         )
 
                         (webView.parent as? ViewGroup)?.removeView(webView)
@@ -3681,42 +3705,24 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         // Algorithmic darkening removed to prevent "black page" issues.
 
                         val currentUrl = resource.url
-                        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, thirdPartyCookies)
+                        val currentHost = KaspaPrivacyEngine.extractHostFast(currentUrl)
+                        val allowAuthOrChallengeCookies = thirdPartyCookies ||
+                            (currentHost != null && challengeCookieHosts.contains(currentHost)) ||
+                            KaspaPrivacyEngine.isGoogleAuthUrl(currentUrl) ||
+                            KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(currentUrl)
+                        if (allowAuthOrChallengeCookies) {
+                            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+                        }
 
                         val defaultDeviceUa = try {
                             WebSettings.getDefaultUserAgent(context)
                         } catch (_: Throwable) {
                             null
                         }
-                        val targetUa = if (desktopModeEnabled) {
-                            KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
-                        } else {
-                            KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
-                        }
-                        if (webView.settings.userAgentString != targetUa) {
-                            webView.settings.userAgentString = targetUa
-                        }
-                        if (webView.settings.useWideViewPort != desktopModeEnabled) {
-                            webView.settings.useWideViewPort = desktopModeEnabled
-                        }
-                        if (webView.settings.loadWithOverviewMode != desktopModeEnabled) {
-                            webView.settings.loadWithOverviewMode = desktopModeEnabled
-                        }
+                        KaspaPrivacyEngine.applyUserAgentAndMetadata(webView.settings, desktopModeEnabled, defaultDeviceUa)
 
-                        // Sync WebAuthn support state with settings safely
-                        if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.WEB_AUTHENTICATION)) {
-                            val targetSupport = if (webAuthEnabled) {
-                                androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
-                            } else {
-                                androidx.webkit.WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
-                            }
-                            try {
-                                val current = androidx.webkit.WebSettingsCompat.getWebAuthenticationSupport(webView.settings)
-                                if (current != targetSupport) {
-                                    androidx.webkit.WebSettingsCompat.setWebAuthenticationSupport(webView.settings, targetSupport)
-                                }
-                            } catch (_: Throwable) {}
-                        }
+                        // Sync WebAuthn support state with settings safely (FOR_BROWSER mode)
+                        com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(webView.settings, webAuthEnabled)
 
                         val isDirectHttp = resource.url.startsWith("http://", ignoreCase = true) || resource.url.startsWith("https://", ignoreCase = true)
                         
@@ -3964,6 +3970,54 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     modifier = Modifier.fillMaxSize(),
                     color = ElectricCyan,
                     trackColor = Color.Transparent
+                )
+            }
+
+            if (currentResource != null && !isInputFocused && !isReaderMode &&
+                (pendingCredentialSave != null ||
+                    (activeAutofillEvent != null &&
+                        (matchingAutofillCredentials.isNotEmpty() || activeAutofillEvent?.isNewPasswordField == true)))
+            ) {
+                BrowserAutofillBar(
+                    pendingSave = pendingCredentialSave,
+                    matchingCredentials = matchingAutofillCredentials,
+                    showGeneratorSuggestion = activeAutofillEvent?.isNewPasswordField == true || matchingAutofillCredentials.isEmpty(),
+                    isVaultUnlocked = isVaultUnlocked,
+                    onUnlockAndFill = { cred ->
+                        viewModel.unlockVault()
+                        val rawPass = viewModel.decryptVaultPassword(cred)
+                        if (rawPass != null) {
+                            com.example.security.PasswordAutofillBridge.fillCredentials(
+                                webViewInstance,
+                                cred.username,
+                                rawPass,
+                                expectedHost = cred.host
+                            )
+                            viewModel.markVaultCredentialUsed(cred.id)
+                            activeAutofillEvent = null
+                        } else {
+                            viewModel.setStatusMessage("Could not decrypt saved password")
+                        }
+                    },
+                    onFillGeneratedPassword = { genPass ->
+                        com.example.security.PasswordAutofillBridge.fillGeneratedPassword(webViewInstance, genPass)
+                        viewModel.setStatusMessage("Strong password filled — submit form to save to Vault")
+                    },
+                    onSavePending = { pending ->
+                        viewModel.saveVaultPassword(
+                            url = pending.url,
+                            siteName = pending.siteName,
+                            username = pending.username,
+                            rawPassword = pending.password
+                        )
+                        pendingCredentialSave = null
+                    },
+                    onDismissPendingSave = { pendingCredentialSave = null },
+                    onDismissAutofill = {
+                        activeAutofillEvent = null
+                        matchingAutofillCredentials = emptyList()
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
         }
@@ -7370,7 +7424,7 @@ fun KaspaNewsSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -7543,9 +7597,6 @@ fun KaspaNewsSection(
                 } else {
                     NewsFeedCard(item = item, onNavigate = onNavigate)
                 }
-                if (index < displayedItems.lastIndex) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
             }
 
             if (filteredItems.size > visibleItemCount) {
@@ -7614,7 +7665,7 @@ fun NewsFeedCard(item: KaspaNewsItem, onNavigate: (String) -> Unit) {
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
         ),
-        shape = RoundedCornerShape(16.dp),
+        shape = androidx.compose.ui.graphics.RectangleShape,
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onNavigate(item.url) }
@@ -7708,7 +7759,10 @@ fun YouTubeVideoCard(
         it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
     } ?: extractYouTubeVideoId(item.url)
     val effectiveVideoId = rawId?.takeIf {
-        it.isNotBlank() && !it.equals("undefined", ignoreCase = true) && !it.equals("null", ignoreCase = true)
+        it.isNotBlank() &&
+            !it.equals("undefined", ignoreCase = true) &&
+            !it.equals("null", ignoreCase = true) &&
+            Regex("^[A-Za-z0-9_-]{6,20}$").matches(it)
     }
 
     if (effectiveVideoId == null) {
@@ -7726,7 +7780,7 @@ fun YouTubeVideoCard(
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
         ),
-        shape = RoundedCornerShape(16.dp),
+        shape = androidx.compose.ui.graphics.RectangleShape,
         modifier = Modifier
             .fillMaxWidth()
     ) {
@@ -7764,12 +7818,13 @@ fun YouTubeVideoCard(
                                     loadWithOverviewMode = false
                                     useWideViewPort = false
                                     textZoom = 100
-                                    allowFileAccess = true
-                                    allowContentAccess = true
+                                    allowFileAccess = false
+                                    allowContentAccess = false
                                     @Suppress("DEPRECATION")
                                     allowFileAccessFromFileURLs = false
                                     @Suppress("DEPRECATION")
                                     allowUniversalAccessFromFileURLs = false
+                                    javaScriptCanOpenWindowsAutomatically = false
                                     setGeolocationEnabled(false)
                                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                         safeBrowsingEnabled = true
@@ -7801,6 +7856,24 @@ fun YouTubeVideoCard(
                                             return true
                                         }
                                         return false
+                                    }
+                                    override fun onSafeBrowsingHit(
+                                        view: android.webkit.WebView?,
+                                        request: android.webkit.WebResourceRequest?,
+                                        threatType: Int,
+                                        callback: android.webkit.SafeBrowsingResponse?
+                                    ) {
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                            callback?.backToSafety(true)
+                                        }
+                                    }
+                                    @SuppressLint("WebViewClientOnReceivedSslError")
+                                    override fun onReceivedSslError(
+                                        view: android.webkit.WebView?,
+                                        handler: android.webkit.SslErrorHandler?,
+                                        error: android.net.http.SslError?
+                                    ) {
+                                        handler?.cancel()
                                     }
                                     override fun onRenderProcessGone(view: android.webkit.WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
                                         (view?.parent as? android.view.ViewGroup)?.removeView(view)

@@ -419,10 +419,16 @@ fun getKaspaNewsDeduplicationKey(item: KaspaNewsItem): String {
     if (!vid.isNullOrBlank()) {
         return "video_${vid.lowercase()}"
     }
-    val normTitle = item.title.lowercase()
-        .replace(Regex("-\\s*(youtube|twitter|x|reddit|kaspa news|cointelegraph|google news).*", RegexOption.IGNORE_CASE), "")
+    val titleWithoutPublisher = item.title
+        .replace(Regex("\\s+[-|–—]\\s+[A-Za-z0-9.&'\\s]{2,40}$"), "")
+        .lowercase()
         .replace(Regex("[^a-z0-9]"), "")
-    return if (normTitle.length > 8) "title_$normTitle" else "url_${item.url.lowercase().trim()}"
+    val cleanUrl = com.example.network.EmbeddedRustSearchEngine.sanitizeUrl(item.url)
+        .lowercase()
+        .substringBefore('#')
+        .trimEnd('/')
+        .trim()
+    return if (titleWithoutPublisher.length > 8) "title_$titleWithoutPublisher" else "url_$cleanUrl"
 }
 
 suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatchers.IO) {

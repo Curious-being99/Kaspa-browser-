@@ -65,6 +65,10 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     val statusMessage by viewModel.statusMessage.collectAsState()
     val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
     val showUpdateAvailableDialog by viewModel.showUpdateAvailableDialog.collectAsState()
+    val showPasswordVaultSheet by viewModel.showPasswordVaultSheet.collectAsState()
+    val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
+    val currentResource by viewModel.currentResource.collectAsState()
+    val urlInput by viewModel.urlInput.collectAsState()
     val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -114,8 +118,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Color.Transparent,
-                contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                snackbarHost = { SnackbarHost(snackbarHostState) }
+                contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
             ) { paddingValues ->
                 Box(
                     modifier = Modifier
@@ -144,6 +147,41 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                 onDismissRequest = { viewModel.dismissUpdateDialog() }
             )
         }
+
+        val activePageUrl = currentResource?.url?.takeIf { it.startsWith("http", ignoreCase = true) }
+            ?: urlInput.takeIf { it.startsWith("http", ignoreCase = true) }
+
+        if (showPasswordVaultSheet) {
+            PasswordVaultSheet(
+                viewModel = viewModel,
+                currentPageUrl = activePageUrl,
+                onNavigateToUrl = { targetUrl ->
+                    viewModel.setTab(AppTab.BROWSER_GATEWAY)
+                    viewModel.onUserSubmitUrl(targetUrl)
+                },
+                onDismiss = { viewModel.setShowPasswordVaultSheet(false) }
+            )
+        }
+
+        if (showWebAuthnRpIdDialog) {
+            WebAuthnDiagnosticsDialog(
+                currentUrl = activePageUrl,
+                viewModel = viewModel,
+                onDismiss = { viewModel.setShowWebAuthnRpIdDialog(false) }
+            )
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
+                    )
+                )
+                .padding(bottom = 12.dp)
+        )
 
         // PERSISTENT FIRST-LAUNCH ONLY SPLASH OVERLAY (Minimalist with all card boxes and writeups removed)
         if (onboardingStep < 2 && !isStandalonePwaMode) {

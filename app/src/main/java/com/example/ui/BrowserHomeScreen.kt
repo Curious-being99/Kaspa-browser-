@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.InstallMobile
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInBrowser
@@ -674,6 +676,22 @@ fun BrowserHomeScreen(
                             onClick = {
                                 showMoreMenu = false
                                 onSelectTab(AppTab.MESH_RADAR)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Passwords & Passkeys", color = TextPrimary) },
+                            leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = Color(0xFF70C7BA)) },
+                            onClick = {
+                                showMoreMenu = false
+                                viewModel.setShowPasswordVaultSheet(true)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Passkey Diagnostics", color = TextPrimary) },
+                            leadingIcon = { Icon(Icons.Default.Fingerprint, contentDescription = null, tint = Color(0xFF70C7BA)) },
+                            onClick = {
+                                showMoreMenu = false
+                                viewModel.setShowWebAuthnRpIdDialog(true)
                             }
                         )
                         DropdownMenuItem(

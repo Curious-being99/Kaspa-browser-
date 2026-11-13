@@ -114,6 +114,7 @@ object KaspaPrivacyEngine {
         "hcaptcha.com",
         "recaptcha.net",
         "challenges.cloudflare.com",
+        "cloudflare.com",
         "accounts.google.com",
         "apis.google.com",
         "gstatic.com",
@@ -152,8 +153,8 @@ object KaspaPrivacyEngine {
             path.contains("/register") || path.contains("/session") || path.contains("/oauth") ||
             path.contains("/auth") || path.contains("/captcha") || path.contains("/challenge") ||
             path.contains("/turnstile") || path.contains("/arkose") || path.contains("/octocaptcha") ||
-            path.contains("/webauthn") || path.contains("/passkey") || path.contains("/two-factor") ||
-            path.contains("/password_reset") || path.contains("/account")
+            path.contains("/cdn-cgi/") || path.contains("/webauthn") || path.contains("/passkey") ||
+            path.contains("/two-factor") || path.contains("/password_reset") || path.contains("/account")
         ) {
             return true
         }
@@ -347,135 +348,68 @@ object KaspaPrivacyEngine {
 
     /**
      * Client-side JavaScript injected into WebView DOMs before page scripts load.
-     * Enforces Brave-grade Farbling, Do-Not-Track, Global Privacy Control,
-     * and defeats Canvas, WebGL, AudioContext, Font Metrics, and WebRTC fingerprinting safely.
+     * Applies lightweight W3C DNT / Global Privacy Control signals while preserving
+     * native WebGL, WebRTC, touch, hardware, and geolocation APIs on direct connections
+     * so anti-bot and anti-VPN checks never flag synthetic tampering.
      */
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
             if (window.__kaspa_shield_injected) return;
             try {
                 var h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
-                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 || h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 || h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1 || h.indexOf('x.com') !== -1 || h.indexOf('twitter.com') !== -1 || h.indexOf('twimg.com') !== -1 || h.indexOf('arkoselabs.com') !== -1 || h.indexOf('octocaptcha.com') !== -1) {
+                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 ||
+                    h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 ||
+                    h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1 ||
+                    h.indexOf('turnstile') !== -1 || h.indexOf('x.com') !== -1 ||
+                    h.indexOf('twitter.com') !== -1 || h.indexOf('twimg.com') !== -1 ||
+                    h.indexOf('arkoselabs.com') !== -1 || h.indexOf('octocaptcha.com') !== -1 ||
+                    h.indexOf('stripe.com') !== -1 || h.indexOf('paypal.com') !== -1 ||
+                    h.indexOf('datadome') !== -1 || h.indexOf('perimeterx') !== -1 ||
+                    h.indexOf('auth0.com') !== -1 || h.indexOf('okta.com') !== -1 ||
+                    h.indexOf('appleid.apple.com') !== -1 || h.indexOf('login.microsoftonline.com') !== -1 ||
+                    h.indexOf('github.com') !== -1) {
                     return;
                 }
             } catch(e) {}
             window.__kaspa_shield_injected = true;
             try {
-                // 1. Global Privacy Control & Do-Not-Track (W3C Standard)
+                // W3C Do-Not-Track & Global Privacy Control
                 try {
                     Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
                     Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
                 } catch(e) {}
 
-                // 2. Hardware & Concurrency Fingerprint Normalization
-                try {
-                    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8, configurable: true });
-                    Object.defineProperty(navigator, 'deviceMemory', { get: () => 8, configurable: true });
-                    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5, configurable: true });
-                    if (window.screen) {
-                        Object.defineProperty(window.screen, 'colorDepth', { get: () => 24, configurable: true });
-                        Object.defineProperty(window.screen, 'pixelDepth', { get: () => 24, configurable: true });
-                    }
-                } catch(e) {}
-
-                // 3. WebGL GPU Parameter Normalization (Safe Context Instance Wrapping)
-                try {
-                    if (window.HTMLCanvasElement && window.HTMLCanvasElement.prototype) {
-                        const origGetContext = HTMLCanvasElement.prototype.getContext;
-                        if (origGetContext) {
-                            HTMLCanvasElement.prototype.getContext = function(type) {
-                                const ctx = origGetContext.apply(this, arguments);
-                                if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
-                                    try {
-                                        if (!ctx.__kaspa_masked) {
-                                            ctx.__kaspa_masked = true;
-                                            const origParam = ctx.getParameter;
-                                            if (typeof origParam === 'function') {
-                                                ctx.getParameter = function(param) {
-                                                    if (param === 0x9245) return 'Google Inc. (NVIDIA)';
-                                                    if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0)';
-                                                    if (param === 0x1F00) return 'WebKit';
-                                                    if (param === 0x1F01) return 'WebKit WebGL';
-                                                    if (param === 0x1F02) return 'WebGL 1.0 (OpenGL ES 2.0 Chromium)';
-                                                    if (param === 0x8B8C) return 'WebGL GLSL ES 1.0 (OpenGL ES GLSL ES 1.0 Chromium)';
-                                                    if (param === 0x0D52) return 8;
-                                                    if (param === 0x0D53) return 8;
-                                                    if (param === 0x0D54) return 8;
-                                                    if (param === 0x0D55) return 8;
-                                                    if (param === 0x0D56) return 24;
-                                                    if (param === 0x0D57) return 8;
-                                                    try {
-                                                        return origParam.apply(this, arguments);
-                                                    } catch(e) {
-                                                        return null;
-                                                    }
-                                                };
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-                                return ctx;
-                            };
-                        }
-                    }
-                } catch(e) {}
-
-                // 4. WebRTC IP Leak Prevention (Relay Mode when TURN available)
-                if (window.RTCPeerConnection) {
-                    try {
-                        const OrigRTC = window.RTCPeerConnection;
+                // Strictly gate WebRTC & Geolocation isolation to active Privacy Relay / Proxy sessions
+                // so direct connections never exhibit synthetic API tampering to anti-bot or anti-VPN checks.
+                if (window.__kaspa_relay_shield === true) {
+                    if (window.RTCPeerConnection) {
+                        var OrigRTC = window.RTCPeerConnection;
                         window.RTCPeerConnection = function(config, constraints) {
-                            try {
-                                if (config && config.iceServers && Array.isArray(config.iceServers)) {
-                                    const hasTurn = config.iceServers.some(s => {
-                                        const urls = Array.isArray(s.urls) ? s.urls : [s.urls || s.url || ''];
-                                        return urls.some(u => typeof u === 'string' && (u.startsWith('turn:') || u.startsWith('turns:')));
-                                    });
-                                    if (hasTurn) {
-                                        config.iceTransportPolicy = 'relay';
-                                    }
-                                }
-                            } catch(_) {}
+                            if (config && config.iceServers) {
+                                config.iceServers = config.iceServers.filter(function(s) {
+                                    var urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+                                    return !urls.some(function(u) { return typeof u === 'string' && u.indexOf('stun:') !== -1; });
+                                });
+                            }
                             return new OrigRTC(config, constraints);
                         };
                         window.RTCPeerConnection.prototype = OrigRTC.prototype;
-                    } catch(e) {}
-                }
-
-                // 5. HTML5 Geolocation Sensor Shield (Zero Hardware GPS Leakage)
-                try {
-                    if (navigator.geolocation) {
-                        navigator.geolocation.getCurrentPosition = function(success, error, options) {
-                            if (error) {
-                                error({
-                                    code: 1,
-                                    message: "Geolocation permission denied by Privacy Shield",
-                                    PERMISSION_DENIED: 1,
-                                    POSITION_UNAVAILABLE: 2,
-                                    TIMEOUT: 3
-                                });
-                            }
-                        };
-                        navigator.geolocation.watchPosition = function(success, error, options) {
-                            if (error) {
-                                error({
-                                    code: 1,
-                                    message: "Geolocation permission denied by Privacy Shield",
-                                    PERMISSION_DENIED: 1,
-                                    POSITION_UNAVAILABLE: 2,
-                                    TIMEOUT: 3
-                                });
-                            }
-                            return 0;
-                        };
-                        navigator.geolocation.clearWatch = function(id) {};
                     }
-                } catch(e) {}
+                    if (navigator.geolocation) {
+                        var denyGeo = function(successCb, errorCb) {
+                            if (typeof errorCb === 'function') {
+                                errorCb({ code: 1, PERMISSION_DENIED: 1, message: 'Geolocation permission denied by Privacy Shield' });
+                            }
+                        };
+                        navigator.geolocation.getCurrentPosition = denyGeo;
+                        navigator.geolocation.watchPosition = function(s, e) { denyGeo(s, e); return 0; };
+                    }
+                }
             } catch (e) {}
         })();
     """
 
-    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    const val DESKTOP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
     const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
 
     fun getDesktopUserAgent(baseUa: String? = null): String {
@@ -483,7 +417,7 @@ object KaspaPrivacyEngine {
             ?.let { Regex("Chrome/([0-9.]+)").find(it)?.groupValues?.get(1) }
             ?: Regex("Chrome/([0-9.]+)").find(DESKTOP_USER_AGENT)?.groupValues?.get(1)
             ?: "130.0.0.0"
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36"
+        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Safari/537.36"
     }
 
     /**
@@ -492,6 +426,86 @@ object KaspaPrivacyEngine {
     fun getMobileUserAgent(baseUa: String? = null): String {
         if (baseUa.isNullOrBlank()) return MOBILE_USER_AGENT
         return baseUa.replace("; wv", "").replace("Version/4.0 ", "")
+    }
+
+    @Volatile
+    private var defaultMobileMetadata: androidx.webkit.UserAgentMetadata? = null
+
+    /**
+     * Synchronizes WebSettings.userAgentString, viewport settings, and Chromium's native C++
+     * Client-Hint UserAgentMetadata (Sec-CH-UA-Platform, Sec-CH-UA-Mobile, Sec-CH-UA-Model,
+     * Sec-CH-UA-Arch, Sec-CH-UA-Bitness, and Sec-CH-UA brands) so HTTP headers and
+     * navigator.userAgentData match navigator.userAgent seamlessly across all requests & iframes.
+     */
+    fun applyUserAgentAndMetadata(
+        settings: android.webkit.WebSettings,
+        isDesktop: Boolean,
+        baseUa: String? = null
+    ) {
+        val targetUa = if (isDesktop) {
+            getDesktopUserAgent(baseUa)
+        } else {
+            getMobileUserAgent(baseUa)
+        }
+        if (settings.userAgentString != targetUa) {
+            settings.userAgentString = targetUa
+        }
+        if (settings.useWideViewPort != isDesktop) {
+            settings.useWideViewPort = isDesktop
+        }
+        if (settings.loadWithOverviewMode != isDesktop) {
+            settings.loadWithOverviewMode = isDesktop
+        }
+
+        try {
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.USER_AGENT_METADATA)) {
+                val current = androidx.webkit.WebSettingsCompat.getUserAgentMetadata(settings)
+                if (defaultMobileMetadata == null && current.platform.equals("Android", ignoreCase = true)) {
+                    defaultMobileMetadata = current
+                }
+                val baseMeta = defaultMobileMetadata ?: current
+                val cleanedBrands = baseMeta.brandVersionList.map { bv ->
+                    if (bv.brand.contains("Android WebView", ignoreCase = true)) {
+                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder()
+                            .setBrand("Google Chrome")
+                            .setMajorVersion(bv.majorVersion)
+                            .setFullVersion(bv.fullVersion)
+                            .build()
+                    } else {
+                        bv
+                    }
+                }
+                val builder = androidx.webkit.UserAgentMetadata.Builder(baseMeta)
+                if (cleanedBrands.isNotEmpty()) {
+                    builder.setBrandVersionList(cleanedBrands)
+                }
+                if (isDesktop) {
+                    builder
+                        .setPlatform("Linux")
+                        .setPlatformVersion("")
+                        .setModel("")
+                        .setMobile(false)
+                        .setArchitecture("x86")
+                        .setBitness(64)
+                        .setWow64(false)
+                } else {
+                    val mobilePlatformVersion = baseMeta.platformVersion?.takeIf { it.isNotBlank() }
+                        ?: android.os.Build.VERSION.RELEASE.orEmpty()
+                    val mobileModel = baseMeta.model?.takeIf { it.isNotBlank() }
+                        ?: android.os.Build.MODEL.orEmpty()
+                    val mobileArch = baseMeta.architecture?.takeIf { it.isNotBlank() } ?: "arm"
+                    builder
+                        .setPlatform("Android")
+                        .setPlatformVersion(mobilePlatformVersion)
+                        .setModel(mobileModel)
+                        .setMobile(true)
+                        .setArchitecture(mobileArch)
+                        .setBitness(baseMeta.bitness)
+                        .setWow64(false)
+                }
+                androidx.webkit.WebSettingsCompat.setUserAgentMetadata(settings, builder.build())
+            }
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -550,52 +564,51 @@ object KaspaPrivacyEngine {
     }
 
     /**
-     * Client hints and network headers for Desktop / Mobile site modes.
-     * Tells modern servers (Google, YouTube, Reddit, etc.) whether to serve desktop or mobile layouts.
+     * Returns no additional one-shot Client-Hint headers for loadUrl().
+     * Passing static Sec-CH-UA* via WebView.loadUrl(url, headers) only applies to the initial
+     * top-level GET while Chromium omits or sends native Android headers on redirects, XHR/fetch,
+     * subresources, and CAPTCHA iframes — causing header-split bot/VPN detection.
+     * Consistent desktop identification is handled uniformly via WebSettings.userAgentString.
      */
-    fun getDesktopHeaders(isDesktop: Boolean, baseUa: String? = null): Map<String, String> {
-        val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
-        val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
-        val majorVer = fullVer.substringBefore(".")
-        
-        return if (isDesktop) {
-            mapOf(
-                "Sec-CH-UA-Mobile" to "?0",
-                "Sec-CH-UA-Platform" to "\"Windows\"",
-                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
-                "Sec-CH-UA-Model" to "\"\"",
-                "Sec-CH-UA-Platform-Version" to "\"15.0.0\"",
-                "Sec-CH-UA-Full-Version-List" to "\"Chromium\";v=\"$fullVer\", \"Google Chrome\";v=\"$fullVer\", \"Not?A_Brand\";v=\"99.0.0.0\""
-            )
-        } else {
-            mapOf(
-                "Sec-CH-UA-Mobile" to "?1",
-                "Sec-CH-UA-Platform" to "\"Android\"",
-                "Sec-CH-UA" to "\"Chromium\";v=\"$majorVer\", \"Google Chrome\";v=\"$majorVer\", \"Not?A_Brand\";v=\"99\"",
-                "Sec-CH-UA-Model" to "\"\"",
-                "Sec-CH-UA-Platform-Version" to "\"10.0.0\"",
-                "Sec-CH-UA-Arch" to "\"arm\"",
-                "Sec-CH-UA-Bitness" to "\"64\"",
-                "Sec-CH-Device-Memory" to "\"8\""
-            )
-        }
+    fun getDesktopHeaders(@Suppress("UNUSED_PARAMETER") isDesktop: Boolean, @Suppress("UNUSED_PARAMETER") baseUa: String? = null): Map<String, String> {
+        return emptyMap()
     }
 
     /**
-     * Minimal dynamic script for Desktop mode presentation.
-     * Ensures navigator.userAgentData reflects mobile: false for responsive layout engines
-     * while preserving native hardware capabilities (e.g. touch gestures, high-DPI scaling).
+     * Dynamic top-frame viewport layout helper for Desktop mode presentation.
+     * Evaluates desktop mode from runtime navigator.userAgent so WebView reloads after toggling
+     * Desktop Mode ON/OFF take effect cleanly, skips subframes (e.g. Turnstile/hCaptcha/reCAPTCHA
+     * iframes), and avoids mutating navigator.userAgentData or navigator.platform descriptors.
      */
-    fun getDesktopViewportScript(isDesktop: Boolean = false, baseUa: String? = null): String {
-        val chromeMatch = if (!baseUa.isNullOrBlank()) Regex("Chrome/([0-9.]+)").find(baseUa) else null
-        val fullVer = chromeMatch?.groupValues?.get(1) ?: "130.0.0.0"
-        val majorVer = fullVer.substringBefore(".")
-
+    fun getDesktopViewportScript(isDesktop: Boolean = false, @Suppress("UNUSED_PARAMETER") baseUa: String? = null): String {
         return """
         (function() {
             try {
+                // Never modify viewport or HTMLMetaElement inside subframes/CAPTCHAs/verification iframes
+                if (window.top !== window.self) return;
+
+                var host = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                if (host.indexOf('challenges.cloudflare.com') !== -1 ||
+                    host.indexOf('hcaptcha.com') !== -1 ||
+                    host.indexOf('recaptcha.net') !== -1 ||
+                    host.indexOf('arkoselabs.com') !== -1 ||
+                    host.indexOf('octocaptcha.com') !== -1 ||
+                    host.indexOf('accounts.google.com') !== -1) {
+                    return;
+                }
+
+                // Never modify HTMLMetaElement prototypes or CSS on top-level Cloudflare / CAPTCHA challenge pages
+                try {
+                    if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                        document.getElementById('challenge-running') ||
+                        document.getElementById('challenge-form') ||
+                        document.querySelector('script[src*="/cdn-cgi/challenge-platform"], script[src*="challenges.cloudflare.com"], iframe[src*="challenges.cloudflare.com"], div.cf-turnstile')) {
+                        return;
+                    }
+                } catch (_) {}
+
                 var ua = navigator.userAgent || '';
-                var isDesktopMode = $isDesktop || (!ua.includes('Android') && !ua.includes('Mobile'));
+                var isDesktopMode = ua.length > 0 ? (ua.indexOf('Android') === -1 && ua.indexOf('Mobile') === -1) : $isDesktop;
 
                 if (!isDesktopMode) {
                     try {
@@ -616,28 +629,37 @@ object KaspaPrivacyEngine {
 
                 var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
 
-                // 1. Intercept meta element content attribute and setAttribute synchronously
+                // 1. Intercept meta element content attribute and setAttribute synchronously on top-level page
                 try {
-                    var origSetAttribute = HTMLMetaElement.prototype.setAttribute;
-                    HTMLMetaElement.prototype.setAttribute = function(name, value) {
-                        if (name && name.toLowerCase() === 'content' && this.name && this.name.toLowerCase() === 'viewport') {
-                            return origSetAttribute.call(this, name, DESKTOP_VIEWPORT);
-                        }
-                        return origSetAttribute.apply(this, arguments);
-                    };
+                    if (!HTMLMetaElement.prototype.__kaspaViewportPatched) {
+                        HTMLMetaElement.prototype.__kaspaViewportPatched = true;
+                        var origSetAttribute = HTMLMetaElement.prototype.setAttribute;
+                        HTMLMetaElement.prototype.setAttribute = function(name, value) {
+                            var curUa = navigator.userAgent || '';
+                            var currentlyDesktop = curUa.length > 0 ? (curUa.indexOf('Android') === -1 && curUa.indexOf('Mobile') === -1) : false;
+                            if (currentlyDesktop && name && name.toLowerCase() === 'content' && this.name && this.name.toLowerCase() === 'viewport') {
+                                return origSetAttribute.call(this, name, DESKTOP_VIEWPORT);
+                            }
+                            return origSetAttribute.apply(this, arguments);
+                        };
 
-                    var origContentDesc = Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype, 'content');
-                    if (origContentDesc && origContentDesc.set) {
-                        Object.defineProperty(HTMLMetaElement.prototype, 'content', {
-                            get: function() {
-                                return (this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : origContentDesc.get.call(this);
-                            },
-                            set: function(val) {
-                                var finalVal = (this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : val;
-                                origContentDesc.set.call(this, finalVal);
-                            },
-                            configurable: true
-                        });
+                        var origContentDesc = Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype, 'content');
+                        if (origContentDesc && origContentDesc.set) {
+                            Object.defineProperty(HTMLMetaElement.prototype, 'content', {
+                                get: function() {
+                                    var curUa = navigator.userAgent || '';
+                                    var currentlyDesktop = curUa.length > 0 ? (curUa.indexOf('Android') === -1 && curUa.indexOf('Mobile') === -1) : false;
+                                    return (currentlyDesktop && this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : origContentDesc.get.call(this);
+                                },
+                                set: function(val) {
+                                    var curUa = navigator.userAgent || '';
+                                    var currentlyDesktop = curUa.length > 0 ? (curUa.indexOf('Android') === -1 && curUa.indexOf('Mobile') === -1) : false;
+                                    var finalVal = (currentlyDesktop && this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : val;
+                                    origContentDesc.set.call(this, finalVal);
+                                },
+                                configurable: true
+                            });
+                        }
                     }
                 } catch (_) {}
 
@@ -721,50 +743,6 @@ object KaspaPrivacyEngine {
 
                 document.addEventListener('DOMContentLoaded', enforceDesktopLayout, { once: true });
 
-                // 6. Provide desktop navigator.userAgentData and platform
-                if (navigator.userAgentData) {
-                    try {
-                        var origUaData = navigator.userAgentData;
-                        Object.defineProperty(navigator, 'userAgentData', {
-                            get: function() {
-                                return {
-                                    brands: (origUaData && origUaData.brands) ? origUaData.brands : [
-                                        { brand: 'Chromium', version: '$majorVer' },
-                                        { brand: 'Google Chrome', version: '$majorVer' },
-                                        { brand: 'Not?A_Brand', version: '99' }
-                                    ],
-                                    mobile: false,
-                                    platform: 'Windows',
-                                    getHighEntropyValues: function(hints) {
-                                        if (origUaData && origUaData.getHighEntropyValues) {
-                                            return origUaData.getHighEntropyValues(hints).then(function(v) {
-                                                return Object.assign({}, v, {
-                                                    mobile: false,
-                                                    platform: 'Windows'
-                                                });
-                                            });
-                                        }
-                                        return Promise.resolve({
-                                            mobile: false,
-                                            platform: 'Windows',
-                                            uaFullVersion: '$fullVer'
-                                        });
-                                    }
-                                };
-                            },
-                            configurable: true,
-                            enumerable: true
-                        });
-                    } catch (_) {}
-                }
-
-                try {
-                    Object.defineProperty(navigator, 'platform', {
-                        get: function() { return 'Win32'; },
-                        configurable: true
-                    });
-                } catch (_) {}
-
             } catch (_) {}
         })();
         """.trimIndent()
@@ -810,9 +788,8 @@ object KaspaPrivacyEngine {
         }
     }
 
-    fun getPrivacyShieldScript(safeGpuMode: Boolean = !isDrmRendernodeAvailable, isDesktop: Boolean = false, baseUa: String? = null): String {
-        val flag = if (safeGpuMode) "window.__kaspa_software_rendering = true;" else ""
+    fun getPrivacyShieldScript(@Suppress("UNUSED_PARAMETER") safeGpuMode: Boolean = !isDrmRendernodeAvailable, isDesktop: Boolean = false, baseUa: String? = null): String {
         val viewportScript = getDesktopViewportScript(isDesktop, baseUa)
-        return "$flag\n$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript"
+        return "$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript"
     }
 }

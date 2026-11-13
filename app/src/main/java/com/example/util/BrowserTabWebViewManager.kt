@@ -16,6 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
 class BrowserTabWebViewManager {
     private val webViewMap = ConcurrentHashMap<String, WebView>()
     private val tabScrollMap = ConcurrentHashMap<String, Pair<Int, Int>>() // tabId -> (scrollX, scrollY)
+    private val tabLastActiveAt = ConcurrentHashMap<String, Long>()
+    private val frozenTabIds = ConcurrentHashMap.newKeySet<String>()
     @Volatile
     private var currentActivityContext: Context? = null
 
@@ -118,20 +120,65 @@ class BrowserTabWebViewManager {
         }
 
         webViewMap[tabId] = newWebView
+        tabLastActiveAt[tabId] = System.currentTimeMillis()
+        frozenTabIds.remove(tabId)
+        com.example.engine.BrowserEngineManager.recordTabLifecycleStats(frozenTabIds.size)
         return Pair(newWebView, true)
     }
 
 
     fun pauseTab(tabId: String) {
-        webViewMap[tabId]?.onPause()
+        val wv = webViewMap[tabId] ?: return
+        wv.onPause()
+        frozenTabIds.add(tabId)
+        com.example.engine.BrowserEngineManager.recordTabLifecycleStats(frozenTabIds.size)
     }
 
     fun resumeTab(tabId: String) {
-        webViewMap[tabId]?.onResume()
+        val wv = webViewMap[tabId]
+        wv?.onResume()
+        tabLastActiveAt[tabId] = System.currentTimeMillis()
+        frozenTabIds.remove(tabId)
+        com.example.engine.BrowserEngineManager.recordTabLifecycleStats(frozenTabIds.size)
     }
 
     fun activateTab(tabId: String) {
         resumeTab(tabId)
+    }
+
+    fun getFrozenTabCount(): Int = frozenTabIds.size
+
+    /**
+     * Kazview Cold-Tab Memory Guard: when live WebViews exceed maxLiveWebViews, cleanly
+     * captures state + scroll + history for the oldest inactive background tabs and destroys
+     * only those cold WebViews so memory stays lean without losing user session state.
+     */
+    fun hibernateColdTabsIfNeeded(
+        activeTabId: String?,
+        maxLiveWebViews: Int = 6,
+        onCaptureState: (tabId: String, bundle: Bundle?, scroll: Pair<Int, Int>?, historyJson: String) -> Unit
+    ): Int {
+        if (maxLiveWebViews < 1 || webViewMap.size <= maxLiveWebViews) return 0
+        val candidates = webViewMap.keys
+            .filter { it != activeTabId }
+            .sortedBy { tabLastActiveAt[it] ?: 0L }
+        val excessCount = webViewMap.size - maxLiveWebViews
+        val toHibernate = candidates.take(excessCount)
+        var hibernated = 0
+        for (coldId in toHibernate) {
+            val bundle = saveTabBundle(coldId)
+            val scroll = getTabScroll(coldId)
+            val historyJson = extractHistoryJson(coldId)
+            try {
+                onCaptureState(coldId, bundle, scroll, historyJson)
+            } catch (_: Throwable) {}
+            destroyTab(coldId, "Kazview cold-tab hibernation")
+            hibernated++
+        }
+        if (hibernated > 0) {
+            com.example.engine.BrowserEngineManager.recordTabLifecycleStats(frozenTabIds.size, hibernated)
+        }
+        return hibernated
     }
 
     fun saveTabScroll(tabId: String, scrollX: Int, scrollY: Int) {
@@ -145,8 +192,8 @@ class BrowserTabWebViewManager {
         return if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
             try {
                 val bundle = Bundle()
-                wv.saveState(bundle)
-                BrowserStateLog.save("Captured saveState bundle for tab $tabId")
+                com.example.engine.BrowserEngineManager.saveWebViewStateBounded(wv, bundle)
+                BrowserStateLog.save("Captured bounded saveState bundle for tab $tabId")
                 bundle
             } catch (e: Exception) {
                 android.util.Log.w("BrowserTabWebViewManager", "Error saving bundle for tab $tabId: ${e.message}")
@@ -158,7 +205,7 @@ class BrowserTabWebViewManager {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 try {
                     val b = Bundle()
-                    wv.saveState(b)
+                    com.example.engine.BrowserEngineManager.saveWebViewStateBounded(wv, b)
                     bundle = b
                 } catch (e: Exception) {
                     android.util.Log.w("BrowserTabWebViewManager", "Error saving bundle on main thread: ${e.message}")
@@ -179,7 +226,7 @@ class BrowserTabWebViewManager {
             webViewMap.forEach { (tabId, wv) ->
                 try {
                     val b = Bundle()
-                    wv.saveState(b)
+                    com.example.engine.BrowserEngineManager.saveWebViewStateBounded(wv, b)
                     result[tabId] = b
                 } catch (e: Exception) {
                     android.util.Log.w("BrowserTabWebViewManager", "Error saving state for tab $tabId: ${e.message}")
@@ -192,7 +239,7 @@ class BrowserTabWebViewManager {
                     webViewMap.forEach { (tabId, wv) ->
                         try {
                             val b = Bundle()
-                            wv.saveState(b)
+                            com.example.engine.BrowserEngineManager.saveWebViewStateBounded(wv, b)
                             result[tabId] = b
                         } catch (_: Exception) {}
                     }
@@ -204,7 +251,7 @@ class BrowserTabWebViewManager {
                 latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
             } catch (_: Exception) {}
         }
-        BrowserStateLog.save("Saved bundles for all ${result.size} active WebViews")
+        BrowserStateLog.save("Saved bounded bundles for all ${result.size} active WebViews")
         return result
     }
 
@@ -257,6 +304,9 @@ class BrowserTabWebViewManager {
     fun destroyTab(tabId: String, reason: String = "tab closed") {
         val wv = webViewMap.remove(tabId) ?: return
         tabScrollMap.remove(tabId)
+        tabLastActiveAt.remove(tabId)
+        frozenTabIds.remove(tabId)
+        com.example.engine.BrowserEngineManager.recordTabLifecycleStats(frozenTabIds.size)
         BrowserStateLog.webViewDestroyed("$reason: tab $tabId")
         val task = Runnable {
             try {

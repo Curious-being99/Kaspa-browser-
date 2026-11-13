@@ -578,6 +578,24 @@ internal object EvmDappBridge {
 
             val script = """
                 (() => {
+                  try {
+                    var __kbHost = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                    if (__kbHost.indexOf('challenges.cloudflare.com') !== -1 || __kbHost.indexOf('cloudflare.com') !== -1 ||
+                        __kbHost.indexOf('hcaptcha.com') !== -1 || __kbHost.indexOf('recaptcha.net') !== -1 ||
+                        __kbHost.indexOf('arkoselabs.com') !== -1 || __kbHost.indexOf('octocaptcha.com') !== -1 ||
+                        __kbHost.indexOf('accounts.google.com') !== -1 || __kbHost.indexOf('appleid.apple.com') !== -1 ||
+                        __kbHost.indexOf('login.microsoftonline.com') !== -1 || __kbHost.indexOf('auth0.com') !== -1 ||
+                        __kbHost.indexOf('okta.com') !== -1) {
+                      return;
+                    }
+                    if (window.top !== window.self) {
+                      try {
+                        if (window.top.location.origin !== window.location.origin) return;
+                      } catch (_) {
+                        return;
+                      }
+                    }
+                  } catch (_) {}
                   if (window.__kaspaBrowserEthereumInstalled) return;
                   window.__kaspaBrowserEthereumInstalled = true;
                   const pending = new Map();

@@ -31,31 +31,17 @@ class MainActivity : FragmentActivity() {
           thread.name.contains("Render", ignoreCase = true) ||
           thread.name.contains("Chromium", ignoreCase = true) ||
           thread.name.contains("Chrome", ignoreCase = true) ||
-          thread.name.contains("Binder", ignoreCase = true) ||
-          thread.name.contains("GLThread", ignoreCase = true) ||
-          thread.name.contains("OkHttp", ignoreCase = true) ||
-          thread.name.contains("DefaultDispatcher", ignoreCase = true) ||
           msg.contains("rendernode") ||
           msg.contains("render_node") ||
           msg.contains("variations") ||
-          msg.contains("seed") ||
           msg.contains("mesa") ||
           msg.contains("gallium") ||
-          msg.contains("dri") ||
           msg.contains("gles2") ||
-          msg.contains("texture") ||
           msg.contains("egl") ||
-          msg.contains("webview") ||
-          msg.contains("deadobjectexception") ||
           msg.contains("supervised") ||
-          msg.contains("timeout") ||
           stack.contains("android.webkit") ||
           stack.contains("org.chromium") ||
           stack.contains("superviseduser") ||
-          stack.contains("cronet") ||
-          stack.contains("cursorwindow") ||
-          stack.contains("blobtoobig") ||
-          stack.contains("mesa") ||
           stack.contains("rendernode")
       if (isNonFatalInternalError) {
         Log.w("CrashHandler", "Suppressed non-fatal internal WebView/Renderer error on ${thread.name}")
@@ -73,6 +59,9 @@ class MainActivity : FragmentActivity() {
       val jsCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
       if (!jsCacheDir.exists()) jsCacheDir.mkdirs()
     } catch (_: Exception) {}
+
+    // Async Chromium WebView engine startup (off the UI thread) + engine diagnostics
+    com.example.engine.BrowserEngineManager.warmUpEngineAsync(applicationContext)
 
     enableEdgeToEdge()
     if (checkAndRoutePwaIntent(intent)) {
@@ -115,7 +104,9 @@ class MainActivity : FragmentActivity() {
         com.example.network.CronetClientFactory.initialize(applicationContext)
         com.example.network.WebViewAssetLruCache.initialize(applicationContext)
         com.example.network.KrpRelayDaemon.start()
-        com.example.network.LightweightTorEngine.start()
+        if (viewModel.isPrivacyRelayEnabled.value) {
+            com.example.network.LightweightTorEngine.start()
+        }
         com.example.security.PlayIntegrityManager.initialize(applicationContext)
         com.example.util.KaspaWebViewConfigurator.initServiceWorkerSupport()
 
@@ -228,8 +219,9 @@ class MainActivity : FragmentActivity() {
     super.onStop()
     com.example.util.BrowserStateLog.save("MainActivity onStop - saving tabs state")
     viewModel.saveAllTabsState("onStop")
-    // Auto-lock the wallet when app goes to background
+    // Auto-lock wallet and encrypted password vault when app goes to background
     viewModel.lockWallet()
+    viewModel.lockVault()
   }
 
   override fun onSaveInstanceState(outState: Bundle) {
@@ -258,15 +250,20 @@ class MainActivity : FragmentActivity() {
     val isPwa = intent.getBooleanExtra("IS_PWA_MODE", false) ||
         intent.getBooleanExtra("PWA_STANDALONE", false) ||
         intent.action == "com.example.action.LAUNCH_PWA"
-    val pwaUrl = intent.getStringExtra("PWA_URL")
+    val rawPwaUrl = intent.getStringExtra("PWA_URL")
         ?: intent.getStringExtra("PWA_START_URL")
         ?: (if (isPwa) intent.dataString else null)
-    if (!pwaUrl.isNullOrBlank() && isPwa) {
-      Log.d("PWA", "[PWA] MainActivity routing PWA intent: $pwaUrl")
+    val cleanPwaUrl = rawPwaUrl?.trim()
+    val parsedPwaUri = cleanPwaUrl?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
+    val isSafePwaUrl = cleanPwaUrl != null &&
+        (parsedPwaUri?.scheme.equals("http", ignoreCase = true) || parsedPwaUri?.scheme.equals("https", ignoreCase = true)) &&
+        !parsedPwaUri?.host.isNullOrBlank()
+    if (isSafePwaUrl && isPwa) {
+      Log.d("PWA", "[PWA] MainActivity routing PWA intent: $cleanPwaUrl")
       val pwaIntent = Intent(this, com.example.ui.PwaStandaloneActivity::class.java).apply {
         action = "com.example.action.LAUNCH_PWA"
-        data = android.net.Uri.parse(pwaUrl)
-        putExtra("PWA_URL", pwaUrl)
+        data = parsedPwaUri
+        putExtra("PWA_URL", cleanPwaUrl)
         putExtra("PWA_TITLE", intent.getStringExtra("PWA_TITLE") ?: "")
         putExtra("IS_PWA_MODE", true)
         putExtra("PWA_STANDALONE", true)

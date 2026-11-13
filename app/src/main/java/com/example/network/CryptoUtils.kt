@@ -255,7 +255,8 @@ object CryptoUtils {
     }
 
     fun generatePeerId(): String {
-        val randomHex = (1..32).map { "0123456789abcdef".random() }.joinToString("")
+        val randomBytes = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val randomHex = randomBytes.joinToString("") { "%02x".format(it) }
         return "12D3KooW" + randomHex.take(24)
     }
 

@@ -176,7 +176,6 @@ secrets {
 }
 
 dependencies {
-  implementation("org.jsoup:jsoup:1.21.2")
   implementation("org.web3j:core:4.12.3-android")
   implementation("org.web3j:abi:4.12.3") {
     exclude(group = "org.web3j", module = "utils")
@@ -205,6 +204,7 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.swiperefreshlayout)
   implementation(libs.androidx.webkit)
+  implementation(libs.androidx.browser)
   implementation(libs.androidx.biometric)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)

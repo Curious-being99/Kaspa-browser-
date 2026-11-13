@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Lock
@@ -207,6 +208,12 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val activeDownloads by viewModel.activeDownloads.collectAsState()
     val isPrivacyRelayEnabled by viewModel.isPrivacyRelayEnabled.collectAsState()
     val activeRelayCircuit by viewModel.activeRelayCircuit.collectAsState()
+    val vaultCredentials by viewModel.vaultCredentials.collectAsState()
+    val engineStatus by com.example.engine.BrowserEngineManager.engineStatus.collectAsState()
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        com.example.engine.BrowserEngineManager.refreshEngineStatus(context)
+    }
 
     var filterMode by remember { mutableStateOf("ALL") }
     var purgeMsg by remember { mutableStateOf<String?>(null) }
@@ -805,11 +812,36 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
                     PrivacyToggleRow(
                         title = "WebAuth Support (FIDO2)",
-                        desc = "Enable hardware security keys and Passkey support for WebAuthn authentication",
+                        desc = "Enable Passkeys & FIDO2 authentication (${engineStatus.passkeySupportMode})",
                         icon = Icons.Default.Fingerprint,
                         checked = webAuthEnabled,
                         onCheckedChange = { viewModel.toggleWebAuth(it) }
                     )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (engineStatus.passkeyDowngradedBySystem) {
+                                "System WebView policy warning: Custom Tab handoff ready"
+                            } else {
+                                "Chromium WebView: FOR_BROWSER mode"
+                            },
+                            fontSize = 10.5.sp,
+                            color = if (engineStatus.passkeyDowngradedBySystem) AmberCentral else EmeraldMesh,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { viewModel.setShowWebAuthnRpIdDialog(true) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("Passkey Diagnostics", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
 
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
@@ -922,6 +954,161 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Clear All Browsing Data", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // PASSWORD & PASSKEY VAULT CARD
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_password_vault_card"),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(16.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Key, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Password & Passkey Vault",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 13.sp
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = EmeraldMesh.copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                text = "${vaultCredentials.size} saved",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = EmeraldMesh,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Hardware Keystore AES-256-GCM encrypted passwords, CSPRNG generator, and tracked FIDO2 passkeys.",
+                        fontSize = 11.5.sp,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.setShowPasswordVaultSheet(true) },
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("open_vault_from_settings_button")
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Open Vault", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.setShowWebAuthnRpIdDialog(true) },
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).height(48.dp)
+                        ) {
+                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Passkeys", color = TextPrimary, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // BROWSER ENGINE DIAGNOSTICS CARD
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("browser_engine_diagnostics_card"),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                shape = RoundedCornerShape(16.dp),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Language, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Kazview Diagnostics",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 13.sp
+                            )
+                        }
+                        TextButton(onClick = { com.example.engine.BrowserEngineManager.refreshEngineStatus(context) }) {
+                            Text("Refresh", fontSize = 11.sp, color = ElectricCyan)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "${engineStatus.engineName} (${engineStatus.engineArchitecture}) · ${engineStatus.webViewPackage} (${engineStatus.webViewVersion})",
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val badges = listOf(
+                            "Startup: ${engineStatus.asyncStartupState}" to EmeraldMesh,
+                            (if (engineStatus.isMultiProcess) "Multi-Process Sandbox" else "Single Process") to ElectricCyan,
+                            (if (engineStatus.backForwardCacheEnabled) "BFCache: Instant" else "BFCache: Std") to (if (engineStatus.backForwardCacheEnabled) EmeraldMesh else TextSecondary),
+                            (if (engineStatus.attributionPrivacyDisabled) "Ad-Attribution: Blocked" else "Ad-Attribution: Default") to (if (engineStatus.attributionPrivacyDisabled) EmeraldMesh else TextSecondary),
+                            "QUIC Hints: ${engineStatus.quicHintsCount}" to ElectricCyan,
+                            "Preconnects: ${engineStatus.preconnectCount}" to ElectricCyan,
+                            "Tab Freeze: ${engineStatus.frozenTabsCount} · Saved: ${engineStatus.hibernatedTabsCount}" to TextSecondary,
+                            (if (engineStatus.stealthProfileActive) "Stealth Profile: Isolated" else if (engineStatus.multiProfileSupported) "Multi-Profile: Ready" else "Single Profile") to (if (engineStatus.multiProfileSupported) EmeraldMesh else TextSecondary),
+                            "WebAuthn: ${if (engineStatus.supportsWebAuthn) "Ready" else "Legacy"}" to (if (engineStatus.supportsWebAuthn) EmeraldMesh else AmberCentral),
+                            "Custom Tabs: ${if (engineStatus.customTabsProvider != null) "Ready" else "Fallback"}" to ElectricCyan,
+                            "DocStart: ${if (engineStatus.supportsDocumentStartScript) "On" else "Off"}" to TextSecondary,
+                            "MsgBridge: ${if (engineStatus.supportsWebMessageListener) "On" else "Off"}" to TextSecondary,
+                            "ProxyCtrl: ${if (engineStatus.supportsProxyOverride) "On" else "Off"}" to TextSecondary
+                        )
+                        badges.forEach { (label, tint) ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ObsidianBg,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder)
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    color = tint,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1346,7 +1533,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "A sovereign, decentralized peer-to-peer web browser powered by the high-speed Kaspa BlockDAG, on-chain zk-DID verification, and multi-hop privacy relay architecture.",
+                        text = "A privacy-focused Android browser powered by Kazview, fail-closed encrypted DoH, hardware-backed Credential Vault, and decentralized peer/DAG resolution (optional external SOCKS5/HTTP proxy supported).",
                         color = TextSecondary,
                         fontSize = 11.5.sp,
                         lineHeight = 16.5.sp

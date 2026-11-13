@@ -188,12 +188,16 @@ object PwaShortcutHelper {
         scope: String? = null
     ): Pair<Boolean, String> {
         try {
+            val cleanUrl = url.trim()
+            if (!cleanUrl.startsWith("http://", ignoreCase = true) && !cleanUrl.startsWith("https://", ignoreCase = true)) {
+                return Pair(false, "Cannot install PWA: URL must use HTTP or HTTPS")
+            }
             val cleanTitle = title.trim().ifBlank { "Web App" }
-            val pwaId = "pwa_${url.hashCode()}"
+            val pwaId = "pwa_${cleanUrl.hashCode()}"
             val shortcutIntent = Intent(context, com.example.ui.PwaStandaloneActivity::class.java).apply {
                 action = "com.example.action.LAUNCH_PWA"
-                data = Uri.parse(url)
-                putExtra("PWA_URL", url)
+                data = Uri.parse(cleanUrl)
+                putExtra("PWA_URL", cleanUrl)
                 putExtra("PWA_TITLE", cleanTitle)
                 if (!startUrl.isNullOrBlank()) putExtra("PWA_START_URL", startUrl)
                 if (!scope.isNullOrBlank()) putExtra("PWA_SCOPE", scope)
@@ -256,9 +260,10 @@ object PwaShortcutHelper {
         val targetManifestUrl = manifestUrl?.ifBlank { null } ?: discoverManifestUrl(pageUrl)
 
         if (!targetManifestUrl.isNullOrBlank()) {
+            var conn: HttpURLConnection? = null
             try {
                 val resolvedManifestUrl = resolveAbsoluteUrl(pageUrl, targetManifestUrl)
-                val conn = (URL(resolvedManifestUrl).openConnection() as HttpURLConnection).apply {
+                conn = (URL(resolvedManifestUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 6000
                     readTimeout = 6000
                     setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
@@ -299,7 +304,10 @@ object PwaShortcutHelper {
                         isPwaSupported = true
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
         }
 
         // If website has no manifest and no PWA support indication, reject
@@ -322,14 +330,15 @@ object PwaShortcutHelper {
 
         // 3. Download the actual webpage PWA logo from foundIconUrl
         if (!foundIconUrl.isNullOrBlank()) {
+            var conn: HttpURLConnection? = null
             try {
-                val conn = (URL(foundIconUrl).openConnection() as HttpURLConnection).apply {
+                conn = (URL(foundIconUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
                     readTimeout = 8000
                     setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
                 }
                 if (conn.responseCode in 200..299) {
-                    val rawBitmap = BitmapFactory.decodeStream(conn.inputStream)
+                    val rawBitmap = conn.inputStream.use { BitmapFactory.decodeStream(it) }
                     if (rawBitmap != null) {
                         // Standardize to 192x192 preserving exact downloaded website logo
                         val targetSize = 192
@@ -341,7 +350,10 @@ object PwaShortcutHelper {
                         return@withContext PwaManifestResult(scaledBitmap, pwaTitle, pwaStartUrl, pwaScope, pwaDisplay)
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
         }
 
         if (isPwaSupported) {
@@ -355,8 +367,9 @@ object PwaShortcutHelper {
 
     private fun discoverManifestUrl(pageUrl: String): String? {
         if (!pageUrl.startsWith("http://") && !pageUrl.startsWith("https://")) return null
+        var conn: HttpURLConnection? = null
         return try {
-            val conn = (URL(pageUrl).openConnection() as HttpURLConnection).apply {
+            conn = (URL(pageUrl).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 5000
                 readTimeout = 5000
                 setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
@@ -370,6 +383,8 @@ object PwaShortcutHelper {
             } else null
         } catch (_: Exception) {
             null
+        } finally {
+            try { conn?.disconnect() } catch (_: Exception) {}
         }
     }
 

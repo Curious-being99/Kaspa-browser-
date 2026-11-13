@@ -663,10 +663,19 @@ fun WebsitePreviewCard(
                                 useWideViewPort = true
                                 setSupportZoom(false)
                                 displayZoomControls = false
-                                 cacheMode = WebSettings.LOAD_DEFAULT
+                                cacheMode = WebSettings.LOAD_DEFAULT
                                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                 allowFileAccess = false
                                 allowContentAccess = false
+                                @Suppress("DEPRECATION")
+                                allowFileAccessFromFileURLs = false
+                                @Suppress("DEPRECATION")
+                                allowUniversalAccessFromFileURLs = false
+                                javaScriptCanOpenWindowsAutomatically = false
+                                setGeolocationEnabled(false)
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                    safeBrowsingEnabled = true
+                                }
                             }
 
                             setInitialScale(48)
@@ -688,9 +697,21 @@ fun WebsitePreviewCard(
                                         pageTitle = title
                                     }
                                 }
+
+                                override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                                    request?.deny()
+                                }
                             }
 
                             webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?
+                                ): Boolean {
+                                    val scheme = request?.url?.scheme?.lowercase(java.util.Locale.ROOT)
+                                    return scheme != "https" && scheme != "http"
+                                }
+
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     isLoading = true
                                 }
@@ -700,6 +721,18 @@ fun WebsitePreviewCard(
                                     val t = view?.title
                                     if (!t.isNullOrBlank() && !t.startsWith("http", ignoreCase = true)) {
                                         pageTitle = t
+                                    }
+                                }
+
+                                override fun onSafeBrowsingHit(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?,
+                                    threatType: Int,
+                                    callback: android.webkit.SafeBrowsingResponse?
+                                ) {
+                                    isLoading = false
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                                        callback?.backToSafety(true)
                                     }
                                 }
 

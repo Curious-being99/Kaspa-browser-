@@ -95,11 +95,7 @@ object KaspaDappBridge {
                 val requestId = request.optString("id")
                 val method = request.optString("method")
                 val params = request.opt("params")
-                val account = viewModel.activeAccount.value ?: runCatching {
-                    kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                        viewModel.getActiveAccountFromDb()
-                    }
-                }.getOrNull()
+                val account = viewModel.activeAccount.value
                 val currentSelectedNet = viewModel.selectedNetwork.value
                 val network = currentSelectedNet
                 val selectedNetworkId = networkId(network)
@@ -134,11 +130,7 @@ object KaspaDappBridge {
 
                 fun currentKeyPair(): CryptoUtils.KaspaKeyPair? {
                     if (prefix.isBlank()) return null
-                    val active = account ?: runCatching {
-                        kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                            viewModel.getActiveAccountFromDb()
-                        }
-                    }.getOrNull() ?: return null
+                    val active = account ?: return null
                     return try {
                         val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
                         require(seed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
@@ -260,27 +252,45 @@ object KaspaDappBridge {
                     }
 
                     "requestNetworkAccounts", "getNetworkAccounts" -> {
+                        if (method == "getNetworkAccounts" && !isConnected) {
+                            respond(JSONObject())
+                            return@addWebMessageListener
+                        }
                         val keyPair = currentKeyPair()
                         if (keyPair == null) {
-                            mainHandler.post {
-                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet(
-                                    origin = origin,
-                                    onOpenWallet = {
-                                        viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
-                                        respond(errorCode = 4001, errorMessage = "User has not created a Kaspa wallet yet")
-                                        viewModel.dappPromptState.value = null
-                                    },
-                                    onReject = {
-                                        respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
-                                        viewModel.dappPromptState.value = null
-                                    }
-                                )
+                            if (method == "getNetworkAccounts") {
+                                respond(JSONObject())
+                            } else {
+                                mainHandler.post {
+                                    viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.NoWallet(
+                                        origin = origin,
+                                        onOpenWallet = {
+                                            viewModel.setTab(com.example.viewmodel.AppTab.KASPA_WALLET)
+                                            respond(errorCode = 4001, errorMessage = "User has not created a Kaspa wallet yet")
+                                            viewModel.dappPromptState.value = null
+                                        },
+                                        onReject = {
+                                            respond(errorCode = 4001, errorMessage = "User rejected wallet connection")
+                                            viewModel.dappPromptState.value = null
+                                        }
+                                    )
+                                }
                             }
                         } else {
                             val active = account
-                            val evmAddress = active?.seedPhrase?.let {
-                                com.example.dapp.EvmWalletEngine.address(it)
-                            } ?: "0x0000000000000000000000000000000000000000"
+                            val seedPhrase = active?.seedPhrase.orEmpty()
+                            val accountId = active?.did?.takeIf { it.isNotBlank() } ?: active?.handle.orEmpty()
+                            val passphraseLoad = runCatching {
+                                if (accountId.isBlank()) "" else EvmPassphraseVault.load(context, accountId)
+                            }
+                            val passphrase = passphraseLoad.getOrDefault("")
+                            val standardMnemonic = runCatching { EvmWalletEngine.isStandardMnemonic(seedPhrase) }.getOrDefault(false)
+                            val evmAddress = if (seedPhrase.isNotBlank() && passphraseLoad.isSuccess && !standardMnemonic) {
+                                runCatching { EvmWalletEngine.address(seedPhrase, passphrase) }
+                                    .getOrDefault("0x0000000000000000000000000000000000000000")
+                            } else {
+                                "0x0000000000000000000000000000000000000000"
+                            }
                             val accountsObj = JSONObject()
                                 .put(networkId(network), keyPair.kaspaAddress)
                                 .put("kasplex", evmAddress)
@@ -305,10 +315,12 @@ object KaspaDappBridge {
                                             accountHandle = account?.handle.orEmpty(),
                                             balanceKas = balanceKasStr,
                                             onApprove = {
-                                                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                                    .edit().putBoolean(origin, true).apply()
-                                                respond(accountsObj)
                                                 viewModel.dappPromptState.value = null
+                                                ensureUnlocked {
+                                                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                                        .edit().putBoolean(origin, true).apply()
+                                                    respond(accountsObj)
+                                                }
                                             },
                                             onReject = {
                                                 respond(errorCode = 4001, errorMessage = "User rejected network connection")
@@ -316,6 +328,10 @@ object KaspaDappBridge {
                                             }
                                         )
                                     }
+                                }
+                            } else if (method == "requestNetworkAccounts") {
+                                ensureUnlocked {
+                                    respond(accountsObj)
                                 }
                             } else {
                                 respond(accountsObj)
@@ -1233,6 +1249,24 @@ object KaspaDappBridge {
 
             val script = """
                 (() => {
+                  try {
+                    var __kbHost = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                    if (__kbHost.indexOf('challenges.cloudflare.com') !== -1 || __kbHost.indexOf('cloudflare.com') !== -1 ||
+                        __kbHost.indexOf('hcaptcha.com') !== -1 || __kbHost.indexOf('recaptcha.net') !== -1 ||
+                        __kbHost.indexOf('arkoselabs.com') !== -1 || __kbHost.indexOf('octocaptcha.com') !== -1 ||
+                        __kbHost.indexOf('accounts.google.com') !== -1 || __kbHost.indexOf('appleid.apple.com') !== -1 ||
+                        __kbHost.indexOf('login.microsoftonline.com') !== -1 || __kbHost.indexOf('auth0.com') !== -1 ||
+                        __kbHost.indexOf('okta.com') !== -1) {
+                      return;
+                    }
+                    if (window.top !== window.self) {
+                      try {
+                        if (window.top.location.origin !== window.location.origin) return;
+                      } catch (_) {
+                        return;
+                      }
+                    }
+                  } catch (_) {}
                   if (window.__kaspaBrowserProviderInstalled) return;
                   const nativeChannel = window.$BRIDGE_NAME || window.kaspaDappPort || window.kaspaBridgePort;
                   if (!nativeChannel || typeof nativeChannel.postMessage !== 'function') {

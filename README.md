@@ -2,507 +2,259 @@
   <img src="logo.png" alt="Kaspa Browser Logo" width="180" height="180" style="border-radius: 28px;" />
 </p>
 
-<h1 align="center">Kaspa Browser </h1>
+<h1 align="center">Kaspa Browser</h1>
 
 <p align="center">
-  <i>The Privacy-First, Decentralized Web3 & P2P Android Browser</i>
+  <i>Security-First Android Browser &amp; Web3 Gateway Powered by Kazview</i>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Kotlin-91.9%25-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin 91.9%" />
-  <img src="https://img.shields.io/badge/Rust-7.9%25-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust 1.5%" />
-  <img src="https://img.shields.io/badge/Platform-Android%20(API%2026--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform" />
-  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-1E40AF.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose" />
-  <img src="https://img.shields.io/badge/Architecture-MVVM%20%7C%20Clean-9A3412.svg?style=for-the-badge" alt="Clean Architecture" />
-  <img src="https://img.shields.io/badge/Engine-Chromium%20Blink-334155.svg?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chromium Engine" />
+  <img src="https://img.shields.io/badge/Language-Kotlin-7F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white" alt="Kotlin" />
+  <img src="https://img.shields.io/badge/Rust-Optional_JNI_Crate-DEA584.svg?style=for-the-badge&logo=rust&logoColor=black" alt="Rust Crate" />
+  <img src="https://img.shields.io/badge/Platform-Android%20(API%2024--36)-1B5E20.svg?style=for-the-badge&logo=android&logoColor=white" alt="Android Platform API 24 to 36" />
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-1E40AF.svg?style=for-the-badge&logo=jetpackcompose&logoColor=white" alt="Jetpack Compose Material 3" />
+  <img src="https://img.shields.io/badge/Core-Kazview%20%2B%20WebView-00E5FF.svg?style=for-the-badge" alt="Kazview" />
+  <img src="https://img.shields.io/badge/Architecture-MVVM-9A3412.svg?style=for-the-badge" alt="MVVM Architecture" />
   <img src="https://img.shields.io/badge/License-Apache%202.0-475569.svg?style=for-the-badge" alt="Apache 2.0 License" />
 </p>
 
-**Kaspa Browser** is a privacy-first, decentralized Android web browser and Web3 gateway designed to seamlessly bridge standard web browsing with peer-to-peer decentralized technologies and the Kaspa network ecosystem. Built with **Kotlin (98.5%)**, native **Rust (1.5%)** for high-performance JNI search & privacy sanitization, and **Jetpack Compose (Material 3)**, it unifies standard web browsing, decentralized peer-to-peer mesh discovery, cryptographic identity management, on-device local node hosting, and high-performance Web3 browsing into a fast, privacy-first mobile client.
+**Kaspa Browser** is an Android web browser and Web3 gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It pairs **Kazview** (its hybrid Chromium/Android System WebView + Jetpack WebKit + Custom Tabs orchestration core) with a hardware-backed Password & Passkey Vault, fail-closed encrypted DNS-over-HTTPS (DoH), real-time tracker/ad shielding, decentralized name resolution, an encrypted Kaspa wallet & dApp bridge, signal-only ecosystem notifications, and optional native Rust crates (`kaspasearch-engine`, `kaspasearch-core`).
 
 ---
 
 ## System Architecture & Visual Overview
 
 <p align="center">
-  <a href="architecture_3d_overview.mp4" title="Click to open full MP4 Video Player">
-    <img src="architecture_3d_overview.gif" alt="KaspaBrowser 3D Architecture (Click to Play MP4 Video)" width="100%" />
+  <a href="architecture_3d_overview.gif" title="KaspaBrowser Architecture Overview">
+    <img src="architecture_3d_overview.gif" alt="KaspaBrowser Architecture Overview" width="100%" />
   </a>
 </p>
 
 <p align="center">
-  <a href="architecture_3d_overview.mp4">
-    <img src="https://img.shields.io/badge/▶_Watch_Video-architecture__3d__overview.mp4-00E5FF.svg?style=for-the-badge&logoColor=0B0F17" alt="Play Video" />
-  </a>
-  &nbsp;
   <a href="architecture_diagram.jpg">
-    <img src="https://img.shields.io/badge/_Blueprint-4K_JPG-7F52FF.svg?style=for-the-badge" alt="View Blueprint" />
+    <img src="https://img.shields.io/badge/Architecture-Diagram_JPG-7F52FF.svg?style=for-the-badge" alt="View Architecture Diagram" />
   </a>
   &nbsp;
-  <a href="architecture_3d_overview.gif">
-    <img src="https://img.shields.io/badge/_Animation-GIF-10B981.svg?style=for-the-badge" alt="View GIF" />
+  <a href="brand_palette.jpg">
+    <img src="https://img.shields.io/badge/Brand-Palette_JPG-10B981.svg?style=for-the-badge" alt="View Brand Palette" />
   </a>
 </p>
 
-<p align="center">
-  <sub> <b>Click the preview above or the badge to play the high-definition 60 FPS MP4 video directly in GitHub's media player.</b></sub>
-</p>
+---
+
+## Why Kaspa Browser Is Different
+
+Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, or thin single-process WebView wrappers. **Kaspa Browser** is engineered differently from the ground up:
+
+1. **Security-First Defaults Without Telemetry**:
+   - Credentials live in an on-device **Android Keystore AES-256-GCM** Room vault gated by biometrics/device lock and automatically locked whenever the app leaves the foreground (`MainActivity.onStop`).
+   - Autofill uses a main-frame-only, origin-and-host-verified `WebMessageListener` bridge (`PasswordAutofillBridge`) instead of exposing password-manager `@JavascriptInterface` objects to untrusted page scripts, and explicitly skips third-party CAPTCHA and payment frames.
+   - All tabs, preview WebViews, and ServiceWorkers enforce strict sandboxing (`allowFileAccess = false`, `allowContentAccess = false`, `MIXED_CONTENT_NEVER_ALLOW`, SSL cancel-on-error, Google Safe Browsing, and `http`/`https`-only external intent checks).
+2. **Kazview Hybrid Architecture (Full Web Compatibility + Custom Control)**:
+   - Instead of maintaining a fragile forked browser binary or leaving stock WebView unoptimized, **Kazview** layers asynchronous renderer warmup, QUIC profile hints, Blink Back/Forward Cache, Privacy Sandbox Attribution suppression, multi-profile Stealth isolation, bounded tab hibernation, and Custom Tabs WebAuthn handoff directly over Android System WebView + Jetpack WebKit.
+3. **Truthful Networking & Fail-Closed Encrypted DNS**:
+   - DNS resolution goes through pinned **Encrypted DoH** (`cloudflare-dns.com`, `dns.quad9.net`, `dns.google`) with unencrypted system DNS fallback disabled.
+   - All blocked/allowed requests are visible live in **Traffic Audit**, and local loopback privacy daemons (`KrpRelayDaemon`, `LightweightTorEngine`) explicitly document their guarantees without overclaiming external IP masking unless an upstream SOCKS5/HTTP proxy (such as Orbot) is configured.
+4. **Native Web3, Kaspa & Mesh Capabilities Built Into the Browser**:
+   - Ships first-class `.kas`, `.hns`, `.eth`, and `ipfs://` resolution (`DualStackResolver`), an on-device HD/Testnet wallet & transaction confirmation sheet, KRC-20 / KCC-20 protocol support, a secp256k1 Schnorr Sigma Zero-Knowledge Proof utility (`ZkProofEngine`), and live LAN/NSD + Bluetooth **Mesh Radar**.
+5. **Zero-Spam, Zero-Duplicate Ecosystem Notifications**:
+   - General Kaspa news article notifications and the legacy `"All Kaspa Articles"` channel have been removed. Users only receive high-signal **Breaking Kaspa News** and **Kaspa Ecosystem Developments** alerts, deduplicated across feeds, URL tracking parameters, and in-app refreshes.
 
 ---
 
----
+## Kazview: Browser Core Architecture
 
-##  Newly Added Production Features
+**Kazview** (`com.example.engine.BrowserEngineManager`, `com.example.util.KaspaWebViewConfigurator`, `com.example.util.BrowserTabWebViewManager`) is Kaspa Browser's browser core coordinator.
 
-1. **Unified Settings & Privacy Hub (`TrafficAuditScreen.kt`)**:
-   - Centralized management console combining network audits, privacy toggles, search engine preferences, and security settings into a single clean Material 3 screen.
+### How Kazview Works
 
-2. **HTTPS-Only Mode Enforcement**:
-   - Automatically intercepts and upgrades all unencrypted `http://` requests to secure `https://` before network transmission.
-
-3. **Incognito & Strict Decentralized Modes**:
-   - **Incognito Mode**: Prevents global persistence of history, cookies, and web storage.
-   - **Strict Decentralized Mode**: Blocks all unencrypted centralized Web2 traffic, forcing P2P and encrypted mesh routing.
-
-4. **WebAuth & FIDO2 Passkey Support**:
-   - Full support for hardware security keys and biometric Passkeys in the Chromium container, enabling secure, passwordless authentication.
-
-5. **One-Tap Browsing Data & Cache Purge**:
-   - Instantly wipes browser history (`Room`), system cookies (`CookieManager`), and web storage (`WebStorage`) securely.
-
-6. **Advanced Kaspa Tracker & Ad Blocker**:
-   - Real-time interception of advertising scripts, analytics beacons, and tracking pixels with live statistics and blocked request logs.
-
-7. **Native Download Manager Integration**:
-   - Seamless file downloads using Android's native `DownloadManager` with notification tracking and automatic file handling.
-
-8. **Live Kaspa Ecosystem RSS & YouTube Feed Syndication (`NewsModels.kt`)**:
-   - Integrated live Atom/RSS feed parser with Cronet/OkHttp background synchronization.
-   - Dedicated YouTube channel feeds including **Kaspa Silver 𐤊** (`@KaspaSilver` - channel ID `UCv8-2oyrfqDigJAKjZ_RCzQ`), **Kaspa Official**, and **Pumpolinsky**.
-   - Features inline video playback, high-definition thumbnails, video duration badges, and single-tap switching to full browser mode.
-
-
-## 🤖 SI Agent AI Provider & User-Owned Groq API Key
-
-SI Agent can use the Groq Chat Completions API for AI-generated answers. Each user can configure their **own Groq API key** on their Android device; the application does not require a shared developer key embedded in the APK.
-
-### Configure your Groq API key
-
-1. Open **Kaspa Browser** and launch **SI Agent**.
-2. Tap the **security/key icon** in the SI Agent toolbar to open Groq settings.
-3. Paste your own Groq API key (Groq keys begin with `gsk_`) and tap **Save key**.
-4. To change providers credentials, enter a replacement key and save it. Use **Remove** to delete the saved key from this device.
-
-The key is encrypted with **AES-GCM** and the encryption key is held by **Android Keystore**. The API key is not hardcoded in the app source or intended to be shared between users.
-
-### Model and response settings
-
-The current Groq request uses:
-
-- **Model:** `openai/gpt-oss-120b`
-- **Streaming:** enabled using server-sent events (SSE)
-- **Reasoning effort:** `medium`
-- **Maximum completion tokens:** `2048`
-- **Temperature:** `1`
-- **Top-p:** `1`
-
-SI Agent sends requests to the Groq OpenAI-compatible Chat Completions endpoint over HTTPS. The configured key is read from the encrypted on-device store when a request is made.
-
-### Quota, errors, and web retrieval
-
-- Each user is responsible for their own Groq account, API key, usage, quota, and rate limits.
-- If no key is configured or a Groq request fails (including quota/rate-limit errors), SI Agent uses its existing non-AI response path rather than requiring a shared key.
-- **Web search and page retrieval do not require a Groq API key.** SI Agent can return retrieved source excerpts and URLs without AI-generated synthesis.
-- Website crawling can also return the extracted page text when an AI summary cannot be generated.
-- A Groq quota reset is controlled by Groq and its account limits; the app does not reset or replenish API credits.
-
-Keep your API key private. Do not paste it into public issues, commits, screenshots, or shared logs.
+| Layer | Implementation in Kazview | Purpose |
+|---|---|---|
+| **Rendering Foundation** | Android System WebView (Chromium/Blink) + `androidx.webkit:webkit` + `androidx.browser:browser` | Full HTML5, CSS, WebAssembly, ServiceWorker, and modern web app compatibility with OS security patches. |
+| **Async Off-UI Startup** | `WebViewCompat.startUpWebView` (`WebViewStartUpConfig`) + `warmUpRendererProcess()` | Initializes Chromium off the main thread at launch and reports startup duration & UI blocking telemetry. |
+| **QUIC & Speculative Preconnect** | `ADD_QUIC_HINTS_V1` + privacy-gated `ENQUEUE_PRECONNECT` / `PRECONNECT` | Pre-warms HTTP/3 QUIC hints (`kaspa.org`, `explorer.kaspa.org`, `api.kaspa.org`, `api.kasplex.org`, `github.com`, `wikipedia.org`) and preconnects HTTPS origins with a 60s cooldown—automatically bypassed when privacy relay mode is active or URLs are trackers/auth challenges. |
+| **Blink Privacy & Speed Tuning** | `BACK_FORWARD_CACHE` + `ATTRIBUTION_REGISTRATION_BEHAVIOR (DISABLED)` | Enables instant Back/Forward page restoration while disabling Privacy Sandbox ad attribution tracking. |
+| **Document-Start Shielding** | `DOCUMENT_START_SCRIPT` (`KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION` + `BrowserBackgroundPlayback`) | Injects privacy protections and media session hooks before page scripts execute, plus `ServiceWorkerController` ad/tracker filtering that preserves PWA assets. |
+| **Multi-Profile Stealth Isolation** | `WebViewFeature.MULTI_PROFILE` (`kazview_stealth`) | Isolates Stealth/Incognito tabs into a dedicated Chromium cookie & storage profile (`clearStealthProfile()` wipes it cleanly) while keeping standard tabs intact. |
+| **Tab Freezing & Memory Guard** | `pauseTab` / `resumeTab` + `hibernateColdTabsIfNeeded` + `saveWebViewStateBounded` (512 KB cap) | Freezes background tabs with `onPause()` and hibernates oldest inactive tabs when live WebViews exceed 6, capturing bounded state, scroll position, and history without risking `TransactionTooLargeException`. |
+| **Passkey & Custom Tab Handoff** | `WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER` + `openInCustomTab` | Enables WebAuthn passkeys inside tabs when permitted by system WebView policy and provides one-tap Android Custom Tabs handoff for sites requiring privileged Digital Asset Links. |
 
 ---
 
-## 🔗 Connecting & Integrating From Another Android App
+## Browser Components & Features
 
-KaspaBrowser supports standard Android **`ACTION_VIEW`** Web Intents, allowing any external Android application to launch the browser and navigate to URLs or execute search queries securely. 
+### 1. Core Browser Workspace & UX (`ui/`, `util/`, `omnibar/`)
+- **Browser Gateway & Home (`BrowserGatewayScreen.kt`, `BrowserHomeScreen.kt`, `MainScreen.kt`, `NestedWebView.kt`)**:
+  - Multi-tab manager supporting standard and Stealth tabs, nested-scroll pull-to-refresh top-boundary guards, and live link preview modals (`WebsiteLivePreviewModal.kt`).
+  - One-tap **Desktop / Mobile Mode** toggle switching User-Agent strings, `useWideViewPort`, `loadWithOverviewMode`, and `980px` desktop layout viewports while resetting initial scale cleanly.
+- **Smart Omnibox & Instant Hub Cards (`SmartOmniboxOverlay.kt`, `SmartOmnibarCards.kt`, `SmartOmnibarEngine.kt`, `ui/components/`)**:
+  - Evaluates navigation intent directly in the address bar with rich cards: **Math Solver**, **Color Preview**, **Live Kaspa Price Hub**, **Buy Kaspa Hub**, **KRC-20 Token cards**, and **Webpage Preview**.
+- **Page Translator Bar (`PageTranslatorBar.kt`)**:
+  - Floating 20-language page translation bar (`en`, `es`, `fr`, `de`, `zh-CN`, `ja`, `ru`, `pt`, `ar`, `hi`, `ko`, `it`, `tr`, `nl`, `pl`, `id`, `vi`, `uk`, `th`, `el`) with instant revert and web gateway translation fallback.
+- **Distraction-Free Reader Mode (`KaspaReaderMode.kt`)**:
+  - Extracts clean article title, byline, lead image, word count, reading time, and video embeds (uses native JNI `libkaspasearch.so` if present, with full pure-Kotlin extraction fallback).
+- **Background Media Playback (`BrowserBackgroundPlayback.kt`, `BrowserMediaPlaybackService.kt`)**:
+  - Foreground notification media service (`NOTIFICATION_ID = 7301`, `browser_media_playback` channel) polling page playback metadata so audio/video continues with lock-screen and notification controls.
+- **PWA Standalone Mode (`PwaStandaloneActivity.kt`, `PwaShortcutHelper.kt`, `PwaInstallDialog.kt`)**:
+  - Installs web apps as home-screen shortcuts and launches them in a dedicated standalone activity wired into the autofill bridge.
+- **[NEW] Storage & Cache Diagnostics (`BrowserStorageDiagnosticsCard.kt`)**:
+  - Breaks down **App Cache**, **WebView Cache**, **Room Databases**, and **Site WebStorage / Origin Counts** separately so clearing cache never unexpectedly wipes saved logins, bookmarks, tabs, or history.
 
-### 1. Launching a Web URL from Another App
-To open any arbitrary webpage or web app in KaspaBrowser from your own Android app:
+### 2. Security, Password & Passkey Vault (`security/`, `ui/`, `MainActivity.kt`) **[Updated]**
+- **Encrypted Credential Vault (`PasswordVaultRepository.kt`, `PasswordVaultDialog.kt`, `PasswordGenerator.kt`, `BiometricAuthHelper.kt`)**:
+  - Stores logins and passkey metadata in Room encrypted with **Android Keystore AES-256-GCM** (`CryptoUtils`), unlocked via biometrics/PIN and auto-locked on app backgrounding (`MainActivity.onStop`). Includes a CSPRNG password generator.
+- **Origin-Verified Autofill Bridge (`PasswordAutofillBridge.kt`, `KaspaWebAuthnBridge.kt`)**:
+  - Uses `WebViewCompat.addWebMessageListener` with strict main-frame checks, origin validation, and host matching (`isHostMatch`) before injecting saved credentials; blocks CAPTCHA/payment origins (`challenges.cloudflare.com`, `hcaptcha.com`, `recaptcha.net`, `arkoselabs.com`, `stripe.com`, `paypal.com`).
+- **[NEW] Full-Page Passkey & Kazview Diagnostics (`WebAuthnDiagnosticsDialog` in `BrowserAutofillAndPasskeyUi.kt`)**:
+  - Full-screen diagnostic view (sized safely inside `WindowInsets.safeDrawing` so no action bar is clipped beneath device edges) displaying:
+    - Live **Kazview** & System WebView package/version, multi-process isolation status, async startup metrics, QUIC hints, BFCache, and active `MULTI_PROFILE` state.
+    - Active WebAuthn policy mode (`FOR_BROWSER Active` vs `Restricted by System Policy`) with clear explanation and one-tap **Open in System Browser Custom Tab** handoff for strict FIDO2 Relying Parties.
+- **WebView & Intent Hardening (`KaspaSecurityGuard.kt`, `PlayIntegrityManager.kt`)**:
+  - `http://`/`https://`-only `Intent.ACTION_VIEW` validation, `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` replay protection, scheme rejection for `file://`, `content://`, `javascript://`, and `data://`, plus Play Integrity helper integration.
+
+### 3. Signal-Only Ecosystem Notifications (`news/KaspaNewsNotificationWorker.kt`, `data/NewsModels.kt`) **[New Fix]**
+- **General Kaspa Articles Removed**:
+  - Deleted the `"All Kaspa Articles"` (`kaspa_news_articles`) notification channel and removed the duplicate `DecentralViewModel` notification emitter (`kaspa_news_channel` / ID `1`). Legacy channels and notification IDs are automatically deleted/canceled on startup and sync.
+- **High-Signal Categories Only**:
+  - Background WorkManager sync (`kaspa_news_background_sync`) notifies **only** for:
+    - **Breaking Kaspa News (`kaspa_breaking_news`)**: Urgent security alerts, consensus bugs, mainnet outages, zero-day/exploit notices.
+    - **Kaspa Ecosystem Developments (`kaspa_ecosystem_news`)**: GitHub releases (`rusty-kaspa`, `kaspad`), GhostDAG/protocol upgrades, KRC-20/KRC-721/Kasplex launches, wallets, and exchange integrations.
+- **Anti-Duplicate & Hygiene Safeguards**:
+  - Ordered FIFO JSON seen-key persistence (up to 1,500 keys, migrating legacy unordered `StringSet` entries) guarded by coroutine `Mutex` + synchronization lock.
+  - Dual-key deduplication matching **both** publisher-stripped normalized headlines and `EmbeddedRustSearchEngine.sanitizeUrl` canonical URLs (stripping `utm_*` tracking params, fragments, and trailing slashes).
+  - Foreground-to-background synchronization (`markItemsSeen`) prevents articles fetched inside the app from triggering repeat background alerts.
+  - Silent first-run baseline initialization, `MAX_NOTIFICATIONS_PER_RUN = 2` burst cap (prioritizing Breaking alerts), `POST_NOTIFICATIONS` runtime check (API 33+), `http`/`https` URI verification, `setOnlyAlertOnce(true)`, and non-colliding notification IDs (`>= 10_000`).
+
+### 4. Networking, Privacy Shielding & Relay Transport (`network/`, `TrafficAuditScreen.kt`)
+- **Cronet + OkHttp3 (`CronetClientFactory.kt`)**: Enables Chromium Cronet HTTP/3 (QUIC), HTTP/2, Brotli, AsyncDNS, and StaleDNS via `CronetInterceptor`.
+- **Ad & Tracker Shielding (`KaspaPrivacyEngine.kt`, `UBlockEngine.kt`, `TrafficAuditScreen.kt`)**: Intercepts subresource and ServiceWorker tracker/ad requests while preserving stylesheets, scripts, fonts, OAuth, and challenge flows; logs real allowed/blocked traffic in **Traffic Audit**.
+- **Fail-Closed Encrypted DoH (`KaspaPrivacyRelayEngine.kt`)**: Resolves hostnames via `cloudflare-dns.com`, `dns.quad9.net`, and `dns.google` using pinned bootstrap IPs with system DNS disabled on relay resolution.
+- **Local Loopback Relay & SOCKS5 Forwarder (`KrpRelayDaemon.kt`, `LightweightTorEngine.kt`, `WebViewProxyManager.kt`)**:
+  - `KrpRelayDaemon` binds localhost (`127.0.0.1`) Entry (`8443`) and Exit (`8444`) sockets implementing X25519 key exchange, HKDF-SHA256, ChaCha20-Poly1305, and 1024-byte cell framing.
+  - `LightweightTorEngine` runs a localhost SOCKS5 listener (`9155`/`9156`) resolving domains through fail-closed Encrypted DoH and blocking recursive self-loops into local daemon ports.
+  - **Transparency Note**: Running these loopback listeners in-process secures local loopback transport and forces encrypted DoH, **but does not change your public egress IP** unless a real external upstream SOCKS5/HTTP proxy (such as Orbot/Tor) is configured.
+
+### 5. Web3, Kaspa Wallet, ZKP & Decentralized Discovery (`network/kaspa/`, `network/zk/`, `dapp/`, `ui/`)
+- **Kaspa Wallet & dApp Bridge (`KaspaWalletService.kt`, `KaspaTransactionEngine.kt`, `KaspaTestnetWalletScreen.kt`, `DappsScreen.kt`, `DappPromptSheet.kt`, `TransactionConfirmationBottomSheet.kt`)**: On-device HD wallet & key management (`BouncyCastle`, `Web3j`), Kaspa testnet wallet interface, and explicit user-approved dApp signing sheets.
+- **Token & Domain Protocols (`Krc20Service.kt`, `Kcc20Protocol.kt`, `KbKcc20*`, `DotkProtocol.kt`, `KaspaDomainRegistry.kt`, `DualStackResolver.kt`)**: Supports `.kas`, `.hns`, `.eth`, and `ipfs://` targets alongside SHA-256 content checks and KRC-20/KCC-20 tooling.
+- **Zero-Knowledge Proofs (`ZkProofEngine.kt`)**: secp256k1 non-interactive Schnorr Sigma NIZKP (`Fiat-Shamir` transform) for proving public key knowledge without exposing private keys.
+- **Mesh Radar & Local Node Manager (`MeshRadarScreen.kt`, `NetworkDiscoveryManager.kt`, `LocalNodeManager.kt`, `BluetoothMeshManager.kt`)**: Live LAN/NSD discovery and real TCP/HTTP reachability checks against configured node endpoints.
+
+### 6. Research, Search & Optional Native/Desktop Workspaces (`network/siagent/`, `kaspasearch-*`, `desktop/`)
+- **SI Agent (`SiAgentScreen.kt`, `AndroidWebResearch.kt`, `SiWebCrawler.kt`, `GroqKeyStore.kt`)**:
+  - Local web crawling and research work entirely on-device without any API key.
+  - Optional AI synthesis via Groq Chat Completions using each user's **own API key** (`gsk_...`), encrypted on-device in Android Keystore—never hardcoded or bundled.
+- **Federated Search (`EmbeddedRustSearchEngine.kt`, `SearchResultsScreen.kt`, `kaspasearch-engine/`, `kaspasearch-core/`)**:
+  - Strips tracking parameters (`utm_*`, `fbclid`, `gclid`, etc.) and aggregates search results. Uses native JNI (`libkaspasearch.so`) if compiled into `app/src/main/jniLibs`, and falls back automatically to a complete pure-Kotlin implementation when native binaries are absent.
+- **Desktop Companion (`desktop/linux/cef/`)**: Linux CEF companion workspace files alongside the primary Android application.
+
+---
+
+## Connecting From Another Android App
+
+External apps can open HTTPS/HTTP URLs in Kaspa Browser using standard `Intent.ACTION_VIEW`:
 
 ```kotlin
 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")).apply {
-    // Optionally scope to package if known
-    setPackage(context.packageName)
+    setPackage(targetPackageName)
 }
 context.startActivity(intent)
 ```
 
-### 2. Passing Search Queries
-You can also pass plain text search queries or search URLs via `Intent.ACTION_VIEW`. Unsecured plain text inputs are automatically sanitized and routed through the federated search engine:
-
-```kotlin
-val intent = Intent(Intent.ACTION_VIEW).apply {
-    data = Uri.parse("https://html.duckduckgo.com/html/?q=open+source+browser")
-}
-context.startActivity(intent)
-```
-
-### 3. Built-in Security & Sanitization Safeguards
-To ensure zero vulnerabilities and robust production stability, KaspaBrowser enforces strict intent validation:
-1. **Unsafe Scheme Blocking**: Incoming intents with `file://`, `content://`, `javascript://`, or `data://` URI schemes are unconditionally intercepted and blocked to prevent local file traversal, storage leaks, or script injection.
-2. **Protocol Validation**: Only valid `http://` and `https://` URLs are permitted for direct navigation.
-3. **History Replay Prevention**: `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` is checked and ignored, ensuring that reopening the app from Android recent apps history does not accidentally replay stale external navigation intents.
+Incoming intents enforce strict protocol checks (`http://` and `https://` only), history replay filtering (`FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`), scheme rejection for `file://`, `content://`, `javascript://`, and `data://`, and single-consumption of handled URL payloads.
 
 ---
 
-## Browser Rendering Engine & Gateway Architecture
+## Natural Desktop / Mobile Mode
 
-KaspaBrowser is built on top of a **Dual-Stack Hybrid Rendering Engine**. It combines Android's hardware-accelerated Blink/Chromium WebCore with custom protocol interception layers, decentralized domain resolvers, native ARM64 Rust v9 JNI modules, and privacy content shields.
-
-### 🏛️ Main Rendering Engine Breakdown
-
-| Component / Screen | Main Rendering Engine | Technical Explanation |
-| :--- | :--- | :--- |
-| **General Web Pages** *(e.g. YouTube, news sites, web apps)* | **Android System WebView (Chromium/Blink)** | Renders third-party websites with 100% HTML5, CSS3, JavaScript, WebGL, and video playback compatibility. |
-| **Search Results Screen** | **Jetpack Compose + Native Rust v9 JNI Layer** | Search queries execute through native Rust v9 (`libkaspasearch.so`), returning cards rendered with Jetpack Compose. |
-| **Kaspa Reader Mode & Text Views** | **Jetpack Compose + Rust AST Sanitizer** | Rust strips ads and trackers from the HTML; Jetpack Compose renders the clean article layout natively. |
-| **Browser UI & Navigation** | **Jetpack Compose + Android GPU (Skia)** | Address bar, tab bar, settings, mesh radar, and dialogs are rendered using Jetpack Compose and Skia hardware acceleration. |
-
-### Engine Specifications
-- **Core Rendering Engine**: Android System WebView (Chromium/Blink WebCore with V8 JavaScript engine & Skia 2D rendering).
-- **Native Rust v9 JNI Module**: Native Rust engine (`libkaspasearch.so`) performing zero-tracking federated search (DuckDuckGo, Bing, Wikipedia), AST ad/tracker filtering, and URL parameter sanitization.
-- **Protocol Interception Layer**: Custom `WebViewClient` request interceptor (`shouldOverrideUrlLoading` & `shouldInterceptRequest`) catching Web3 protocols (`ipfs://`, `kas://`, `mesh://`, `dweb://`, `.kas`, `.hns`, `.eth`, and P2P CID targets).
-- **Network Pipeline**: Asynchronous OkHttp3 client with pure **HTTP/3 (QUIC over UDP)** transport layer, 0-RTT handshakes, zero head-of-line blocking, and connection migration (HTTP/2 removed).
-- **Decentralized DNS Engine**: Multi-chain DoH & ledger resolver querying Handshake (HNS) PoW root chain, Kaspa Block DAG (KNS), ENS (.eth), EmerDNS, and OpenNIC directly.
-- **Cryptographic Verification Engine**: Local SHA-256 digest calculation for diagnostics. A digest alone does not establish authenticity; ordinary web pages remain unverified unless an applicable integrity check succeeds.
-- **Local Mesh Seeding Engine**: Room SQLite database engine (`AppDatabase` / `ContentDao`) storing content-addressed blocks with `isSeeding = true` for peer mesh seeding and zero single point of failure during server outages.
-- **JavaScript & Web3 Bridge**: `@JavascriptInterface` bridge enabling zero-knowledge account identity injection, Web3 dApp RPC calls, and secure cryptographic signing without exposing private keys.
-- **Privacy & Content Shield Engine**: Real-time URL blocklist evaluator inspecting incoming DOM resources against ad-trackers and telemetry scripts before passing sanitized streams into the rendering pipeline.
+- One-tap **Desktop site** toggle in the browser menu backed by User-Agent switching, `useWideViewPort`, `loadWithOverviewMode`, and `980px` desktop layout viewport behavior.
+- Cleanly resets initial scale (`setInitialScale(0)`) on mode changes while preserving multi-touch pinch-to-zoom and pull-to-refresh top-boundary guards (`NestedWebView.kt`).
 
 ---
 
-## 🛡️ Kaspa Relay Protocol (KRP/1) Specification
-
-KaspaBrowser implements **KRP/1 (Kaspa Relay Protocol v1)**, a dual-hop oblivious transport protocol designed to cryptographically separate user network identity (IP address) from destination targets while preserving mobile browsing performance.
-
-### 1. Oblivious Dual-Hop Topology
+## Project Structure
 
 ```
-+---------------+              +--------------------+              +-------------------+              +----------------+
-| Client Device |  === [E1] => |    Entry Relay     |  === [E2] => |    Exit Relay     |  === [TLS] =>| Target Server  |
-|  (User IP)    |              | (Knows Client IP)  |              | (Knows Target URL)|              | (Destination)  |
-+---------------+              +--------------------+              +-------------------+              +----------------+
-                               | Knows: Client + E2 |              | Knows: E1 + Target|
-                               | Denied: Target URL |              | Denied: Client IP |
-```
-
-### 2. Cryptographic Parameters & Layering
-
-* **Key Exchange**: Ephemeral X25519 (ECDH) negotiated per established circuit.
-* **Symmetric Encryption**: ChaCha20-Poly1305 authenticated encryption with 12-byte initialization vectors (IV).
-* **Key Derivation**: HKDF-SHA256 with domain-separated salts.
-* **Layered Onion Envelopes**: Double-wrapped ciphertext ($E_{entry}(E_{exit}(\text{Payload})) $).
-  * **Outer Layer ($E_{entry}$)**: Addressed to Entry Node. Contains the Exit Node routing identifier and the opaque inner payload.
-  * **Inner Layer ($E_{exit}$)**: Addressed to Exit Node. Contains destination URI, HTTP method, headers, and request body.
-
-### 3. Wire Format & Cell Framing
-
-```
- 0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Magic: "KRP1"                 | Frame Type    | Stream ID     |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Payload Length (Big-Endian)   | Reserved / Flags              |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Nonce / IV (12 Bytes)                                         |
-|                                                               |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Poly1305 Auth Tag (16 Bytes)                                  |
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Encrypted Body Data (Variable) ...                            |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-| Padding to 1024-Byte Boundary (PKCS#7 / Chaff)                |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-```
-
-### 4. Anti-Traffic Analysis Defenses
-
-* **Poisson Micro-Jitter Injection**: Randomized timing delay of $\Delta t = 10\text{ms} + \text{CSPRNG}(0, 25)\text{ms}$ injected before dispatching frames to defeat passive ISP timing correlation.
-* **Traffic Morphing (Uniform 1024-Byte Quanta)**: All payloads are padded to exact 1024-byte multiples using random chaff bytes to prevent packet size fingerprinting.
-* **Non-Deterministic Circuit Auto-Rotation**:
-  * **Randomized Query Stride**: Evaluates a dynamic threshold generated via `SecureRandom` ($N \in [2, 7]$ queries).
-  * **Randomized Time Jitter**: Rotates circuit lifetime on unpredictable intervals ($T \in [50\text{s}, 160\text{s}]$).
-* **Client-Side Leak Neutralization**:
-  * **DNS Leak Shield**: DNS resolutions occur exclusively at the exit relay.
-  * **WebRTC STUN/TURN Neutralizer**: Blocks local and public candidate IP probing via `RTCPeerConnection` interception.
-  * **Zero-Tracking Standards**: Injects `Sec-GPC: 1` and `DNT: 1` while stripping identifying headers (`X-Forwarded-For`, `Client-IP`).
-
----
-
-##  End-to-End Connection & Flow Diagram
-
-The following diagram illustrates how user input, network resolution, peer discovery, protocol fallback, and DOM rendering flow through the KaspaBrowser subsystems:
-
-```
-+--------------------------------------------------------------------------------------------------------+
-|                                    USER INTERFACE (Jetpack Compose)                                    |
-|   [ URL / Search Bar ]   [ Tab Manager ]   [ Mesh Radar ]   [ Privacy Audit ]   [ Account DID Pill ]   |
-+--------------------------------------------------------------------------------------------------------+
-                                                    |
-                                          (User Action / Query)
-                                                    v
-+--------------------------------------------------------------------------------------------------------+
-|                                       VIEWMODEL & ROUTING STATE                                        |
-|                               DecentralViewModel (StateFlow / Coroutines)                              |
-+--------------------------------------------------------------------------------------------------------+
-                                                    |
-                                                    v
-+--------------------------------------------------------------------------------------------------------+
-|                                      DUAL-STACK RESOLVER & ROUTER                                      |
-|                                         (DualStackResolver.kt)                                         |
-+--------------------------------------------------------------------------------------------------------+
-         |                           |                               |                           |
- (Search & AST Sanitizer)     (Standard Web)            (Decentralized CIDs/TLDs)        (P2P Mesh Host)
-  Queries & Reader Mode     http:// or https://         .hns / .kas / .eth / ipfs://    Local Node Host
-         |                           |                               |                           |
-         v                           v                               v                           v
-+-----------------------+   +---------------------+   +-------------------------+   +--------------------+
-|    NATIVE RUST v9     |   |    HTTP/3 (QUIC)    |   | Handshake / Kaspa / ENS |   | Local Node Manager |
-|      JNI ENGINE       |   |    (over UDP/IP)    |   | - Handshake PoW Root    |   | - Localhost daemon |
-|  (libkaspasearch.so)  |   | - 0-RTT Handshake   |   | - Kaspa (KNS) BlockDAG  |   | - Resolves on-dev  |
-| - Zero-Track Search   |   | - Connection Migr.  |   | - ENS / OpenNIC / Emer  |   |   cached payload   |
-| - AST Ad & Tracker Clr|   | - HTTP/2 Removed    |   | - Content-addr CIDs     |   | - P2P micro-server |
-| - Reader Mode Clean   |   | - Low-latency UDP   |   | - Decentralized DOH     |   | - Mesh node seeder |
-+-----------------------+   +---------------------+   +-------------------------+   +--------------------+
-         |                           |                               |                           |
-         +---------------------------+---------------+---------------+---------------------------+
-                                                     |
-                                           (Raw Resource Payload)
-                                                     v
-+--------------------------------------------------------------------------------------------------------+
-|                                IN-BROWSER SHA-256 TAMPER VERIFICATION                                  |
-| - Computes local SHA-256 digest of payload data streams                                                |
-| - A digest alone does not prove content authenticity                                                  |
-| - Reports verification only when an applicable integrity check succeeds                              |
-+--------------------------------------------------------------------------------------------------------+
-                                                     |
-                                           (Resource with explicit verification status)
-                                                     v
-+--------------------------------------------------------------------------------------------------------+
-|                              LOCAL MESH SEEDING & ROOM DB PERSISTENCE                                  |
-| - Indexes content block into SQLite Room database (`ContentEntity`)                                    |
-| - Sets `isSeeding = true` to seed content to nearby P2P mesh nodes                                     |
-| - Guarantees zero single point of failure during central server outages                                |
-+--------------------------------------------------------------------------------------------------------+
-                                                     |
-                                           (Sanitized Web Stream)
-                                                     v
-+--------------------------------------------------------------------------------------------------------+
-|                           TRAFFIC AUDIT, CONTENT SHIELD & RUST AST SANITIZER                           |
-| - Native Rust v9 AST filtering strips hidden tracking beacons, ads, and telemetry scripts              |
-| - HTTPS-Only Mode upgrade and SSL/TLS certificate validation                                           |
-| - Records real-time I/O metrics and blocked tracker count to Traffic Audit ledger                      |
-+--------------------------------------------------------------------------------------------------------+
-                                                     |
-                                           (Sanitized Web Stream)
-                                                     v
-+--------------------------------------------------------------------------------------------------------+
-|                                        WEB ENGINE INTEGRATION LAYER                                    |
-|                                                                                                        |
-|  +---------------------------------------+          +-----------------------------------------------+  |
-|  |         Custom WebViewClient          |          |            Custom WebChromeClient             |  |
-|  |  - Intercepts sub-resource requests   |          |  - Handles progress, titles & favicons        |  |
-|  |  - Manages cookie/session storage     |          |  - Zero-permission Android Photo Picker       |  |
-|  |  - Enforces SSL/TLS security checks   |          |  - Geolocation & Fullscreen control           |  |
-|  +---------------------------------------+          +-----------------------------------------------+  |
-|                                                    |                                                   |
-|                                    +---------------+---------------+                                   |
-|                                    |    JavaScript Bridge Layer    |                                   |
-|                                    |  - Zero-Knowledge DID Bridge  |                                   |
-|                                    |  - Web3 & Passkey Provider    |                                   |
-|                                    |  - KaspaNative Action Bridge  |                                   |
-|                                    +---------------+---------------+                                   |
-+----------------------------------------------------+---------------------------------------------------+
-                                                     |
-                                                     v
-+--------------------------------------------------------------------------------------------------------+
-|                                     CHROMIUM / BLINK RENDERING ENGINE                                  |
-| - HTML5 Parsing & CSS3 Styling Engine (Skia GPU Acceleration)                                          |
-| - V8 JavaScript Execution Engine                                                                       |
-| - DOM Tree Construction -> Render Tree Layout -> GPU Compositing & Rasterization                       |
-+--------------------------------------------------------------------------------------------------------+
-                                                     |
-                                                     v
-+--------------------------------------------------------------------------------------------------------+
-|                                        ANDROID DISPLAY SURFACE                                         |
-|  Edge-to-Edge Compose Canvas rendering active web page, dApp viewport, and interactive UI              |
-+--------------------------------------------------------------------------------------------------------+
-```
-
----
-
-##  Key Features
-
-###  1. Dual-Stack Gateway & Web Browser
-- **Unified Protocol Handler**: Seamlessly navigates standard web addresses (`http://`, `https://`) and decentralized Web3 protocols (`ipfs://`, `hyper://`, `.kas`, `.mesh`, and custom local peer endpoints).
-- **Dual-Stack DNS & Mesh Resolver**: Automatically resolves local and peer nodes on local mesh networks before routing out to public gateways.
-- **Modern Web Engine**: Powered by an integrated Android WebView equipped with safe file picker fallbacks, cookie isolation, progressive Web App (PWA) manifest auto-detection, and customizable desktop/mobile User Agents.
-- **Offline & Cache Mode**: Offline browsing cache with granular cache-clearing controls.
-
-###  2. Cryptographic Identity & Key Management
-- **Decentralized Accounts**: Create, import, and manage hierarchical deterministic (HD) seed phrases and keypairs.
-- **Ed25519 & Secp256k1 Cryptography**: Hardware-backed key derivation with cryptographic hashing (SHA-256, Blake2b).
-- **Account Backup & Export**: Safe export of private keys and recovery phrases with PIN and biometric protection.
-
-### 3. P2P Mesh Radar & Local Node Hosting
-- **Live Mesh Radar**: Discovers nearby nodes, peers, and local web services over Wi-Fi Direct, Local Area Networks (LAN), and NSD (Network Service Discovery).
-- **On-Device Micro Daemon**: Host lightweight local web pages, decentralized documents, or P2P data packets directly from your phone.
-- **Peer Latency & Routing Metrics**: Real-time ping, hops, bandwidth consumption, and signal strength auditing.
-
-### 4. Real-Time Traffic Audit & Privacy Shield
-- **Data Usage Analytics**: Monitor upstream and downstream bandwidth in real time.
-- **Tracker & Script Protection**: Built-in content shielding to mitigate intrusive tracking and reduce mobile data overhead.
-- **Live Traffic Logs**: Detailed ledger of intercepted network calls, DNS queries, and decentralized gateway lookups.
-
-### 5. PWA Launcher & Desktop Integration
-- **Zero-Install Web Apps**: Pin decentralized dApps and standard web apps directly to the Android Home Screen using Android Pin Shortcut APIs.
-- **Dynamic Icons & Standalone Viewing**: Launches installed web apps in dedicated immersive views.
-
-###  6. Natural Desktop / Mobile View (100% Chrome Parity)
-- **1-Tap Menu Control**: Quick toggle located directly inside the browser's 3-dots (`⋮`) menu with a reactive `[✓] Desktop site` checkbox.
-- **Standard Chromium Viewport**: Utilizes the official **980px** layout viewport width (`width=980, user-scalable=yes`) and Chromium's native `useWideViewPort` and `loadWithOverviewMode` engines.
-- **Pure Native Layout**: No artificial DOM `<meta>` mutation scripts or micro-scaling hacks; websites and single-page apps (SPAs) render naturally.
-- **Scale Reset on Mode Toggle**: Automatically restores native 100% device scale (`setInitialScale(0)`) when switching between Desktop and Mobile modes.
-- **Touch & Gesture Integrity**: Complete native multi-touch pass-through (`maxTouchPoints`), pinch-to-zoom, fling inertia, and swipe-to-refresh top-boundary guards.
-
-### 7. Security & Anti-Malware Architecture
-- **Sandboxed Local File Isolation**:
-  - `allowFileAccess = false`, `allowFileAccessFromFileURLs = false`, and `allowUniversalAccessFromFileURLs = false` prevent cross-origin file theft and block web scripts from accessing local device storage.
-- **Google Safe Browsing Integration**:
-  - Implements `onSafeBrowsingHit` with `callback.backToSafety(true)` to automatically detect and intercept phishing, malware, and social engineering domains.
-- **Strict JavaScript Interface Hardening**:
-  - Sandboxed `@JavascriptInterface` binding strictly limited to Passkey/FIDO2 authentication via Android `CredentialManager` and Biometric Prompt. No internal reflection or filesystem APIs exposed to web contexts.
-- **Duplicate Launch & Intent Replay Guards**:
-  - Activity configured with `android:launchMode="singleTask"` and intent payload consumption (`intent.data = null`) to eliminate duplicate app instances or replayed navigation requests.
-
----
-
-
-##  Component Visual Identity & Brand Logo Color Palette
-
-KaspaBrowser features a sleek Cyber-Minimalist Dark Canvas accented with Kaspa's signature tea turquoise and electric cyan brand palette:
-
-| Component / Token | Hex Code | Visual Sample | Usage & UI Mapping |
-| :--- | :--- | :--- | :--- |
-| **Kaspa Tea** (Brand Primary) | `#70C7BA` | `#70C7BA` | Primary Logo Gradient, Action Buttons, Active Navigation Tab, Verified Indicators |
-| **Electric Cyan** (Vibrant Accent)| `#00F5D4` | `#00F5D4` | Brand Logo Glow, Antennae Nodes, Live Mesh Radar Pulse, Focus Rings |
-| **Obsidian Dark** (Canvas) | `#0C0D10` | `#0C0D10` | App Background, Adaptive Icon Canvas, WebView Scrim |
-| **Crisp Dragon Emblem** | `#70C7BA` | `#70C7BA` | Official Dragon Kaspa Logo, Primary High-Contrast Headlines, Icon Foreground |
-| **Surface Dark** (Header/Bar) | `#14161C` | `#14161C` | Browser Address Bar, Navigation Bar, Floating Sheet Headers |
-| **Surface Elevated** (Border) | `#282C37` | `#282C37` | Card Borders, URL Search Bar Outline, Tab Dividers |
-| **Deep Royal Violet** (zk/Badges)| `#5B21B6` | `#5B21B6` | Decentralized ID (DID) Badges, Ed25519 Keys, GitHub Badges |
-| **Slate Charcoal** (Secondary) | `#475569` | `#475569` | Secondary Badges, Metadata Borders, Inactive Icon Tints |
-| **Amber Warning** (Latency/Warn) | `#F59E0B` | `#F59E0B` | Medium-Latency Nodes, Unsigned Network Warnings |
-| **Shield Red** (Ad Block/Alert) | `#EF4444` | `#EF4444` | Blocked Tracker Ledger, Dropped Packets, Threat Shields |
-
----
-
-##  Project Architecture & Structure
-
-The codebase is engineered following modern Android architecture guidelines (**MVVM**, **Unidirectional Data Flow**, and **Clean Architecture**):
-
-```
-├── .github/
-│   └── workflows/
-│       └── android_build.yml    # Automated CI/CD for signed/unsigned Release APK publishing
+├── .github/workflows/                 # CI/CD workflows (Android build & test)
 ├── app/
-│   ├── build.gradle.kts         # Module build script (Compile SDK 36, Target SDK 36, Min SDK 26)
-│   ├── proguard-rules.pro       # R8/ProGuard rules for serialization, Room, and coroutines
+│   ├── build.gradle.kts               # App module (compileSdk 36, targetSdk 36, minSdk 24)
+│   ├── proguard-rules.pro             # R8/ProGuard keep rules
 │   └── src/
-│       └── main/
-│           ├── AndroidManifest.xml
-│           ├── java/com/example/
-│           │   ├── MainActivity.kt               # Main entry point & Edge-to-Edge setup
-│           │   ├── data/
-│           │   │   ├── AppDatabase.kt            # Room database definition
-│           │   │   ├── Daos.kt                   # Data Access Objects (History, Bookmarks, Nodes)
-│           │   │   └── Entities.kt               # SQLite database entities
-│           │   ├── model/
-│           │   │   └── NetworkModels.kt          # Mesh, node, peer, and traffic packet models
-│           │   ├── network/
-│           │   │   ├── CryptoUtils.kt            # Key generation, hashing, and hex tools
-│           │   │   ├── DomainConstants.kt        # Default seed nodes, public APIs, and gateways
-│           │   │   ├── DualStackResolver.kt      # DNS and decentralized protocol resolver
-│           │   │   ├── LocalNodeManager.kt       # On-device micro-daemon and routing logic
-│           │   │   ├── NetworkDiscoveryManager.kt# LAN/NSD/Mesh peer discovery engine
-│           │   │   └── PwaShortcutHelper.kt      # Home screen shortcut & launcher manager
-│           │   ├── ui/
-│           │   │   ├── BrowserGatewayScreen.kt   # Dual-stack WebView browser & tab manager
-│           │   │   ├── DecentralizedAccountDialog.kt # Key management & Seed dialogs
-│           │   │   ├── MainScreen.kt             # Navigation bar, Scaffold, and root view
-│           │   │   ├── MeshRadarScreen.kt        # Interactive P2P visual radar & peer map
-│           │   │   ├── PwaInstallDialog.kt       # PWA confirmation & icon dialog
-│           │   │   ├── TrafficAuditScreen.kt     # Network inspector & privacy metrics
-│           │   │   └── theme/                    # Material 3 dark-first Cyberpunk theme
-│           │   └── viewmodel/
-│           │       └── DecentralViewModel.kt     # Unified reactive state manager
-│           └── res/
-│               ├── drawable/                     # Adaptive icons, vectors, and graphics
-│               └── values/                       # Strings, colors, and themes
-├── architecture_3d_overview.mp4 # 3D Architecture simulation video (MP4)
-├── architecture_3d_overview.gif # Animated 3D architecture overview (GIF)
-├── architecture_diagram.jpg     # High-resolution architectural system blueprint
-├── brand_palette.jpg            # Cyberpunk M3 brand palette & visual guidelines
-├── kaspasearch-engine/          # Native Rust engine (1.5% codebase - Rust 2021)
-│   ├── Cargo.toml               # Rust package manifest & dependencies
-│   └── src/
-│       ├── lib.rs               # JNI C/Rust bindings (libkaspasearch.so)
-│       ├── privacy.rs           # URL parameter tracking stripper & AST sanitizer
-│       ├── federator.rs         # Zero-telemetry multi-engine search aggregator
-│       └── main.rs              # Standalone verification runner
-└── gradle/
-    └── libs.versions.toml       # Gradle Version Catalog
+│       ├── main/
+│       │   ├── AndroidManifest.xml
+│       │   └── java/com/example/
+│       │       ├── MainActivity.kt               # Edge-to-Edge, intent validation, vault auto-lock
+│       │       ├── dapp/                         # Web3 dApp prompt & sign request models
+│       │       ├── data/                         # Room AppDatabase, DAOs, Entities & NewsModels
+│       │       ├── engine/
+│       │       │   └── BrowserEngineManager.kt   # Kazview coordinator: warmup, QUIC, profiles, Custom Tabs
+│       │       ├── model/                        # Network, mesh, relay & traffic models
+│       │       ├── network/                      # Cronet, DoH, KRP/1, SOCKS5 forwarder, adblock, wallet, ZK, SI Agent
+│       │       ├── news/
+│       │       │   └── KaspaNewsNotificationWorker.kt # Breaking/Ecosystem WorkManager alerts + dedup
+│       │       ├── omnibar/                      # Smart Omnibar intent & entity helpers
+│       │       ├── security/                     # AES-256-GCM vault, autofill bridge, CSPRNG, Play Integrity
+│       │       ├── ui/                           # Compose screens (Browser, Vault, Passkey Diagnostics, Radar, Audit, SI)
+│       │       ├── util/                         # KaspaWebViewConfigurator, tab hibernation & background media
+│       │       ├── utils/                        # BiometricAuthHelper & helper utilities
+│       │       └── viewmodel/
+│       │           └── DecentralViewModel.kt     # Reactive UI & browser state management
+│       └── test/java/com/example/                # JUnit & Robolectric verification tests
+├── architecture_3d_overview.gif       # Animated architecture graphic
+├── architecture_diagram.jpg           # System architecture diagram
+├── brand_palette.jpg                  # Visual palette guide
+├── desktop/linux/cef/                 # Desktop Linux CEF companion workspace files
+├── gradle/libs.versions.toml          # Centralized Gradle Version Catalog
+├── kaspasearch-core/                  # Shared Rust search core crate
+├── kaspasearch-engine/                # Optional JNI Rust crate (libkaspasearch.so)
+└── settings.gradle.kts
 ```
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
-| Layer | Technology |
+| Layer | Verified Dependencies & Tools |
 |---|---|
-| **Programming Languages** | [Kotlin 2.0+](https://kotlinlang.org/) (**98.5%**) &bull; [Rust 2021 Edition](https://www.rust-lang.org/) (**1.5%** - `kaspasearch-engine`) |
-| **Native Engine** | Native Rust JNI v9 (`libkaspasearch.so`) for zero-tracking federated search & AST privacy sanitization |
-| **UI Framework** | [Jetpack Compose (Material 3)](https://developer.android.com/jetpack/compose) |
-| **Target OS** | Android 16 (API 36) / Minimum Android 8.0 (API 26) |
-| **Asynchronous Engine** | Kotlin Coroutines & `StateFlow` |
-| **Local Persistence** | [AndroidX Room Database](https://developer.android.com/training/data-storage/room) |
-| **Networking** | OkHttp3, Ktor, and Android NSD |
-| **Serialization** | `kotlinx.serialization` (JSON) |
-| **Code Shrinking & Security** | ProGuard / R8 optimized rules |
-| **CI/CD Build Automation** | GitHub Actions (`actions/setup-java@v5`, JDK 21) |
+| **Language** | Kotlin (JVM 17 bytecode target) &bull; Optional Rust 2021 crates (`kaspasearch-*`) |
+| **UI Framework** | Jetpack Compose + Material 3 (`Edge-to-Edge`, `WindowInsets.safeDrawing`) |
+| **Android SDK** | `compileSdk = 36`, `targetSdk = 36`, `minSdk = 24` |
+| **Browser Core (Kazview)** | Android System WebView + `androidx.webkit:webkit` + `androidx.browser:browser` |
+| **Networking** | `OkHttp3`, Google Play Services `Cronet` + `cronet-okhttp`, `Retrofit`, `Moshi` |
+| **Security & Auth** | Android Keystore (`AES-256-GCM`), `androidx.biometric`, `androidx.credentials`, Google Play Integrity |
+| **Local Storage & Work** | AndroidX `Room` + `KSP`, `androidx.work:work-runtime-ktx` |
+| **Cryptography & Web3** | `Web3j` Android, `BouncyCastle` (`bcprov-jdk18on`), secp256k1 Schnorr Sigma NIZKP |
+| **Parsing & Media** | `Jsoup`, `Coil` Compose, `ZXing`, `androidx.media` |
+| **Testing** | JUnit4, `kotlinx-coroutines-test`, `Robolectric`, `Roborazzi`, Compose UI Test |
 
 ---
 
-## 🚀 Building & Publishing
+## Building & Testing
 
-### Local Compilation
-To compile the debug version using Gradle:
+> Use system `gradle` directly if Gradle Wrapper scripts are not present in this environment.
+
+Compile the debug APK:
 ```bash
 gradle :app:assembleDebug
 ```
 
-To build a release bundle locally:
+Build the release APK:
 ```bash
 gradle :app:assembleRelease
 ```
 
-### Automated GitHub Release Action
-Pushing any version tag (e.g., `v1.0.0`) automatically triggers `.github/workflows/android_build.yml`:
-- **If Keystore Secrets are configured** in GitHub (`RELEASE_KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`, `RELEASE_KEY_ALIAS`), it builds and signs `KaspaBrowser-release-signed.apk` with `apksigner` (v1/v2/v3 schemes) and attaches it to the GitHub Release.
-- **If Secrets are absent**, it builds `KaspaBrowser-release-unsigned.apk` and publishes it to the GitHub Release.
+Run the local JVM + Robolectric test suite:
+```bash
+gradle :app:testDebugUnitTest --console=plain
+```
+
+### Automated GitHub Release Workflow
+Tagging a release triggers `.github/workflows/android_build.yml`:
+- When release keystore secrets are provided (`KEYSTORE_PATH` / `STORE_PASSWORD` / `KEY_ALIAS` / `KEY_PASSWORD` via CI secrets), Gradle signs the release build.
+- Otherwise, `app/build.gradle.kts` produces an unsigned release APK rather than falling back to insecure hardcoded credentials.
 
 ---
 
-## 📄 License
+## License
+
 Open source under the [Apache License 2.0](LICENSE).

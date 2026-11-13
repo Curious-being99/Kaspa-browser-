@@ -43,8 +43,11 @@ class KaspaWebAuthnBridge(
         return currentUrl.startsWith("https://", ignoreCase = true)
     }
 
+    private val validCallbackIdRegex = Regex("^[A-Za-z0-9_]{1,64}$")
+
     @JavascriptInterface
     fun createCredential(requestJson: String, callbackId: String) {
+        if (!validCallbackIdRegex.matches(callbackId)) return
         if (!viewModel.webAuthEnabled.value) {
             rejectCallback(callbackId, "WebAuthn is disabled in browser privacy settings")
             return
@@ -61,17 +64,38 @@ class KaspaWebAuthnBridge(
             return
         }
 
+        val validRequestJson = try {
+            JSONObject(requestJson).toString()
+        } catch (_: Exception) {
+            rejectCallback(callbackId, "Invalid WebAuthn registration request")
+            return
+        }
+
         scope.launch(Dispatchers.Main) {
             try {
                 viewModel.setStatusMessage("FIDO2 / WebAuthn passkey registration requested...")
                 val activity = findActivity(context) ?: context
                 val credentialManager = CredentialManager.create(context)
-                val request = CreatePublicKeyCredentialRequest(requestJson)
+                val request = CreatePublicKeyCredentialRequest(validRequestJson)
                 val response = credentialManager.createCredential(activity, request)
 
                 if (response is CreatePublicKeyCredentialResponse) {
                     val resultJson = response.registrationResponseJson
                     resolveCallback(callbackId, resultJson)
+                    try {
+                        val reqObj = JSONObject(validRequestJson)
+                        val rpId = reqObj.optJSONObject("rp")?.optString("id").orEmpty()
+                        val rpName = reqObj.optJSONObject("rp")?.optString("name").orEmpty()
+                        val userObj = reqObj.optJSONObject("user")
+                        val userName = userObj?.optString("name").orEmpty()
+                            .ifBlank { userObj?.optString("displayName").orEmpty() }
+                        viewModel.recordPasskeyCredential(
+                            url = currentUrl,
+                            rpId = rpId,
+                            username = userName,
+                            siteName = rpName
+                        )
+                    } catch (_: Throwable) {}
                     viewModel.setStatusMessage("Passkey registered successfully via FIDO2")
                 } else {
                     rejectCallback(callbackId, "Unsupported credential response type")
@@ -86,6 +110,7 @@ class KaspaWebAuthnBridge(
 
     @JavascriptInterface
     fun getCredential(requestJson: String, callbackId: String) {
+        if (!validCallbackIdRegex.matches(callbackId)) return
         if (!viewModel.webAuthEnabled.value) {
             rejectCallback(callbackId, "WebAuthn is disabled in browser privacy settings")
             return
@@ -102,12 +127,19 @@ class KaspaWebAuthnBridge(
             return
         }
 
+        val validRequestJson = try {
+            JSONObject(requestJson).toString()
+        } catch (_: Exception) {
+            rejectCallback(callbackId, "Invalid WebAuthn assertion request")
+            return
+        }
+
         scope.launch(Dispatchers.Main) {
             try {
                 viewModel.setStatusMessage("FIDO2 / WebAuthn passkey assertion requested...")
                 val activity = findActivity(context) ?: context
                 val credentialManager = CredentialManager.create(context)
-                val option = GetPublicKeyCredentialOption(requestJson)
+                val option = GetPublicKeyCredentialOption(validRequestJson)
                 val request = GetCredentialRequest(listOf(option))
                 val response = credentialManager.getCredential(activity, request)
 
@@ -132,16 +164,20 @@ class KaspaWebAuthnBridge(
     }
 
     private fun resolveCallback(callbackId: String, resultJson: String) {
+        if (!validCallbackIdRegex.matches(callbackId)) return
         val wv = webViewProvider() ?: return
+        val quotedId = JSONObject.quote(callbackId)
         val escaped = JSONObject.quote(resultJson)
-        val script = "window.__kaspaResolve && window.__kaspaResolve('$callbackId', $escaped);"
+        val script = "window.__kaspaResolve && window.__kaspaResolve($quotedId, $escaped);"
         wv.post { wv.evaluateJavascript(script, null) }
     }
 
     private fun rejectCallback(callbackId: String, errorMessage: String) {
+        if (!validCallbackIdRegex.matches(callbackId)) return
         val wv = webViewProvider() ?: return
+        val quotedId = JSONObject.quote(callbackId)
         val escaped = JSONObject.quote(errorMessage)
-        val script = "window.__kaspaReject && window.__kaspaReject('$callbackId', $escaped);"
+        val script = "window.__kaspaReject && window.__kaspaReject($quotedId, $escaped);"
         wv.post { wv.evaluateJavascript(script, null) }
     }
 

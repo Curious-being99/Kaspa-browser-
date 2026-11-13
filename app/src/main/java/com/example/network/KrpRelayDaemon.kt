@@ -25,13 +25,14 @@ private val A24_CURVE25519: BigInteger = BigInteger.valueOf(121665)
 /**
  * KrpRelayDaemon
  *
- * Real, in-process dual-hop KRP/1 Onion Routing Daemon.
- * Binds genuine TCP ServerSockets on localhost (127.0.0.1):
+ * In-process KRP/1 Local Cryptographic Relay Daemon.
+ * Binds TCP ServerSockets on localhost (127.0.0.1):
  * - Entry Relay ServerSocket (default port 8443)
  * - Exit Relay ServerSocket (default port 8444)
  *
- * Implements genuine RFC 7748 X25519, RFC 5869 HKDF-SHA256, and RFC 8439 ChaCha20-Poly1305
- * running natively on Android with zero external C/Rust binary dependencies.
+ * Implements RFC 7748 X25519, RFC 5869 HKDF-SHA256, and RFC 8439 ChaCha20-Poly1305
+ * locally on Android with fail-closed encrypted DoH DNS lookup and optional upstream
+ * SOCKS5/HTTP proxy forwarding when configured by the user.
  */
 object KrpRelayDaemon {
 
@@ -293,15 +294,29 @@ object KrpRelayDaemon {
             }
             reqBuilder.method(method, null)
 
-            val response = try {
-                if (customProxy != null) {
+            val respPayloadJson = try {
+                val call = if (customProxy != null) {
                     val client = exitHttpClient.newBuilder()
                         .proxy(customProxy)
                         .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
                         .build()
-                    client.newCall(reqBuilder.build()).execute()
+                    client.newCall(reqBuilder.build())
                 } else {
-                    exitHttpClient.newCall(reqBuilder.build()).execute()
+                    exitHttpClient.newCall(reqBuilder.build())
+                }
+                call.execute().use { response ->
+                    val bodyBytes = response.body?.bytes() ?: ByteArray(0)
+                    val respHeaders = JSONObject()
+                    for (i in 0 until response.headers.size) {
+                        respHeaders.put(response.headers.name(i), response.headers.value(i))
+                    }
+                    JSONObject().apply {
+                        put("status_code", response.code)
+                        put("status_message", response.message.ifBlank { "OK" })
+                        put("headers", respHeaders)
+                        put("body_hex", bytesToHex(bodyBytes))
+                        put("exit_node_name", "Kaspa Local Exit Relay (127.0.0.1:$exitPort)")
+                    }.toString().toByteArray(Charsets.UTF_8)
                 }
             } catch (proxyFailure: Throwable) {
                 // Fail closed: never retry a failed configured proxy through the device's direct connection.
@@ -310,20 +325,6 @@ object KrpRelayDaemon {
                     proxyFailure
                 )
             }
-            val bodyBytes = response.body?.bytes() ?: ByteArray(0)
-
-            val respHeaders = JSONObject()
-            for (i in 0 until response.headers.size) {
-                respHeaders.put(response.headers.name(i), response.headers.value(i))
-            }
-
-            val respPayloadJson = JSONObject().apply {
-                put("status_code", response.code)
-                put("status_message", response.message.ifBlank { "OK" })
-                put("headers", respHeaders)
-                put("body_hex", bytesToHex(bodyBytes))
-                put("exit_node_name", "Kaspa Local Exit Relay (127.0.0.1:$exitPort)")
-            }.toString().toByteArray(Charsets.UTF_8)
 
             // Encrypt response cell back to client using Exit Key
             val respNonce = ByteArray(12).apply { secureRandom.nextBytes(this) }

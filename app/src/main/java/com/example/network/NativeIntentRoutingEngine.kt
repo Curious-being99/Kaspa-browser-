@@ -49,24 +49,50 @@ object NativeIntentRoutingEngine {
         if (cleanUrl.startsWith("intent://", ignoreCase = true)) {
             return try {
                 val parsedIntent = Intent.parseUri(cleanUrl, Intent.URI_INTENT_SCHEME).apply {
+                    addCategory(Intent.CATEGORY_BROWSABLE)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    removeFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    )
                     component = null
                 }
                 parsedIntent.selector?.let {
+                    it.addCategory(Intent.CATEGORY_BROWSABLE)
                     it.component = null
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    it.removeFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    )
+                }
+
+                // Prevent malicious web pages from targeting internal components of this app
+                if (parsedIntent.`package` == context.packageName ||
+                    parsedIntent.selector?.`package` == context.packageName
+                ) {
+                    Log.w(TAG, "Blocked intent:// targeting host application package")
+                    return true
                 }
 
                 try {
                     context.startActivity(parsedIntent)
                     true
                 } catch (_: ActivityNotFoundException) {
-                    val fallbackUrl = parsedIntent.getStringExtra("browser_fallback_url")
-                    if (!fallbackUrl.isNullOrBlank() &&
-                        !fallbackUrl.startsWith("market://", ignoreCase = true) &&
-                        !fallbackUrl.contains("play.google.com/store", ignoreCase = true)
-                    ) {
-                        onFallbackWebUrl(fallbackUrl)
+                    val fallbackUrl = parsedIntent.getStringExtra("browser_fallback_url")?.trim()
+                    if (!fallbackUrl.isNullOrBlank()) {
+                        val fallbackUri = runCatching { Uri.parse(fallbackUrl) }.getOrNull()
+                        val fallbackScheme = fallbackUri?.scheme?.lowercase()
+                        val isSafeHttpFallback = (fallbackScheme == "http" || fallbackScheme == "https") &&
+                            !fallbackUri.host.isNullOrBlank() &&
+                            !fallbackUrl.contains("play.google.com/store", ignoreCase = true)
+                        if (isSafeHttpFallback) {
+                            onFallbackWebUrl(fallbackUrl)
+                        }
                     }
                     true
                 } catch (e: Exception) {

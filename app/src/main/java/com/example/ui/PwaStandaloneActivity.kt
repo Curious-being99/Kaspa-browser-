@@ -53,6 +53,7 @@ import com.example.network.WebViewAssetLruCache
 import com.example.ui.theme.*
 import com.example.util.BrowserTabWebViewManager
 import com.example.util.KaspaWebViewConfigurator
+import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.io.File
 
@@ -88,7 +89,6 @@ class PwaStandaloneActivity : FragmentActivity() {
             val isNonFatal = thread.name.contains("Render", ignoreCase = true) ||
                     thread.name.contains("Chromium", ignoreCase = true) ||
                     msg.contains("supervised") ||
-                    msg.contains("timeout") ||
                     stack.contains("android.webkit") ||
                     stack.contains("org.chromium") ||
                     stack.contains("superviseduser")
@@ -225,7 +225,7 @@ class PwaStandaloneActivity : FragmentActivity() {
         super.onSaveInstanceState(outState)
         try {
             val bundle = Bundle()
-            webView?.saveState(bundle)
+            webView?.let { com.example.engine.BrowserEngineManager.saveWebViewStateBounded(it, bundle) }
             outState.putBundle("PWA_WEBVIEW_STATE", bundle)
             outState.putString("PWA_SAVED_URL", webView?.url ?: targetUrl)
             outState.putString("PWA_SAVED_TITLE", appTitle)
@@ -256,14 +256,18 @@ class PwaStandaloneActivity : FragmentActivity() {
             ?: intent?.getStringExtra("PWA_START_URL")
 
         // Priority: Explicit PWA Intent extra > Intent data URI > default fallback
-        targetUrl = when {
+        val candidateUrl = when {
             !extraUrl.isNullOrBlank() -> extraUrl
             !dataUrl.isNullOrBlank() -> dataUrl
             else -> "https://kaspa.org"
         }.trim()
 
-        if (!targetUrl.startsWith("http://", ignoreCase = true) && !targetUrl.startsWith("https://", ignoreCase = true)) {
-            targetUrl = "https://$targetUrl"
+        val candidateUri = runCatching { Uri.parse(candidateUrl) }.getOrNull()
+        val scheme = candidateUri?.scheme?.lowercase()
+        targetUrl = when {
+            (scheme == "http" || scheme == "https") && !candidateUri.host.isNullOrBlank() -> candidateUrl
+            scheme == null && !candidateUrl.contains(":") && candidateUrl.contains(".") -> "https://$candidateUrl"
+            else -> "https://kaspa.org"
         }
 
         appTitle = intent?.getStringExtra("PWA_TITLE")
@@ -341,6 +345,29 @@ fun PwaStandaloneScreen(
     var pendingGeoCallback by remember { mutableStateOf<GeolocationPermissions.Callback?>(null) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var pwaRecreateKey by remember { mutableStateOf(0) }
+    val pwaScope = rememberCoroutineScope()
+    val pwaWebAuthEnabled = remember {
+        context.getSharedPreferences("kaspa_browser_settings", Context.MODE_PRIVATE)
+            .getBoolean("web_auth_enabled", true)
+    }
+    val pwaVaultRepo = remember {
+        com.example.security.PasswordVaultRepository(
+            com.example.data.AppDatabase.getDatabase(context).vaultCredentialDao()
+        )
+    }
+    var pwaAutofillEvent by remember { mutableStateOf<com.example.security.AutofillFormEvent?>(null) }
+    var pwaMatchingCreds by remember { mutableStateOf<List<com.example.data.VaultCredentialEntity>>(emptyList()) }
+    var pwaPendingSave by remember { mutableStateOf<com.example.security.PendingCredentialSave?>(null) }
+    var pwaVaultUnlocked by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pwaAutofillEvent) {
+        val ev = pwaAutofillEvent
+        pwaMatchingCreds = if (ev != null) {
+            runCatching { pwaVaultRepo.getMatchingCredentialsForUrl(ev.url) }.getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+    }
 
     val pwaContext = androidx.compose.ui.platform.LocalContext.current
     val fileChooserLauncher = rememberLauncherForActivityResult(
@@ -411,15 +438,7 @@ fun PwaStandaloneScreen(
         } catch (_: Throwable) {
             null
         }
-        wv.settings.apply {
-            userAgentString = if (desktop) {
-                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
-            } else {
-                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
-            }
-            useWideViewPort = desktop
-            loadWithOverviewMode = desktop
-        }
+        KaspaPrivacyEngine.applyUserAgentAndMetadata(wv.settings, desktop, defaultDeviceUa)
         val target = wv.url ?: currentUrl
         if (target.isNotBlank() && !target.startsWith("data:")) {
             wv.loadUrl(target)
@@ -583,6 +602,20 @@ fun PwaStandaloneScreen(
                                 }
                             )
 
+                            DropdownMenuItem(
+                                text = { Text("Open in Custom Tab", color = TextPrimary) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Language, contentDescription = null, tint = EmeraldMesh)
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    com.example.engine.BrowserEngineManager.openInCustomTab(
+                                        context,
+                                        webViewRef?.url ?: currentUrl
+                                    )
+                                }
+                            )
+
                             HorizontalDivider(color = SurfaceCardBorder)
 
                             DropdownMenuItem(
@@ -648,7 +681,19 @@ fun PwaStandaloneScreen(
                         }
 
                         // Apply full web settings parity (Requirement 3)
-                        KaspaWebViewConfigurator.applyWebSettings(this, ctx, isDesktopMode, acceptThirdPartyCookies = false)
+                        KaspaWebViewConfigurator.applyWebSettings(
+                            webView = this,
+                            context = ctx,
+                            isDesktop = isDesktopMode,
+                            acceptThirdPartyCookies = false,
+                            webAuthEnabled = pwaWebAuthEnabled
+                        )
+
+                        com.example.security.PasswordAutofillBridge.install(
+                            webView = this,
+                            onPasswordFormDetected = { ev -> pwaAutofillEvent = ev },
+                            onCredentialSubmitted = { pending -> pwaPendingSave = pending }
+                        )
 
                         // Cookie configuration
                         val cookieManager = CookieManager.getInstance()
@@ -656,8 +701,38 @@ fun PwaStandaloneScreen(
                         cookieManager.setAcceptThirdPartyCookies(this, false)
 
                         webViewClient = object : WebViewClient() {
+                            override fun onLoadResource(view: WebView?, url: String?) {
+                                super.onLoadResource(view, url)
+                                if (view != null && url != null) {
+                                    val host = KaspaPrivacyEngine.extractHostFast(url)
+                                    if (KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                        (host != null && KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain(host))
+                                    ) {
+                                        KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
+                                    }
+                                }
+                            }
+
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                 super.onPageStarted(view, url, favicon)
+                                if (view != null) {
+                                    val defaultDeviceUa = try {
+                                        WebSettings.getDefaultUserAgent(ctx)
+                                    } catch (_: Throwable) {
+                                        null
+                                    }
+                                    KaspaPrivacyEngine.applyUserAgentAndMetadata(view.settings, isDesktopMode, defaultDeviceUa)
+                                    try {
+                                        val allowChallengeCookies = url != null && (
+                                            KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                                KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
+                                            )
+                                        CookieManager.getInstance().setAcceptThirdPartyCookies(view, allowChallengeCookies)
+                                    } catch (_: Throwable) {}
+                                    if (url != null) {
+                                        KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
+                                    }
+                                }
                                 isLoading = true
                                 webProgress = 0.1f
                                 canGoBack = view?.canGoBack() == true
@@ -703,6 +778,13 @@ fun PwaStandaloneScreen(
                                         }, true);
                                     })();
                                 """.trimIndent(), null)
+
+                                if (com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
+                                    com.example.security.PasswordAutofillBridge.scanPageForPasswordForms(view, url)
+                                } else {
+                                    pwaAutofillEvent = null
+                                    pwaMatchingCreds = emptyList()
+                                }
                             }
 
                             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -923,7 +1005,22 @@ fun PwaStandaloneScreen(
                                 isUserGesture: Boolean,
                                 resultMsg: android.os.Message?
                             ): Boolean {
-                                if (resultMsg == null || view == null) return false
+                                if (resultMsg == null || view == null || !isUserGesture) return false
+                                var cleaned = false
+                                var tempRef: WebView? = null
+                                fun cleanupTemp() {
+                                    if (cleaned) return
+                                    cleaned = true
+                                    val w = tempRef ?: return
+                                    w.post {
+                                        try {
+                                            w.stopLoading()
+                                            w.webViewClient = WebViewClient()
+                                            (w.parent as? ViewGroup)?.removeView(w)
+                                            w.destroy()
+                                        } catch (_: Throwable) {}
+                                    }
+                                }
                                 val tempWebView = WebView(view.context).apply {
                                     settings.javaScriptEnabled = true
                                     settings.setSupportMultipleWindows(false)
@@ -938,16 +1035,22 @@ fun PwaStandaloneScreen(
                                             super.onPageStarted(wv, url, favicon)
                                             val target = url ?: return
                                             wv?.stopLoading()
-                                            view.loadUrl(target)
+                                            if (target.startsWith("http://", ignoreCase = true) || target.startsWith("https://", ignoreCase = true)) {
+                                                view.loadUrl(target)
+                                            }
+                                            cleanupTemp()
                                         }
                                     }
                                 }
+                                tempRef = tempWebView
                                 val transport = resultMsg.obj as? WebView.WebViewTransport
                                 if (transport != null) {
                                     transport.webView = tempWebView
                                     resultMsg.sendToTarget()
+                                    view.postDelayed({ cleanupTemp() }, 15_000L)
                                     return true
                                 }
+                                cleanupTemp()
                                 return false
                             }
 
@@ -1011,6 +1114,58 @@ fun PwaStandaloneScreen(
                     wv
                 }
             )
+            }
+
+            if (pwaPendingSave != null ||
+                (pwaAutofillEvent != null &&
+                    (pwaMatchingCreds.isNotEmpty() || pwaAutofillEvent?.isNewPasswordField == true))
+            ) {
+                BrowserAutofillBar(
+                    pendingSave = pwaPendingSave,
+                    matchingCredentials = pwaMatchingCreds,
+                    showGeneratorSuggestion = pwaAutofillEvent?.isNewPasswordField == true || pwaMatchingCreds.isEmpty(),
+                    isVaultUnlocked = pwaVaultUnlocked,
+                    onUnlockAndFill = { cred ->
+                        pwaVaultUnlocked = true
+                        val pw = pwaVaultRepo.decryptPassword(cred)
+                        if (pw != null) {
+                            com.example.security.PasswordAutofillBridge.fillCredentials(
+                                webViewRef,
+                                cred.username,
+                                pw,
+                                expectedHost = cred.host
+                            )
+                            pwaScope.launch { runCatching { pwaVaultRepo.markUsed(cred.id) } }
+                            pwaAutofillEvent = null
+                        } else {
+                            Toast.makeText(context, "Could not decrypt saved password", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onFillGeneratedPassword = { gen ->
+                        com.example.security.PasswordAutofillBridge.fillGeneratedPassword(webViewRef, gen)
+                        Toast.makeText(context, "Strong password filled — submit form to save", Toast.LENGTH_SHORT).show()
+                    },
+                    onSavePending = { pending ->
+                        pwaScope.launch {
+                            runCatching {
+                                pwaVaultRepo.savePasswordCredential(
+                                    url = pending.url,
+                                    siteName = pending.siteName,
+                                    username = pending.username,
+                                    rawPassword = pending.password
+                                )
+                            }
+                            pwaPendingSave = null
+                            Toast.makeText(context, "Login encrypted & saved for ${pending.host}", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onDismissPendingSave = { pwaPendingSave = null },
+                    onDismissAutofill = {
+                        pwaAutofillEvent = null
+                        pwaMatchingCreds = emptyList()
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
 
             // Fullscreen Custom Video Player Overlay

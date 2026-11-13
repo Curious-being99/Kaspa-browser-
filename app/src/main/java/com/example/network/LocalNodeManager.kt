@@ -61,9 +61,9 @@ class LocalNodeManager(
             centralRequestsResolved = 0,
             decentralizedRequestsResolved = 0,
             hybridCrossVerifications = 0,
-            meshHealthPercentage = 100,
+            meshHealthPercentage = 0,
             isDaemonRunning = true,
-            isOnline = true,
+            isOnline = false,
             currentStreamSpeedKbps = 0.0,
             totalDataStreamedBytes = 0L,
             activeConnectedNodesCount = 1,
@@ -132,9 +132,9 @@ class LocalNodeManager(
                     peerId = "12D3KooWCloudflareIPFSGateway",
                     name = "Cloudflare IPFS Edge",
                     multiaddress = "/dns4/cloudflare-ipfs.com/tcp/443/https",
-                    latencyMs = 28L,
-                    isOnline = true,
-                    blocksShared = 142,
+                    latencyMs = 0L,
+                    isOnline = false,
+                    blocksShared = 0,
                     region = "Global Edge Gateway",
                     isBootstrap = true
                 ),
@@ -142,9 +142,9 @@ class LocalNodeManager(
                     peerId = "12D3KooWIpfsIoPublicGateway",
                     name = "Protocol Labs IPFS.io",
                     multiaddress = "/dns4/ipfs.io/tcp/443/https",
-                    latencyMs = 45L,
-                    isOnline = true,
-                    blocksShared = 98,
+                    latencyMs = 0L,
+                    isOnline = false,
+                    blocksShared = 0,
                     region = "Public Relay Gateway",
                     isBootstrap = true
                 ),
@@ -152,9 +152,9 @@ class LocalNodeManager(
                     peerId = "12D3KooWKaspaRpcMainnetDag",
                     name = "Kaspa DAG Global Node",
                     multiaddress = "/dns4/api.kaspa.org/tcp/443/https",
-                    latencyMs = 32L,
-                    isOnline = true,
-                    blocksShared = 512,
+                    latencyMs = 0L,
+                    isOnline = false,
+                    blocksShared = 0,
                     region = "BlockDAG RPC Gateway",
                     isBootstrap = true
                 ),
@@ -162,9 +162,9 @@ class LocalNodeManager(
                     peerId = "12D3KooWDWebLinkGateway",
                     name = "dweb.link InterPlanetary",
                     multiaddress = "/dns4/dweb.link/tcp/443/https",
-                    latencyMs = 52L,
-                    isOnline = true,
-                    blocksShared = 74,
+                    latencyMs = 0L,
+                    isOnline = false,
+                    blocksShared = 0,
                     region = "Decentralized Web Relay",
                     isBootstrap = true
                 ),
@@ -172,9 +172,9 @@ class LocalNodeManager(
                     peerId = "12D3KooWPinataCloudGateway",
                     name = "Pinata Cloud Gateway",
                     multiaddress = "/dns4/gateway.pinata.cloud/tcp/443/https",
-                    latencyMs = 39L,
-                    isOnline = true,
-                    blocksShared = 85,
+                    latencyMs = 0L,
+                    isOnline = false,
+                    blocksShared = 0,
                     region = "Dedicated IPFS Cluster",
                     isBootstrap = true
                 )
@@ -223,7 +223,7 @@ class LocalNodeManager(
                                         name = formattedName,
                                         multiaddress = "/dns4/$host/tcp/443/https",
                                         latencyMs = 0L,
-                                        isOnline = true,
+                                        isOnline = false,
                                         blocksShared = 0,
                                         region = "Global P2P WAN Node",
                                         isBootstrap = true
@@ -333,14 +333,9 @@ class LocalNodeManager(
                     }
                 }
             } catch (_: Exception) {
-                // If ping fails on emulator/restricted network, fallback to online for known seeds
-                if (peer.isBootstrap) {
-                    isOnline = true
-                    latency = (20L + (peer.peerId.hashCode() % 30).toLong()).coerceAtLeast(12L)
-                } else {
-                    isOnline = false
-                    latency = 0L
-                }
+                // Report actual reachability honestly instead of fabricating synthetic latency.
+                isOnline = false
+                latency = 0L
             }
 
             database.peerDao().updatePeerLatency(peer.peerId, latency, isOnline)
@@ -376,21 +371,6 @@ class LocalNodeManager(
             decentralizedRequestsResolved = _metrics.value.decentralizedRequestsResolved + (if (isMesh || !isWeb2) 1 else 0),
             hybridCrossVerifications = _metrics.value.hybridCrossVerifications + 1
         )
-
-        // Increment peer blocks shared and refresh active node state
-        scope.launch(Dispatchers.IO) {
-            try {
-                val peers = database.peerDao().getAllPeersList()
-                if (peers.isNotEmpty()) {
-                    val updatedPeers = peers.map { peer ->
-                        if (peer.isOnline) {
-                            peer.copy(blocksShared = peer.blocksShared + 1)
-                        } else peer
-                    }
-                    database.peerDao().insertPeers(updatedPeers)
-                }
-            } catch (_: Exception) {}
-        }
     }
 
     private fun extractHostFromMultiaddress(multiaddr: String): String {

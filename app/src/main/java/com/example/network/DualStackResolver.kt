@@ -20,6 +20,21 @@ class DualStackResolver(
     private val walletService: KaspaWalletService
 ) {
 
+    private fun escapeHtml(input: String): String {
+        val sb = StringBuilder(input.length)
+        for (ch in input) {
+            when (ch) {
+                '&' -> sb.append("&amp;")
+                '<' -> sb.append("&lt;")
+                '>' -> sb.append("&gt;")
+                '"' -> sb.append("&quot;")
+                '\'' -> sb.append("&#39;")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
     private val okHttpClient = CronetClientFactory.buildClient(
         OkHttpClient.Builder()
             .protocols(listOf(okhttp3.Protocol.HTTP_2, okhttp3.Protocol.HTTP_1_1))
@@ -225,12 +240,18 @@ class DualStackResolver(
             val pubKeyHex = pubKey?.joinToString("") { "%02x".format(it) } ?: "Schnorr 32-byte Public Key"
             val latency = 14L
 
+            val safeDomainHtml = escapeHtml(cleanDomain)
+            val safePubKeyHtml = escapeHtml(pubKeyHex)
+            val safeExplorerHref = escapeHtml(
+                explorerBase.replace(cleanDomain, Uri.encode(cleanDomain))
+            )
+
             val addressHtml = """
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <meta charset="utf-8">
-                    <title>$cleanDomain - Kaspa Address</title>
+                    <title>$safeDomainHtml - Kaspa Address</title>
                     <style>
                         body { background-color: #0c0d10; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; line-height: 1.6; }
                         .card { background: #14161c; border: 1.5px solid #70C7BA; border-radius: 16px; padding: 24px; max-width: 680px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
@@ -252,18 +273,18 @@ class DualStackResolver(
                         <p>This is a valid, cryptographic Kaspa network address ready for transactions on the high-speed GHOSTDAG / DagKnight consensus layer.</p>
                         <div class="field">
                             <div class="label">Kaspa CashAddr</div>
-                            <div class="value">$cleanDomain</div>
+                            <div class="value">$safeDomainHtml</div>
                         </div>
                         <div class="field">
                             <div class="label">Public Key (Hex Payload)</div>
-                            <div class="value">$pubKeyHex</div>
+                            <div class="value">$safePubKeyHtml</div>
                         </div>
                         <div class="field">
                             <div class="label">Network & Consensus</div>
                             <div class="value">$networkTitle • GHOSTDAG L1 DAG</div>
                         </div>
                         <div class="btn-group">
-                            <a class="btn btn-primary" href="$explorerBase" target="_blank">Open Live Explorer ↗</a>
+                            <a class="btn btn-primary" href="$safeExplorerHref" target="_blank">Open Live Explorer ↗</a>
                         </div>
                         <div class="footer">
                             Kaspa Decentralized Browser Gateway • Zero-Trust Address Resolution
@@ -361,15 +382,19 @@ class DualStackResolver(
             val htmlContent = if (linkedContent != null) {
                 linkedContent.content
             } else {
+                val safeRegDomain = escapeHtml(registeredDomain.domain)
+                val safeOwnerAddr = escapeHtml(registeredDomain.ownerAddress)
+                val safeOwnerDid = escapeHtml(registeredDomain.ownerDid)
+                val safeTxId = escapeHtml(registeredDomain.txId)
                 """
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <meta charset="utf-8">
-                    <title>${registeredDomain.domain} - Kaspa BlockDAG Node</title>
+                    <title>$safeRegDomain - Kaspa BlockDAG Node</title>
                     <style>
                         body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 28px; line-height: 1.6; }
-                        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12.dp; padding: 24px; max-width: 680px; margin: 0 auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+                        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 680px; margin: 0 auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
                         .badge { display: inline-block; background: #00e5ff1a; color: #00e5ff; border: 1px solid #00e5ff66; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 12px; }
                         h1 { color: #00e5ff; margin-top: 0; font-size: 24px; }
                         .field { margin: 12px 0; }
@@ -381,19 +406,19 @@ class DualStackResolver(
                 <body>
                     <div class="card">
                         <div class="badge">⛓️ Kaspa BlockDAG Verified Domain</div>
-                        <h1>${registeredDomain.domain}</h1>
+                        <h1>$safeRegDomain</h1>
                         <p>This decentralized domain is permanently registered on the Kaspa L1 BlockDAG network.</p>
                         <div class="field">
                             <div class="label">Owner Kaspa Address</div>
-                            <div class="value">${registeredDomain.ownerAddress}</div>
+                            <div class="value">$safeOwnerAddr</div>
                         </div>
                         <div class="field">
                             <div class="label">Owner DID (Decentralized Identifier)</div>
-                            <div class="value">${registeredDomain.ownerDid}</div>
+                            <div class="value">$safeOwnerDid</div>
                         </div>
                         <div class="field">
                             <div class="label">Kaspa On-Chain Transaction ID</div>
-                            <div class="value">${registeredDomain.txId}</div>
+                            <div class="value">$safeTxId</div>
                         </div>
                         <div class="field">
                             <div class="label">Registration Fee</div>

@@ -97,4 +97,215 @@ class SecurityFixesVerificationTest {
         }
     }
 
+    @Test
+    fun desktopModeAvoidsFingerprintContradictionsAndHeaderSplit() {
+        val baseUa = "Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.100 Mobile Safari/537.36"
+        val desktopUa = com.example.network.KaspaPrivacyEngine.getDesktopUserAgent(baseUa)
+        assertTrue("Desktop UA should report Linux x86_64 to match Android TCP/BoringSSL/Skia stack", desktopUa.contains("X11; Linux x86_64"))
+        assertTrue("Desktop UA should preserve WebView Chrome version", desktopUa.contains("Chrome/131.0.6778.100"))
+        assertTrue("Desktop UA must not claim Windows NT", !desktopUa.contains("Windows NT"))
+
+        val headers = com.example.network.KaspaPrivacyEngine.getDesktopHeaders(true, baseUa)
+        assertTrue("getDesktopHeaders must be empty to avoid one-shot Sec-CH-UA header mismatch", headers.isEmpty())
+
+        val shieldJs = com.example.network.KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION
+        assertTrue("Privacy shield must not spoof RTX 4070 WebGL GPU", !shieldJs.contains("RTX 4070"))
+        assertTrue(
+            "Privacy shield must gate WebRTC and geolocation stubs strictly behind __kaspa_relay_shield flag",
+            shieldJs.contains("window.__kaspa_relay_shield === true")
+        )
+        assertTrue("Privacy shield must exempt turnstile/stripe/paypal domains", shieldJs.contains("turnstile") && shieldJs.contains("stripe.com"))
+
+        val viewportScript = com.example.network.KaspaPrivacyEngine.getDesktopViewportScript(isDesktop = true, baseUa = baseUa)
+        assertTrue("Desktop viewport script must skip subframes (e.g., CAPTCHA iframes)", viewportScript.contains("window.top !== window.self"))
+        assertTrue("Desktop viewport script must compute isDesktopMode dynamically from navigator.userAgent", viewportScript.contains("ua.indexOf('Android') === -1"))
+        assertTrue("Desktop viewport script must not contain frozen true || condition", !viewportScript.contains("true ||"))
+        assertTrue("Desktop viewport script must not spoof navigator.userAgentData or Win32 platform", !viewportScript.contains("userAgentData") && !viewportScript.contains("Win32"))
+    }
+
+    @Test
+    fun errorAndSslHtmlEscapePayloadsAndSanitizeRetryUrl() {
+        val errorHtml = KaspaWebViewConfigurator.generateErrorHtml(
+            failingUrl = "javascript:alert(1)",
+            errorDescription = "<script>xss()</script>"
+        )
+        assertTrue("Error message must be HTML escaped", errorHtml.contains("&lt;script&gt;xss()&lt;/script&gt;"))
+        assertTrue("Raw <script> tag must not appear in error HTML", !errorHtml.contains("<script>xss()"))
+        assertTrue("Unsafe javascript: retry URL must fall back to safe https retry URL", errorHtml.contains("var targetUrl = \"https://kaspa.org\";"))
+
+        val sslHtml = KaspaWebViewConfigurator.generateSslErrorHtml(
+            failingUrl = "https://example.com/<img src=x onerror=alert(1)>",
+            sslReason = "<b>Untrusted</b>"
+        )
+        assertTrue("SSL failing URL must be HTML escaped", sslHtml.contains("&lt;img src=x onerror=alert(1)&gt;"))
+        assertTrue("SSL reason must be HTML escaped", sslHtml.contains("&lt;b&gt;Untrusted&lt;/b&gt;"))
+        assertTrue("Raw <img payload must not appear in SSL HTML", !sslHtml.contains("<img src=x"))
+    }
+
+    @Test
+    fun captchaUrlsRecognizedForThirdPartyCookiesWhileNonAuthRemainsBlocked() {
+        assertTrue(
+            "Cloudflare Turnstile domain must be recognized as essential CAPTCHA",
+            com.example.network.KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl("https://challenges.cloudflare.com/turnstile/v0/api.js")
+        )
+        assertTrue(
+            "hCaptcha domain must be recognized as essential CAPTCHA",
+            com.example.network.KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain("hcaptcha.com")
+        )
+        assertTrue(
+            "reCAPTCHA domain must be recognized as essential CAPTCHA",
+            com.example.network.KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain("recaptcha.net")
+        )
+        assertTrue(
+            "Regular unrelated sites must not automatically qualify for third-party cookie exemption",
+            !com.example.network.KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl("https://example.com/article")
+        )
+
+        val context = RuntimeEnvironment.getApplication()
+        val webView = WebView(context)
+        try {
+            KaspaWebViewConfigurator.applyWebSettings(webView, context, isDesktop = true, acceptThirdPartyCookies = false)
+            KaspaWebViewConfigurator.checkAndConfigureForUrl(
+                webView,
+                "https://challenges.cloudflare.com/turnstile/v0/api.js"
+            )
+            // Verify third-party cookie exemption never triggers tracker blocking
+            assertTrue(
+                "Turnstile must never be blocked as a tracker",
+                !com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://challenges.cloudflare.com/turnstile/v0/api.js")
+            )
+        } finally {
+            webView.destroy()
+        }
+    }
+
+    @Test
+    fun nativeIntentRoutingBlocksSelfPackageAndUnsafeFallbackUrls() {
+        val appContext = RuntimeEnvironment.getApplication()
+        var fallbackReceived: String? = null
+        val selfPackageIntent = "intent://open#Intent;scheme=https;package=${appContext.packageName};S.browser_fallback_url=https://example.com;end"
+        val blockedSelf = com.example.network.NativeIntentRoutingEngine.routeUrl(
+            appContext,
+            selfPackageIntent,
+            hasUserGesture = true
+        ) { fallbackReceived = it }
+        assertTrue("Self-targeting intent:// must be intercepted", blockedSelf)
+        assertEquals("Self-targeting intent must not invoke fallback", null, fallbackReceived)
+
+        val throwingContext = object : android.content.ContextWrapper(appContext) {
+            override fun startActivity(intent: android.content.Intent?) {
+                throw android.content.ActivityNotFoundException("No handler")
+            }
+        }
+        val unsafeFallbackIntent = "intent://open#Intent;scheme=https;package=com.missing.app;S.browser_fallback_url=javascript:alert(1);end"
+        val handledUnsafe = com.example.network.NativeIntentRoutingEngine.routeUrl(
+            throwingContext,
+            unsafeFallbackIntent,
+            hasUserGesture = true
+        ) { fallbackReceived = it }
+        assertTrue("Intent URI must be handled", handledUnsafe)
+        assertEquals("Unsafe javascript: browser_fallback_url must be rejected", null, fallbackReceived)
+
+        val safeFallbackIntent = "intent://open#Intent;scheme=https;package=com.missing.app;S.browser_fallback_url=https://kaspa.org/docs;end"
+        com.example.network.NativeIntentRoutingEngine.routeUrl(
+            throwingContext,
+            safeFallbackIntent,
+            hasUserGesture = true
+        ) { fallbackReceived = it }
+        assertEquals("https://kaspa.org/docs", fallbackReceived)
+    }
+
+    @Test
+    fun peerIdGenerationIsWellFormedAndNonDeterministic() {
+        val peer1 = CryptoUtils.generatePeerId()
+        val peer2 = CryptoUtils.generatePeerId()
+        assertTrue(peer1.startsWith("12D3KooW"))
+        assertTrue(peer2.startsWith("12D3KooW"))
+        assertNotEquals(peer1, peer2)
+    }
+
+    @Test
+    fun cloudflareChallengeAndCdnCgiAreExemptFromBlockingAndCache() {
+        val cdnCgiUrl = "https://example.com/cdn-cgi/challenge-platform/h/b/orchestrate/chl_api/v1"
+        val turnstileApi = "https://challenges.cloudflare.com/turnstile/v0/b/1234/api.js"
+
+        assertTrue(
+            "/cdn-cgi/ challenge endpoints must be recognized as essential auth/CAPTCHA",
+            com.example.network.KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(cdnCgiUrl)
+        )
+        assertTrue(
+            "/cdn-cgi/ challenge endpoints must never be blocked as trackers",
+            !com.example.network.KaspaPrivacyEngine.isTrackerOrAd(cdnCgiUrl)
+        )
+        assertTrue(
+            "Turnstile endpoints must never be blocked as trackers",
+            !com.example.network.KaspaPrivacyEngine.isTrackerOrAd(turnstileApi)
+        )
+        assertTrue(
+            "/cdn-cgi/ scripts must never be cached by WebViewAssetLruCache",
+            !com.example.network.WebViewAssetLruCache.shouldCache(cdnCgiUrl, "GET", false)
+        )
+        assertTrue(
+            "Turnstile challenge scripts must never be cached by WebViewAssetLruCache",
+            !com.example.network.WebViewAssetLruCache.shouldCache(turnstileApi, "GET", false)
+        )
+    }
+
+    @Test
+    fun backgroundPlaybackScriptSkipsChallengesAndDoesNotWrapAddEventListener() {
+        val bgScript = com.example.util.BrowserBackgroundPlayback.getBackgroundPlaybackScript()
+        assertTrue(
+            "Background playback script must skip challenges.cloudflare.com and /cdn-cgi/",
+            bgScript.contains("challenges.cloudflare.com") && bgScript.contains("/cdn-cgi/")
+        )
+        assertTrue(
+            "Background playback script must skip unrelated cross-origin iframes",
+            bgScript.contains("window.top !== window.self && !isKnownMediaHost")
+        )
+        assertTrue(
+            "Background playback script must not monkey-patch EventTarget.prototype.addEventListener",
+            !bgScript.contains("EventTarget.prototype.addEventListener")
+        )
+        assertTrue(
+            "Background playback script must defer prototype overrides on non-media pages until playback",
+            bgScript.contains("document.addEventListener('play'")
+        )
+    }
+
+    @Test
+    fun desktopViewportAndMetadataApplyCleanlyAndSkipTurnstileChallenges() {
+        val viewportScript = com.example.network.KaspaPrivacyEngine.getDesktopViewportScript(isDesktop = true)
+        assertTrue(
+            "Viewport script must skip top-level Cloudflare challenge / Turnstile interstitials",
+            viewportScript.contains("Just a moment") &&
+                viewportScript.contains("challenge-running") &&
+                viewportScript.contains("cf-turnstile")
+        )
+
+        val context = RuntimeEnvironment.getApplication()
+        val webView = WebView(context)
+        try {
+            val baseUa = "Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.100 Mobile Safari/537.36"
+            com.example.network.KaspaPrivacyEngine.applyUserAgentAndMetadata(
+                webView.settings,
+                isDesktop = true,
+                baseUa = baseUa
+            )
+            assertTrue(webView.settings.userAgentString.contains("X11; Linux x86_64"))
+            assertTrue(webView.settings.useWideViewPort)
+            assertTrue(webView.settings.loadWithOverviewMode)
+
+            com.example.network.KaspaPrivacyEngine.applyUserAgentAndMetadata(
+                webView.settings,
+                isDesktop = false,
+                baseUa = baseUa
+            )
+            assertTrue(webView.settings.userAgentString.contains("Android"))
+            assertTrue(!webView.settings.useWideViewPort)
+            assertTrue(!webView.settings.loadWithOverviewMode)
+        } finally {
+            webView.destroy()
+        }
+    }
+
 }

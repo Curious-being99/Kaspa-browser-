@@ -22,19 +22,17 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * KaspaPrivacyRelayEngine
- * 
- * Native KRP/1 (Kaspa Relay Protocol) Dual-Hop Privacy Circuit Engine.
- * 
- * Cryptographic Architecture:
- * - Real CSPRNG Entropy Engine
- * - X25519 Ephemeral Curve25519 Diffie-Hellman Key Exchange (RFC 7748 Verified)
- * - HKDF-SHA256 Session Key Derivation (RFC 5869)
- * - ChaCha20-Poly1305 AEAD Symmetric Encryption (RFC 8439)
- * - Poly1305 MAC Authentication Tags (16-byte)
- * - 1024-Byte Uniform Binary Cell Framing & Traffic Morphing
- * - Exit-Only DNS Resolution (Zero Local DNS Leaks)
- * - Fail-Closed Privacy Mode Enforcement (Zero Un-Shielded Direct Fallbacks)
- * - Client ──(KRP1 Cell)──> ENTRY RELAY ──(Forward)──> EXIT RELAY ──(DoH/HTTPS)──> Web
+ *
+ * KRP/1 (Kaspa Relay Protocol) In-Process Cryptographic Pipeline & DoH Resolver.
+ *
+ * Architecture:
+ * - CSPRNG Entropy & RFC 7748 X25519 Ephemeral Key Exchange
+ * - RFC 5869 HKDF-SHA256 Session Key Derivation
+ * - RFC 8439 ChaCha20-Poly1305 AEAD Encryption + 1024-Byte Cell Framing
+ * - Fail-Closed Encrypted DNS over HTTPS (Cloudflare / Quad9 / Google DoH)
+ * - Optional External Upstream SOCKS5/HTTP Proxy Egress (e.g., Orbot/Tor)
+ *   Note: Without an external proxy configured, the in-process Entry/Exit loopback
+ *   pipeline encrypts payloads locally on-device and egresses from the device's IP.
  */
 data class LiveExitTelemetry(
     val ip: String,
@@ -550,13 +548,13 @@ object KaspaPrivacyRelayEngine {
         } catch (_: Throwable) {}
 
         val fallback = LiveExitTelemetry(
-            ip = "127.0.0.1",
-            country = "Local Gateway",
-            countryCode = "LOC",
-            city = "Loopback",
-            isp = "Local Device",
+            ip = "Unavailable",
+            country = "Offline / Unreachable",
+            countryCode = "OFF",
+            city = "",
+            isp = "Network Unreachable",
             asn = "",
-            latencyMs = 1,
+            latencyMs = (System.currentTimeMillis() - t0).coerceAtLeast(1L),
             isProxy = false
         )
         liveTelemetry = fallback

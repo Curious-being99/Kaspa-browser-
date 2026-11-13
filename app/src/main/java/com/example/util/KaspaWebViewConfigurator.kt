@@ -11,18 +11,83 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.example.engine.BrowserEngineManager
 import com.example.network.KaspaPrivacyEngine
 
 object KaspaWebViewConfigurator {
+    /**
+     * Configures WebAuthn / FIDO2 Passkey support for a browser WebView using
+     * WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER (never FOR_APP, which rejects arbitrary websites).
+     * Returns the runtime-applied support level or -1 if unsupported.
+     */
+    fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
+        return try {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+                -1
+            } else {
+                val targetLevel = if (enabled) {
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                } else {
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                }
+                WebSettingsCompat.setWebAuthenticationSupport(settings, targetLevel)
+                val actualLevel = try {
+                    WebSettingsCompat.getWebAuthenticationSupport(settings)
+                } catch (_: Throwable) {
+                    targetLevel
+                }
+                BrowserEngineManager.recordPasskeySupport(enabled, actualLevel)
+                actualLevel
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "WebAuthn support config notice: ${t.message}")
+            -1
+        }
+    }
+
+    /**
+     * Applies Kazview's native Blink enhancements (Back-Forward Cache for instant
+     * back/forward navigation and Privacy Sandbox Attribution Reporting suppression) safely
+     * behind WebViewFeature checks.
+     */
+    fun applyKazviewSettings(settings: WebSettings) {
+        var bfCache = false
+        var attributionDisabled = false
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE)) {
+                WebSettingsCompat.setBackForwardCacheEnabled(settings, true)
+                bfCache = runCatching { WebSettingsCompat.getBackForwardCacheEnabled(settings) }.getOrDefault(true)
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "BFCache setup notice: ${t.message}")
+        }
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ATTRIBUTION_REGISTRATION_BEHAVIOR)) {
+                WebSettingsCompat.setAttributionRegistrationBehavior(
+                    settings,
+                    WebSettingsCompat.ATTRIBUTION_BEHAVIOR_DISABLED
+                )
+                attributionDisabled = true
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "Attribution privacy setup notice: ${t.message}")
+        }
+        BrowserEngineManager.recordWebSettingsApplied(
+            bfCacheEnabled = bfCache,
+            attributionDisabled = attributionDisabled
+        )
+    }
+
     /**
      * Dynamically ensures Google Sign-In, OAuth, and 2FA authentication URLs have proper cookies and UA settings.
      */
     fun checkAndConfigureForUrl(webView: WebView, url: String?) {
         if (url.isNullOrBlank()) return
         try {
-            if (KaspaPrivacyEngine.isGoogleAuthUrl(url)) {
+            if (KaspaPrivacyEngine.isGoogleAuthUrl(url) || KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)) {
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
                 cookieManager.setAcceptThirdPartyCookies(webView, true)
@@ -85,7 +150,13 @@ object KaspaWebViewConfigurator {
      * Complies with Google Play policy and web standards.
      */
     @SuppressLint("SetJavaScriptEnabled")
-    fun applyWebSettings(webView: WebView, context: Context, isDesktop: Boolean = false, acceptThirdPartyCookies: Boolean = false) {
+    fun applyWebSettings(
+        webView: WebView,
+        context: Context,
+        isDesktop: Boolean = false,
+        acceptThirdPartyCookies: Boolean = false,
+        webAuthEnabled: Boolean = true
+    ) {
         val defaultDeviceUa = try {
             WebSettings.getDefaultUserAgent(context)
         } catch (_: Throwable) {
@@ -111,8 +182,6 @@ object KaspaWebViewConfigurator {
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            useWideViewPort = isDesktop
-            loadWithOverviewMode = isDesktop
             textZoom = 100
             cacheMode = WebSettings.LOAD_DEFAULT
             layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
@@ -128,11 +197,9 @@ object KaspaWebViewConfigurator {
                 safeBrowsingEnabled = true
             }
 
-            userAgentString = if (isDesktop) {
-                KaspaPrivacyEngine.getDesktopUserAgent(defaultDeviceUa)
-            } else {
-                KaspaPrivacyEngine.getMobileUserAgent(defaultDeviceUa)
-            }
+            applyWebAuthenticationSupport(this, webAuthEnabled)
+            applyKazviewSettings(this)
+            KaspaPrivacyEngine.applyUserAgentAndMetadata(this, isDesktop, defaultDeviceUa)
         }
 
         // Cookie Configuration. Third-party cookies remain disabled unless the
@@ -164,6 +231,40 @@ object KaspaWebViewConfigurator {
         }
     }
 
+    private fun escapeHtml(input: String): String {
+        val sb = StringBuilder(input.length)
+        for (ch in input) {
+            when (ch) {
+                '&' -> sb.append("&amp;")
+                '<' -> sb.append("&lt;")
+                '>' -> sb.append("&gt;")
+                '"' -> sb.append("&quot;")
+                '\'' -> sb.append("&#39;")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun escapeJsString(input: String): String {
+        val sb = StringBuilder(input.length + 2).append('"')
+        for (ch in input) {
+            when (ch) {
+                '\\' -> sb.append("\\\\")
+                '"' -> sb.append("\\\"")
+                '\'' -> sb.append("\\'")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                '<' -> sb.append("\\u003C")
+                '>' -> sb.append("\\u003E")
+                '&' -> sb.append("\\u0026")
+                else -> sb.append(ch)
+            }
+        }
+        return sb.append('"').toString()
+    }
+
     /**
      * Generates a modern, clean HTML recovery / error card when web navigation encounters a network error,
      * preventing indefinite blank screens and providing a manual retry trigger.
@@ -181,7 +282,12 @@ object KaspaWebViewConfigurator {
             !errorDescription.isNullOrBlank() -> errorDescription
             else -> "Network connection lost or web server unreachable."
         }
-        val escapedUrl = failingUrl.replace("\\", "\\\\").replace("'", "\\'").replace("\"", "&quot;")
+        val safeRetryUrl = failingUrl.trim().takeIf {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        } ?: "https://kaspa.org"
+        val quotedJsUrl = escapeJsString(safeRetryUrl)
+        val safeHtmlErrorMsg = escapeHtml(errorMsg)
+        val safeHtmlUrl = escapeHtml(failingUrl)
 
         return """
             <!DOCTYPE html>
@@ -212,8 +318,14 @@ object KaspaWebViewConfigurator {
                             btn.disabled = true;
                             btn.innerHTML = '<span class="spinner"></span>Reconnecting...';
                         }
-                        var targetUrl = '$escapedUrl';
-                        window.location.href = targetUrl;
+                        var targetUrl = $quotedJsUrl;
+                        try {
+                            if (window.KaspaNative && typeof window.KaspaNative.retryConnection === 'function') {
+                                window.KaspaNative.retryConnection(targetUrl);
+                                return;
+                            }
+                        } catch(e) {}
+                        window.location.href = 'kaspa-action://retry?url=' + encodeURIComponent(targetUrl);
                     }
                 </script>
             </head>
@@ -221,8 +333,8 @@ object KaspaWebViewConfigurator {
                 <div class="card">
                     <div class="icon">📡</div>
                     <h2>Connection Problem</h2>
-                    <p>$errorMsg</p>
-                    <div class="url">$failingUrl</div>
+                    <p>$safeHtmlErrorMsg</p>
+                    <div class="url">$safeHtmlUrl</div>
                     <button id="retryBtn" class="btn" onclick="retryLoading()">Retry Connection</button>
                 </div>
             </body>
@@ -235,6 +347,8 @@ object KaspaWebViewConfigurator {
      * from MITM attacks without silent crashes or blank screens.
      */
     fun generateSslErrorHtml(failingUrl: String, sslReason: String): String {
+        val safeReason = escapeHtml(sslReason)
+        val safeUrl = escapeHtml(failingUrl)
         return """
             <!DOCTYPE html>
             <html>
@@ -252,9 +366,9 @@ object KaspaWebViewConfigurator {
             <body>
                 <div class="card">
                     <h2>Security Warning: Untrusted Certificate</h2>
-                    <p>$sslReason</p>
+                    <p>$safeReason</p>
                     <p>Kaspa Privacy Shield halted this connection to prevent data interception.</p>
-                    <div class="url">$failingUrl</div>
+                    <div class="url">$safeUrl</div>
                     <button class="btn" onclick="history.back()">Return to Safety</button>
                 </div>
             </body>

@@ -190,90 +190,138 @@ object BrowserBackgroundPlayback {
             if (window.__brave_bg_playback_installed__) return;
             window.__brave_bg_playback_installed__ = true;
 
+            var host = '';
             try {
-                var mediaSession = navigator.mediaSession;
-                if (mediaSession && !mediaSession.__kb_handlers_wrapped && mediaSession.setActionHandler) {
-                    var originalSetActionHandler = mediaSession.setActionHandler.bind(mediaSession);
-                    var handlers = window.__kb_media_action_handlers = window.__kb_media_action_handlers || {};
-                    mediaSession.setActionHandler = function(action, handler) {
-                        if (action === 'nexttrack' || action === 'previoustrack' || action === 'play' || action === 'pause' || action === 'seekto') handlers[action] = handler;
-                        return originalSetActionHandler(action, handler);
-                    };
-                    mediaSession.__kb_handlers_wrapped = true;
-                }
+                host = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
             } catch (e) {}
 
+            // Never modify visibility, focus, or media prototypes on CAPTCHA, anti-bot, auth, or payment pages
+            if (host.indexOf('challenges.cloudflare.com') !== -1 ||
+                host.indexOf('cloudflare.com') !== -1 ||
+                host.indexOf('hcaptcha.com') !== -1 ||
+                host.indexOf('recaptcha.net') !== -1 ||
+                host.indexOf('arkoselabs.com') !== -1 ||
+                host.indexOf('octocaptcha.com') !== -1 ||
+                host.indexOf('accounts.google.com') !== -1 ||
+                host.indexOf('appleid.apple.com') !== -1 ||
+                host.indexOf('login.microsoftonline.com') !== -1 ||
+                host.indexOf('auth0.com') !== -1 ||
+                host.indexOf('okta.com') !== -1 ||
+                host.indexOf('stripe.com') !== -1 ||
+                host.indexOf('paypal.com') !== -1) {
+                return;
+            }
             try {
-                Object.defineProperty(document, 'hidden', {
-                    get: function() { return false; },
-                    configurable: true
-                });
-                Object.defineProperty(document, 'visibilityState', {
-                    get: function() { return 'visible'; },
-                    configurable: true
-                });
-                Object.defineProperty(document, 'webkitVisibilityState', {
-                    get: function() { return 'visible'; },
-                    configurable: true
-                });
-                document.hasFocus = function() { return true; };
-            } catch (e) {}
-
-            try {
-                var origAEL = EventTarget.prototype.addEventListener;
-                EventTarget.prototype.addEventListener = function(type, listener, options) {
-                    if (type === 'visibilitychange' || type === 'webkitvisibilitychange') {
-                        var wrapped = function(event) {
-                            try {
-                                listener.call(this, event);
-                            } catch (_) {}
-                        };
-                        return origAEL.call(this, type, wrapped, options);
-                    }
-                    return origAEL.call(this, type, listener, options);
-                };
-            } catch (e) {}
-
-            try {
-                window.addEventListener('pagehide', function(e) {
-                    if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
-                }, true);
-            } catch (e) {}
-
-            try {
-                var lastUserInteractionTime = 0;
-                ['click', 'pointerdown', 'touchstart', 'keydown'].forEach(function(evtName) {
-                    window.addEventListener(evtName, function() {
-                        lastUserInteractionTime = Date.now();
-                    }, true);
-                });
-
-                var origPause = HTMLMediaElement.prototype.pause;
-                HTMLMediaElement.prototype.pause = function() {
-                    var isUserTriggered = window.__kaspa_user_pause_allowed || ((Date.now() - lastUserInteractionTime) < 600);
-                    if (isUserTriggered) {
-                        return origPause.apply(this, arguments);
-                    }
-                    // Auto-pause calls from page scripts when losing focus or changing app are blocked.
+                if (window.location && window.location.pathname && window.location.pathname.indexOf('/cdn-cgi/') !== -1) {
                     return;
-                };
-            } catch (e) {}
-
-            try {
-                var AudioCtx = window.AudioContext || window.webkitAudioContext;
-                if (AudioCtx && AudioCtx.prototype) {
-                    var origSuspend = AudioCtx.prototype.suspend;
-                    if (origSuspend) {
-                        AudioCtx.prototype.suspend = function() {
-                            var isUserTriggered = window.__kaspa_user_pause_allowed || ((Date.now() - lastUserInteractionTime) < 600);
-                            if (isUserTriggered) {
-                                return origSuspend.apply(this, arguments);
-                            }
-                            return Promise.resolve();
-                        };
-                    }
                 }
             } catch (e) {}
+
+            var isKnownMediaHost = host.indexOf('youtube.com') !== -1 ||
+                host.indexOf('youtube-nocookie.com') !== -1 ||
+                host.indexOf('youtu.be') !== -1 ||
+                host.indexOf('vimeo.com') !== -1 ||
+                host.indexOf('dailymotion.com') !== -1 ||
+                host.indexOf('twitch.tv') !== -1 ||
+                host.indexOf('spotify.com') !== -1 ||
+                host.indexOf('soundcloud.com') !== -1 ||
+                host.indexOf('bandcamp.com') !== -1 ||
+                host.indexOf('mixcloud.com') !== -1 ||
+                host.indexOf('rumble.com') !== -1 ||
+                host.indexOf('kick.com') !== -1 ||
+                host.indexOf('bilibili.com') !== -1;
+
+            // Skip unrelated third-party iframes (e.g. verification/CAPTCHA embeds)
+            if (window.top !== window.self && !isKnownMediaHost) {
+                return;
+            }
+
+            var lastUserInteractionTime = 0;
+            var hooksInstalled = false;
+
+            function installPlaybackHooks() {
+                if (hooksInstalled) return;
+                hooksInstalled = true;
+
+                try {
+                    var mediaSession = navigator.mediaSession;
+                    if (mediaSession && !mediaSession.__kb_handlers_wrapped && mediaSession.setActionHandler) {
+                        var originalSetActionHandler = mediaSession.setActionHandler.bind(mediaSession);
+                        var handlers = window.__kb_media_action_handlers = window.__kb_media_action_handlers || {};
+                        mediaSession.setActionHandler = function(action, handler) {
+                            if (action === 'nexttrack' || action === 'previoustrack' || action === 'play' || action === 'pause' || action === 'seekto') handlers[action] = handler;
+                            return originalSetActionHandler(action, handler);
+                        };
+                        mediaSession.__kb_handlers_wrapped = true;
+                    }
+                } catch (e) {}
+
+                try {
+                    Object.defineProperty(document, 'hidden', {
+                        get: function() { return false; },
+                        configurable: true
+                    });
+                    Object.defineProperty(document, 'visibilityState', {
+                        get: function() { return 'visible'; },
+                        configurable: true
+                    });
+                    Object.defineProperty(document, 'webkitVisibilityState', {
+                        get: function() { return 'visible'; },
+                        configurable: true
+                    });
+                    document.hasFocus = function() { return true; };
+                } catch (e) {}
+
+                try {
+                    window.addEventListener('pagehide', function(e) {
+                        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+                    }, true);
+                } catch (e) {}
+
+                try {
+                    ['click', 'pointerdown', 'touchstart', 'keydown'].forEach(function(evtName) {
+                        window.addEventListener(evtName, function() {
+                            lastUserInteractionTime = Date.now();
+                        }, true);
+                    });
+
+                    var origPause = HTMLMediaElement.prototype.pause;
+                    HTMLMediaElement.prototype.pause = function() {
+                        var isUserTriggered = window.__kaspa_user_pause_allowed || ((Date.now() - lastUserInteractionTime) < 600);
+                        if (isUserTriggered) {
+                            return origPause.apply(this, arguments);
+                        }
+                        return;
+                    };
+                } catch (e) {}
+
+                try {
+                    var AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx && AudioCtx.prototype) {
+                        var origSuspend = AudioCtx.prototype.suspend;
+                        if (origSuspend) {
+                            AudioCtx.prototype.suspend = function() {
+                                var isUserTriggered = window.__kaspa_user_pause_allowed || ((Date.now() - lastUserInteractionTime) < 600);
+                                if (isUserTriggered) {
+                                    return origSuspend.apply(this, arguments);
+                                }
+                                return Promise.resolve();
+                            };
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            if (isKnownMediaHost) {
+                installPlaybackHooks();
+            } else {
+                // Only activate visibility/focus/pause overrides if the page actually plays audio/video
+                document.addEventListener('play', function(e) {
+                    if (e && e.target && (e.target.tagName === 'AUDIO' || e.target.tagName === 'VIDEO')) {
+                        installPlaybackHooks();
+                    }
+                }, true);
+            }
         })();
     """
 

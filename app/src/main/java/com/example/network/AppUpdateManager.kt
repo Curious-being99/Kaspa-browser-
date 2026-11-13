@@ -275,46 +275,47 @@ class AppUpdateManager(
                 .header("User-Agent", "KaspaBrowser-UpdateDownloader/1.0")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(
-                    IllegalStateException("HTTP ${response.code}: Could not download APK from GitHub release. Ensure a .apk asset is attached to the release.")
-                )
-            }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(
+                        IllegalStateException("HTTP ${response.code}: Could not download APK from GitHub release. Ensure a .apk asset is attached to the release.")
+                    )
+                }
 
-            val body = response.body ?: throw IllegalStateException("Empty response body from update server")
-            val totalBytes = body.contentLength().takeIf { it > 0 } ?: (updateInfo.apkSizeBytes.takeIf { it > 0 } ?: 28_500_000L)
+                val body = response.body ?: throw IllegalStateException("Empty response body from update server")
+                val totalBytes = body.contentLength().takeIf { it > 0 } ?: (updateInfo.apkSizeBytes.takeIf { it > 0 } ?: 28_500_000L)
 
-            val inputStream: InputStream = body.byteStream()
-            val outputStream = FileOutputStream(targetFile)
-            val digest = MessageDigest.getInstance("SHA-256")
+                val inputStream: InputStream = body.byteStream()
+                val outputStream = FileOutputStream(targetFile)
+                val digest = MessageDigest.getInstance("SHA-256")
 
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            var totalRead = 0L
-            var lastProgressReportTime = 0L
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                var totalRead = 0L
+                var lastProgressReportTime = 0L
 
-            inputStream.use { input ->
-                outputStream.use { output ->
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        digest.update(buffer, 0, bytesRead)
-                        totalRead += bytesRead
+                inputStream.use { input ->
+                    outputStream.use { output ->
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            digest.update(buffer, 0, bytesRead)
+                            totalRead += bytesRead
 
-                        val now = System.currentTimeMillis()
-                        if (now - lastProgressReportTime > 80 || totalRead == totalBytes) {
-                            lastProgressReportTime = now
-                            val percent = if (totalBytes > 0) ((totalRead * 100) / totalBytes).toInt().coerceIn(0, 100) else 50
-                            onProgress(percent, totalRead, totalBytes)
+                            val now = System.currentTimeMillis()
+                            if (now - lastProgressReportTime > 80 || totalRead == totalBytes) {
+                                lastProgressReportTime = now
+                                val percent = if (totalBytes > 0) ((totalRead * 100) / totalBytes).toInt().coerceIn(0, 100) else 50
+                                onProgress(percent, totalRead, totalBytes)
+                            }
                         }
                     }
                 }
-            }
 
-            val computedHash = bytesToHex(digest.digest())
-            if (!computedHash.equals(expectedHash, ignoreCase = true)) {
-                targetFile.delete()
-                throw SecurityException("SHA-256 integrity verification failed.")
+                val computedHash = bytesToHex(digest.digest())
+                if (!computedHash.equals(expectedHash, ignoreCase = true)) {
+                    targetFile.delete()
+                    throw SecurityException("SHA-256 integrity verification failed.")
+                }
             }
             if (updateInfo.apkSizeBytes > 0 && targetFile.length() != updateInfo.apkSizeBytes) {
                 targetFile.delete()
