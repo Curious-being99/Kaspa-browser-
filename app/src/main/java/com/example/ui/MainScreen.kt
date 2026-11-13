@@ -348,13 +348,13 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                             )
                             MissionRow(
                                 icon = Icons.Default.Speed,
-                                title = "HTTPS/3 QUIC & Multi-Hop Relay",
-                                description = "Zero round-trip multiplexed streams combined with full IP-anonymizing multi-hop circuit protection."
+                                title = "Web Networking & Privacy Controls",
+                                description = "Uses the configured Android networking stack and best-effort request filtering. No Tor anonymity or HTTP/3-only guarantee."
                             )
                             MissionRow(
                                 icon = Icons.Default.Security,
-                                title = "Zero-Surveillance Privacy",
-                                description = "Zero trackers, no telemetry, and local cryptographic key custody for complete browsing autonomy."
+                                title = "Privacy & Security Controls",
+                                description = "Includes tracker filtering and local wallet-key protection. These controls cannot guarantee zero tracking or anonymity."
                             )
                         }
 
