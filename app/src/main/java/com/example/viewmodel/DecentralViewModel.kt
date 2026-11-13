@@ -2694,60 +2694,13 @@ class DecentralViewModel(
         batches: Int = 1,
         onResult: (Boolean, String, String?) -> Unit
     ) {
-        val account = activeAccount.value
-        if (account == null) {
-            onResult(false, "No active Kaspa wallet found", null)
-            return
-        }
-        viewModelScope.launch {
-            val upper = tick.uppercase().trim()
-            val meta = krc20Service.fetchTokenMetadata(upper).getOrNull()
-            val limitDouble = meta?.limitPerMint?.toDoubleOrNull()?.div(100_000_000.0) ?: 1000.0
-            val totalTokens = limitDouble * batches
-            val kasCommitAmount = 0.2 * batches
-
-            // In KRC-20 commit-reveal minting, the commit funds must be self-addressed to the user's own wallet!
-            val destination = account.kaspaAddress
-
-
-            val sendResult = try {
-                kaspaWalletService.sendKaspa(
-                    senderAddress = account.kaspaAddress,
-                    senderSeed = account.seedPhrase,
-                    recipientAddress = destination,
-                    amountKas = kasCommitAmount
-                )
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-
-            if (sendResult.isSuccess) {
-                val txItem = sendResult.getOrThrow()
-                val rawJson = org.json.JSONObject()
-                    .put("p", "krc-20")
-                    .put("op", "mint")
-                    .put("tick", upper)
-                    .put("amt", (totalTokens * 100_000_000).toLong().toString())
-                    .put("txId", txItem.txId)
-                    .put("batches", batches)
-                    .put("feeKas", kasCommitAmount)
-                    .put("status", "ACCEPTED")
-                    .toString(2)
-
-                recordAndPinToken(
-                    tick = upper,
-                    op = "MINT (BONDING CURVE)",
-                    amount = totalTokens,
-                    txId = txItem.txId,
-                    rawJson = rawJson
-                )
-                refreshTestnetWallet()
-                onResult(true, "Successfully bought %,.2f %s on bonding curve! Broadcasted on Kaspa BlockDAG.".format(totalTokens, upper), txItem.txId)
-            } else {
-                val errorMsg = sendResult.exceptionOrNull()?.message ?: "Transaction failed on BlockDAG"
-                onResult(false, errorMsg, null)
-            }
-        }
+        // Fail closed: the current path does not obtain a protocol-verified quote or
+        // construct the required commit/reveal transaction. A self-payment is not a purchase.
+        onResult(
+            false,
+            "Bonding-curve purchases are temporarily paused for security. No KAS was sent.",
+            null
+        )
     }
 
     fun calculateFeeBreakdown(
