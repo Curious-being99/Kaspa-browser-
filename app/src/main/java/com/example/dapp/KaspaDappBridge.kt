@@ -643,14 +643,22 @@ object KaspaDappBridge {
                                 }
                                 return@execute
                             }
-                            val externalOutput = prepared.transaction.outputs.firstOrNull { out ->
+                            val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
+                            val resolvedDest = prepared.transaction.outputs.mapIndexed { index, out ->
                                 val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
-                                val walletScript = ("20" + keyPair.publicKeyHex.lowercase() + "ac")
-                                script != walletScript
-                            } ?: prepared.transaction.outputs.firstOrNull()
-                            val resolvedDest = externalOutput?.let { out ->
-                                scriptToAddress(out.scriptPublicKey, prefix)
-                            } ?: keyPair.kaspaAddress
+                                val isChange = script == walletScript
+                                val amount = KaspaTransactionEngine.formatKas(
+                                    KaspaTransactionEngine.sompiToKas(out.amount)
+                                )
+                                val address = runCatching { scriptToAddress(out.scriptPublicKey, prefix) }.getOrNull()
+                                buildString {
+                                    append("Output ${index + 1} — ${if (isChange) "Wallet change" else "External / contract output"} — $amount KAS")
+                                    if (!address.isNullOrBlank()) append("\\nrecipient=$address")
+                                    else append("\\nrecipient=unresolved locking script")
+                                    append("\\nscriptVersion=${out.scriptPublicKey.version}")
+                                    append("\\nscript=$script")
+                                }
+                            }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
 
                             mainHandler.post {
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
@@ -770,9 +778,22 @@ object KaspaDappBridge {
                         } else null
 
                         val resolvedDestination = if (prePrepared != null) {
-                            externalOutputs.firstOrNull()?.let { out ->
-                                scriptToAddress(out.scriptPublicKey, prefix)
-                            } ?: (if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress)
+                            prePrepared.transaction.outputs.mapIndexed { index, out ->
+                                val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
+                                val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
+                                val isChange = script == walletScript
+                                val amount = KaspaTransactionEngine.formatKas(
+                                    KaspaTransactionEngine.sompiToKas(out.amount)
+                                )
+                                val address = runCatching { scriptToAddress(out.scriptPublicKey, prefix) }.getOrNull()
+                                buildString {
+                                    append("Output ${index + 1} — ${if (isChange) "Wallet change" else "External / contract output"} — $amount KAS")
+                                    if (!address.isNullOrBlank()) append("\\nrecipient=$address")
+                                    else append("\\nrecipient=unresolved locking script")
+                                    append("\\nscriptVersion=${out.scriptPublicKey.version}")
+                                    append("\\nscript=$script")
+                                }
+                            }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
                         } else {
                             if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
                         }
@@ -912,19 +933,21 @@ object KaspaDappBridge {
                                         return@execute
                                     }
 
-                                    // KRC-20 fallback path remains separate from KCC-20 covenant transfers.
-                                    val destination = if (toAddr.isNotBlank() && (toAddr.startsWith("kaspa:") || toAddr.startsWith("kaspatest:"))) {
-                                        toAddr
-                                    } else if (op == "transfer") {
-                                        mainHandler.post {
-                                            respond(
-                                                errorCode = -32602,
-                                                errorMessage = "KRC-20 transfer requires a valid recipient address (kaspa: or kaspatest:)"
-                                            )
+                                    // KRC-20 transfers must name a valid recipient on the currently selected network.
+                                    // Deploy/mint commit outputs remain self-addressed to the active wallet.
+                                    val expectedPrefix = if (network.contains("Mainnet", true)) "kaspa" else "kaspatest"
+                                    val destination = if (op == "transfer") {
+                                        if (!CryptoUtils.isValidKaspaAddress(toAddr, expectedPrefix)) {
+                                            mainHandler.post {
+                                                respond(
+                                                    errorCode = -32602,
+                                                    errorMessage = "KRC-20 transfer requires an explicit valid $expectedPrefix recipient. No fallback recipient is permitted."
+                                                )
+                                            }
+                                            return@execute
                                         }
-                                        return@execute
+                                        toAddr
                                     } else {
-                                        // For KRC-20 deploy/mint commit inscriptions, the commit UTXO must be self-addressed to the user's own wallet!
                                         keyPair.kaspaAddress
                                     }
 
