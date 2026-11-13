@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -439,20 +440,22 @@ fun DappPromptBottomSheet(
                             }
 
                             if (prompt.destination.isNotBlank()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Destination", fontSize = 13.sp, color = TextSecondary)
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(
-                                        text = if (prompt.destination.length > 20) {
-                                            prompt.destination.take(10) + "..." + prompt.destination.takeLast(8)
-                                        } else prompt.destination,
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = TextPrimary
+                                        if (prompt.destination.startsWith("Output ")) "All transaction outputs" else "Destination",
+                                        fontSize = 13.sp,
+                                        color = TextSecondary
                                     )
+                                    SelectionContainer {
+                                        Text(
+                                            text = prompt.destination,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextPrimary,
+                                            softWrap = true
+                                        )
+                                    }
                                 }
                                 HorizontalDivider(color = SurfaceCardBorder)
                             }
