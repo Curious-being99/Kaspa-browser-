@@ -4950,7 +4950,7 @@ private fun ConfirmSendScreenOverlay(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (hasPassword || biometricsEnabled) "Authorize & Broadcast" else "Confirm & Broadcast",
+                                text = if (isMigration) { if (hasPassword || biometricsEnabled) "Authorize & Migrate" else "Confirm & Migrate" } else if (hasPassword || biometricsEnabled) "Authorize & Broadcast" else "Confirm & Broadcast",
                                 color = SurfaceDark,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 15.sp
