@@ -3075,11 +3075,27 @@ class DecentralViewModel(
                             it.did != source.did && it.kaspaAddress.startsWith("$prefix:")
                     }
                 val destination = existingStaged ?: run {
+                    // generateMnemonic() uses SecureRandom; deriveDecentralizedAccount()
+                    // encrypts through Android Keystore and wipes its derived private key
+                    // in a finally block before returning the account record.
                     val generated = CryptoUtils.deriveDecentralizedAccount(
                         customHandle = "Secure replacement for ${source.handle}",
                         networkPrefix = prefix
-                    ).copy(isActive = false, accountType = "DECENTRALIZED_NATIVE", googleEmail = null, googleDisplayName = null)
-                    withContext(Dispatchers.IO) { database.accountDao().insertAccount(generated) }
+                    ).copy(
+                        isActive = false,
+                        accountType = "DECENTRALIZED_NATIVE",
+                        googleEmail = null,
+                        googleDisplayName = null
+                    )
+                    require(generated.seedPhrase.startsWith("hw1:")) {
+                        "Android Keystore encryption is required for a replacement wallet. Nothing was transferred."
+                    }
+                    require(generated.kaspaAddress.startsWith("$prefix:")) {
+                        "Replacement wallet address does not match the selected network."
+                    }
+                    withContext(Dispatchers.IO) {
+                        database.accountDao().insertAccount(generated)
+                    }
                     _legacyMigrationAccount.value = generated
                     _legacyMigrationSourceDid.value = source.did
                     generated
