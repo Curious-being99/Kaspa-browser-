@@ -1148,8 +1148,8 @@ object CryptoUtils {
 
 
     /**
-     * Detects weak historical 12-word seeds without depending on account metadata.
-     * The email-derived comparison is retained as an additional historical check.
+     * Detects legacy 12-word seeds using only the exact first 256 BIP-39 English words.
+     * Account type and email metadata never influence detection or classification.
      */
     fun isLegacyEmailDerivedGoogleWallet(
         accountType: String,
@@ -1171,32 +1171,13 @@ object CryptoUtils {
         }
         if (storedWords.size != 12) return null
 
-        val emailMatch = if (email.isNullOrBlank()) {
-            false
-        } else {
-            val cleanEmail = email.trim().lowercase()
-            val legacyMnemonic = try {
-                val entropy = sha256("google_oauth_bridge_" + cleanEmail + "_zkDecentralNet2026")
-                (0 until 12).map { index ->
-                    val start = (index * 2) % entropy.length
-                    val end = (start + 2) % entropy.length
-                    val byteValue = entropy.substring(start, end).toIntOrNull(16) ?: index
-                    MNEMONIC_WORDS[byteValue % MNEMONIC_WORDS.size]
-                }.joinToString(" ")
-            } catch (_: Throwable) {
-                ""
-            }
-            storedWords.joinToString(" ") == legacyMnemonic
-        }
-
         val lowEntropySeed = storedWords.all { it in LOW_ENTROPY_BIP39_PREFIX_256 }
-        if (!emailMatch && !lowEntropySeed) return null
+        if (!lowEntropySeed) return null
 
-        return when {
-            emailMatch -> "compromised"
-            createdAt <= LEGACY_GENERATOR_CUTOFF_UTC_MS ->
-                "made with a non-secure generator, move your funds now"
-            else -> "old wallet format, please move your funds"
+        return if (createdAt <= LEGACY_GENERATOR_CUTOFF_UTC_MS) {
+            "made with a non-secure generator, move your funds now"
+        } else {
+            "old wallet format, please move your funds"
         }
     }
 
