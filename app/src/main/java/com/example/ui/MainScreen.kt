@@ -232,7 +232,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         Spacer(modifier = Modifier.height(24.dp))
 
                         Text(
-                            text = "Kaspa Browser",
+                            text = "Kazium",
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
