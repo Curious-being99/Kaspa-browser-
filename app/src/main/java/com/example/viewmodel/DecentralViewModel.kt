@@ -2684,7 +2684,6 @@ class DecentralViewModel(
                 }
                 _kcc20Transactions.value = txHistoryList.distinctBy { it.txId }.sortedByDescending { it.timestamp }
             } catch (_: Exception) {
-            } catch (_: Exception) {
             }
         }
     }
