@@ -1347,11 +1347,11 @@ fun KaspaTestnetWalletScreen(
 
     if (showLegacyMigrationConfirm && legacyMigrationReview != null) {
         val migration = legacyMigrationReview!!
-        val migrationBreakdown = viewModel.calculateFeeBreakdown(
-            migration.amountKas,
-            migration.inputCount,
-            1,
-            selectedSompiPerMass
+        val migrationBreakdown = KaspaTransactionEngine.calculateFeeBreakdown(
+            amountKas = migration.amountKas,
+            inputsCount = migration.inputCount,
+            outputsCount = 1,
+            sompiPerMass = selectedSompiPerMass
         )
         ConfirmSendScreenOverlay(
             recipientAddress = migration.recipientAddress,
