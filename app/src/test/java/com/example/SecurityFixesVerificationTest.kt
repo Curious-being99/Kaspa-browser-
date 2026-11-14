@@ -19,6 +19,67 @@ import org.robolectric.annotation.Config
 class SecurityFixesVerificationTest {
 
     @Test
+    fun signedFullBalanceTransferConservesValueAndCoversActualFee() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val sender = CryptoUtils.deriveKaspaKeyPair(mnemonic, prefix = "kaspatest")
+        val destination = CryptoUtils.deriveKaspaKeyPair(
+            mnemonic,
+            prefix = "kaspatest",
+            passphrase = "migration-destination-test"
+        )
+        val inputAmount = 100_000_000L
+        try {
+            val senderScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(sender.kaspaAddress)
+            val destinationScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(destination.kaspaAddress)
+            val entry = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(
+                amount = inputAmount,
+                scriptPublicKey = senderScript
+            )
+            val transaction = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransaction(
+                version = 0,
+                inputs = listOf(
+                    com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(
+                        previousOutpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint(
+                            transactionId = "a".repeat(64),
+                            index = 0L
+                        )
+                    )
+                ),
+                outputs = listOf(
+                    com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
+                        amount = inputAmount - 600_000L,
+                        scriptPublicKey = destinationScript
+                    )
+                )
+            )
+            com.example.network.kaspa.KaspaTransactionEngine.signTransaction(
+                transaction,
+                listOf(entry),
+                sender.privateKey
+            )
+            val signedMass = com.example.network.kaspa.KaspaTransactionEngine.calculateMass(
+                transaction,
+                listOf(inputAmount)
+            )
+            val actualFee = inputAmount - transaction.outputs.single().amount
+            val requiredFee = maxOf(
+                com.example.network.kaspa.KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                com.example.network.kaspa.KaspaTransactionEngine.calculateToccataMinimumStandardFee(transaction),
+                com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(
+                    signedMass,
+                    com.example.network.kaspa.KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+                )
+            )
+            assertTrue("Signed full-balance fee must cover the actual required fee", actualFee >= requiredFee)
+            assertEquals("All source value must be either transferred or paid as fee", inputAmount, transaction.outputs.single().amount + actualFee)
+            assertTrue("Signed transaction must fit the standard mass limit", signedMass <= com.example.network.kaspa.KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS)
+        } finally {
+            sender.wipe()
+            destination.wipe()
+        }
+    }
+
+    @Test
     fun generatedReplacementMnemonicIsValidTwelveWordBip39() {
         val first = CryptoUtils.generateMnemonic()
         val second = CryptoUtils.generateMnemonic()
