@@ -202,8 +202,6 @@ fun KaspaTestnetWalletScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     val walletState by viewModel.kaspaWalletState.collectAsState()
-    val legacyMigrationReview by viewModel.legacyMigrationReview.collectAsState()
-    val legacyMigrationBusy by viewModel.legacyMigrationBusy.collectAsState()
     val testnetAddress by viewModel.testnetAddress.collectAsState()
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
@@ -248,17 +246,6 @@ fun KaspaTestnetWalletScreen(
         }
     }
     val isMainnet = selectedNetwork.contains("Mainnet", ignoreCase = true)
-    val legacyWalletWarning = remember(
-        activeAccount?.did,
-        activeAccount?.seedPhrase,
-        activeAccount?.accountType,
-        activeAccount?.googleEmail,
-        activeAccount?.createdAt
-    ) {
-        activeAccount?.let {
-            CryptoUtils.legacyWalletWarning(it.accountType, it.googleEmail, it.seedPhrase, it.createdAt)
-        }
-    }
 
     val currentPhotoTheme by viewModel.currentPhotoTheme.collectAsState()
     val isAutoRotatePhotoTheme by viewModel.isAutoRotatePhotoTheme.collectAsState()
@@ -323,7 +310,6 @@ fun KaspaTestnetWalletScreen(
     var amountInput by remember { mutableStateOf("") }
     var selectedSompiPerMass by remember { mutableStateOf<Long>(KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS) }
     var showConfirmSendDialog by remember { mutableStateOf(false) }
-    var showLegacyMigrationConfirm by remember { mutableStateOf(false) }
     var showCompoundDialog by remember { mutableStateOf(false) }
 
     // Observe transaction state to show result overlay
@@ -363,9 +349,6 @@ fun KaspaTestnetWalletScreen(
             selectedTransactionForDetails = null
         } else if (selectedKcc20TxForDetails != null) {
             selectedKcc20TxForDetails = null
-        } else if (showLegacyMigrationConfirm) {
-            showLegacyMigrationConfirm = false
-            viewModel.cancelLegacyWalletMigrationReview()
         } else if (showConfirmSendDialog) {
             showConfirmSendDialog = false
         } else if (showRecoveryScreen) {
@@ -564,54 +547,6 @@ fun KaspaTestnetWalletScreen(
                             tint = KaspaTea,
                             modifier = if (walletState.isLoading) Modifier.rotate(refreshAngle) else Modifier
                         )
-                    }
-                }
-            }
-
-            if (legacyWalletWarning != null && !viewModel.isEvmNetwork(selectedNetwork)) {
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = AmberCentral.copy(alpha = 0.10f)),
-                    border = BorderStroke(1.dp, AmberCentral.copy(alpha = 0.45f)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text(
-                            text = "Wallet security migration required",
-                            color = AmberCentral,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = when (legacyWalletWarning) {
-                                "compromised" -> "This wallet matches a compromised legacy derivation. Move its funds to a newly generated secure wallet."
-                                else -> legacyWalletWarning
-                            },
-                            color = TextPrimary,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = { viewModel.prepareLegacyWalletMigration(selectedSompiPerMass) },
-                            enabled = !legacyMigrationBusy && !walletState.isSending,
-                            colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (legacyMigrationBusy) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    color = SurfaceDark,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Preparing secure migration...", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.Default.Shield, contentDescription = null, tint = SurfaceDark)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Create secure wallet & move balance", color = SurfaceDark, fontWeight = FontWeight.Bold)
-                            }
-                        }
                     }
                 }
             }
@@ -1337,42 +1272,6 @@ fun KaspaTestnetWalletScreen(
             onBroadcastConfirmed = {
                 showConfirmSendDialog = false
                 viewModel.sendKaspaTransaction(recipientInput, amountNum, selectedSompiPerMass)
-            }
-        )
-    }
-
-    LaunchedEffect(legacyMigrationReview) {
-        if (legacyMigrationReview != null) showLegacyMigrationConfirm = true
-    }
-
-    if (showLegacyMigrationConfirm && legacyMigrationReview != null) {
-        val migration = legacyMigrationReview!!
-        val migrationBreakdown = KaspaTransactionEngine.calculateFeeBreakdown(
-            amountKas = migration.amountKas,
-            inputsCount = migration.inputCount,
-            outputsCount = 1,
-            sompiPerMass = selectedSompiPerMass
-        )
-        ConfirmSendScreenOverlay(
-            recipientAddress = migration.recipientAddress,
-            amountKas = migration.amountKas,
-            selectedSompiPerMass = selectedSompiPerMass,
-            breakdown = migrationBreakdown,
-            priceUsd = walletState.priceUsd,
-            isSending = walletState.isSending,
-            selectedNetwork = migration.networkName,
-            viewModel = viewModel,
-            actualFeeKas = migration.feeKas,
-            actualMass = migration.mass,
-            actualInputCount = migration.inputCount,
-            isMigration = true,
-            onBack = {
-                showLegacyMigrationConfirm = false
-                viewModel.cancelLegacyWalletMigrationReview()
-            },
-            onBroadcastConfirmed = {
-                showLegacyMigrationConfirm = false
-                viewModel.confirmLegacyWalletMigration()
             }
         )
     }
@@ -4488,10 +4387,6 @@ private fun ConfirmSendScreenOverlay(
     isSending: Boolean,
     selectedNetwork: String = "",
     viewModel: DecentralViewModel,
-    actualFeeKas: Double? = null,
-    actualMass: Long? = null,
-    actualInputCount: Int? = null,
-    isMigration: Boolean = false,
     onBack: () -> Unit,
     onBroadcastConfirmed: () -> Unit
 ) {
@@ -4542,7 +4437,7 @@ private fun ConfirmSendScreenOverlay(
         if (biometricsEnabled && BiometricAuthHelper.isDeviceLockAvailable(context)) {
             BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
                 context = context,
-                title = if (isMigration) "Authorize wallet migration" else "Authorize KAS Broadcast",
+                title = "Authorize KAS Broadcast",
                 subtitle = "Authenticate to confirm sending %.4f KAS".format(amountKas),
                 onSuccess = {
                     proceedToBroadcast()
@@ -4605,7 +4500,7 @@ private fun ConfirmSendScreenOverlay(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = if (isMigration) "Review wallet migration" else "Review & Confirm",
+                    text = "Review & Confirm",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = TextPrimary
@@ -4729,7 +4624,7 @@ private fun ConfirmSendScreenOverlay(
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
-                                text = if (isEvm) "EVM Execution & Gas Details" else if (isMigration) "Verified migration transaction" else "Fee Estimate & Transaction Details",
+                                text = if (isEvm) "EVM Execution & Gas Details" else "Fee Estimate & Transaction Details",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 fontWeight = FontWeight.SemiBold
@@ -4771,55 +4666,13 @@ private fun ConfirmSendScreenOverlay(
                             ) {
                                 Text(if (isEvm) "Execution Units:" else "Estimated BlockDAG Mass:", fontSize = 12.sp, color = TextMuted)
                                 Text(
-                                    text = if (isEvm) "21,000 standard gas units" else "${actualMass ?: breakdown.totalMass} mass units",
+                                    text = if (isEvm) "21,000 standard gas units" else "${breakdown.totalMass} mass units",
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = TextSecondary
                                 )
                             }
 
-                            if (actualFeeKas != null) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Total source balance:", fontSize = 12.sp, color = TextMuted)
-                                    Text(
-                                        text = "${KaspaTransactionEngine.formatKas(amountKas + actualFeeKas)} KAS",
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = TextSecondary
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Actual network fee:", fontSize = 12.sp, color = TextMuted)
-                                    Text(
-                                        text = "${KaspaTransactionEngine.formatKas(actualFeeKas)} KAS",
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = KaspaTea,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Live source inputs:", fontSize = 12.sp, color = TextMuted)
-                                    Text(
-                                        text = (actualInputCount ?: 0).toString(),
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = TextSecondary
-                                    )
-                                }
-                            }
                             Spacer(modifier = Modifier.height(10.dp))
 
                         }
@@ -4865,15 +4718,6 @@ private fun ConfirmSendScreenOverlay(
                                 color = TextSecondary,
                                 lineHeight = 16.sp
                             )
-                            if (isMigration) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "After the transfer, back up the replacement wallet recovery phrase from Wallet > Manage > Recovery. The phrase is not displayed in this confirmation.",
-                                    fontSize = 11.sp,
-                                    color = AmberCentral,
-                                    lineHeight = 16.sp
-                                )
-                            }
 
                             if (showPasswordFallback) {
                                 Spacer(modifier = Modifier.height(14.dp))
@@ -4972,7 +4816,7 @@ private fun ConfirmSendScreenOverlay(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (isMigration) { if (hasPassword || biometricsEnabled) "Authorize & Migrate" else "Confirm & Migrate" } else if (hasPassword || biometricsEnabled) "Authorize & Broadcast" else "Confirm & Broadcast",
+                                text = if (hasPassword || biometricsEnabled) "Authorize & Broadcast" else "Confirm & Broadcast",
                                 color = SurfaceDark,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 15.sp
