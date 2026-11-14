@@ -842,7 +842,7 @@ object KaspaWebAuthnBridge {
 
                         var policy = getPolicy();
                         if (!policy.webAuthEnabled) {
-                            return Promise.reject(makeDomError('Passkeys are disabled in Kaspa Browser settings', 'NotAllowedError'));
+                            return Promise.reject(makeDomError('Passkeys are disabled in Kazium settings', 'NotAllowedError'));
                         }
 
                         var isConditionalUpgrade = (options.mediation === 'conditional');
@@ -916,7 +916,7 @@ object KaspaWebAuthnBridge {
 
                         var policy = getPolicy();
                         if (!policy.webAuthEnabled) {
-                            return Promise.reject(makeDomError('Passkeys are disabled in Kaspa Browser settings', 'NotAllowedError'));
+                            return Promise.reject(makeDomError('Passkeys are disabled in Kazium settings', 'NotAllowedError'));
                         }
 
                         // Conditional mediation background listeners must not fail/close noisy recovery dialogs
