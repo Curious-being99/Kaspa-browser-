@@ -1294,21 +1294,14 @@ class DecentralViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val account = activeAccount.value ?: return@launch
             val network = _selectedNetwork.value
-            val isMainnet = network.contains("Mainnet", ignoreCase = true)
-            val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
-            val keyPair = try {
-                val decryptedSeed = CryptoUtils.getDecryptedSeedForSigning(account)
-                require(decryptedSeed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
-                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
-            } catch (_: Exception) {
-                null
-            } ?: return@launch
+            val walletAddress = account.kaspaAddress
+            val walletPublicKeyHex = account.publicKeyHex
 
             try {
                 val pendingResult = Kcc20NoteScanner.registerPendingSwapTransaction(
                     txJsonString = txJsonString,
-                    walletAddress = keyPair.kaspaAddress,
-                    walletPublicKeyHex = keyPair.publicKeyHex,
+                    walletAddress = walletAddress,
+                    walletPublicKeyHex = walletPublicKeyHex,
                     network = network
                 )
                 if (pendingResult.walletTokens.isNotEmpty()) {
