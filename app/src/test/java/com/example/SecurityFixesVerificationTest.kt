@@ -388,8 +388,8 @@ class SecurityFixesVerificationTest {
         assertEquals(
             "old wallet format, please move your funds",
             CryptoUtils.legacyWalletWarning(
-                accountType = "DECENTRALIZED_NATIVE",
-                email = null,
+                accountType = "GOOGLE_OAUTH_LEGACY",
+                email = "metadata-must-not-affect-detection@example.com",
                 storedSeed = lastIncludedWordPhrase,
                 createdAt = afterCutoff
             )
