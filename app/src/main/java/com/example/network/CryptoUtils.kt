@@ -499,32 +499,43 @@ object CryptoUtils {
         return mac.doFinal(data)
     }
 
-    // BIP-39 PBKDF2-HMAC-SHA512 Mnemonic to Seed
+    // BIP-39 PBKDF2-HMAC-SHA512 Mnemonic to Seed (2048 rounds, NFKD normalization).
     fun mnemonicToSeed(mnemonic: String, passphrase: String = ""): ByteArray {
-        val normalizedMnemonic = mnemonic.trim().replace("\\s+".toRegex(), " ")
+        val normalizer = java.text.Normalizer
+        val normalizedMnemonic = normalizer.normalize(
+            mnemonic.trim().split(Regex("\\s+")).joinToString(" "),
+            normalizer.Form.NFKD
+        )
+        val normalizedPassphrase = normalizer.normalize(passphrase, normalizer.Form.NFKD)
         val password = normalizedMnemonic.toByteArray(Charsets.UTF_8)
-        val salt = ("mnemonic$passphrase").toByteArray(Charsets.UTF_8)
-        
-        val mac = javax.crypto.Mac.getInstance("HmacSHA512")
-        mac.init(javax.crypto.spec.SecretKeySpec(password, "HmacSHA512"))
-
+        val salt = ("mnemonic" + normalizedPassphrase).toByteArray(Charsets.UTF_8)
         val saltWithIndex = ByteArray(salt.size + 4)
         System.arraycopy(salt, 0, saltWithIndex, 0, salt.size)
-        saltWithIndex[salt.size] = 0
-        saltWithIndex[salt.size + 1] = 0
-        saltWithIndex[salt.size + 2] = 0
         saltWithIndex[salt.size + 3] = 1
 
-        var u = mac.doFinal(saltWithIndex)
-        val xorSum = u.clone()
-
-        for (iter in 2..2048) {
-            u = mac.doFinal(u)
-            for (j in 0 until 64) {
-                xorSum[j] = (xorSum[j].toInt() xor u[j].toInt()).toByte()
+        var u = ByteArray(0)
+        val xorSum = ByteArray(64)
+        try {
+            val mac = javax.crypto.Mac.getInstance("HmacSHA512")
+            mac.init(javax.crypto.spec.SecretKeySpec(password, "HmacSHA512"))
+            u = mac.doFinal(saltWithIndex)
+            System.arraycopy(u, 0, xorSum, 0, xorSum.size)
+            for (iteration in 2..2048) {
+                val next = mac.doFinal(u)
+                java.util.Arrays.fill(u, 0.toByte())
+                u = next
+                for (i in xorSum.indices) {
+                    xorSum[i] = (xorSum[i].toInt() xor u[i].toInt()).toByte()
+                }
             }
+            return xorSum.clone()
+        } finally {
+            java.util.Arrays.fill(password, 0.toByte())
+            java.util.Arrays.fill(salt, 0.toByte())
+            java.util.Arrays.fill(saltWithIndex, 0.toByte())
+            java.util.Arrays.fill(u, 0.toByte())
+            java.util.Arrays.fill(xorSum, 0.toByte())
         }
-        return xorSum
     }
 
     // BIP-32 / BIP-44 Derivation with Kaspa Coin Type 111111'
