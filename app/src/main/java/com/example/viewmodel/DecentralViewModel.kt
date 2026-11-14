@@ -2664,6 +2664,11 @@ class DecentralViewModel(
             val account = activeAccount.value ?: return@launch
             val network = _selectedNetwork.value
             val isMainnet = network.contains("Mainnet", ignoreCase = true)
+            val kascovNetwork = when {
+                isMainnet -> "mainnet"
+                network.contains("11") -> "testnet-11"
+                else -> "testnet-10"
+            }
             val walletAddress = if (isMainnet) {
                 getMainnetAddressForAccount(account)
             } else {
@@ -2675,7 +2680,7 @@ class DecentralViewModel(
                 val scanResult = Kcc20NoteScanner.scanWalletNotes(
                     walletAddress = walletAddress,
                     walletPublicKeyHex = walletPublicKeyHex,
-                    network = if (isMainnet) "mainnet" else "testnet-10",
+                    network = kascovNetwork,
                     knownContractIds = _kcc20ContractIds.value
                 )
                 val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
