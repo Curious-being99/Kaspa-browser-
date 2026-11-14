@@ -1182,8 +1182,10 @@ object CryptoUtils {
                     val end = (start + 2) % entropy.length
                     val byteValue = entropy.substring(start, end).toIntOrNull(16) ?: index
                     MNEMONIC_WORDS[byteValue % MNEMONIC_WORDS.size]
-                }
-            }.joinToString(" ")
+                }.joinToString(" ")
+            } catch (_: Throwable) {
+                ""
+            }
             storedWords.joinToString(" ") == legacyMnemonic
         }
 
