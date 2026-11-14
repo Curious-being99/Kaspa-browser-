@@ -1,6 +1,6 @@
 {
-  "short_name": "Kaspa Browser",
-  "name": "Kaspa Browser - Decentralized Web Gateway",
+  "short_name": "Kazium",
+  "name": "Kazium - Decentralized Web Gateway",
   "icons": [
     {
       "src": "favicon.ico",
@@ -22,5 +22,5 @@
   "display": "standalone",
   "theme_color": "#0F172A",
   "background_color": "#0B0E14",
-  "description": "Kaspa Browser is a privacy-first, decentralized Android web browser and Web3 gateway designed for peer-to-peer web browsing and Kaspa network integration."
+  "description": "Kazium is a privacy-first, decentralized Android web browser and Web3 gateway designed for peer-to-peer web browsing and Kaspa network integration."
 }
