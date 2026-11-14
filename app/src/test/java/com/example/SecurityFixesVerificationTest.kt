@@ -92,6 +92,19 @@ class SecurityFixesVerificationTest {
     }
 
     @Test
+    fun bip39ChecksumValidationSupportsTwelveAndTwentyFourWordRecovery() {
+        val validTwelve = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val invalidTwelve = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon ability"
+        val validTwentyFour = (List(23) { "abandon" } + "art").joinToString(" ")
+        val invalidTwentyFour = (List(23) { "abandon" } + "about").joinToString(" ")
+
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(validTwelve))
+        assertFalse(CryptoUtils.isValidBip39Mnemonic(invalidTwelve))
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(validTwentyFour))
+        assertFalse(CryptoUtils.isValidBip39Mnemonic(invalidTwentyFour))
+    }
+
+    @Test
     fun walletCreationIsNativeAndContainsNoGoogleIdentity() {
         val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         val account = CryptoUtils.deriveDecentralizedAccount(
