@@ -119,6 +119,29 @@ class KaspaAppUpdateManagerUnitTest {
     }
 
     @Test
+    fun testParseReleaseJson_AcceptsPreKaziumSignedApkName() {
+        val legacyReleaseJson = """
+            {
+                "tag_name": "v1.0.1",
+                "assets": [
+                    {
+                        "name": "KaspaBrowser-release-signed.apk",
+                        "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.1/KaspaBrowser-release-signed.apk",
+                        "size": 1500000
+                    }
+                ],
+                "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            }
+        """.trimIndent()
+
+        val info = updateManager.parseReleaseJson(legacyReleaseJson, "1.0.0", 1)
+
+        assertTrue(info.isUpdateAvailable)
+        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.1/KaspaBrowser-release-signed.apk", info.downloadUrl)
+        assertEquals(1500000L, info.apkSizeBytes)
+    }
+
+    @Test
     fun testParseReleaseJson_WithJSONArray() {
         val jsonArrayResponse = """
             [
