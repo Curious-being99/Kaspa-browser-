@@ -2755,10 +2755,8 @@ class DecentralViewModel(
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
-        CryptoUtils.legacyWalletWarning(account.accountType, account.googleEmail, account.seedPhrase, account.createdAt)?.let { warning ->
-            return@withContext Result.failure(
-                SecurityException("Legacy wallet: $warning. Create a new wallet and move the funds before using this account.")
-            )
+        if (CryptoUtils.legacyWalletWarning(account.accountType, account.googleEmail, account.seedPhrase, account.createdAt) != null) {
+            return@withContext Result.failure(SecurityException(""))
         }
 
         val currentNet = _selectedNetwork.value
@@ -3057,9 +3055,9 @@ class DecentralViewModel(
             try {
                 val source = activeAccount.value
                     ?: throw IllegalStateException("No active source wallet is available.")
-                val warning = CryptoUtils.legacyWalletWarning(
+                CryptoUtils.legacyWalletWarning(
                     source.accountType, source.googleEmail, source.seedPhrase, source.createdAt
-                ) ?: throw SecurityException("The active wallet is not classified as a legacy wallet.")
+                ) ?: throw SecurityException("")
                 val network = _selectedNetwork.value
                 require(!isEvmNetwork(network)) { "Legacy wallet migration is only available on native Kaspa networks." }
                 val isMainnet = network.contains("Mainnet", ignoreCase = true)
@@ -3094,7 +3092,7 @@ class DecentralViewModel(
                     "Prepared migration addresses changed unexpectedly."
                 }
                 _legacyMigrationReview.value = prepared
-                _statusMessage.value = "Secure replacement wallet created. Review the exact full-balance transfer before authorizing it. ($warning)"
+                _statusMessage.value = "Replacement wallet ready for native transaction review."
             } catch (e: Exception) {
                 _legacyMigrationReview.value = null
                 _statusMessage.value = "Migration preparation failed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active."
@@ -3211,13 +3209,7 @@ class DecentralViewModel(
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ) {
         val senderAcc = activeAccount.value ?: return
-        CryptoUtils.legacyWalletWarning(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase, senderAcc.createdAt)?.let { warning ->
-            _statusMessage.value = warning
-            _kaspaWalletState.value = _kaspaWalletState.value.copy(
-                isSending = false,
-                lastBroadcastTxId = null,
-                statusNotice = warning
-            )
+        if (CryptoUtils.legacyWalletWarning(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase, senderAcc.createdAt) != null) {
             return
         }
         val currentNet = _selectedNetwork.value
