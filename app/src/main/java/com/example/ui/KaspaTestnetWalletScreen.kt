@@ -3629,21 +3629,6 @@ private fun WalletLockOverlay(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                androidx.compose.material3.Checkbox(
-                    checked = hasRecoveryPhraseConfirmed,
-                    onCheckedChange = { hasRecoveryPhraseConfirmed = it }
-                )
-                Text(
-                    text = "I have my 12-word recovery phrase and can restore this wallet.",
-                    color = TextPrimary,
-                    fontSize = 12.sp
-                )
-            }
-
             OutlinedTextField(
                 value = passwordInput,
                 onValueChange = { 
@@ -3685,10 +3670,6 @@ private fun WalletLockOverlay(
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedButton(
                     onClick = {
-                        if (!hasRecoveryPhraseConfirmed) {
-                            errorMessage = "Confirm that you have your 12-word recovery phrase before deleting this wallet."
-                            return@OutlinedButton
-                        }
                         BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
                             context = context,
                             title = "Unlock Wallet",
@@ -4532,7 +4513,6 @@ private fun ConfirmSendScreenOverlay(
     var passwordInput by remember { mutableStateOf("") }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
     var showPasswordFallback by remember { mutableStateOf(false) }
-    var hasRecoveryPhraseConfirmed by remember { mutableStateOf(false) }
 
     fun proceedToBroadcast() {
         authErrorMessage = null
