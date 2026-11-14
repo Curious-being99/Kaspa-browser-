@@ -260,4 +260,144 @@ class PasskeyVaultAndEngineTest {
             PasswordVaultRepository.isHostMatch("github.com", PasswordVaultRepository.normalizeHost("https://gist.github.com/login")!!)
         )
     }
+
+    @Test
+    fun credentialSettingsStorePersistsAllFiveCredentialAndPasskeyPolicies() {
+        val context = RuntimeEnvironment.getApplication()
+        com.example.security.CredentialSettingsStore.reloadFromPrefs(context)
+
+        com.example.security.CredentialSettingsStore.setOfferToSavePasswords(context, false)
+        com.example.security.CredentialSettingsStore.setAutoCreatePasskeyEnabled(context, false)
+        com.example.security.CredentialSettingsStore.setAllowPasskeyUpgradeEnabled(context, false)
+        com.example.security.CredentialSettingsStore.setAutoSignInEnabled(context, false)
+        com.example.security.CredentialSettingsStore.setPasswordAlertsEnabled(context, false)
+
+        com.example.security.CredentialSettingsStore.reloadFromPrefs(context)
+
+        assertFalse(com.example.security.CredentialSettingsStore.offerToSavePasswords.value)
+        assertFalse(com.example.security.CredentialSettingsStore.autoCreatePasskeyEnabled.value)
+        assertFalse(com.example.security.CredentialSettingsStore.allowPasskeyUpgradeEnabled.value)
+        assertFalse(com.example.security.CredentialSettingsStore.autoSignInEnabled.value)
+        assertFalse(com.example.security.CredentialSettingsStore.passwordAlertsEnabled.value)
+
+        // Restore defaults
+        com.example.security.CredentialSettingsStore.setOfferToSavePasswords(context, true)
+        com.example.security.CredentialSettingsStore.setAutoCreatePasskeyEnabled(context, true)
+        com.example.security.CredentialSettingsStore.setAllowPasskeyUpgradeEnabled(context, true)
+        com.example.security.CredentialSettingsStore.setAutoSignInEnabled(context, true)
+        com.example.security.CredentialSettingsStore.setPasswordAlertsEnabled(context, true)
+    }
+
+    @Test
+    fun passwordBreachMonitorUsesKAnonymityPrefixOnlyAndDetectsExposedPasswords() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        com.example.security.CredentialSettingsStore.reloadFromPrefs(context)
+        com.example.security.CredentialSettingsStore.setPasswordAlertsEnabled(context, true)
+
+        val sha1 = com.example.security.PasswordBreachMonitor.sha1HexUppercase("password")
+        assertEquals("5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8", sha1)
+
+        val suffix = sha1.substring(5)
+        val sampleRangeBody = """
+            0018A45C4D1DEF81644B54AB7F969B88D65:0
+            $suffix:9545824
+            00D4F6E8FA6EECAD2A3AA415EEC418D38EC:2
+        """.trimIndent()
+        assertEquals(9545824, com.example.security.PasswordBreachMonitor.parseRangeMatchCount(sampleRangeBody, suffix))
+        assertEquals(0, com.example.security.PasswordBreachMonitor.parseRangeMatchCount(sampleRangeBody, "0018A45C4D1DEF81644B54AB7F969B88D65"))
+
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            val repo = PasswordVaultRepository(db.vaultCredentialDao())
+            val testKey = "unit-test-only-vault-aes-key-2026"
+            val exposed = repo.savePasswordCredential(
+                url = "https://weak.example.org/login",
+                siteName = "Weak Site",
+                username = "alice",
+                rawPassword = "password",
+                keyPhrase = testKey
+            )
+            val safe = repo.savePasswordCredential(
+                url = "https://strong.example.org/login",
+                siteName = "Strong Site",
+                username = "bob",
+                rawPassword = "Unique#Vault!Test#9921_Kaspa",
+                keyPhrase = testKey
+            )
+
+            val transmittedPrefixes = mutableListOf<String>()
+            val summary = com.example.security.PasswordBreachMonitor.auditVaultCredentials(
+                context = context,
+                credentials = repo.getAllList(),
+                repository = repo,
+                notifyOnNewBreach = false,
+                keyPhrase = testKey,
+                prefixFetcher = { prefix5 ->
+                    transmittedPrefixes.add(prefix5)
+                    assertEquals("Only 5-hex SHA-1 prefix must leave device", 5, prefix5.length)
+                    if (prefix5 == "5BAA6") sampleRangeBody else "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0"
+                }
+            )
+
+            assertEquals(2, summary.checkedCount)
+            assertEquals(9545824, summary.breachedMap[exposed.id])
+            assertFalse(summary.breachedMap.containsKey(safe.id))
+            assertTrue(transmittedPrefixes.contains("5BAA6"))
+
+            // Deduplication check
+            val firstNotify = com.example.security.CredentialSettingsStore.markAndFilterUnnotifiedBreaches(
+                context,
+                listOf(exposed.id to "5BAA6_1E4C9B:9545824")
+            )
+            assertTrue(firstNotify.contains(exposed.id))
+            val secondNotify = com.example.security.CredentialSettingsStore.markAndFilterUnnotifiedBreaches(
+                context,
+                listOf(exposed.id to "5BAA6_1E4C9B:9545824")
+            )
+            assertTrue("Duplicate breach alerts for unchanged credential must be suppressed", secondNotify.isEmpty())
+
+            // Cleanup on credential removal
+            com.example.security.CredentialSettingsStore.removeCredentialBreachState(context, exposed.id)
+            assertFalse(com.example.security.CredentialSettingsStore.breachedCredentials.value.containsKey(exposed.id))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun webAuthnBridgeScriptFixesBinaryEncodingConditionalUpgradeAndAutoSignInGating() {
+        val script = com.example.network.KaspaWebAuthnBridge.buildInjectionScript(
+            """{"webAuthEnabled":true,"autoCreatePasskey":false,"allowPasskeyUpgrade":true,"autoSignIn":false,"skipNativeWebView":false}"""
+        )
+        assertTrue(
+            "bufToB64 must respect byteOffset and byteLength for Uint8Array views",
+            script.contains("new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)")
+        )
+        assertTrue(
+            "userHandle must be null when omitted",
+            script.contains("resp.userHandle ? b64ToBuf(resp.userHandle) : null")
+        )
+        assertTrue(
+            "getClientCapabilities must expose conditionalCreate for passkey upgrades",
+            script.contains("getClientCapabilities") && script.contains("conditionalCreate")
+        )
+        assertTrue(
+            "Explicit confirmation gates must exist for autoSignIn and autoCreatePasskey",
+            script.contains("CONFIRM_SIGN_IN") && script.contains("CONFIRM_CREATE_OR_UPGRADE")
+        )
+        assertTrue(
+            "DOMException errors must preserve WebAuthn error names instead of forcing NotAllowedError everywhere",
+            script.contains("makeDomError")
+        )
+    }
+
+    @Test
+    fun autofillBridgeScannerIncludesSpaSubmitCapture() {
+        val js = PasswordAutofillBridge.JS_FORM_SCANNER
+        assertTrue(js.contains("addEventListener('submit'"))
+        assertTrue(js.contains("addEventListener('click'"))
+        assertTrue(js.contains("e.key === 'Enter'"))
+    }
 }

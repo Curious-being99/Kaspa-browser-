@@ -335,6 +335,12 @@ class MainActivity : FragmentActivity() {
       return
     }
 
+    if (intent.getBooleanExtra(com.example.security.PasswordBreachMonitor.EXTRA_OPEN_PASSWORD_VAULT, false)) {
+      viewModel.setShowPasswordVaultSheet(true)
+      setIntent(Intent(this, MainActivity::class.java).apply { action = Intent.ACTION_MAIN })
+      return
+    }
+
     // 2. If launched normally from the Android launcher icon (ACTION_MAIN + CATEGORY_LAUNCHER),
     // it is a direct user launch to open the browser home, not an external link navigation.
     if (Intent.ACTION_MAIN == intent.action && intent.hasCategory(Intent.CATEGORY_LAUNCHER)) {

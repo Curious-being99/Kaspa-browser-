@@ -141,6 +141,19 @@ object KaspaDappBridge {
                     }
                 }
 
+                fun currentSigningKeyPair(): CryptoUtils.KaspaKeyPair? {
+                    if (prefix.isBlank()) return null
+                    val active = account ?: return null
+                    return try {
+                        val seed = CryptoUtils.getDecryptedSeedForSigning(active)
+                        require(seed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
+                        CryptoUtils.deriveKaspaKeyPair(seed, prefix)
+                    } catch (error: Throwable) {
+                        Log.e(LOG_TAG, "Active wallet seed could not be decrypted or legacy wallet refused for signing", error)
+                        null
+                    }
+                }
+
                 fun ensureUnlocked(onRejectMsg: String = "Wallet is locked. User cancelled unlock", onSuccess: () -> Unit) {
                     if (viewModel.isWalletLocked.value && viewModel.hasWalletPassword.value) {
                         mainHandler.post {
@@ -194,6 +207,14 @@ object KaspaDappBridge {
                                 }
                             )
                         }
+                        return
+                    }
+
+                    if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                        respond(
+                            errorCode = 4100,
+                            errorMessage = "Legacy insecure wallet detected. All dApp interactions are blocked. You must migrate your balance to a new secure wallet."
+                        )
                         return
                     }
 
@@ -254,6 +275,10 @@ object KaspaDappBridge {
                     "requestNetworkAccounts", "getNetworkAccounts" -> {
                         if (method == "getNetworkAccounts" && !isConnected) {
                             respond(JSONObject())
+                            return@addWebMessageListener
+                        }
+                        if (method == "requestNetworkAccounts" && account != null && CryptoUtils.isLegacyWallet(account)) {
+                            respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All dApp interactions are blocked. You must migrate your balance to a new secure wallet.")
                             return@addWebMessageListener
                         }
                         val keyPair = currentKeyPair()
@@ -404,6 +429,10 @@ object KaspaDappBridge {
                     }
 
                     "getPublicKey" -> {
+                        if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                            respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All dApp interactions are blocked. You must migrate your balance to a new secure wallet.")
+                            return@addWebMessageListener
+                        }
                         val keyPair = currentKeyPair()
                         if (keyPair == null) {
                             mainHandler.post {
@@ -471,9 +500,13 @@ object KaspaDappBridge {
                             respond(errorCode = -32602, errorMessage = "Message must contain 1-$MAX_MESSAGE_LENGTH characters")
                             return@addWebMessageListener
                         }
-                        val keyPair = currentKeyPair()
+                        val keyPair = currentSigningKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                                respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All signing actions are blocked. You must migrate your balance to a new secure wallet.")
+                            } else {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            }
                             return@addWebMessageListener
                         }
                         mainHandler.post {
@@ -514,9 +547,13 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Connect this site first")
                             return@addWebMessageListener
                         }
-                        val keyPair = currentKeyPair()
+                        val keyPair = currentSigningKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                                respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All signing actions are blocked. You must migrate your balance to a new secure wallet.")
+                            } else {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            }
                             return@addWebMessageListener
                         }
                         val paramsObject = when (params) {
@@ -532,11 +569,7 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Requested sender does not match the active wallet")
                             return@addWebMessageListener
                         }
-                        val txJson = paramsObject?.optString("txJsonString",
-                            paramsObject.optString("pskt",
-                            paramsObject.optString("transaction",
-                            paramsObject.optString("txJson",
-                            paramsObject.optString("rawTx", ""))))).orEmpty()
+                        val txJson = extractTxJsonString(paramsObject)
                         val options = paramsObject?.optJSONObject("options")
                             ?: paramsObject?.optJSONObject("params")
                         val rawSignInputs = options?.optJSONArray("signInputs")
@@ -547,88 +580,15 @@ object KaspaDappBridge {
                             return@addWebMessageListener
                         }
                         cryptoExecutor.execute {
-                            var topLevelRedeemScript = sequenceOf(
-                                options?.optString("redeemScript", ""),
-                                options?.optString("redeem_script", ""),
-                                options?.optString("redeem", ""),
-                                paramsObject?.optString("redeemScript", ""),
-                                paramsObject?.optString("redeem_script", ""),
-                                paramsObject?.optString("redeem", "")
-                            ).filterNotNull().firstOrNull { it.isNotBlank() }.orEmpty()
-
-                            val signInputs = JSONArray()
-                            val txObj = try { JSONObject(txJson) } catch (_: Exception) { null }
-                            val txInputsArray = txObj?.optJSONObject("transaction")?.optJSONArray("inputs")
-                                ?: txObj?.optJSONArray("inputs")
-                            val txUtxosArray = txObj?.optJSONObject("transaction")?.optJSONArray("utxoEntries")
-                                ?: txObj?.optJSONArray("utxoEntries")
-                                ?: txObj?.optJSONArray("utxos")
-
-                            for (i in 0 until rawSignInputs.length()) {
-                                val item = rawSignInputs.opt(i)
-                                val (idx, shType, reqRedeem) = when (item) {
-                                    is JSONObject -> Triple(
-                                        item.optInt("index", item.optInt("inputIndex", -1)),
-                                        if (item.has("sighashType")) item.optInt("sighashType", 1) else 1,
-                                        sequenceOf(
-                                            item.optString("redeemScript", ""),
-                                            item.optString("redeem_script", ""),
-                                            item.optString("redeem", "")
-                                        ).firstOrNull { it.isNotBlank() }.orEmpty()
-                                    )
-                                    is Number -> Triple(item.toInt(), 1, "")
-                                    is String -> Triple(item.toIntOrNull() ?: -1, 1, "")
-                                    else -> Triple(-1, 1, "")
-                                }
-                                var finalInputRedeem = reqRedeem
-                                if (finalInputRedeem.isBlank() && idx >= 0) {
-                                    finalInputRedeem = sequenceOf(
-                                        options?.optJSONArray("redeemScripts")?.optString(idx, ""),
-                                        paramsObject?.optJSONArray("redeemScripts")?.optString(idx, ""),
-                                        options?.optJSONObject("redeemScripts")?.optString(idx.toString(), ""),
-                                        paramsObject?.optJSONObject("redeemScripts")?.optString(idx.toString(), "")
-                                    ).filterNotNull().firstOrNull { it.isNotBlank() }.orEmpty()
-                                }
-
-                                if (finalInputRedeem.isBlank() && idx >= 0 && txInputsArray != null && idx < txInputsArray.length()) {
-                                    val txIn = txInputsArray.optJSONObject(idx)
-                                    val utxoIn = txIn?.optJSONObject("utxoEntry") ?: txUtxosArray?.optJSONObject(idx)
-                                    val spk = utxoIn?.optJSONObject("scriptPublicKey")?.optString("script", "")
-                                        ?: utxoIn?.optString("script", "")
-                                        ?: ""
-                                    val p2shMatch = Regex("aa20([0-9a-fA-F]{64})87").matchEntire(spk.replace(" ", "").lowercase())?.groupValues?.get(1)
-                                    if (p2shMatch != null) {
-                                        val prevTxId = txIn?.optJSONObject("previousOutpoint")?.optString("transactionId", "")
-                                            ?: txIn?.optString("transactionId", "")
-                                            ?: ""
-                                        val prevIdx = txIn?.optJSONObject("previousOutpoint")?.optInt("index", -1)
-                                            ?: txIn?.optInt("index", -1)
-                                            ?: 0
-                                        finalInputRedeem = kotlinx.coroutines.runBlocking {
-                                            com.example.network.kaspa.Kcc20NoteScanner.resolveOrReconstructRedeemScript(
-                                                txId = prevTxId,
-                                                outputIndex = prevIdx,
-                                                p2shScriptHash = p2shMatch,
-                                                walletAddress = keyPair.kaspaAddress,
-                                                walletPublicKeyHex = keyPair.publicKeyHex,
-                                                network = network
-                                            )
-                                        }.orEmpty()
-                                    }
-                                }
-
-                                if (finalInputRedeem.isNotBlank() && topLevelRedeemScript.isBlank()) {
-                                    topLevelRedeemScript = finalInputRedeem
-                                }
-
-                                val resolvedInputObj = JSONObject()
-                                    .put("index", idx)
-                                    .put("sighashType", shType)
-                                if (finalInputRedeem.isNotBlank()) {
-                                    resolvedInputObj.put("redeemScript", finalInputRedeem)
-                                }
-                                signInputs.put(resolvedInputObj)
-                            }
+                            val (signInputs, topLevelRedeemScript) = resolveSignInputsAndRedeemScripts(
+                                txJson = txJson,
+                                rawSignInputs = rawSignInputs,
+                                paramsObject = paramsObject,
+                                options = options,
+                                walletAddress = keyPair.kaspaAddress,
+                                walletPublicKeyHex = keyPair.publicKeyHex,
+                                network = network
+                            )
 
                             val prepared = try {
                                 DappPsktTransaction.prepareForSigning(
@@ -723,9 +683,13 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Connect this site first")
                             return@addWebMessageListener
                         }
-                        val keyPair = currentKeyPair()
+                        val keyPair = currentSigningKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                                respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All signing actions are blocked. You must migrate your balance to a new secure wallet.")
+                            } else {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            }
                             return@addWebMessageListener
                         }
                         val active = account
@@ -743,80 +707,98 @@ object KaspaDappBridge {
                         val op = paramsObj.optString("op", paramsObj.optString("type", "transfer")).lowercase()
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
-                        val rawTxJson = paramsObj.optString("txJsonString", paramsObj.optString("transaction", ""))
+                        val rawTxJson = extractTxJsonString(paramsObj)
                         val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KRC-20"
 
-                        val isStructuredTx = rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("version"))
+                        val isStructuredTx = rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("previous_outpoint") || rawTxJson.contains("version"))
                         val options = paramsObj.optJSONObject("options")
-                        val signInputs = options?.optJSONArray("signInputs")
+                            ?: paramsObj.optJSONObject("params")
+                        val rawSignInputs = options?.optJSONArray("signInputs")
+                            ?: paramsObj.optJSONArray("signInputs")
                             ?: JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL))
-                        val rScript = options?.optString("redeemScript", options?.optString("redeem_script", "")).orEmpty()
 
-                        val prePrepared = if (isStructuredTx) {
-                            try {
-                                DappPsktTransaction.prepareForSigning(rawTxJson, signInputs, keyPair.publicKeyHex, redeemScript = rScript)
-                            } catch (e: Throwable) {
-                                respond(errorCode = -32602, errorMessage = "Malformed transaction payload: ${e.message}")
-                                return@addWebMessageListener
-                            }
-                        } else null
-
-                        // SECURITY: Verify prompt parameters against the ACTUAL transaction payload being signed!
-                        val externalOutputs = prePrepared?.transaction?.outputs?.filter { out ->
-                            val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
-                            val walletScript = ("20" + keyPair.publicKeyHex.lowercase() + "ac")
-                            script != walletScript
-                        } ?: emptyList()
-
-                        val externalSompi = externalOutputs.sumOf { it.amount }
-                        val actualOutgoingKas = if (prePrepared != null) {
-                            if (externalOutputs.isNotEmpty()) {
-                                KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(externalSompi))
-                            } else {
-                                KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(prePrepared.outputSumSompi))
-                            }
-                        } else null
-
-                        val resolvedDestination = if (prePrepared != null) {
-                            prePrepared.transaction.outputs.mapIndexed { index, out ->
-                                val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
-                                val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
-                                val isChange = script == walletScript
-                                val amount = KaspaTransactionEngine.formatKas(
-                                    KaspaTransactionEngine.sompiToKas(out.amount)
+                        cryptoExecutor.execute {
+                            val prePrepared = if (isStructuredTx) {
+                                val (resolvedSignInputs, resolvedTopRedeem) = resolveSignInputsAndRedeemScripts(
+                                    txJson = rawTxJson,
+                                    rawSignInputs = rawSignInputs,
+                                    paramsObject = paramsObj,
+                                    options = options,
+                                    walletAddress = keyPair.kaspaAddress,
+                                    walletPublicKeyHex = keyPair.publicKeyHex,
+                                    network = network
                                 )
-                                val address = runCatching { scriptToAddress(out.scriptPublicKey, prefix) }.getOrNull()
-                                buildString {
-                                    append("Output ${index + 1} — ${if (isChange) "Wallet change" else "External / contract output"} — $amount KAS")
-                                    if (!address.isNullOrBlank()) append("\\nrecipient=$address")
-                                    else append("\\nrecipient=unresolved locking script")
-                                    append("\\nscriptVersion=${out.scriptPublicKey.version}")
-                                    append("\\nscript=$script")
+                                try {
+                                    DappPsktTransaction.prepareForSigning(
+                                        rawTxJson,
+                                        resolvedSignInputs,
+                                        keyPair.publicKeyHex,
+                                        redeemScript = resolvedTopRedeem
+                                    )
+                                } catch (e: Throwable) {
+                                    mainHandler.post {
+                                        respond(errorCode = -32602, errorMessage = "Malformed transaction payload: ${e.message}")
+                                    }
+                                    return@execute
                                 }
-                            }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
-                        } else {
-                            if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
-                        }
+                            } else null
 
-                        val resolvedAmount = if (actualOutgoingKas != null) {
-                            if (amtStr.isNotBlank() && amtStr != "0") "$amtStr $tick ($actualOutgoingKas KAS)" else "$actualOutgoingKas KAS"
-                        } else {
-                            amtStr
-                        }
+                            // SECURITY: Verify prompt parameters against the ACTUAL transaction payload being signed!
+                            val externalOutputs = prePrepared?.transaction?.outputs?.filter { out ->
+                                val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
+                                val walletScript = ("20" + keyPair.publicKeyHex.lowercase() + "ac")
+                                script != walletScript
+                            } ?: emptyList()
 
-                        mainHandler.post {
-                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
-                                origin = origin,
-                                network = network,
-                                accountAddress = keyPair.kaspaAddress,
-                                title = if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
-                                action = "${op.uppercase()} $tick ($protocolLabel)",
-                                tick = tick,
-                                amount = resolvedAmount,
-                                destination = resolvedDestination,
-                                inputsCount = prePrepared?.transaction?.inputs?.size ?: 1,
-                                feeKas = prePrepared?.feeKas ?: "0.0001 KAS",
-                                totalAmountKas = actualOutgoingKas ?: amtStr,
+                            val externalSompi = externalOutputs.sumOf { it.amount }
+                            val actualOutgoingKas = if (prePrepared != null) {
+                                if (externalOutputs.isNotEmpty()) {
+                                    KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(externalSompi))
+                                } else {
+                                    KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(prePrepared.outputSumSompi))
+                                }
+                            } else null
+
+                            val resolvedDestination = if (prePrepared != null) {
+                                prePrepared.transaction.outputs.mapIndexed { index, out ->
+                                    val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
+                                    val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
+                                    val isChange = script == walletScript
+                                    val amount = KaspaTransactionEngine.formatKas(
+                                        KaspaTransactionEngine.sompiToKas(out.amount)
+                                    )
+                                    val address = runCatching { scriptToAddress(out.scriptPublicKey, prefix) }.getOrNull()
+                                    buildString {
+                                        append("Output ${index + 1} — ${if (isChange) "Wallet change" else "External / contract output"} — $amount KAS")
+                                        if (!address.isNullOrBlank()) append("\\nrecipient=$address")
+                                        else append("\\nrecipient=unresolved locking script")
+                                        append("\\nscriptVersion=${out.scriptPublicKey.version}")
+                                        append("\\nscript=$script")
+                                    }
+                                }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
+                            } else {
+                                if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
+                            }
+
+                            val resolvedAmount = if (actualOutgoingKas != null) {
+                                if (amtStr.isNotBlank() && amtStr != "0") "$amtStr $tick ($actualOutgoingKas KAS)" else "$actualOutgoingKas KAS"
+                            } else {
+                                amtStr
+                            }
+
+                            mainHandler.post {
+                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                    origin = origin,
+                                    network = network,
+                                    accountAddress = keyPair.kaspaAddress,
+                                    title = if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
+                                    action = "${op.uppercase()} $tick ($protocolLabel)",
+                                    tick = tick,
+                                    amount = resolvedAmount,
+                                    destination = resolvedDestination,
+                                    inputsCount = prePrepared?.transaction?.inputs?.size ?: 1,
+                                    feeKas = prePrepared?.feeKas ?: "0.0001 KAS",
+                                    totalAmountKas = actualOutgoingKas ?: amtStr,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
                                     val contractId = paramsObj.optString("contractId",
@@ -952,10 +934,11 @@ object KaspaDappBridge {
                                     }
 
                                     val sendResult = try {
+                                        val signingSeed = CryptoUtils.getDecryptedSeedForSigning(active)
                                         kotlinx.coroutines.runBlocking {
                                             viewModel.walletService.sendKaspa(
                                                 senderAddress = keyPair.kaspaAddress,
-                                                senderSeed = active.seedPhrase,
+                                                senderSeed = signingSeed,
                                                 recipientAddress = destination,
                                                 amountKas = 0.2 // Standard inscription commit amount on Kaspa BlockDAG
                                             )
@@ -1001,6 +984,7 @@ object KaspaDappBridge {
                             }
                         )
                     }
+                    }
                 }
 
                     "sendKaspa", "sendTransaction" -> {
@@ -1008,10 +992,14 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Connect this site first")
                             return@addWebMessageListener
                         }
-                        val keyPair = currentKeyPair()
                         val active = account
+                        val keyPair = currentSigningKeyPair()
                         if (keyPair == null || active == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            if (active != null && CryptoUtils.isLegacyWallet(active)) {
+                                respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All signing actions are blocked. You must migrate your balance to a new secure wallet.")
+                            } else {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            }
                             return@addWebMessageListener
                         }
                         val paramsObj = when (params) {
@@ -1061,10 +1049,11 @@ object KaspaDappBridge {
                                     viewModel.dappPromptState.value = null
                                     cryptoExecutor.execute {
                                         val sendResult = try {
+                                            val signingSeed = CryptoUtils.getDecryptedSeedForSigning(active)
                                             kotlinx.coroutines.runBlocking {
                                                 viewModel.walletService.sendKaspa(
                                                     senderAddress = keyPair.kaspaAddress,
-                                                    senderSeed = active.seedPhrase,
+                                                    senderSeed = signingSeed,
                                                     recipientAddress = toAddress,
                                                     amountKas = amountKas
                                                 )
@@ -1096,9 +1085,13 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Connect this site first")
                             return@addWebMessageListener
                         }
-                        val keyPair = currentKeyPair()
+                        val keyPair = currentSigningKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                                respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All signing actions are blocked. You must migrate your balance to a new secure wallet.")
+                            } else {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            }
                             return@addWebMessageListener
                         }
                         val txJson = when (params) {
@@ -1177,26 +1170,39 @@ object KaspaDappBridge {
                             respond(errorCode = 4100, errorMessage = "Connect this site first")
                             return@addWebMessageListener
                         }
-                        val keyPair = currentKeyPair()
+                        val keyPair = currentSigningKeyPair()
                         if (keyPair == null) {
-                            respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            if (account != null && CryptoUtils.isLegacyWallet(account)) {
+                                respond(errorCode = 4100, errorMessage = "Legacy insecure wallet detected. All signing actions are blocked. You must migrate your balance to a new secure wallet.")
+                            } else {
+                                respond(errorCode = 4100, errorMessage = "No usable active Kaspa wallet")
+                            }
                             return@addWebMessageListener
                         }
                         val paramsObject = params as? JSONObject
-                        val txJson = paramsObject?.optString("txJsonString", "").orEmpty()
+                        val txJson = extractTxJsonString(paramsObject)
                         val signInputIndexes = paramsObject?.optJSONArray("signInputIndexes")
-                        val redeemScript = paramsObject?.optString("redeemScript", "").orEmpty()
+                        val options = paramsObject?.optJSONObject("options")
                         if (txJson.isBlank() || signInputIndexes == null) {
                             respond(errorCode = -32602, errorMessage = "signPolicyTransaction requires txJsonString and signInputIndexes")
                             return@addWebMessageListener
                         }
                         cryptoExecutor.execute {
-                            val signInputs = JSONArray()
+                            val rawSignInputs = JSONArray()
                             for (i in 0 until signInputIndexes.length()) {
-                                signInputs.put(JSONObject().put("index", signInputIndexes.optInt(i)).put("sighashType", 1))
+                                rawSignInputs.put(JSONObject().put("index", signInputIndexes.optInt(i)).put("sighashType", 1))
                             }
+                            val (signInputs, resolvedRedeemScript) = resolveSignInputsAndRedeemScripts(
+                                txJson = txJson,
+                                rawSignInputs = rawSignInputs,
+                                paramsObject = paramsObject,
+                                options = options,
+                                walletAddress = keyPair.kaspaAddress,
+                                walletPublicKeyHex = keyPair.publicKeyHex,
+                                network = network
+                            )
                             val prepared = try {
-                                DappPsktTransaction.prepareForSigning(txJson, signInputs, keyPair.publicKeyHex, isPolicy = true, redeemScript = redeemScript)
+                                DappPsktTransaction.prepareForSigning(txJson, signInputs, keyPair.publicKeyHex, isPolicy = true, redeemScript = resolvedRedeemScript)
                             } catch (error: Throwable) {
                                 mainHandler.post {
                                     respond(errorCode = -32602, errorMessage = error.message ?: "Policy transaction review failed")
@@ -1274,12 +1280,24 @@ object KaspaDappBridge {
                 (() => {
                   try {
                     var __kbHost = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                    var __kbPath = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+                    var __kbSearch = (window.location && window.location.search) ? window.location.search.toLowerCase() : '';
                     if (__kbHost.indexOf('challenges.cloudflare.com') !== -1 || __kbHost.indexOf('cloudflare.com') !== -1 ||
                         __kbHost.indexOf('hcaptcha.com') !== -1 || __kbHost.indexOf('recaptcha.net') !== -1 ||
                         __kbHost.indexOf('arkoselabs.com') !== -1 || __kbHost.indexOf('octocaptcha.com') !== -1 ||
-                        __kbHost.indexOf('accounts.google.com') !== -1 || __kbHost.indexOf('appleid.apple.com') !== -1 ||
-                        __kbHost.indexOf('login.microsoftonline.com') !== -1 || __kbHost.indexOf('auth0.com') !== -1 ||
-                        __kbHost.indexOf('okta.com') !== -1) {
+                        __kbHost.indexOf('geetest.com') !== -1 || __kbHost.indexOf('friendlycaptcha.com') !== -1 ||
+                        __kbHost.indexOf('captcha-delivery.com') !== -1 || __kbHost.indexOf('datadome') !== -1 ||
+                        __kbHost.indexOf('perimeterx') !== -1 || __kbHost.indexOf('accounts.google.com') !== -1 ||
+                        __kbHost.indexOf('appleid.apple.com') !== -1 || __kbHost.indexOf('login.microsoftonline.com') !== -1 ||
+                        __kbHost.indexOf('auth0.com') !== -1 || __kbHost.indexOf('okta.com') !== -1 ||
+                        __kbPath.indexOf('/cdn-cgi/') !== -1 || __kbPath.indexOf('/recaptcha') !== -1 ||
+                        __kbPath.indexOf('/turnstile') !== -1 || __kbSearch.indexOf('__cf_chl_') !== -1) {
+                      return;
+                    }
+                    if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                        document.getElementById('challenge-running') ||
+                        document.getElementById('challenge-form') ||
+                        document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
                       return;
                     }
                     if (window.top !== window.self) {
@@ -1543,15 +1561,27 @@ object KaspaDappBridge {
                         } else if (typeof params === 'string') {
                           payload = { txJsonString: params, options: (typeof secondArg === 'object' && secondArg) ? secondArg : {} };
                         }
-                        const txJson = payload.txJsonString || payload.psktTransactionJson || payload.signedTxJson || '';
-                        const options = payload.options || { signInputs: payload.signInputs || payload.signInputIndexes || [] };
-                        const signInputs = options.signInputs || payload.signInputs;
+                        const rawTxVal = payload.txJsonString || payload.psktTransactionJson || payload.pskt || payload.transaction || payload.txJson || payload.rawTx || payload.signedTxJson || '';
+                        const txJson = (rawTxVal && typeof rawTxVal === 'object') ? JSON.stringify(rawTxVal) : rawTxVal;
+                        const rawOptions = payload.options || {};
+                        const signInputs = rawOptions.signInputs || payload.signInputs || rawOptions.signInputIndexes || payload.signInputIndexes || [];
                         if (typeof txJson !== 'string' || !txJson || !Array.isArray(signInputs)) {
                           return Promise.reject(Object.assign(new Error('signPskt requires txJsonString and options.signInputs'), { code: -32602 }));
                         }
+                        const mergedOptions = {
+                          ...rawOptions,
+                          signInputs,
+                          ...(payload.redeemScript && !rawOptions.redeemScript ? { redeemScript: payload.redeemScript } : {}),
+                          ...(payload.redeem_script && !rawOptions.redeem_script ? { redeem_script: payload.redeem_script } : {}),
+                          ...(payload.redeem && !rawOptions.redeem ? { redeem: payload.redeem } : {}),
+                          ...(payload.redeemScriptHex && !rawOptions.redeemScriptHex ? { redeemScriptHex: payload.redeemScriptHex } : {}),
+                          ...(payload.redeemScripts && !rawOptions.redeemScripts ? { redeemScripts: payload.redeemScripts } : {})
+                        };
                         return request('signPskt', {
                           txJsonString: txJson,
-                          options: { ...options, signInputs },
+                          options: mergedOptions,
+                          redeemScript: mergedOptions.redeemScript,
+                          redeemScripts: mergedOptions.redeemScripts,
                           sender: payload.sender
                         });
                       }
@@ -1764,7 +1794,10 @@ object KaspaDappBridge {
             }
             webView.post {
                 try {
-                    webView.evaluateJavascript(script, null)
+                    val curUrl = webView.url.orEmpty()
+                    if (!com.example.network.KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(curUrl)) {
+                        webView.evaluateJavascript(script, null)
+                    }
                 } catch (error: Throwable) {
                     Log.e(
                         LOG_TAG,
@@ -1786,6 +1819,168 @@ object KaspaDappBridge {
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
+    }
+
+    private fun extractTxJsonString(paramsObject: JSONObject?): String {
+        if (paramsObject == null) return ""
+        val keys = listOf("txJsonString", "psktTransactionJson", "pskt", "transaction", "txJson", "rawTx", "signedTxJson")
+        for (key in keys) {
+            if (!paramsObject.has(key) || paramsObject.isNull(key)) continue
+            val obj = paramsObject.optJSONObject(key)
+            if (obj != null) return obj.toString()
+            val str = paramsObject.optString(key, "").trim()
+            if (str.isNotBlank() && str != "null") return str
+        }
+        return ""
+    }
+
+    private val REDEEM_SCRIPT_KEYS = listOf(
+        "redeemScript", "redeem_script", "redeem", "redeemScriptHex", "redeem_script_hex",
+        "witnessScript", "witness_script", "covenantRedeemScript", "covenant_redeem_script"
+    )
+
+    private fun firstRedeemString(json: JSONObject?): String {
+        if (json == null) return ""
+        return REDEEM_SCRIPT_KEYS.mapNotNull { key ->
+            json.optString(key, "").takeIf { it.isNotBlank() && it != "null" }
+        }.firstOrNull().orEmpty()
+    }
+
+    internal fun resolveSignInputsAndRedeemScripts(
+        txJson: String,
+        rawSignInputs: JSONArray,
+        paramsObject: JSONObject?,
+        options: JSONObject?,
+        walletAddress: String,
+        walletPublicKeyHex: String,
+        network: String
+    ): Pair<JSONArray, String> {
+        val txObj = try { JSONObject(txJson) } catch (_: Exception) { null }
+        val txRoot = txObj?.optJSONObject("transaction") ?: txObj?.optJSONObject("tx") ?: txObj
+        val txInputsArray = txRoot?.optJSONArray("inputs")
+        val txUtxosArray = txRoot?.optJSONArray("utxoEntries")
+            ?: txRoot?.optJSONArray("utxos")
+            ?: txObj?.optJSONArray("utxoEntries")
+            ?: txObj?.optJSONArray("utxos")
+
+        var topLevelRedeemScript = firstRedeemString(options)
+            .ifBlank { firstRedeemString(paramsObject) }
+            .ifBlank { firstRedeemString(txRoot) }
+            .ifBlank { firstRedeemString(txObj) }
+
+        val signInputs = JSONArray()
+        for (i in 0 until rawSignInputs.length()) {
+            val item = rawSignInputs.opt(i)
+            val (idx, shType, reqRedeem) = when (item) {
+                is JSONObject -> Triple(
+                    item.optInt("index", item.optInt("inputIndex", -1)),
+                    if (item.has("sighashType")) item.optInt("sighashType", 1) else 1,
+                    firstRedeemString(item)
+                )
+                is Number -> Triple(item.toInt(), 1, "")
+                is String -> Triple(item.toIntOrNull() ?: -1, 1, "")
+                else -> Triple(-1, 1, "")
+            }
+
+            var finalInputRedeem = reqRedeem
+            if (finalInputRedeem.isBlank() && idx >= 0) {
+                finalInputRedeem = sequenceOf(
+                    options?.optJSONArray("redeemScripts")?.optString(idx, ""),
+                    paramsObject?.optJSONArray("redeemScripts")?.optString(idx, ""),
+                    txRoot?.optJSONArray("redeemScripts")?.optString(idx, ""),
+                    txObj?.optJSONArray("redeemScripts")?.optString(idx, ""),
+                    options?.optJSONObject("redeemScripts")?.optString(idx.toString(), ""),
+                    paramsObject?.optJSONObject("redeemScripts")?.optString(idx.toString(), ""),
+                    txRoot?.optJSONObject("redeemScripts")?.optString(idx.toString(), ""),
+                    txObj?.optJSONObject("redeemScripts")?.optString(idx.toString(), "")
+                ).filterNotNull().firstOrNull { it.isNotBlank() && it != "null" }.orEmpty()
+            }
+
+            if (finalInputRedeem.isBlank() && idx >= 0 && txInputsArray != null && idx < txInputsArray.length()) {
+                val txIn = txInputsArray.optJSONObject(idx)
+                val utxoIn = txIn?.optJSONObject("utxoEntry")
+                    ?: txIn?.optJSONObject("utxo_entry")
+                    ?: txIn?.optJSONObject("utxo")
+                    ?: txIn?.optJSONObject("entry")
+                    ?: txUtxosArray?.optJSONObject(idx)
+                    ?: txIn
+
+                finalInputRedeem = firstRedeemString(txIn)
+                    .ifBlank { firstRedeemString(utxoIn) }
+                    .ifBlank { firstRedeemString(txIn?.optJSONObject("covenant")) }
+                    .ifBlank { firstRedeemString(utxoIn?.optJSONObject("covenant")) }
+
+                if (finalInputRedeem.isBlank() && utxoIn != null) {
+                    val spk = runCatching {
+                        KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoIn).scriptPublicKey.script
+                    }.getOrElse {
+                        utxoIn.optJSONObject("scriptPublicKey")?.optString("script", "")
+                            ?: utxoIn.optJSONObject("script_public_key")?.optString("script", "")
+                            ?: utxoIn.optString("scriptPublicKey", "")
+                            ?: utxoIn.optString("script_public_key", "")
+                            ?: utxoIn.optString("script", "")
+                    }
+                    val p2shMatch = Regex("aa20([0-9a-fA-F]{64})87")
+                        .matchEntire(spk.replace(" ", "").lowercase())
+                        ?.groupValues?.get(1)
+                    if (p2shMatch != null && txIn != null) {
+                        val outpointRaw = txIn.opt("previousOutpoint")
+                            ?: txIn.opt("previous_outpoint")
+                            ?: txIn.opt("outpoint")
+                            ?: txIn.opt("prevOutpoint")
+                            ?: txIn.opt("prev_outpoint")
+                        var prevTxId = ""
+                        var prevIdx = -1
+                        if (outpointRaw is String) {
+                            val str = outpointRaw.trim()
+                            if (str.contains(":") || str.contains("/")) {
+                                val delim = if (str.contains(":")) ":" else "/"
+                                prevTxId = str.substringBefore(delim).trim()
+                                prevIdx = str.substringAfter(delim).trim().toIntOrNull() ?: -1
+                            } else if (str.matches(Regex("(?i)[0-9a-f]{64}"))) {
+                                prevTxId = str
+                            }
+                        }
+                        val outpointObj = (outpointRaw as? JSONObject) ?: txIn
+                        if (prevTxId.isBlank()) {
+                            prevTxId = listOf(
+                                "transactionId", "transaction_id", "txId", "tx_id", "txid", "hash", "tx_hash", "id"
+                            ).firstNotNullOfOrNull { key ->
+                                outpointObj.optString(key, "").takeIf { it.isNotBlank() }
+                                    ?: txIn.optString(key, "").takeIf { it.isNotBlank() }
+                            }.orEmpty()
+                        }
+                        if (prevIdx < 0) {
+                            prevIdx = listOf(
+                                "index", "outputIndex", "output_index", "outpointIndex", "outpoint_index", "vout", "n"
+                            ).firstNotNullOfOrNull { key ->
+                                outpointObj.optInt(key, -1).takeIf { it >= 0 }
+                                    ?: txIn.optInt(key, -1).takeIf { it >= 0 }
+                            } ?: 0
+                        }
+                        finalInputRedeem = kotlinx.coroutines.runBlocking {
+                            com.example.network.kaspa.Kcc20NoteScanner.resolveOrReconstructRedeemScript(
+                                txId = prevTxId,
+                                outputIndex = prevIdx,
+                                p2shScriptHash = p2shMatch,
+                                walletAddress = walletAddress,
+                                walletPublicKeyHex = walletPublicKeyHex,
+                                network = network
+                            )
+                        }.orEmpty()
+                    }
+                }
+            }
+
+            val resolvedInputObj = JSONObject()
+                .put("index", idx)
+                .put("sighashType", shType)
+            if (finalInputRedeem.isNotBlank()) {
+                resolvedInputObj.put("redeemScript", finalInputRedeem)
+            }
+            signInputs.put(resolvedInputObj)
+        }
+        return Pair(signInputs, topLevelRedeemScript)
     }
 
     private fun networkId(network: String): String = when {

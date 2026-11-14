@@ -188,11 +188,14 @@ object BrowserBackgroundPlayback {
     private const val BRAVE_BG_PLAYBACK_SCRIPT = """
         (function() {
             if (window.__brave_bg_playback_installed__) return;
-            window.__brave_bg_playback_installed__ = true;
 
             var host = '';
+            var path = '';
+            var search = '';
             try {
                 host = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                path = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+                search = (window.location && window.location.search) ? window.location.search.toLowerCase() : '';
             } catch (e) {}
 
             // Never modify visibility, focus, or media prototypes on CAPTCHA, anti-bot, auth, or payment pages
@@ -202,20 +205,33 @@ object BrowserBackgroundPlayback {
                 host.indexOf('recaptcha.net') !== -1 ||
                 host.indexOf('arkoselabs.com') !== -1 ||
                 host.indexOf('octocaptcha.com') !== -1 ||
+                host.indexOf('geetest.com') !== -1 ||
+                host.indexOf('friendlycaptcha.com') !== -1 ||
+                host.indexOf('captcha-delivery.com') !== -1 ||
+                host.indexOf('datadome') !== -1 ||
+                host.indexOf('perimeterx') !== -1 ||
                 host.indexOf('accounts.google.com') !== -1 ||
                 host.indexOf('appleid.apple.com') !== -1 ||
                 host.indexOf('login.microsoftonline.com') !== -1 ||
                 host.indexOf('auth0.com') !== -1 ||
                 host.indexOf('okta.com') !== -1 ||
                 host.indexOf('stripe.com') !== -1 ||
-                host.indexOf('paypal.com') !== -1) {
+                host.indexOf('paypal.com') !== -1 ||
+                path.indexOf('/cdn-cgi/') !== -1 ||
+                path.indexOf('/recaptcha') !== -1 ||
+                path.indexOf('/turnstile') !== -1 ||
+                search.indexOf('__cf_chl_') !== -1) {
                 return;
             }
             try {
-                if (window.location && window.location.pathname && window.location.pathname.indexOf('/cdn-cgi/') !== -1) {
+                if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                    document.getElementById('challenge-running') ||
+                    document.getElementById('challenge-form') ||
+                    document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
                     return;
                 }
             } catch (e) {}
+            window.__brave_bg_playback_installed__ = true;
 
             var isKnownMediaHost = host.indexOf('youtube.com') !== -1 ||
                 host.indexOf('youtube-nocookie.com') !== -1 ||

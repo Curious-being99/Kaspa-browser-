@@ -165,10 +165,12 @@ import com.example.model.Krc20TokenMetadata
 import com.example.model.Krc20TokenTransaction
 import com.example.network.kaspa.Kcc20TransactionHistoryItem
 import com.example.network.CryptoUtils
+import com.example.network.KaspaWalletService
 import com.example.ui.components.KaspaQrCodeView
 import com.example.ui.components.PinnedTokensSection
 import com.example.ui.components.Krc20TokenDetailSheet
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Warning
 import com.example.ui.theme.AmberCentral
 import com.example.ui.theme.CyanGlow
 import com.example.ui.theme.ElectricCyan
@@ -260,6 +262,10 @@ fun KaspaTestnetWalletScreen(
 
     val isLocked by viewModel.isWalletLocked.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+    val activeAccountLegacyWarning by viewModel.activeAccountLegacyWarning.collectAsState()
+    val legacyMigrationReview by viewModel.legacyMigrationReview.collectAsState()
+    val legacyMigrationBusy by viewModel.legacyMigrationBusy.collectAsState()
+    val isLegacyWalletFlagged = !activeAccountLegacyWarning.isNullOrBlank()
 
     var showUnlockBeforeSeedSheet by remember { mutableStateOf(false) }
     var isSeedPhrasePreUnlocked by remember { mutableStateOf(false) }
@@ -332,9 +338,22 @@ fun KaspaTestnetWalletScreen(
         }
     }
 
+    LaunchedEffect(isLegacyWalletFlagged) {
+        if (isLegacyWalletFlagged) {
+            showSendScreen = false
+            showReceiveScreen = false
+            showCompoundDialog = false
+            showConfirmSendDialog = false
+        }
+    }
+
     // Handle Hardware/System Back -> Close overlays or Return to Browser Gateway
     BackHandler(enabled = true) {
-        if (showTransactionHistoryScreen) {
+        if (legacyMigrationReview != null) {
+            if (!legacyMigrationBusy) {
+                viewModel.cancelLegacyWalletMigrationReview()
+            }
+        } else if (showTransactionHistoryScreen) {
             showTransactionHistoryScreen = false
         } else if (showResultOverlay) {
             showResultOverlay = false
@@ -673,9 +692,40 @@ fun KaspaTestnetWalletScreen(
                 }
             }
 
+            if (!activeAccountLegacyWarning.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LegacyWalletMigrationCard(
+                    warningMessage = activeAccountLegacyWarning.orEmpty(),
+                    isEvmNetwork = viewModel.isEvmNetwork(selectedNetwork),
+                    isBusy = legacyMigrationBusy,
+                    onMigrateClick = {
+                        if (viewModel.isEvmNetwork(selectedNetwork)) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Switch to a native Kaspa network (Mainnet or Testnet) to migrate funds.")
+                            }
+                        } else {
+                            viewModel.prepareLegacyWalletMigration(
+                                sompiPerMass = maxOf(
+                                    KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM,
+                                    networkFeeCondition.normalFeerate
+                                )
+                            )
+                        }
+                    }
+                )
+            }
+
             Spacer(modifier = Modifier.height(6.dp))
 
             // Standalone Action Button Bar with even distribution to prevent label clipping
+            val blockedAlpha = if (isLegacyWalletFlagged) 0.35f else 1f
+            fun showLegacyBlockedNotice() {
+                scope.launch {
+                    snackbarHostState.showSnackbar(
+                        "Blocked (${activeAccountLegacyWarning ?: "legacy wallet"}): Use migration to move all funds to a new secure wallet."
+                    )
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -686,29 +736,38 @@ fun KaspaTestnetWalletScreen(
                 QuickActionButton(
                     icon = Icons.Default.Send,
                     label = "Send",
-                    color = RedTamper.copy(alpha = 0.8f),
-                    onClick = { showSendScreen = true }
+                    color = RedTamper.copy(alpha = 0.8f * blockedAlpha),
+                    onClick = {
+                        if (isLegacyWalletFlagged) showLegacyBlockedNotice()
+                        else showSendScreen = true
+                    }
                 )
                 QuickActionButton(
                     icon = Icons.AutoMirrored.Filled.CallReceived,
                     label = "Receive",
-                    color = ElectricCyan,
-                    onClick = { showReceiveScreen = true }
+                    color = ElectricCyan.copy(alpha = blockedAlpha),
+                    onClick = {
+                        if (isLegacyWalletFlagged) showLegacyBlockedNotice()
+                        else showReceiveScreen = true
+                    }
                 )
                 QuickActionButton(
                     icon = Icons.Default.Apps,
                     label = "Dapps",
-                    color = KaspaTea,
+                    color = KaspaTea.copy(alpha = blockedAlpha),
                     onClick = {
-                        viewModel.setTab(AppTab.DAPPS)
+                        if (isLegacyWalletFlagged) showLegacyBlockedNotice()
+                        else viewModel.setTab(AppTab.DAPPS)
                     }
                 )
                 QuickActionButton(
                     iconRes = R.drawable.ic_compound_utxo,
                     label = "Compound",
-                    color = Color(0xFFF2F2F2),
+                    color = Color(0xFFF2F2F2).copy(alpha = blockedAlpha),
                     onClick = {
-                        if (walletState.utxosCount <= 1) {
+                        if (isLegacyWalletFlagged) {
+                            showLegacyBlockedNotice()
+                        } else if (walletState.utxosCount <= 1) {
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     if (walletState.utxosCount == 1) "Wallet already optimal (1 UTXO unspent)"
@@ -957,8 +1016,30 @@ fun KaspaTestnetWalletScreen(
                     onOpenTx = { tx -> selectedTransactionForDetails = tx },
                     onOpenKcc20Tx = { tx -> selectedKcc20TxForDetails = tx },
                     onGetFaucetCoins = { viewModel.openTestnetFaucet(context) },
-                    onSendKaspa = { showTransactionHistoryScreen = false; showSendScreen = true },
-                    onReceiveKaspa = { showTransactionHistoryScreen = false; showReceiveScreen = true },
+                    onSendKaspa = {
+                        if (isLegacyWalletFlagged) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Blocked (${activeAccountLegacyWarning ?: "legacy wallet"}): Migrate all funds to a new secure wallet."
+                                )
+                            }
+                        } else {
+                            showTransactionHistoryScreen = false
+                            showSendScreen = true
+                        }
+                    },
+                    onReceiveKaspa = {
+                        if (isLegacyWalletFlagged) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Blocked (${activeAccountLegacyWarning ?: "legacy wallet"}): Migrate all funds to a new secure wallet."
+                                )
+                            }
+                        } else {
+                            showTransactionHistoryScreen = false
+                            showReceiveScreen = true
+                        }
+                    },
                     isMainnet = isMainnet,
                     selectedNetwork = selectedNetwork
                 )
@@ -1273,6 +1354,18 @@ fun KaspaTestnetWalletScreen(
                 showConfirmSendDialog = false
                 viewModel.sendKaspaTransaction(recipientInput, amountNum, selectedSompiPerMass)
             }
+        )
+    }
+
+    val activeMigrationReview = legacyMigrationReview
+    if (activeMigrationReview != null) {
+        LegacyMigrationReviewOverlay(
+            prepared = activeMigrationReview,
+            priceUsd = walletState.priceUsd,
+            isBusy = legacyMigrationBusy,
+            viewModel = viewModel,
+            onBack = { viewModel.cancelLegacyWalletMigrationReview() },
+            onConfirmMigration = { viewModel.confirmLegacyWalletMigration() }
         )
     }
 
@@ -4829,6 +4922,404 @@ private fun ConfirmSendScreenOverlay(
                     TextButton(
                         onClick = onBack,
                         enabled = !isSending,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        Text("Cancel", color = TextSecondary, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegacyWalletMigrationCard(
+    warningMessage: String,
+    isEvmNetwork: Boolean,
+    isBusy: Boolean,
+    onMigrateClick: () -> Unit
+) {
+    Surface(
+        color = RedTamper.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .testTag("legacy_wallet_warning_card")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Legacy wallet security warning",
+                    tint = RedTamper,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Security Action Required",
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = RedTamper
+                )
+            }
+            Text(
+                text = warningMessage,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                lineHeight = 18.sp
+            )
+            Text(
+                text = if (isEvmNetwork) {
+                    "All signing, sends, receives, compounding, and dApp connections are locked. Switch to Kaspa Mainnet or Testnet to create a new SecureRandom BIP-39 wallet and move your entire balance."
+                } else {
+                    "All other wallet actions are locked. Create a new SecureRandom BIP-39 wallet and sweep your entire balance to it."
+                },
+                fontSize = 11.5.sp,
+                color = TextSecondary,
+                lineHeight = 16.sp
+            )
+            Button(
+                onClick = onMigrateClick,
+                enabled = !isBusy,
+                colors = ButtonDefaults.buttonColors(containerColor = RedTamper),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("migrate_legacy_wallet_button")
+            ) {
+                if (isBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Preparing Secure Migration...",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                } else {
+                    Text(
+                        text = "Create Secure Wallet & Move All Funds",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegacyMigrationReviewOverlay(
+    prepared: KaspaWalletService.PreparedFullBalanceTransfer,
+    priceUsd: Double,
+    isBusy: Boolean,
+    viewModel: DecentralViewModel,
+    onBack: () -> Unit,
+    onConfirmMigration: () -> Unit
+) {
+    val context = LocalContext.current
+    val hasPassword by viewModel.hasWalletPassword.collectAsState()
+    val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+    var passwordInput by remember { mutableStateOf("") }
+    var authErrorMessage by remember { mutableStateOf<String?>(null) }
+    var showPasswordFallback by remember { mutableStateOf(false) }
+
+    val currencySymbol = if (prepared.networkName.contains("Mainnet", ignoreCase = true)) "KAS" else "tKAS"
+
+    fun proceedToConfirm() {
+        authErrorMessage = null
+        onConfirmMigration()
+    }
+
+    fun initiateAuthorization() {
+        if (isBusy) return
+        val isProtected = hasPassword || biometricsEnabled
+        if (!isProtected) {
+            proceedToConfirm()
+            return
+        }
+        if (biometricsEnabled && BiometricAuthHelper.isDeviceLockAvailable(context)) {
+            BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                context = context,
+                title = "Authorize Full-Balance Migration",
+                subtitle = "Move %.8f %s to your new SecureRandom wallet".format(prepared.amountKas, currencySymbol),
+                onSuccess = { proceedToConfirm() },
+                onError = { err ->
+                    if (hasPassword) {
+                        showPasswordFallback = true
+                        authErrorMessage = "$err. Enter your wallet password below."
+                    } else {
+                        authErrorMessage = err
+                    }
+                }
+            )
+        } else if (hasPassword) {
+            showPasswordFallback = true
+        } else {
+            proceedToConfirm()
+        }
+    }
+
+    fun verifyPasswordAndProceed() {
+        if (passwordInput.isBlank()) {
+            authErrorMessage = "Please enter your wallet password to authorize migration."
+            return
+        }
+        viewModel.unlockWalletWithPassword(passwordInput) { isValid ->
+            if (isValid) proceedToConfirm()
+            else authErrorMessage = "Incorrect wallet password. Please try again."
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBg)
+            .testTag("legacy_migration_review_overlay")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, enabled = !isBusy) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = TextPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Confirm Secure Migration",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = TextPrimary
+                )
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                item {
+                    Surface(
+                        color = SurfaceCard,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Sweeping Full Balance",
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "%.8f %s".format(prepared.amountKas, currencySymbol),
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = KaspaTea
+                            )
+                            if (priceUsd > 0.0) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "≈ $%.2f USD".format(prepared.amountKas * priceUsd),
+                                    fontSize = 12.5.sp,
+                                    color = TextMuted
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "100% Sweep • ${prepared.inputCount} UTXO(s) • 0 Change Output",
+                                fontSize = 11.sp,
+                                color = ElectricCyan,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Surface(
+                        color = SurfaceDark,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, SurfaceCardBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Source Legacy Address", fontSize = 11.5.sp, color = TextMuted)
+                            Text(
+                                text = prepared.senderAddress,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = RedTamper
+                            )
+                            HorizontalDivider(color = SurfaceCardBorder)
+                            Text("New SecureRandom BIP-39 Wallet", fontSize = 11.5.sp, color = TextMuted)
+                            Text(
+                                text = prepared.recipientAddress,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = EmeraldMesh
+                            )
+                            HorizontalDivider(color = SurfaceCardBorder)
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Exact Network Fee:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "%.8f %s".format(prepared.feeKas, currencySymbol),
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextPrimary
+                                )
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Transaction Mass:", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = "${prepared.mass} mass units",
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (showPasswordFallback) {
+                    item {
+                        Surface(
+                            color = SurfaceCard,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                OutlinedTextField(
+                                    value = passwordInput,
+                                    onValueChange = {
+                                        passwordInput = it
+                                        authErrorMessage = null
+                                    },
+                                    label = { Text("Wallet Password") },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = KaspaTea,
+                                        unfocusedBorderColor = SurfaceCardBorder,
+                                        focusedLabelColor = KaspaTea,
+                                        unfocusedLabelColor = TextMuted,
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary
+                                    ),
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = { verifyPasswordAndProceed() },
+                                    enabled = !isBusy,
+                                    colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Authorize Migration", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!authErrorMessage.isNullOrBlank()) {
+                    item {
+                        Text(
+                            text = authErrorMessage.orEmpty(),
+                            fontSize = 11.5.sp,
+                            color = RedTamper
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                color = SurfaceElevated,
+                border = BorderStroke(1.dp, SurfaceCardBorder.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            if (showPasswordFallback) verifyPasswordAndProceed()
+                            else initiateAuthorization()
+                        },
+                        enabled = !isBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("confirm_legacy_migration_button")
+                    ) {
+                        if (isBusy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = SurfaceDark,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Migrating Balance...", color = SurfaceDark, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text(
+                                text = "Send Full Balance to New Secure Wallet",
+                                color = SurfaceDark,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.5.sp
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = onBack,
+                        enabled = !isBusy,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(44.dp)

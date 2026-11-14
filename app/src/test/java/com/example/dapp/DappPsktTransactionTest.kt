@@ -841,4 +841,90 @@ class DappPsktTransactionTest {
         // The provider result is the serialized Safe-JSON string, not a multi-alias object.
         assertTrue(result.isNotBlank())
     }
+
+    @Test
+    fun resolvesFlatScriptPublicKeyP2shAndTopLevelRedeemScriptViaDappBridge() {
+        val covenantRedeemScript = ("6b20" + "cd".repeat(32) + "20" + publicKeyHex + "5152ac").lowercase()
+        val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(covenantRedeemScript))
+            .joinToString("") { "%02x".format(it) }
+        val flatLockingScript = "0000aa20" + p2shHash + "87"
+        val txId = "9e".repeat(32)
+        val vout = 0
+
+        Kcc20NoteScanner.registerRedeemScript(txId, vout, p2shHash, covenantRedeemScript)
+
+        val inputs = JSONArray().put(JSONObject()
+            .put("outpoint", "$txId:$vout")
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "2500000000")
+                .put("scriptPublicKey", flatLockingScript)
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "2400000000")
+            .put("scriptPublicKey", "000020" + publicKeyHex + "ac")
+        )
+        val txJson = JSONObject().put("tx", JSONObject().put("inputs", inputs).put("outputs", outputs)).toString()
+        val rawSignInputs = JSONArray().put(JSONObject().put("index", 0))
+
+        val (resolvedSignInputs, resolvedTopRedeem) = KaspaDappBridge.resolveSignInputsAndRedeemScripts(
+            txJson = txJson,
+            rawSignInputs = rawSignInputs,
+            paramsObject = null,
+            options = null,
+            walletAddress = "kaspatest:placeholder",
+            walletPublicKeyHex = publicKeyHex,
+            network = "Kaspa Testnet 10"
+        )
+
+        assertEquals(covenantRedeemScript, resolvedSignInputs.getJSONObject(0).getString("redeemScript"))
+        val prepared = DappPsktTransaction.prepareForSigning(
+            txJson,
+            resolvedSignInputs,
+            publicKeyHex,
+            redeemScript = resolvedTopRedeem
+        )
+        assertEquals(covenantRedeemScript, prepared.signInputs[0].redeemScript)
+
+        val signedTxWrapper = JSONObject(DappPsktTransaction.sign(prepared, privateKey))
+        val sigScript = signedTxWrapper.getJSONObject("tx").getJSONArray("inputs").getJSONObject(0)
+            .getString("signatureScript")
+        assertTrue(sigScript.contains(covenantRedeemScript))
+    }
+
+    @Test
+    fun resolvesSingleKeyP2shP2pkInput0WithoutExplicitRedeemScript() {
+        val expectedP2pkRedeem = ("20" + publicKeyHex + "ac").lowercase()
+        val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(expectedP2pkRedeem))
+            .joinToString("") { "%02x".format(it) }
+
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "8f".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", "aa20" + p2shHash + "87")
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "9000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", expectedP2pkRedeem))
+        )
+        val txJson = JSONObject().put("inputs", inputs).put("outputs", outputs).toString()
+
+        val prepared = DappPsktTransaction.prepareForSigning(
+            txJson,
+            JSONArray().put(JSONObject().put("index", 0)),
+            publicKeyHex
+        )
+        assertEquals(expectedP2pkRedeem, prepared.signInputs[0].redeemScript)
+
+        val signed = JSONObject(DappPsktTransaction.sign(prepared, privateKey))
+        val sigScript = signed.getJSONArray("inputs").getJSONObject(0).getString("signatureScript")
+        assertTrue(sigScript.startsWith("41"))
+        assertTrue(sigScript.endsWith(expectedP2pkRedeem))
+    }
 }

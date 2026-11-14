@@ -567,6 +567,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var activeAutofillEvent by remember { mutableStateOf<com.example.security.AutofillFormEvent?>(null) }
     var matchingAutofillCredentials by remember { mutableStateOf<List<com.example.data.VaultCredentialEntity>>(emptyList()) }
     var pendingCredentialSave by remember { mutableStateOf<com.example.security.PendingCredentialSave?>(null) }
+    var pendingPasskeyConfirm by remember { mutableStateOf<com.example.network.PasskeyConfirmationRequest?>(null) }
+    var pendingPasskeyRecovery by remember { mutableStateOf<com.example.network.PasskeyRecoveryEvent?>(null) }
+    var lastAutoSignedInUrl by remember(activeTabId) { mutableStateOf<String?>(null) }
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
 
     LaunchedEffect(activeAutofillEvent) {
@@ -575,6 +578,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             viewModel.getMatchingVaultCredentials(ev.url)
         } else {
             emptyList()
+        }
+    }
+    LaunchedEffect(pendingCredentialSave) {
+        val ps = pendingCredentialSave
+        if (ps != null && matchingAutofillCredentials.isEmpty()) {
+            matchingAutofillCredentials = viewModel.getMatchingVaultCredentials(ps.url)
+        }
+    }
+    LaunchedEffect(pendingPasskeyRecovery) {
+        val rec = pendingPasskeyRecovery
+        if (rec != null && matchingAutofillCredentials.isEmpty()) {
+            matchingAutofillCredentials = viewModel.getMatchingVaultCredentials(rec.url)
         }
     }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
@@ -1050,6 +1065,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     val activeAccount by viewModel.activeAccount.collectAsState()
     val allAccounts by viewModel.allAccounts.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
+    val offerToSavePasswords by viewModel.offerToSavePasswords.collectAsState()
+    val autoCreatePasskeyEnabled by viewModel.autoCreatePasskeyEnabled.collectAsState()
+    val allowPasskeyUpgradeEnabled by viewModel.allowPasskeyUpgradeEnabled.collectAsState()
+    val autoSignInEnabled by viewModel.autoSignInEnabled.collectAsState()
+    val breachedCredentials by viewModel.breachedCredentials.collectAsState()
     val showWebAuthnRpIdDialog by viewModel.showWebAuthnRpIdDialog.collectAsState()
     val isStandalonePwaMode by viewModel.isStandalonePwaMode.collectAsState()
     val challengeCookieHosts = remember { java.util.concurrent.ConcurrentHashMap.newKeySet<String>() }
@@ -1075,6 +1095,18 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 KaspaPrivacyEngine.convertDesktopUrlToMobile(rawUrl)
             } else {
                 rawUrl
+            }
+            if (!curUrl.isNullOrBlank()) {
+                try {
+                    val curHost = KaspaPrivacyEngine.extractHostFast(curUrl)
+                    val allowChallengeCookies = thirdPartyCookies ||
+                        (curHost != null && challengeCookieHosts.contains(curHost)) ||
+                        KaspaPrivacyEngine.isGoogleAuthUrl(curUrl) ||
+                        KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(curUrl)
+                    val cm = android.webkit.CookieManager.getInstance()
+                    cm.setAcceptCookie(true)
+                    cm.setAcceptThirdPartyCookies(wv, allowChallengeCookies)
+                } catch (_: Throwable) {}
             }
             if (!curUrl.isNullOrBlank() && curUrl != rawUrl) {
                 viewModel.setUrlInput(curUrl)
@@ -1170,9 +1202,38 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    LaunchedEffect(webAuthEnabled) {
+    LaunchedEffect(
+        webAuthEnabled,
+        autoCreatePasskeyEnabled,
+        allowPasskeyUpgradeEnabled,
+        autoSignInEnabled
+    ) {
         webViewInstance?.let { wv ->
             com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, webAuthEnabled)
+            com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(wv, wv.url)
+        }
+    }
+
+    LaunchedEffect(activeAutofillEvent, matchingAutofillCredentials, isVaultUnlocked, autoSignInEnabled) {
+        val ev = activeAutofillEvent ?: return@LaunchedEffect
+        if (ev.isNewPasswordField || !autoSignInEnabled || !isVaultUnlocked) return@LaunchedEffect
+        if (lastAutoSignedInUrl == ev.url) return@LaunchedEffect
+        val passwordMatches = matchingAutofillCredentials.filter { it.hasPassword }
+        if (passwordMatches.size == 1) {
+            val cred = passwordMatches.first()
+            val rawPass = viewModel.decryptVaultPassword(cred)
+            if (rawPass != null) {
+                lastAutoSignedInUrl = ev.url
+                com.example.security.PasswordAutofillBridge.fillCredentials(
+                    webViewInstance,
+                    cred.username,
+                    rawPass,
+                    expectedHost = cred.host
+                )
+                viewModel.markVaultCredentialUsed(cred.id)
+                activeAutofillEvent = null
+                viewModel.setStatusMessage("Auto signed in to ${cred.host}")
+            }
         }
     }
 
@@ -2855,6 +2916,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         settings.cacheMode = WebSettings.LOAD_DEFAULT
                                         settings.domStorageEnabled = true
                                         settings.databaseEnabled = false
+                                        com.example.util.KaspaWebViewConfigurator.applyKazviewSettings(settings)
+                                        val popupDefaultUa = try { WebSettings.getDefaultUserAgent(view.context) } catch (_: Throwable) { null }
+                                        KaspaPrivacyEngine.applyUserAgentAndMetadata(settings, viewModel.desktopModeEnabled.value, popupDefaultUa)
+                                        val cm = android.webkit.CookieManager.getInstance()
+                                        cm.setAcceptCookie(true)
+                                        cm.setAcceptThirdPartyCookies(this, thirdPartyCookies)
                                         setDownloadListener { dUrl, dUserAgent, dContentDisposition, dMimetype, _ ->
                                             stopLoading()
                                             if (!enableDownloads) {
@@ -2879,7 +2946,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                     if (url != null) {
                                                         com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(wv, url)
                                                     }
-                                                    com.example.dapp.KaspaDappBridge.injectProviderScript(wv)
+                                                    if (url == null || !KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)) {
+                                                        com.example.dapp.KaspaDappBridge.injectProviderScript(wv)
+                                                    }
                                                 }
                                                 val target = url ?: return
                                                 handleTargetUrl(wv, target, isUserGesture)
@@ -3036,8 +3105,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     if (view != null && url != null) {
                                         val host = KaspaPrivacyEngine.extractHostFast(url)
                                         if (KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                            KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url) ||
                                             (host != null && KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain(host))
                                         ) {
+                                            view.url?.let { KaspaPrivacyEngine.extractHostFast(it) }?.let { topHost ->
+                                                challengeCookieHosts.add(topHost)
+                                            }
                                             com.example.util.KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
                                         }
                                     }
@@ -3054,13 +3127,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         KaspaPrivacyEngine.applyUserAgentAndMetadata(view.settings, isDesktop, startDefaultUa)
                                         try {
                                             val pageHost = url?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                            val isChallengeUrl = url != null && (
+                                                KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                                    KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
+                                                )
+                                            if (isChallengeUrl && !pageHost.isNullOrBlank()) {
+                                                challengeCookieHosts.add(pageHost)
+                                            }
                                             val allowChallengeCookies = (pageHost != null && challengeCookieHosts.contains(pageHost)) ||
-                                                (url != null && (
-                                                    KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
-                                                        KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
-                                                    ))
-                                            android.webkit.CookieManager.getInstance()
-                                                .setAcceptThirdPartyCookies(view, thirdPartyCookies || allowChallengeCookies)
+                                                isChallengeUrl
+                                            android.webkit.CookieManager.getInstance().apply {
+                                                setAcceptCookie(true)
+                                                setAcceptThirdPartyCookies(view, thirdPartyCookies || allowChallengeCookies)
+                                            }
                                         } catch (_: Throwable) {}
                                     }
                                     if (view != null && url != null) {
@@ -3131,32 +3210,61 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                             null
                                         )
                                     }
+
+                                    if (url != null && url.startsWith("https://", ignoreCase = true) &&
+                                        !KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
+                                    ) {
+                                        com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
+                                    }
+                                    val startedHost = url?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                    if (pendingPasskeyRecovery != null && startedHost != null &&
+                                        !com.example.security.PasswordVaultRepository.isHostMatch(pendingPasskeyRecovery!!.host, startedHost)
+                                    ) {
+                                        pendingPasskeyRecovery = null
+                                    }
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
-                                    if (view != null && url?.startsWith("https://", ignoreCase = true) == true) {
+                                    val isChallengeOrAuthUrl = !url.isNullOrBlank() && (
+                                        KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                            KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
+                                        )
+                                    val finishedHost = url?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                    val isChallengeHost = finishedHost != null && challengeCookieHosts.contains(finishedHost)
+                                    if (isChallengeOrAuthUrl || isChallengeHost) {
+                                        runCatching { android.webkit.CookieManager.getInstance().flush() }
+                                    }
+                                    if (view != null && url?.startsWith("https://", ignoreCase = true) == true && !isChallengeOrAuthUrl) {
                                         com.example.dapp.KaspaDappBridge.install(
                                             context = view.context,
                                             webView = view,
                                             viewModel = viewModel
                                         )
                                     }
-                                    // Soft Keyboard Focus Auto-Scroll Helper: Ensures input fields are never covered by keyboard
-                                    view?.evaluateJavascript("""
-                                        (function() {
-                                            if (window.__kaspaAutoKeyboardScrollInit) return;
-                                            window.__kaspaAutoKeyboardScrollInit = true;
-                                            document.addEventListener('focusin', function(e) {
-                                                if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
-                                                    setTimeout(function() {
-                                                        try {
-                                                            e.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                                                        } catch(_) {}
-                                                    }, 300);
+                                    // Soft Keyboard Focus Auto-Scroll Helper: skip challenge/CAPTCHA pages
+                                    if (!isChallengeOrAuthUrl) {
+                                        view?.evaluateJavascript("""
+                                            (function() {
+                                                if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                                                    document.getElementById('challenge-running') ||
+                                                    document.getElementById('challenge-form') ||
+                                                    document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
+                                                    return;
                                                 }
-                                            }, true);
-                                        })();
-                                    """.trimIndent(), null)
+                                                if (window.__kaspaAutoKeyboardScrollInit) return;
+                                                window.__kaspaAutoKeyboardScrollInit = true;
+                                                document.addEventListener('focusin', function(e) {
+                                                    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+                                                        setTimeout(function() {
+                                                            try {
+                                                                e.target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                                                            } catch(_) {}
+                                                        }, 300);
+                                                    }
+                                                }, true);
+                                            })();
+                                        """.trimIndent(), null)
+                                    }
                                     isWebLoading = false
                                     hasMainPageFinished = true
                                     (view?.parent as? androidx.swiperefreshlayout.widget.SwipeRefreshLayout)?.isRefreshing = false
@@ -3208,23 +3316,27 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         null
                                     )
 
-                                    if (blockTrackers) {
+                                    if (blockTrackers && !isChallengeOrAuthUrl) {
                                         view?.evaluateJavascript(
                                             com.example.network.UBlockEngine.getCosmeticHidingCss(),
                                             null
                                         )
                                     }
 
-                                    if (backgroundPlaybackEnabled) {
+                                    if (backgroundPlaybackEnabled && !isChallengeOrAuthUrl) {
                                         view?.evaluateJavascript(
                                             com.example.util.BrowserBackgroundPlayback.getBackgroundPlaybackScript(),
                                             null
                                         )
                                     }
 
-                                    if (com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
+                                    if (!isChallengeOrAuthUrl && com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
                                         com.example.security.PasswordAutofillBridge.scanPageForPasswordForms(view, url)
+                                        com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                                     } else {
+                                        if (!isChallengeOrAuthUrl && url?.startsWith("https://", ignoreCase = true) == true) {
+                                            com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
+                                        }
                                         activeAutofillEvent = null
                                         matchingAutofillCredentials = emptyList()
                                     }
@@ -3363,6 +3475,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                     val cm = android.webkit.CookieManager.getInstance()
                                                     cm.setAcceptCookie(true)
                                                     cm.setAcceptThirdPartyCookies(view, true)
+                                                    cm.flush()
                                                 } catch (_: Throwable) {}
                                             }
                                         }
@@ -3652,8 +3765,26 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 activeAutofillEvent = event
                             },
                             onCredentialSubmitted = { pending ->
-                                pendingCredentialSave = pending
+                                if (viewModel.offerToSavePasswords.value) {
+                                    pendingCredentialSave = pending
+                                }
                             }
+                        )
+
+                        com.example.network.KaspaWebAuthnBridge.install(
+                            webView = webView,
+                            scope = scope,
+                            onPasskeyRecorded = { info ->
+                                viewModel.recordPasskeyCredential(
+                                    url = info.url,
+                                    rpId = info.rpId,
+                                    username = info.username,
+                                    siteName = info.siteName
+                                )
+                            },
+                            onStatusMessage = { msg -> viewModel.setStatusMessage(msg) },
+                            onConfirmationRequired = { req -> pendingPasskeyConfirm = req },
+                            onRecoveryNeeded = { rec -> pendingPasskeyRecovery = rec }
                         )
 
                         (webView.parent as? ViewGroup)?.removeView(webView)
@@ -3973,8 +4104,36 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 )
             }
 
-            if (currentResource != null && !isInputFocused && !isReaderMode &&
-                (pendingCredentialSave != null ||
+            val recoveryEvent = pendingPasskeyRecovery
+            if (recoveryEvent != null && !isInputFocused && !isReaderMode) {
+                PasskeyRecoveryBar(
+                    event = recoveryEvent,
+                    matchingPasswordCredentials = matchingAutofillCredentials,
+                    onContinueInCustomTab = {
+                        com.example.engine.BrowserEngineManager.openInCustomTab(context, recoveryEvent.url)
+                        pendingPasskeyRecovery = null
+                    },
+                    onUseSavedPassword = { cred ->
+                        val rawPass = viewModel.decryptVaultPassword(cred)
+                        if (rawPass != null) {
+                            com.example.security.PasswordAutofillBridge.fillCredentials(
+                                webViewInstance,
+                                cred.username,
+                                rawPass,
+                                expectedHost = cred.host
+                            )
+                            viewModel.markVaultCredentialUsed(cred.id)
+                            pendingPasskeyRecovery = null
+                            viewModel.setStatusMessage("Filled saved password for ${cred.host}")
+                        } else {
+                            viewModel.setStatusMessage("Could not decrypt saved password")
+                        }
+                    },
+                    onDismiss = { pendingPasskeyRecovery = null },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            } else if (currentResource != null && !isInputFocused && !isReaderMode &&
+                ((pendingCredentialSave != null && offerToSavePasswords) ||
                     (activeAutofillEvent != null &&
                         (matchingAutofillCredentials.isNotEmpty() || activeAutofillEvent?.isNewPasswordField == true)))
             ) {
@@ -3983,6 +4142,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     matchingCredentials = matchingAutofillCredentials,
                     showGeneratorSuggestion = activeAutofillEvent?.isNewPasswordField == true || matchingAutofillCredentials.isEmpty(),
                     isVaultUnlocked = isVaultUnlocked,
+                    autoSignInEnabled = autoSignInEnabled,
+                    offerToSavePasswords = offerToSavePasswords,
+                    breachedCredentials = breachedCredentials,
                     onUnlockAndFill = { cred ->
                         viewModel.unlockVault()
                         val rawPass = viewModel.decryptVaultPassword(cred)
@@ -4018,6 +4180,20 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         matchingAutofillCredentials = emptyList()
                     },
                     modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
+
+            pendingPasskeyConfirm?.let { confirmReq ->
+                PasskeyConfirmationDialog(
+                    request = confirmReq,
+                    onApprove = {
+                        pendingPasskeyConfirm = null
+                        confirmReq.onDecision(true)
+                    },
+                    onDecline = {
+                        pendingPasskeyConfirm = null
+                        confirmReq.onDecision(false)
+                    }
                 )
             }
         }

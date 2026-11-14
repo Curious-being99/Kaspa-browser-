@@ -56,8 +56,11 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.Button
@@ -200,6 +203,13 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val incognitoMode by viewModel.incognitoMode.collectAsState()
     val httpsOnlyMode by viewModel.httpsOnlyMode.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
+    val offerToSavePasswords by viewModel.offerToSavePasswords.collectAsState()
+    val autoCreatePasskeyEnabled by viewModel.autoCreatePasskeyEnabled.collectAsState()
+    val allowPasskeyUpgradeEnabled by viewModel.allowPasskeyUpgradeEnabled.collectAsState()
+    val autoSignInEnabled by viewModel.autoSignInEnabled.collectAsState()
+    val passwordAlertsEnabled by viewModel.passwordAlertsEnabled.collectAsState()
+    val breachedCredentials by viewModel.breachedCredentials.collectAsState()
+    val isCheckingBreaches by viewModel.isCheckingBreaches.collectAsState()
     val blockedTrackersCount by viewModel.blockedTrackersCount.collectAsState()
     val blockedTrackerLogs by viewModel.blockedTrackerLogs.collectAsState()
     val uBlockRulesCount by viewModel.uBlockRulesCount.collectAsState()
@@ -968,7 +978,9 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                 colors = CardDefaults.cardColors(containerColor = SurfaceDark),
                 shape = RoundedCornerShape(16.dp),
                 border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(SurfaceCardBorder)
+                    brush = androidx.compose.ui.graphics.SolidColor(
+                        if (breachedCredentials.isNotEmpty()) RedTamper.copy(alpha = 0.6f) else SurfaceCardBorder
+                    )
                 )
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -981,32 +993,101 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             Icon(Icons.Default.Key, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Password & Passkey Vault",
+                                text = "Passwords, Passkeys & Alerts",
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary,
                                 fontSize = 13.sp
                             )
                         }
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = EmeraldMesh.copy(alpha = 0.14f)
-                        ) {
-                            Text(
-                                text = "${vaultCredentials.size} saved",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = EmeraldMesh,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (breachedCredentials.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = RedTamper.copy(alpha = 0.16f)
+                                ) {
+                                    Text(
+                                        text = "${breachedCredentials.size} alert",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = RedTamper,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = EmeraldMesh.copy(alpha = 0.14f)
+                            ) {
+                                Text(
+                                    text = "${vaultCredentials.size} saved",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EmeraldMesh,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
                         }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Hardware Keystore AES-256-GCM encrypted passwords, CSPRNG generator, and tracked FIDO2 passkeys.",
+                        text = "Hardware Keystore AES-256-GCM encrypted passwords, passkey upgrades, and privacy-preserving breach alerts.",
                         fontSize = 11.5.sp,
                         color = TextSecondary
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = SurfaceCardBorder)
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    PrivacyToggleRow(
+                        title = "Offer to save passwords",
+                        desc = "Ask to save or update login credentials when you sign in on websites",
+                        icon = Icons.Default.Key,
+                        checked = offerToSavePasswords,
+                        onCheckedChange = { viewModel.toggleOfferToSavePasswords(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Automatically create a passkey to sign in faster",
+                        desc = "Create passkeys seamlessly when supported instead of extra confirmation prompts",
+                        icon = Icons.Default.Fingerprint,
+                        checked = autoCreatePasskeyEnabled,
+                        onCheckedChange = { viewModel.toggleAutoCreatePasskey(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Allow passkey account upgrades",
+                        desc = "Allow sites and apps to upgrade existing accounts to use passkeys.",
+                        icon = Icons.Default.VerifiedUser,
+                        checked = allowPasskeyUpgradeEnabled,
+                        onCheckedChange = { viewModel.toggleAllowPasskeyUpgrade(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Auto sign-in",
+                        desc = "Automatically sign in to websites and apps using stored credentials. If disabled, you will be asked for confirmation every time before signing in.",
+                        icon = Icons.Default.VpnKey,
+                        checked = autoSignInEnabled,
+                        onCheckedChange = { viewModel.toggleAutoSignIn(it) }
+                    )
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    PrivacyToggleRow(
+                        title = "Password alerts",
+                        desc = "Password alerts will notify you when your saved passwords are found online",
+                        icon = Icons.Default.WarningAmber,
+                        checked = passwordAlertsEnabled,
+                        onCheckedChange = { viewModel.togglePasswordAlerts(it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1022,14 +1103,27 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             Text("Open Vault", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                         OutlinedButton(
-                            onClick = { viewModel.setShowWebAuthnRpIdDialog(true) },
-                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceCardBorder),
+                            onClick = { viewModel.checkSavedPasswordsForBreaches(notifyOnNewBreach = true, userInitiated = true) },
+                            enabled = !isCheckingBreaches && passwordAlertsEnabled,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (breachedCredentials.isNotEmpty()) RedTamper.copy(alpha = 0.6f) else SurfaceCardBorder
+                            ),
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f).height(48.dp)
+                            modifier = Modifier.weight(1f).height(48.dp).testTag("settings_check_breaches_button")
                         ) {
-                            Icon(Icons.Default.Fingerprint, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                            Icon(
+                                Icons.Default.Security,
+                                contentDescription = null,
+                                tint = if (breachedCredentials.isNotEmpty()) RedTamper else ElectricCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Passkeys", color = TextPrimary, fontSize = 12.sp)
+                            Text(
+                                text = if (isCheckingBreaches) "Checking..." else "Check Alerts",
+                                color = if (breachedCredentials.isNotEmpty()) RedTamper else TextPrimary,
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }

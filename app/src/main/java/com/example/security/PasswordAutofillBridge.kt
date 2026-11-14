@@ -49,6 +49,10 @@ object PasswordAutofillBridge {
         "recaptcha.net",
         "arkoselabs.com",
         "octocaptcha.com",
+        "geetest.com",
+        "friendlycaptcha.com",
+        "captcha-delivery.com",
+        "datadome.co",
         "stripe.com",
         "paypal.com"
     )
@@ -63,9 +67,11 @@ object PasswordAutofillBridge {
         if (host.isBlank()) return false
         if (EXCLUDED_HOSTS.any { host == it || host.endsWith(".$it") }) return false
         val path = parsed.path?.lowercase(Locale.ROOT) ?: ""
-        if (path.contains("/cdn-cgi/")) return false
+        val query = parsed.query?.lowercase(Locale.ROOT) ?: ""
+        if (path.contains("/cdn-cgi/") || path.contains("/turnstile") || query.contains("__cf_chl_")) return false
         if (KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain(host) &&
-            (host.contains("cloudflare") || host.contains("captcha") || host.contains("arkose"))
+            (host.contains("cloudflare") || host.contains("captcha") || host.contains("arkose") ||
+                host.contains("geetest") || host.contains("datadome"))
         ) {
             return false
         }
@@ -260,8 +266,14 @@ object PasswordAutofillBridge {
                 if (href.indexOf('https://') !== 0) return;
                 if (host.indexOf('cloudflare.com') !== -1 || host.indexOf('hcaptcha.com') !== -1 ||
                     host.indexOf('recaptcha.net') !== -1 || host.indexOf('arkoselabs.com') !== -1 ||
-                    host.indexOf('octocaptcha.com') !== -1 || host.indexOf('stripe.com') !== -1 ||
-                    host.indexOf('paypal.com') !== -1 || href.indexOf('/cdn-cgi/') !== -1) {
+                    host.indexOf('octocaptcha.com') !== -1 || host.indexOf('geetest.com') !== -1 ||
+                    host.indexOf('friendlycaptcha.com') !== -1 || host.indexOf('datadome') !== -1 ||
+                    host.indexOf('stripe.com') !== -1 || host.indexOf('paypal.com') !== -1 ||
+                    href.indexOf('/cdn-cgi/') !== -1 || href.indexOf('__cf_chl_') !== -1 ||
+                    (document.title && document.title.indexOf('Just a moment') !== -1) ||
+                    document.getElementById('challenge-running') ||
+                    document.getElementById('challenge-form') ||
+                    document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
                     return;
                 }
                 var pwdInputs = Array.prototype.slice.call(document.querySelectorAll('input[type="password"]'));
@@ -295,13 +307,26 @@ object PasswordAutofillBridge {
                     return '';
                 }
 
+                var lastCapturedSignature = '';
+                var lastCapturedAt = 0;
+
                 function captureFromScope(scopeEl) {
                     var root = scopeEl || document;
                     var pInputs = Array.prototype.slice.call(root.querySelectorAll('input[type="password"]'));
+                    if (pInputs.length === 0 && root !== document) {
+                        pInputs = Array.prototype.slice.call(document.querySelectorAll('input[type="password"]'));
+                    }
                     for (var i = 0; i < pInputs.length; i++) {
                         var p = pInputs[i].value || '';
                         if (p.length >= 1) {
                             var u = findUsernameFor(pInputs[i]);
+                            var sig = u + '\u0000' + p;
+                            var now = Date.now();
+                            if (sig === lastCapturedSignature && (now - lastCapturedAt) < 1800) {
+                                break;
+                            }
+                            lastCapturedSignature = sig;
+                            lastCapturedAt = now;
                             try {
                                 window.kaspaVaultBridge.postMessage(JSON.stringify({
                                     type: 'CREDENTIAL_SUBMITTED',
@@ -318,6 +343,27 @@ object PasswordAutofillBridge {
                 document.addEventListener('submit', function(e) {
                     if (e && e.target && e.target.querySelector && e.target.querySelector('input[type="password"]')) {
                         captureFromScope(e.target);
+                    } else if (document.querySelector('input[type="password"]')) {
+                        captureFromScope(document);
+                    }
+                }, true);
+
+                // SPA support: capture login/sign-in button clicks or Enter key when a password field is filled
+                document.addEventListener('click', function(e) {
+                    var btn = e && e.target && e.target.closest ? e.target.closest('button, input[type="submit"], input[type="button"], [role="button"]') : null;
+                    if (!btn) return;
+                    var scope = btn.form || (btn.closest ? btn.closest('form') : null) || document;
+                    var hasFilledPwd = Array.prototype.slice.call(scope.querySelectorAll('input[type="password"]')).some(function(el) {
+                        return (el.value || '').length >= 1;
+                    });
+                    if (hasFilledPwd) {
+                        captureFromScope(scope);
+                    }
+                }, true);
+
+                document.addEventListener('keydown', function(e) {
+                    if (e && (e.key === 'Enter' || e.keyCode === 13) && e.target && e.target.type === 'password' && (e.target.value || '').length >= 1) {
+                        captureFromScope(e.target.form || document);
                     }
                 }, true);
 

@@ -308,6 +308,7 @@ fun PwaStandaloneScreen(
     var currentUrl by remember { mutableStateOf(initialUrl) }
     var pageTitle by remember { mutableStateOf(initialTitle) }
     var isLoading by remember { mutableStateOf(false) }
+    val challengeCookieHosts = remember { java.util.concurrent.ConcurrentHashMap.newKeySet<String>() }
     var webProgress by remember { mutableFloatStateOf(0f) }
     var isProgressBarVisible by remember { mutableStateOf(false) }
     val animatedWebProgress by androidx.compose.animation.core.animateFloatAsState(
@@ -346,10 +347,17 @@ fun PwaStandaloneScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var pwaRecreateKey by remember { mutableStateOf(0) }
     val pwaScope = rememberCoroutineScope()
-    val pwaWebAuthEnabled = remember {
-        context.getSharedPreferences("kaspa_browser_settings", Context.MODE_PRIVATE)
-            .getBoolean("web_auth_enabled", true)
+    remember {
+        com.example.security.CredentialSettingsStore.init(context)
+        true
     }
+    val pwaWebAuthEnabled by com.example.security.CredentialSettingsStore.webAuthEnabled.collectAsState()
+    val pwaOfferToSave by com.example.security.CredentialSettingsStore.offerToSavePasswords.collectAsState()
+    val pwaAutoCreatePasskey by com.example.security.CredentialSettingsStore.autoCreatePasskeyEnabled.collectAsState()
+    val pwaAllowPasskeyUpgrade by com.example.security.CredentialSettingsStore.allowPasskeyUpgradeEnabled.collectAsState()
+    val pwaAutoSignIn by com.example.security.CredentialSettingsStore.autoSignInEnabled.collectAsState()
+    val pwaBreachedMap by com.example.security.CredentialSettingsStore.breachedCredentials.collectAsState()
+
     val pwaVaultRepo = remember {
         com.example.security.PasswordVaultRepository(
             com.example.data.AppDatabase.getDatabase(context).vaultCredentialDao()
@@ -359,6 +367,21 @@ fun PwaStandaloneScreen(
     var pwaMatchingCreds by remember { mutableStateOf<List<com.example.data.VaultCredentialEntity>>(emptyList()) }
     var pwaPendingSave by remember { mutableStateOf<com.example.security.PendingCredentialSave?>(null) }
     var pwaVaultUnlocked by remember { mutableStateOf(false) }
+    var pwaPendingPasskeyConfirm by remember { mutableStateOf<com.example.network.PasskeyConfirmationRequest?>(null) }
+    var pwaPendingPasskeyRecovery by remember { mutableStateOf<com.example.network.PasskeyRecoveryEvent?>(null) }
+    var pwaLastAutoSignedInUrl by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(
+        pwaWebAuthEnabled,
+        pwaAutoCreatePasskey,
+        pwaAllowPasskeyUpgrade,
+        pwaAutoSignIn
+    ) {
+        webViewRef?.let { wv ->
+            KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, pwaWebAuthEnabled)
+            com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(wv, wv.url)
+        }
+    }
 
     LaunchedEffect(pwaAutofillEvent) {
         val ev = pwaAutofillEvent
@@ -366,6 +389,33 @@ fun PwaStandaloneScreen(
             runCatching { pwaVaultRepo.getMatchingCredentialsForUrl(ev.url) }.getOrDefault(emptyList())
         } else {
             emptyList()
+        }
+    }
+    LaunchedEffect(pwaPendingSave, pwaPendingPasskeyRecovery) {
+        val targetUrl = pwaPendingSave?.url ?: pwaPendingPasskeyRecovery?.url
+        if (targetUrl != null && pwaMatchingCreds.isEmpty()) {
+            pwaMatchingCreds = runCatching { pwaVaultRepo.getMatchingCredentialsForUrl(targetUrl) }.getOrDefault(emptyList())
+        }
+    }
+    LaunchedEffect(pwaAutofillEvent, pwaMatchingCreds, pwaVaultUnlocked, pwaAutoSignIn) {
+        val ev = pwaAutofillEvent ?: return@LaunchedEffect
+        if (ev.isNewPasswordField || !pwaAutoSignIn || !pwaVaultUnlocked) return@LaunchedEffect
+        if (pwaLastAutoSignedInUrl == ev.url) return@LaunchedEffect
+        val passwordMatches = pwaMatchingCreds.filter { it.hasPassword }
+        if (passwordMatches.size == 1) {
+            val cred = passwordMatches.first()
+            val pw = pwaVaultRepo.decryptPassword(cred)
+            if (pw != null) {
+                pwaLastAutoSignedInUrl = ev.url
+                com.example.security.PasswordAutofillBridge.fillCredentials(
+                    webViewRef,
+                    cred.username,
+                    pw,
+                    expectedHost = cred.host
+                )
+                pwaScope.launch { runCatching { pwaVaultRepo.markUsed(cred.id) } }
+                pwaAutofillEvent = null
+            }
         }
     }
 
@@ -692,7 +742,33 @@ fun PwaStandaloneScreen(
                         com.example.security.PasswordAutofillBridge.install(
                             webView = this,
                             onPasswordFormDetected = { ev -> pwaAutofillEvent = ev },
-                            onCredentialSubmitted = { pending -> pwaPendingSave = pending }
+                            onCredentialSubmitted = { pending ->
+                                if (com.example.security.CredentialSettingsStore.offerToSavePasswords.value) {
+                                    pwaPendingSave = pending
+                                }
+                            }
+                        )
+
+                        com.example.network.KaspaWebAuthnBridge.install(
+                            webView = this,
+                            scope = pwaScope,
+                            onPasskeyRecorded = { info ->
+                                pwaScope.launch {
+                                    runCatching {
+                                        pwaVaultRepo.recordPasskeyCredential(
+                                            url = info.url,
+                                            rpId = info.rpId,
+                                            username = info.username,
+                                            siteName = info.siteName
+                                        )
+                                    }
+                                }
+                            },
+                            onStatusMessage = { msg ->
+                                Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                            },
+                            onConfirmationRequired = { req -> pwaPendingPasskeyConfirm = req },
+                            onRecoveryNeeded = { rec -> pwaPendingPasskeyRecovery = rec }
                         )
 
                         // Cookie configuration
@@ -706,8 +782,12 @@ fun PwaStandaloneScreen(
                                 if (view != null && url != null) {
                                     val host = KaspaPrivacyEngine.extractHostFast(url)
                                     if (KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
+                                        KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url) ||
                                         (host != null && KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain(host))
                                     ) {
+                                        view.url?.let { KaspaPrivacyEngine.extractHostFast(it) }?.let { topHost ->
+                                            challengeCookieHosts.add(topHost)
+                                        }
                                         KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
                                     }
                                 }
@@ -723,11 +803,20 @@ fun PwaStandaloneScreen(
                                     }
                                     KaspaPrivacyEngine.applyUserAgentAndMetadata(view.settings, isDesktopMode, defaultDeviceUa)
                                     try {
-                                        val allowChallengeCookies = url != null && (
+                                        val pageHost = url?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                        val isChallengeUrl = url != null && (
                                             KaspaPrivacyEngine.isGoogleAuthUrl(url) ||
                                                 KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
                                             )
-                                        CookieManager.getInstance().setAcceptThirdPartyCookies(view, allowChallengeCookies)
+                                        if (isChallengeUrl && !pageHost.isNullOrBlank()) {
+                                            challengeCookieHosts.add(pageHost)
+                                        }
+                                        val allowChallengeCookies = (pageHost != null && challengeCookieHosts.contains(pageHost)) ||
+                                            isChallengeUrl
+                                        CookieManager.getInstance().apply {
+                                            setAcceptCookie(true)
+                                            setAcceptThirdPartyCookies(view, allowChallengeCookies)
+                                        }
                                     } catch (_: Throwable) {}
                                     if (url != null) {
                                         KaspaWebViewConfigurator.checkAndConfigureForUrl(view, url)
@@ -746,6 +835,7 @@ fun PwaStandaloneScreen(
                                     baseUa = WebSettings.getDefaultUserAgent(ctx)
                                 )
                                 view?.evaluateJavascript(shieldScript, null)
+                                com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                             }
 
                             override fun onPageFinished(view: WebView?, url: String?) {
@@ -781,7 +871,9 @@ fun PwaStandaloneScreen(
 
                                 if (com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
                                     com.example.security.PasswordAutofillBridge.scanPageForPasswordForms(view, url)
+                                    com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                                 } else {
+                                    com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                                     pwaAutofillEvent = null
                                     pwaMatchingCreds = emptyList()
                                 }
@@ -799,6 +891,20 @@ fun PwaStandaloneScreen(
                                 }
 
                                 if (KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(reqUrl)) {
+                                    val referer = request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer")
+                                    val topHost = referer?.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                        ?: currentUrl.let { KaspaPrivacyEngine.extractHostFast(it) }
+                                    if (!topHost.isNullOrBlank()) {
+                                        challengeCookieHosts.add(topHost)
+                                    }
+                                    view?.post {
+                                        try {
+                                            val cm = CookieManager.getInstance()
+                                            cm.setAcceptCookie(true)
+                                            cm.setAcceptThirdPartyCookies(view, true)
+                                            cm.flush()
+                                        } catch (_: Throwable) {}
+                                    }
                                     return null
                                 }
 
@@ -1116,7 +1222,35 @@ fun PwaStandaloneScreen(
             )
             }
 
-            if (pwaPendingSave != null ||
+            val recoveryEvent = pwaPendingPasskeyRecovery
+            if (recoveryEvent != null) {
+                PasskeyRecoveryBar(
+                    event = recoveryEvent,
+                    matchingPasswordCredentials = pwaMatchingCreds,
+                    onContinueInCustomTab = {
+                        com.example.engine.BrowserEngineManager.openInCustomTab(context, recoveryEvent.url)
+                        pwaPendingPasskeyRecovery = null
+                    },
+                    onUseSavedPassword = { cred ->
+                        val pw = pwaVaultRepo.decryptPassword(cred)
+                        if (pw != null) {
+                            com.example.security.PasswordAutofillBridge.fillCredentials(
+                                webViewRef,
+                                cred.username,
+                                pw,
+                                expectedHost = cred.host
+                            )
+                            pwaScope.launch { runCatching { pwaVaultRepo.markUsed(cred.id) } }
+                            pwaPendingPasskeyRecovery = null
+                            Toast.makeText(context, "Filled saved password for ${cred.host}", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Could not decrypt saved password", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onDismiss = { pwaPendingPasskeyRecovery = null },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            } else if ((pwaPendingSave != null && pwaOfferToSave) ||
                 (pwaAutofillEvent != null &&
                     (pwaMatchingCreds.isNotEmpty() || pwaAutofillEvent?.isNewPasswordField == true))
             ) {
@@ -1125,6 +1259,9 @@ fun PwaStandaloneScreen(
                     matchingCredentials = pwaMatchingCreds,
                     showGeneratorSuggestion = pwaAutofillEvent?.isNewPasswordField == true || pwaMatchingCreds.isEmpty(),
                     isVaultUnlocked = pwaVaultUnlocked,
+                    autoSignInEnabled = pwaAutoSignIn,
+                    offerToSavePasswords = pwaOfferToSave,
+                    breachedCredentials = pwaBreachedMap,
                     onUnlockAndFill = { cred ->
                         pwaVaultUnlocked = true
                         val pw = pwaVaultRepo.decryptPassword(cred)
@@ -1147,12 +1284,21 @@ fun PwaStandaloneScreen(
                     },
                     onSavePending = { pending ->
                         pwaScope.launch {
-                            runCatching {
+                            val savedRes = runCatching {
                                 pwaVaultRepo.savePasswordCredential(
                                     url = pending.url,
                                     siteName = pending.siteName,
                                     username = pending.username,
                                     rawPassword = pending.password
+                                )
+                            }
+                            if (savedRes.isSuccess && com.example.security.CredentialSettingsStore.passwordAlertsEnabled.value) {
+                                val allCreds = runCatching { pwaVaultRepo.getAllList() }.getOrDefault(emptyList())
+                                com.example.security.PasswordBreachMonitor.auditVaultCredentials(
+                                    context = context,
+                                    credentials = allCreds,
+                                    repository = pwaVaultRepo,
+                                    notifyOnNewBreach = true
                                 )
                             }
                             pwaPendingSave = null
@@ -1165,6 +1311,20 @@ fun PwaStandaloneScreen(
                         pwaMatchingCreds = emptyList()
                     },
                     modifier = Modifier.align(Alignment.BottomCenter)
+                )
+            }
+
+            pwaPendingPasskeyConfirm?.let { confirmReq ->
+                PasskeyConfirmationDialog(
+                    request = confirmReq,
+                    onApprove = {
+                        pwaPendingPasskeyConfirm = null
+                        confirmReq.onDecision(true)
+                    },
+                    onDecline = {
+                        pwaPendingPasskeyConfirm = null
+                        confirmReq.onDecision(false)
+                    }
                 )
             }
 

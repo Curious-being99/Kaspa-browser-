@@ -232,9 +232,9 @@ class KaspaDomainRegistry(
 
             // Verify account seed is available
             val seedPhrase = try {
-                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                CryptoUtils.getDecryptedSeedForSigning(account)
             } catch (e: Exception) {
-                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase for signing: ${e.message}"))
             }
 
             // Execute real on-chain transaction
@@ -320,9 +320,9 @@ class KaspaDomainRegistry(
             }
 
             val seedPhrase = try {
-                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                CryptoUtils.getDecryptedSeedForSigning(account)
             } catch (e: Exception) {
-                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase for signing: ${e.message}"))
             }
 
             val txResult = walletService.transferDomainOnChain(
@@ -368,9 +368,9 @@ class KaspaDomainRegistry(
             }
 
             val seedPhrase = try {
-                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                CryptoUtils.getDecryptedSeedForSigning(account)
             } catch (e: Exception) {
-                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase for signing: ${e.message}"))
             }
 
             val txResult = walletService.releaseDomainOnChain(
@@ -409,9 +409,9 @@ class KaspaDomainRegistry(
             }
 
             val seedPhrase = try {
-                CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                CryptoUtils.getDecryptedSeedForSigning(account)
             } catch (e: Exception) {
-                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase: ${e.message}"))
+                return@withContext Result.failure(IllegalStateException("Cannot decrypt account wallet seed phrase for signing: ${e.message}"))
             }
 
             val txResult = walletService.updateDomainRecordsOnChain(

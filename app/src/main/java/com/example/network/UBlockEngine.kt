@@ -536,11 +536,6 @@ object UBlockEngine {
      * Returns true if the request matches a blocking rule and is not whitelisted.
      */
     fun shouldBlock(url: String): Boolean {
-        if (isNativeLoaded) {
-            try {
-                return nativeShouldBlock(url)
-            } catch (_: Throwable) {}
-        }
         if (url.length < 4) return false
 
         // Fast skip for internal pseudo-schemes
@@ -590,20 +585,26 @@ object UBlockEngine {
             return false
         }
 
-        // Never block Google Account login, OAuth, account management, or identity endpoints
-        if (isGoogleAccountOrAuthUrl(url)) {
+        // Never block Google Account login, OAuth, account management, CAPTCHA/challenge, or identity endpoints
+        if (isGoogleAccountOrAuthUrl(url) || KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)) {
             return false
         }
 
         val host = extractHost(url) ?: return false
 
-        // Never block Google Account domains
-        if (isGoogleAccountDomain(host)) {
+        // Never block Google Account or essential auth/CAPTCHA domains
+        if (isGoogleAccountDomain(host) || KaspaPrivacyEngine.isEssentialAuthOrCaptchaDomain(host)) {
             return false
         }
 
         // Check if explicitly whitelisted or an essential web infrastructure domain (O(1))
         if (whitelistedDomains.contains(host) || ESSENTIAL_WEB_DOMAINS.contains(host)) return false
+
+        if (isNativeLoaded) {
+            try {
+                return nativeShouldBlock(url)
+            } catch (_: Throwable) {}
+        }
 
         // 1. Instant O(1) Hierarchical Domain Lookup
         // e.g. for "adserver.doubleclick.net", checks:
@@ -737,11 +738,22 @@ object UBlockEngine {
             (function() {
                 try {
                     var host = (window.location.hostname || '').toLowerCase();
-                    // Never hide UI elements on Google Account, login, or identity management pages
+                    var path = (window.location.pathname || '').toLowerCase();
+                    var search = (window.location.search || '').toLowerCase();
+                    // Never inject cosmetic hiding styles on auth, OAuth, or CAPTCHA/challenge pages
                     if (host === 'accounts.google.com' || host.endsWith('.accounts.google.com') ||
                         host === 'myaccount.google.com' || host.endsWith('.myaccount.google.com') ||
-                        host.startsWith('accounts.google.') || host.includes('accounts.youtube.com') ||
-                        host === 'apis.google.com') {
+                        host.startsWith('accounts.google.') || host.indexOf('accounts.youtube.com') !== -1 ||
+                        host === 'apis.google.com' || host.indexOf('cloudflare.com') !== -1 ||
+                        host.indexOf('hcaptcha.com') !== -1 || host.indexOf('recaptcha.net') !== -1 ||
+                        host.indexOf('arkoselabs.com') !== -1 || host.indexOf('octocaptcha.com') !== -1 ||
+                        host.indexOf('geetest.com') !== -1 || host.indexOf('friendlycaptcha.com') !== -1 ||
+                        path.indexOf('/cdn-cgi/') !== -1 || path.indexOf('/recaptcha') !== -1 ||
+                        path.indexOf('/turnstile') !== -1 || search.indexOf('__cf_chl_') !== -1 ||
+                        (document.title && document.title.indexOf('Just a moment') !== -1) ||
+                        document.getElementById('challenge-running') ||
+                        document.getElementById('challenge-form') ||
+                        document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
                         return;
                     }
                     var styleId = '__ublock_cosmetic_style';

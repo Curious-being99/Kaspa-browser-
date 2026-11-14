@@ -630,8 +630,12 @@ class NetworkAuditUnitTest {
             baseUa = "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140.0.0.0 Mobile Safari/537.36"
         )
 
-        assertTrue(script.contains("HTMLMetaElement.prototype.setAttribute"))
+        assertFalse(script.contains("HTMLMetaElement.prototype.setAttribute"))
+        assertFalse(script.contains("Object.defineProperty(HTMLMetaElement.prototype"))
         assertTrue(script.contains("DESKTOP_VIEWPORT"))
+        assertTrue(script.contains("cleanupDesktopOverrides"))
+        assertTrue(script.contains("/cdn-cgi/"))
+        assertTrue(script.contains("cf-turnstile") && script.contains("g-recaptcha") && script.contains("h-captcha"))
         assertFalse(script.contains("observer.observe(targetNode, { childList: true, subtree: true })"))
     }
 

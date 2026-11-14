@@ -880,7 +880,10 @@ object Kcc20NoteScanner {
                     val array = root.optJSONArray("result") ?: root.optJSONArray("utxos") ?: JSONArray()
                     for (i in 0 until array.length()) {
                         val u = array.optJSONObject(i) ?: continue
-                        val rHex = u.optString("redeemScriptHex", u.optString("redeem_script_hex", "")).lowercase()
+                        val rHex = sequenceOf(
+                            "redeemScriptHex", "redeem_script_hex", "redeemScript", "redeem_script", "redeem"
+                        ).mapNotNull { key -> u.optString(key, "").takeIf { it.isNotBlank() } }
+                            .firstOrNull().orEmpty().lowercase()
                         if (rHex.length < 88) continue
 
                         // In KRON: owner is at bytes 1-32 (hex chars 2..66)
@@ -1009,7 +1012,7 @@ object Kcc20NoteScanner {
                         ticker = ticker.uppercase(),
                         name = meta.optString("name", ticker.uppercase()),
                         decimals = meta.optInt("decimals", 0),
-                        imageUrl = meta.optString("imageUrl", meta.optString("icon", null)),
+                        imageUrl = meta.optString("imageUrl", "").ifBlank { meta.optString("icon", "") }.takeIf { it.isNotBlank() },
                         launchpad = "KasSeal"
                     )
                 }
@@ -1033,7 +1036,7 @@ object Kcc20NoteScanner {
                         ticker = ticker.uppercase(),
                         name = meta.optString("name", ticker.uppercase()),
                         decimals = meta.optInt("decimals", 3),
-                        imageUrl = meta.optString("image", meta.optString("imageUrl", null)),
+                        imageUrl = meta.optString("image", "").ifBlank { meta.optString("imageUrl", "") }.takeIf { it.isNotBlank() },
                         launchpad = "KaspaRocket"
                     )
                 }
@@ -1141,6 +1144,17 @@ object Kcc20NoteScanner {
             }
         }
 
+        // 0. Check standard single-key P2SH-P2PK ("20" + pubkey + "ac")
+        if (cleanPub.matches(Regex("[0-9a-f]{64}"))) {
+            val stdP2pkRedeem = "20${cleanPub}ac"
+            val stdHash = CryptoUtils.blake2b256(hexToBytes(stdP2pkRedeem))
+                .joinToString("") { "%02x".format(it) }
+            if (stdHash.equals(cleanHash, ignoreCase = true)) {
+                registerRedeemScript(txId, outputIndex, cleanHash, stdP2pkRedeem)
+                return@withContext stdP2pkRedeem
+            }
+        }
+
         val isTestnet = cleanAddr.startsWith("kaspatest:") || network.contains("testnet", ignoreCase = true)
         val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
         val rpcNodes = if (isTestnet) {
@@ -1153,16 +1167,25 @@ object Kcc20NoteScanner {
         if (txId.isNotBlank()) {
             for (rpc in rpcNodes) {
                 try {
-                    val url = URL("$rpc/transactions/$txId")
-                    val conn = (url.openConnection() as HttpURLConnection).apply {
-                        requestMethod = "GET"
-                        connectTimeout = 5000
-                        readTimeout = 5000
-                        setRequestProperty("Accept", "application/json")
+                    val txUrls = listOf(
+                        "$rpc/transactions/$txId?inputs=true&outputs=true&resolve_previous_outpoints=light",
+                        "$rpc/transactions/$txId"
+                    )
+                    var txObj: JSONObject? = null
+                    for (txUrl in txUrls) {
+                        val conn = (URL(txUrl).openConnection() as HttpURLConnection).apply {
+                            requestMethod = "GET"
+                            connectTimeout = 5000
+                            readTimeout = 5000
+                            setRequestProperty("Accept", "application/json")
+                        }
+                        if (conn.responseCode == 200) {
+                            val body = conn.inputStream.bufferedReader().use { it.readText() }
+                            txObj = JSONObject(body)
+                            break
+                        }
                     }
-                    if (conn.responseCode == 200) {
-                        val body = conn.inputStream.bufferedReader().use { it.readText() }
-                        val txObj = JSONObject(body)
+                    if (txObj != null) {
                         val outputs = txObj.optJSONArray("outputs") ?: JSONArray()
                         val inputs = txObj.optJSONArray("inputs") ?: JSONArray()
 
@@ -1182,15 +1205,17 @@ object Kcc20NoteScanner {
                             }
                         }
 
-                        // Also add amounts from outputs and common balances
+                        // Also add amounts from outputs and token amounts
                         for (j in 0 until outputs.length()) {
                             val out = outputs.optJSONObject(j) ?: continue
                             val amt = readAmount(out)
                             if (amt > 0L) candidateAmounts.add(amt)
+                            val tokenAmt = out.optLong("tokenAmount", out.optLong("token_amount", out.optLong("rawAmount", 0L)))
+                            if (tokenAmt > 0L) candidateAmounts.add(tokenAmt)
                         }
 
                         for ((lineage, template) in TEMPLATES) {
-                            val code = codeCache[lineage] ?: extractCodeFromInputs(inputs, template) ?: template.suf
+                            val code = codeCache[lineage] ?: extractCodeFromInputs(inputs, template) ?: continue
                             val forms = listOf("p2pk", "p2sh")
                             for (amt in candidateAmounts) {
                                 if (amt <= 0L) continue
@@ -1229,7 +1254,10 @@ object Kcc20NoteScanner {
                         val array = try { JSONArray(body) } catch (_: Exception) { JSONObject(body).optJSONArray("cells") ?: JSONArray() }
                         for (k in 0 until array.length()) {
                             val cell = array.optJSONObject(k) ?: continue
-                            val rHex = cell.optString("redeemScriptHex", cell.optString("redeem_script_hex", cell.optString("redeem", ""))).lowercase()
+                            val rHex = sequenceOf(
+                                "redeemScriptHex", "redeem_script_hex", "redeemScript", "redeem_script", "redeem"
+                            ).mapNotNull { key -> cell.optString(key, "").takeIf { it.isNotBlank() } }
+                                .firstOrNull().orEmpty().lowercase()
                             if (rHex.isNotBlank()) {
                                 val h = CryptoUtils.blake2b256(hexToBytes(rHex)).joinToString("") { "%02x".format(it) }
                                 if (h.equals(cleanHash, ignoreCase = true)) {
@@ -1253,6 +1281,25 @@ object Kcc20NoteScanner {
                 }
             }
         } catch (_: Exception) {}
+
+        // 5. Cold-start fallback: scan recent wallet transactions to populate dynamic contract codes and cached notes
+        if (cleanAddr.isNotBlank() && cleanPub.matches(Regex("[0-9a-f]{64}"))) {
+            try {
+                val scanResult = scanWalletNotes(cleanAddr, cleanPub, network)
+                scanResult.discoveredNotes.firstOrNull { note ->
+                    note.targetScriptHash.equals(cleanHash, ignoreCase = true) && note.redeemScriptHex.isNotBlank()
+                }?.let { matched ->
+                    registerRedeemScript(matched.txId, matched.outputIndex, matched.targetScriptHash, matched.redeemScriptHex)
+                    return@withContext matched.redeemScriptHex
+                }
+                findRedeemScript(txId, outputIndex.toLong(), cleanHash)?.let { cached ->
+                    val h = CryptoUtils.blake2b256(hexToBytes(cached)).joinToString("") { "%02x".format(it) }
+                    if (h.equals(cleanHash, ignoreCase = true)) {
+                        return@withContext cached
+                    }
+                }
+            } catch (_: Exception) {}
+        }
 
         null
     }

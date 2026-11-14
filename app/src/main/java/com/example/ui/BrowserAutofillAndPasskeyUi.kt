@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.VaultCredentialEntity
 import com.example.engine.BrowserEngineManager
+import com.example.network.PasskeyConfirmationRequest
+import com.example.network.PasskeyPromptKind
+import com.example.network.PasskeyRecoveryEvent
 import com.example.security.PasswordGenerator
 import com.example.security.PasswordVaultRepository
 import com.example.security.PendingCredentialSave
@@ -430,6 +433,187 @@ private fun DiagnosticRow(label: String, value: String) {
 }
 
 /**
+ * Confirmation prompt shown before sign-in (when Auto sign-in is disabled) or before
+ * creating/upgrading a passkey (when Auto-create passkey is disabled).
+ */
+@Composable
+fun PasskeyConfirmationDialog(
+    request: PasskeyConfirmationRequest,
+    onApprove: () -> Unit,
+    onDecline: () -> Unit
+) {
+    val isSignIn = request.kind == PasskeyPromptKind.SIGN_IN
+    val title = when {
+        isSignIn -> "Confirm Passkey Sign-In"
+        request.isUpgrade -> "Upgrade Account to Passkey?"
+        else -> "Create Passkey for ${request.host}?"
+    }
+    val body = when {
+        isSignIn ->
+            "Auto sign-in is off. Confirm that you want to sign in to ${request.host} (RP: ${request.rpId}) using a passkey."
+        request.isUpgrade ->
+            "Allow ${request.host}${request.username.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""} to upgrade your existing account to sign in faster with a passkey?"
+        else ->
+            "Create and save a passkey for ${request.host}${request.username.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""}?"
+    }
+    val confirmLabel = when {
+        isSignIn -> "Sign In"
+        request.isUpgrade -> "Upgrade"
+        else -> "Create Passkey"
+    }
+
+    AlertDialog(
+        onDismissRequest = onDecline,
+        containerColor = SurfaceCard,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Fingerprint,
+                contentDescription = null,
+                tint = ElectricCyan,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = title,
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Text(
+                text = body,
+                color = TextSecondary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onApprove,
+                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.testTag("passkey_confirm_approve_button")
+            ) {
+                Text(confirmLabel, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDecline,
+                modifier = Modifier.testTag("passkey_confirm_decline_button")
+            ) {
+                Text(if (isSignIn) "Cancel" else "Not now", color = TextSecondary)
+            }
+        }
+    )
+}
+
+/**
+ * Non-blocking in-tab recovery bar displayed when embedded WebView WebAuthn/Passkey closes
+ * or cannot complete due to Android origin/provider restrictions, offering one-tap System
+ * Browser Tab handoff or saved-password fallback.
+ */
+@Composable
+fun PasskeyRecoveryBar(
+    event: PasskeyRecoveryEvent,
+    matchingPasswordCredentials: List<VaultCredentialEntity>,
+    onContinueInCustomTab: () -> Unit,
+    onUseSavedPassword: (VaultCredentialEntity) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .testTag("passkey_recovery_bar"),
+        shape = RoundedCornerShape(16.dp),
+        color = SurfaceDark,
+        tonalElevation = 8.dp,
+        shadowElevation = 10.dp,
+        border = BorderStroke(1.dp, AmberCentral.copy(alpha = 0.65f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Fingerprint,
+                    contentDescription = "Passkey Recovery",
+                    tint = AmberCentral,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Passkey couldn't complete in WebView",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Text(
+                        text = event.reason,
+                        fontSize = 11.5.sp,
+                        color = TextSecondary,
+                        lineHeight = 16.sp
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("passkey_recovery_dismiss_button")
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextMuted, modifier = Modifier.size(16.dp))
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = onContinueInCustomTab,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 42.dp)
+                        .testTag("passkey_recovery_custom_tab_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Use System Browser", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                val fallbackCred = matchingPasswordCredentials.firstOrNull { it.hasPassword }
+                if (fallbackCred != null) {
+                    OutlinedButton(
+                        onClick = { onUseSavedPassword(fallbackCred) },
+                        border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.65f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .heightIn(min = 42.dp)
+                            .testTag("passkey_recovery_password_button")
+                    ) {
+                        Icon(Icons.Default.VpnKey, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text("Use Password", fontSize = 12.sp, color = EmeraldMesh, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Compact bottom Autofill & Credential Capture bar shown inside WebView viewports when a
  * password field is detected or login credentials were submitted.
  */
@@ -439,6 +623,9 @@ fun BrowserAutofillBar(
     matchingCredentials: List<VaultCredentialEntity>,
     showGeneratorSuggestion: Boolean,
     isVaultUnlocked: Boolean,
+    autoSignInEnabled: Boolean = true,
+    offerToSavePasswords: Boolean = true,
+    breachedCredentials: Map<String, Int> = emptyMap(),
     onUnlockAndFill: (VaultCredentialEntity) -> Unit,
     onFillGeneratedPassword: (String) -> Unit,
     onSavePending: (PendingCredentialSave) -> Unit,
@@ -448,8 +635,15 @@ fun BrowserAutofillBar(
 ) {
     val context = LocalContext.current
     val hasDeviceLock = remember { BiometricAuthHelper.isDeviceLockAvailable(context) }
+    var pendingConfirmCred by remember { mutableStateOf<VaultCredentialEntity?>(null) }
 
-    if (pendingSave != null) {
+    if (pendingSave != null && offerToSavePasswords) {
+        val isExistingUpdate = remember(pendingSave, matchingCredentials) {
+            matchingCredentials.any { cred ->
+                cred.hasPassword &&
+                    cred.username.equals(pendingSave.username.trim(), ignoreCase = true)
+            }
+        }
         Surface(
             modifier = modifier
                 .fillMaxWidth()
@@ -476,7 +670,11 @@ fun BrowserAutofillBar(
                 Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Save login for ${pendingSave.host}?",
+                        text = if (isExistingUpdate) {
+                            "Update password for ${pendingSave.host}?"
+                        } else {
+                            "Save login for ${pendingSave.host}?"
+                        },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
@@ -500,7 +698,7 @@ fun BrowserAutofillBar(
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.heightIn(min = 40.dp).testTag("autofill_confirm_save_button")
                 ) {
-                    Text("Save", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(if (isExistingUpdate) "Update" else "Save", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
         }
@@ -544,24 +742,37 @@ fun BrowserAutofillBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 passwordMatches.forEach { cred ->
+                    val breachCount = breachedCredentials[cred.id] ?: 0
                     FilledTonalButton(
                         onClick = {
-                            if (isVaultUnlocked || !hasDeviceLock) {
-                                onUnlockAndFill(cred)
+                            val triggerAuthOrFill = {
+                                if (isVaultUnlocked || !hasDeviceLock) {
+                                    onUnlockAndFill(cred)
+                                } else {
+                                    BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                        context = context,
+                                        title = "Sign in to ${cred.host}",
+                                        subtitle = "Verify identity to fill saved password",
+                                        onSuccess = { onUnlockAndFill(cred) },
+                                        onError = {}
+                                    )
+                                }
+                            }
+                            if (!autoSignInEnabled) {
+                                pendingConfirmCred = cred
                             } else {
-                                BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                                    context = context,
-                                    title = "Autofill ${cred.host}",
-                                    subtitle = "Verify identity to fill saved password",
-                                    onSuccess = { onUnlockAndFill(cred) },
-                                    onError = {}
-                                )
+                                triggerAuthOrFill()
                             }
                         },
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.heightIn(min = 40.dp)
+                        modifier = Modifier.heightIn(min = 40.dp).testTag("autofill_credential_pill")
                     ) {
-                        Icon(Icons.Default.Fingerprint, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Icon(
+                            imageVector = if (breachCount > 0) Icons.Default.WarningAmber else Icons.Default.Fingerprint,
+                            contentDescription = if (breachCount > 0) "Breached password warning" else null,
+                            tint = if (breachCount > 0) RedTamper else ElectricCyan,
+                            modifier = Modifier.size(15.dp)
+                        )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = cred.username.ifBlank { cred.siteName },
@@ -591,5 +802,56 @@ fun BrowserAutofillBar(
                 Icon(Icons.Default.Close, contentDescription = "Dismiss autofill bar", tint = TextMuted, modifier = Modifier.size(16.dp))
             }
         }
+    }
+
+    pendingConfirmCred?.let { cred ->
+        AlertDialog(
+            onDismissRequest = { pendingConfirmCred = null },
+            containerColor = SurfaceCard,
+            icon = {
+                Icon(Icons.Default.VpnKey, contentDescription = null, tint = ElectricCyan)
+            },
+            title = {
+                Text(
+                    text = "Confirm Sign-In",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Auto sign-in is disabled. Sign in to ${cred.host} as ${cred.username.ifBlank { cred.siteName }} using your stored credentials?",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingConfirmCred = null
+                        if (!hasDeviceLock) {
+                            onUnlockAndFill(cred)
+                        } else {
+                            BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                                context = context,
+                                title = "Confirm Sign-In: ${cred.host}",
+                                subtitle = "Verify identity to sign in with stored credentials",
+                                onSuccess = { onUnlockAndFill(cred) },
+                                onError = {}
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    modifier = Modifier.testTag("autofill_manual_confirm_button")
+                ) {
+                    Text("Sign In", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingConfirmCred = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
     }
 }

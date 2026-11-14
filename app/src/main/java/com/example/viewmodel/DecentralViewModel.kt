@@ -354,12 +354,24 @@ class DecentralViewModel(
     private val _isVaultUnlocked = MutableStateFlow(false)
     val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
 
+    val offerToSavePasswords: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.offerToSavePasswords
+    val autoCreatePasskeyEnabled: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.autoCreatePasskeyEnabled
+    val allowPasskeyUpgradeEnabled: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.allowPasskeyUpgradeEnabled
+    val autoSignInEnabled: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.autoSignInEnabled
+    val passwordAlertsEnabled: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.passwordAlertsEnabled
+    val breachedCredentials: StateFlow<Map<String, Int>> = com.example.security.CredentialSettingsStore.breachedCredentials
+    val isCheckingBreaches: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.isCheckingBreaches
+    val lastBreachCheckAtMs: StateFlow<Long> = com.example.security.CredentialSettingsStore.lastBreachCheckAtMs
+
     fun setShowPasswordVaultSheet(show: Boolean) {
         _showPasswordVaultSheet.value = show
     }
 
     fun unlockVault() {
         _isVaultUnlocked.value = true
+        if (passwordAlertsEnabled.value) {
+            checkSavedPasswordsForBreaches(notifyOnNewBreach = true, userInitiated = false)
+        }
     }
 
     fun lockVault() {
@@ -367,6 +379,8 @@ class DecentralViewModel(
     }
 
     init {
+        com.example.security.CredentialSettingsStore.init(application)
+        com.example.security.PasswordBreachMonitor.ensureNotificationChannel(application)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 database.newsArticleDao().purgeStaleArticles()
@@ -1625,10 +1639,7 @@ class DecentralViewModel(
     private val _httpsOnlyMode = MutableStateFlow(true)
     val httpsOnlyMode: StateFlow<Boolean> = _httpsOnlyMode.asStateFlow()
 
-    private val _webAuthEnabled = MutableStateFlow(
-        browserSettingsPrefs.getBoolean("web_auth_enabled", true)
-    )
-    val webAuthEnabled: StateFlow<Boolean> = _webAuthEnabled.asStateFlow()
+    val webAuthEnabled: StateFlow<Boolean> = com.example.security.CredentialSettingsStore.webAuthEnabled
 
     private val _showWebAuthnRpIdDialog = MutableStateFlow(false)
     val showWebAuthnRpIdDialog: StateFlow<Boolean> = _showWebAuthnRpIdDialog.asStateFlow()
@@ -1852,10 +1863,53 @@ class DecentralViewModel(
     }
     fun toggleHttpsOnlyMode(enabled: Boolean) { _httpsOnlyMode.value = enabled }
     fun toggleWebAuth(enabled: Boolean) {
-        _webAuthEnabled.value = enabled
-        browserSettingsPrefs.edit().putBoolean("web_auth_enabled", enabled).apply()
+        com.example.security.CredentialSettingsStore.setWebAuthEnabled(getApplication(), enabled)
+    }
+    fun toggleOfferToSavePasswords(enabled: Boolean) {
+        com.example.security.CredentialSettingsStore.setOfferToSavePasswords(getApplication(), enabled)
+    }
+    fun toggleAutoCreatePasskey(enabled: Boolean) {
+        com.example.security.CredentialSettingsStore.setAutoCreatePasskeyEnabled(getApplication(), enabled)
+    }
+    fun toggleAllowPasskeyUpgrade(enabled: Boolean) {
+        com.example.security.CredentialSettingsStore.setAllowPasskeyUpgradeEnabled(getApplication(), enabled)
+    }
+    fun toggleAutoSignIn(enabled: Boolean) {
+        com.example.security.CredentialSettingsStore.setAutoSignInEnabled(getApplication(), enabled)
+    }
+    fun togglePasswordAlerts(enabled: Boolean) {
+        com.example.security.CredentialSettingsStore.setPasswordAlertsEnabled(getApplication(), enabled)
+        if (enabled) {
+            checkSavedPasswordsForBreaches(notifyOnNewBreach = true, userInitiated = true)
+        }
     }
     fun setShowWebAuthnRpIdDialog(show: Boolean) { _showWebAuthnRpIdDialog.value = show }
+
+    fun checkSavedPasswordsForBreaches(
+        notifyOnNewBreach: Boolean = true,
+        userInitiated: Boolean = true
+    ) {
+        viewModelScope.launch {
+            val allCreds = runCatching { passwordVaultRepository.getAllList() }.getOrDefault(emptyList())
+            val summary = com.example.security.PasswordBreachMonitor.auditVaultCredentials(
+                context = getApplication(),
+                credentials = allCreds,
+                repository = passwordVaultRepository,
+                notifyOnNewBreach = notifyOnNewBreach
+            )
+            if (userInitiated) {
+                val foundCount = summary.breachedMap.size
+                _statusMessage.value = when {
+                    summary.checkedCount == 0 -> "No saved passwords to check"
+                    foundCount > 0 -> "Password alert: $foundCount saved password(s) found in online breaches"
+                    summary.networkErrors > 0 -> "Breach check incomplete (${summary.networkErrors} network timeout)"
+                    else -> "All ${summary.checkedCount} saved password(s) checked — 0 breaches found"
+                }
+            } else if (summary.newlyNotifiedCount > 0) {
+                _statusMessage.value = "Password alert: ${summary.newlyNotifiedCount} saved password(s) found online"
+            }
+        }
+    }
 
     suspend fun getMatchingVaultCredentials(url: String): List<com.example.data.VaultCredentialEntity> {
         return try {
@@ -1888,8 +1942,15 @@ class DecentralViewModel(
                 )
             }
             if (res.isSuccess) {
-                val host = res.getOrNull()?.host ?: ""
+                val saved = res.getOrNull()
+                val host = saved?.host ?: ""
+                if (saved != null) {
+                    com.example.security.CredentialSettingsStore.removeCredentialBreachState(getApplication(), saved.id)
+                }
                 _statusMessage.value = "Login encrypted & saved for $host"
+                if (passwordAlertsEnabled.value) {
+                    checkSavedPasswordsForBreaches(notifyOnNewBreach = true, userInitiated = false)
+                }
             } else {
                 _statusMessage.value = "Failed to save login: ${res.exceptionOrNull()?.message ?: "Unknown error"}"
             }
@@ -1918,6 +1979,12 @@ class DecentralViewModel(
                 )
             }.getOrNull()
             if (updated != null) {
+                if (!newRawPassword.isNullOrBlank()) {
+                    com.example.security.CredentialSettingsStore.removeCredentialBreachState(getApplication(), updated.id)
+                    if (passwordAlertsEnabled.value) {
+                        checkSavedPasswordsForBreaches(notifyOnNewBreach = true, userInitiated = false)
+                    }
+                }
                 _statusMessage.value = "Saved login updated for ${updated.host}"
                 onDone?.invoke(true)
             } else {
@@ -1930,6 +1997,7 @@ class DecentralViewModel(
     fun deleteVaultCredential(id: String) {
         viewModelScope.launch {
             passwordVaultRepository.deleteCredential(id)
+            com.example.security.CredentialSettingsStore.removeCredentialBreachState(getApplication(), id)
             _statusMessage.value = "Credential removed from vault"
         }
     }
@@ -2169,11 +2237,12 @@ class DecentralViewModel(
                             val refreshedAcc = CryptoUtils.deriveDecentralizedAccount(
                                 customHandle = cleanHandle,
                                 seedMnemonic = acc.seedPhrase,
-                                networkPrefix = existingNetworkPrefix
+                                networkPrefix = existingNetworkPrefix,
+                                accountType = acc.accountType
                             ).copy(
                                 isActive = acc.isActive,
                                 createdAt = acc.createdAt,
-                                accountType = "DECENTRALIZED_NATIVE"
+                                accountType = acc.accountType
                             )
                             database.accountDao().insertAccount(refreshedAcc)
                         }
@@ -2188,7 +2257,8 @@ class DecentralViewModel(
                 _activeAccountLegacyWarning.value = account?.let {
                     CryptoUtils.legacyWalletWarning(
                         storedSeed = it.seedPhrase,
-                        createdAt = it.createdAt
+                        createdAt = it.createdAt,
+                        accountType = it.accountType
                     )
                 }
                 val testnetAddr = getTestnetAddressForAccount(account)
@@ -2783,11 +2853,11 @@ class DecentralViewModel(
             return@withContext Result.failure(IllegalArgumentException("Invalid Kaspa recipient address: ${e.message}"))
         }
 
-        // 2. Derive wallet key pair
+        // 2. Derive wallet key pair via single signing gate
         val decryptedSeed = try {
-            CryptoUtils.getDecryptedSeed(account.seedPhrase)
+            CryptoUtils.getDecryptedSeedForSigning(account)
         } catch (e: Exception) {
-            return@withContext Result.failure(IllegalStateException("Failed to decrypt seed phrase: ${e.message}"))
+            return@withContext Result.failure(IllegalStateException(e.message ?: "Failed to decrypt seed phrase"))
         }
         val keyPair = try {
             CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
@@ -3094,7 +3164,10 @@ class DecentralViewModel(
                     _legacyMigrationSourceDid.value = source.did
                     generated
                 }
-                val sourceSeed = CryptoUtils.getDecryptedSeed(source.seedPhrase)
+                val sourceSeed = CryptoUtils.getDecryptedSeedForSigning(
+                    account = source,
+                    isAuthorizedMigration = true
+                )
                 val prepared = kaspaWalletService.prepareFullBalanceTransfer(
                     senderAddress = sourceAddress,
                     senderSeed = sourceSeed,
@@ -3235,9 +3308,9 @@ class DecentralViewModel(
                     return@launch
                 }
                 val decryptedSeed = try {
-                    CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
+                    CryptoUtils.getDecryptedSeedForSigning(senderAcc)
                 } catch (e: Exception) {
-                    val errMsg = "Failed to decrypt wallet seed: ${e.message}"
+                    val errMsg = e.message ?: "Failed to decrypt wallet seed"
                     _statusMessage.value = errMsg
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -3334,9 +3407,9 @@ class DecentralViewModel(
                 }
 
                 val decryptedSeed = try {
-                    CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
+                    CryptoUtils.getDecryptedSeedForSigning(senderAcc)
                 } catch (e: Exception) {
-                    val errMsg = "Failed to decrypt wallet seed: ${e.message}"
+                    val errMsg = e.message ?: "Failed to decrypt wallet seed"
                     _statusMessage.value = errMsg
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -3469,9 +3542,9 @@ class DecentralViewModel(
                 val isMainnet = networkAtBroadcast.contains("Mainnet", ignoreCase = true)
                 val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
                 val decryptedSeed = try {
-                    CryptoUtils.getDecryptedSeed(senderAcc.seedPhrase)
+                    CryptoUtils.getDecryptedSeedForSigning(senderAcc)
                 } catch (e: Exception) {
-                    val errMsg = "Failed to decrypt wallet seed: ${e.message}"
+                    val errMsg = e.message ?: "Failed to decrypt wallet seed"
                     _statusMessage.value = errMsg
                     _kaspaWalletState.value = _kaspaWalletState.value.copy(
                         isSending = false,
@@ -4360,7 +4433,7 @@ class DecentralViewModel(
                         val protocolPrefix = if (cleanSlug.isNotEmpty()) "mesh://$cleanSlug | ${com.example.network.DomainConstants.formatDomain(cleanSlug)}" else "ipfs://$cid"
                         
                         authorAddress = account.publicKeyHex
-                        val seedBytes = com.example.network.CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                        val seedBytes = com.example.network.CryptoUtils.getDecryptedSeedForSigning(account)
                         val keyPair = com.example.network.CryptoUtils.deriveKaspaKeyPair(seedBytes)
                         
                         val messageBytes = (content + protocolPrefix).toByteArray(Charsets.UTF_8)

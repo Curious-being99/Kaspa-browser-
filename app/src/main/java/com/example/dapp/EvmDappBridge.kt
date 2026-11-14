@@ -62,6 +62,7 @@ internal object EvmDappBridge {
                     !runCatching {
                         EvmPassphraseVault.isLegacyPhraseConfirmed(context, accountId, currentEvmAddress)
                     }.getOrDefault(false)
+                val isLegacyWallet = account != null && com.example.network.CryptoUtils.isLegacyWallet(account)
                 val chainPrefs = context.getSharedPreferences(CHAIN_PREFS, Context.MODE_PRIVATE)
                 val walletNetworkPrefs = context.getSharedPreferences(EvmWalletEngine.WALLET_NETWORK_PREFS, Context.MODE_PRIVATE)
                 val selectedWalletChain = walletNetworkPrefs.getLong(EvmWalletEngine.WALLET_NETWORK_KEY, 202555L)
@@ -124,6 +125,10 @@ internal object EvmDappBridge {
                 }
 
                 fun requestConnection() {
+                    if (isLegacyWallet) {
+                        respond(code = 4100, error = "Legacy insecure wallet detected. dApp access is blocked; please migrate to a secure wallet.")
+                        return
+                    }
                     if (legacyPhraseUnconfirmed) {
                         respond(code = 4100, error = "Review and confirm the derived legacy EVM address in wallet settings before connecting dApps")
                         return
@@ -237,6 +242,10 @@ internal object EvmDappBridge {
                         respond(code = 4902, error = "${target.name} is built in; use wallet_switchEthereumChain")
                     }
                     "personal_sign" -> {
+                        if (isLegacyWallet) {
+                            respond(code = 4100, error = "Legacy insecure wallet detected. Signing is blocked; migrate to a secure wallet.")
+                            return@addWebMessageListener
+                        }
                         if (legacyPhraseUnconfirmed) {
                             respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
                             return@addWebMessageListener
@@ -285,6 +294,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_sign" -> {
+                        if (isLegacyWallet) {
+                            respond(code = 4100, error = "Legacy insecure wallet detected. Signing is blocked; migrate to a secure wallet.")
+                            return@addWebMessageListener
+                        }
                         if (legacyPhraseUnconfirmed) {
                             respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
                             return@addWebMessageListener
@@ -334,6 +347,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_signTypedData_v4", "eth_signTypedData_v3", "eth_signTypedData" -> {
+                        if (isLegacyWallet) {
+                            respond(code = 4100, error = "Legacy insecure wallet detected. Signing is blocked; migrate to a secure wallet.")
+                            return@addWebMessageListener
+                        }
                         if (legacyPhraseUnconfirmed) {
                             respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
                             return@addWebMessageListener
@@ -425,6 +442,10 @@ internal object EvmDappBridge {
                         }
                     }
                     "eth_sendTransaction", "eth_signTransaction" -> {
+                        if (isLegacyWallet) {
+                            respond(code = 4100, error = "Legacy insecure wallet detected. Transactions are blocked; migrate to a secure wallet.")
+                            return@addWebMessageListener
+                        }
                         if (legacyPhraseUnconfirmed) {
                             respond(code = 4100, error = "Confirm the legacy EVM address in wallet settings before signing")
                             return@addWebMessageListener
@@ -580,12 +601,24 @@ internal object EvmDappBridge {
                 (() => {
                   try {
                     var __kbHost = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                    var __kbPath = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+                    var __kbSearch = (window.location && window.location.search) ? window.location.search.toLowerCase() : '';
                     if (__kbHost.indexOf('challenges.cloudflare.com') !== -1 || __kbHost.indexOf('cloudflare.com') !== -1 ||
                         __kbHost.indexOf('hcaptcha.com') !== -1 || __kbHost.indexOf('recaptcha.net') !== -1 ||
                         __kbHost.indexOf('arkoselabs.com') !== -1 || __kbHost.indexOf('octocaptcha.com') !== -1 ||
-                        __kbHost.indexOf('accounts.google.com') !== -1 || __kbHost.indexOf('appleid.apple.com') !== -1 ||
-                        __kbHost.indexOf('login.microsoftonline.com') !== -1 || __kbHost.indexOf('auth0.com') !== -1 ||
-                        __kbHost.indexOf('okta.com') !== -1) {
+                        __kbHost.indexOf('geetest.com') !== -1 || __kbHost.indexOf('friendlycaptcha.com') !== -1 ||
+                        __kbHost.indexOf('captcha-delivery.com') !== -1 || __kbHost.indexOf('datadome') !== -1 ||
+                        __kbHost.indexOf('perimeterx') !== -1 || __kbHost.indexOf('accounts.google.com') !== -1 ||
+                        __kbHost.indexOf('appleid.apple.com') !== -1 || __kbHost.indexOf('login.microsoftonline.com') !== -1 ||
+                        __kbHost.indexOf('auth0.com') !== -1 || __kbHost.indexOf('okta.com') !== -1 ||
+                        __kbPath.indexOf('/cdn-cgi/') !== -1 || __kbPath.indexOf('/recaptcha') !== -1 ||
+                        __kbPath.indexOf('/turnstile') !== -1 || __kbSearch.indexOf('__cf_chl_') !== -1) {
+                      return;
+                    }
+                    if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                        document.getElementById('challenge-running') ||
+                        document.getElementById('challenge-form') ||
+                        document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
                       return;
                     }
                     if (window.top !== window.self) {

@@ -125,7 +125,17 @@ object KaspaPrivacyEngine {
         "auth0.com",
         "okta.com",
         "clerk.com",
-        "clerk.dev"
+        "clerk.dev",
+        "newassets.hcaptcha.com",
+        "imgs.hcaptcha.com",
+        "geetest.com",
+        "friendlycaptcha.com",
+        "datadome.co",
+        "captcha-delivery.com",
+        "px-cdn.net",
+        "funcaptcha.com",
+        "js.stripe.com",
+        "m.stripe.network"
     )
 
     /**
@@ -151,10 +161,12 @@ object KaspaPrivacyEngine {
         val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
         if (path.contains("/login") || path.contains("/signup") || path.contains("/signin") ||
             path.contains("/register") || path.contains("/session") || path.contains("/oauth") ||
-            path.contains("/auth") || path.contains("/captcha") || path.contains("/challenge") ||
-            path.contains("/turnstile") || path.contains("/arkose") || path.contains("/octocaptcha") ||
-            path.contains("/cdn-cgi/") || path.contains("/webauthn") || path.contains("/passkey") ||
-            path.contains("/two-factor") || path.contains("/password_reset") || path.contains("/account")
+            path.contains("/auth") || path.contains("/captcha") || path.contains("/recaptcha") ||
+            path.contains("/hcaptcha") || path.contains("/geetest") || path.contains("/friendly-captcha") ||
+            path.contains("/challenge") || path.contains("/turnstile") || path.contains("/arkose") ||
+            path.contains("/octocaptcha") || path.contains("/cdn-cgi/") || path.contains("/webauthn") ||
+            path.contains("/passkey") || path.contains("/two-factor") || path.contains("/password_reset") ||
+            path.contains("/account") || lower.contains("__cf_chl_")
         ) {
             return true
         }
@@ -210,11 +222,6 @@ object KaspaPrivacyEngine {
      * Evaluates against the uBlock Origin rule engine with microsecond sub-domain suffix lookups.
      */
     fun isTrackerOrAd(url: String): Boolean {
-        if (isNativeLoaded) {
-            try {
-                return nativeIsTrackerOrAd(url)
-            } catch (_: Throwable) {}
-        }
         if (url.length < 4) return false
 
         // Fast skip for data:, blob:, about:, javascript:
@@ -226,6 +233,26 @@ object KaspaPrivacyEngine {
                 url.startsWith("javascript:", ignoreCase = true)) {
                 return false
             }
+        }
+
+        // Never block decentralized Kaspa schemes or localhost nodes
+        if (url.startsWith("kaspa://", ignoreCase = true) ||
+            url.startsWith("dnet://", ignoreCase = true) ||
+            url.startsWith("ipfs://", ignoreCase = true) ||
+            url.startsWith("hyper://", ignoreCase = true) ||
+            url.contains("127.0.0.1") ||
+            url.contains("localhost")
+        ) {
+            return false
+        }
+
+        // Always exempt essential auth, OAuth, and CAPTCHA/challenge endpoints BEFORE consulting native rules
+        if (isEssentialAuthOrCaptchaUrl(url) || isGoogleAccountOrAuthUrl(url)) {
+            return false
+        }
+        val fastHost = extractHostFast(url)
+        if (fastHost != null && (isEssentialAuthOrCaptchaDomain(fastHost) || isGoogleAccountDomain(fastHost))) {
+            return false
         }
 
         // Never block file downloads, documents, media streams, fonts, or stylesheets
@@ -274,14 +301,15 @@ object KaspaPrivacyEngine {
             return false
         }
 
-        // Never block Google Account or essential login, signup, authentication, and CAPTCHA endpoints
-        if (isEssentialAuthOrCaptchaUrl(url) || isGoogleAccountOrAuthUrl(url)) {
+        val host = fastHost ?: extractHostFast(url)
+        if (host != null && (isEssentialAuthOrCaptchaDomain(host) || isGoogleAccountDomain(host))) {
             return false
         }
 
-        val host = extractHostFast(url)
-        if (host != null && (isEssentialAuthOrCaptchaDomain(host) || isGoogleAccountDomain(host))) {
-            return false
+        if (isNativeLoaded) {
+            try {
+                return nativeIsTrackerOrAd(url)
+            } catch (_: Throwable) {}
         }
 
         // 1. Evaluate via real uBlock Engine
@@ -348,40 +376,48 @@ object KaspaPrivacyEngine {
 
     /**
      * Client-side JavaScript injected into WebView DOMs before page scripts load.
-     * Applies lightweight W3C DNT / Global Privacy Control signals while preserving
-     * native WebGL, WebRTC, touch, hardware, and geolocation APIs on direct connections
-     * so anti-bot and anti-VPN checks never flag synthetic tampering.
+     * Strictly preserves native Navigator/DOM property descriptors, WebGL, WebRTC, touch,
+     * hardware, and geolocation APIs on direct connections so Cloudflare Turnstile,
+     * Managed Challenges, and anti-bot checks never flag synthetic DOM/prototype tampering.
      */
     const val JS_PRIVACY_SHIELD_INJECTION = """
         (function() {
-            if (window.__kaspa_shield_injected) return;
             try {
                 var h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                var p = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+                var q = (window.location && window.location.search) ? window.location.search.toLowerCase() : '';
                 if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 ||
                     h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 ||
                     h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1 ||
                     h.indexOf('turnstile') !== -1 || h.indexOf('x.com') !== -1 ||
                     h.indexOf('twitter.com') !== -1 || h.indexOf('twimg.com') !== -1 ||
                     h.indexOf('arkoselabs.com') !== -1 || h.indexOf('octocaptcha.com') !== -1 ||
+                    h.indexOf('geetest.com') !== -1 || h.indexOf('friendlycaptcha.com') !== -1 ||
+                    h.indexOf('funcaptcha.com') !== -1 || h.indexOf('captcha-delivery.com') !== -1 ||
                     h.indexOf('stripe.com') !== -1 || h.indexOf('paypal.com') !== -1 ||
                     h.indexOf('datadome') !== -1 || h.indexOf('perimeterx') !== -1 ||
                     h.indexOf('auth0.com') !== -1 || h.indexOf('okta.com') !== -1 ||
                     h.indexOf('appleid.apple.com') !== -1 || h.indexOf('login.microsoftonline.com') !== -1 ||
-                    h.indexOf('github.com') !== -1) {
+                    h.indexOf('github.com') !== -1 ||
+                    p.indexOf('/cdn-cgi/') !== -1 || p.indexOf('/recaptcha') !== -1 ||
+                    p.indexOf('/hcaptcha') !== -1 || p.indexOf('/turnstile') !== -1 ||
+                    q.indexOf('__cf_chl_') !== -1) {
+                    return;
+                }
+                if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                    document.getElementById('challenge-running') ||
+                    document.getElementById('challenge-form') ||
+                    document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
                     return;
                 }
             } catch(e) {}
-            window.__kaspa_shield_injected = true;
-            try {
-                // W3C Do-Not-Track & Global Privacy Control
-                try {
-                    Object.defineProperty(navigator, 'doNotTrack', { get: () => '1', configurable: true });
-                    Object.defineProperty(navigator, 'globalPrivacyControl', { get: () => true, configurable: true });
-                } catch(e) {}
 
-                // Strictly gate WebRTC & Geolocation isolation to active Privacy Relay / Proxy sessions
-                // so direct connections never exhibit synthetic API tampering to anti-bot or anti-VPN checks.
-                if (window.__kaspa_relay_shield === true) {
+            // Strictly gate WebRTC & Geolocation isolation to active Privacy Relay / Proxy sessions
+            // so direct connections never exhibit synthetic navigator/window tampering to anti-bot checks.
+            if (window.__kaspa_relay_shield === true) {
+                if (window.__kaspa_shield_injected) return;
+                window.__kaspa_shield_injected = true;
+                try {
                     if (window.RTCPeerConnection) {
                         var OrigRTC = window.RTCPeerConnection;
                         window.RTCPeerConnection = function(config, constraints) {
@@ -404,8 +440,8 @@ object KaspaPrivacyEngine {
                         navigator.geolocation.getCurrentPosition = denyGeo;
                         navigator.geolocation.watchPosition = function(s, e) { denyGeo(s, e); return 0; };
                     }
-                }
-            } catch (e) {}
+                } catch (e) {}
+            }
         })();
     """
 
@@ -424,12 +460,23 @@ object KaspaPrivacyEngine {
      * Cleans the mobile User-Agent to match standard standalone Chrome on Android (removing WebView markers).
      */
     fun getMobileUserAgent(baseUa: String? = null): String {
-        if (baseUa.isNullOrBlank()) return MOBILE_USER_AGENT
-        return baseUa.replace("; wv", "").replace("Version/4.0 ", "")
+        if (baseUa.isNullOrBlank() || !baseUa.contains("Android", ignoreCase = true)) {
+            val chromeVersion = baseUa
+                ?.let { Regex("Chrome/([0-9.]+)").find(it)?.groupValues?.get(1) }
+                ?: return MOBILE_USER_AGENT
+            return "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$chromeVersion Mobile Safari/537.36"
+        }
+        return baseUa
+            .replace(Regex(";\\s*wv\\b"), "")
+            .replace(Regex("\\bVersion/\\d+\\.\\d+\\s*"), "")
     }
 
     @Volatile
     private var defaultMobileMetadata: androidx.webkit.UserAgentMetadata? = null
+
+    private val appliedUaSettingsMode = java.util.Collections.synchronizedMap(
+        java.util.WeakHashMap<android.webkit.WebSettings, Pair<Boolean, String>>()
+    )
 
     /**
      * Synchronizes WebSettings.userAgentString, viewport settings, and Chromium's native C++
@@ -442,10 +489,12 @@ object KaspaPrivacyEngine {
         isDesktop: Boolean,
         baseUa: String? = null
     ) {
+        val resolvedBaseUa = baseUa?.takeIf { it.isNotBlank() }
+            ?: settings.userAgentString?.takeIf { it.contains("Chrome/") }
         val targetUa = if (isDesktop) {
-            getDesktopUserAgent(baseUa)
+            getDesktopUserAgent(resolvedBaseUa)
         } else {
-            getMobileUserAgent(baseUa)
+            getMobileUserAgent(resolvedBaseUa)
         }
         if (settings.userAgentString != targetUa) {
             settings.userAgentString = targetUa
@@ -455,6 +504,11 @@ object KaspaPrivacyEngine {
         }
         if (settings.loadWithOverviewMode != isDesktop) {
             settings.loadWithOverviewMode = isDesktop
+        }
+
+        val desiredState = Pair(isDesktop, targetUa)
+        if (appliedUaSettingsMode[settings] == desiredState) {
+            return
         }
 
         try {
@@ -489,21 +543,26 @@ object KaspaPrivacyEngine {
                         .setBitness(64)
                         .setWow64(false)
                 } else {
-                    val mobilePlatformVersion = baseMeta.platformVersion?.takeIf { it.isNotBlank() }
+                    val baseIsAndroid = baseMeta.platform.equals("Android", ignoreCase = true)
+                    val mobilePlatformVersion = (if (baseIsAndroid) baseMeta.platformVersion else null)
+                        ?.takeIf { it.isNotBlank() }
                         ?: android.os.Build.VERSION.RELEASE.orEmpty()
-                    val mobileModel = baseMeta.model?.takeIf { it.isNotBlank() }
+                    val mobileModel = (if (baseIsAndroid) baseMeta.model else null)
+                        ?.takeIf { it.isNotBlank() }
                         ?: android.os.Build.MODEL.orEmpty()
-                    val mobileArch = baseMeta.architecture?.takeIf { it.isNotBlank() } ?: "arm"
+                    val mobileArch = if (baseIsAndroid) baseMeta.architecture else ""
+                    val mobileBitness = if (baseIsAndroid) baseMeta.bitness else 0
                     builder
                         .setPlatform("Android")
                         .setPlatformVersion(mobilePlatformVersion)
                         .setModel(mobileModel)
                         .setMobile(true)
                         .setArchitecture(mobileArch)
-                        .setBitness(baseMeta.bitness)
+                        .setBitness(mobileBitness)
                         .setWow64(false)
                 }
                 androidx.webkit.WebSettingsCompat.setUserAgentMetadata(settings, builder.build())
+                appliedUaSettingsMode[settings] = desiredState
             }
         } catch (_: Throwable) {}
     }
@@ -577,41 +636,44 @@ object KaspaPrivacyEngine {
     /**
      * Dynamic top-frame viewport layout helper for Desktop mode presentation.
      * Evaluates desktop mode from runtime navigator.userAgent so WebView reloads after toggling
-     * Desktop Mode ON/OFF take effect cleanly, skips subframes (e.g. Turnstile/hCaptcha/reCAPTCHA
-     * iframes), and avoids mutating navigator.userAgentData or navigator.platform descriptors.
+     * Desktop Mode ON/OFF take effect cleanly, skips subframes and CAPTCHA/challenge pages
+     * (by URL at document-start AND dynamically if a widget mounts later), and never tampers
+     * with native HTMLMetaElement / navigator prototypes.
      */
     fun getDesktopViewportScript(isDesktop: Boolean = false, @Suppress("UNUSED_PARAMETER") baseUa: String? = null): String {
         return """
         (function() {
             try {
-                // Never modify viewport or HTMLMetaElement inside subframes/CAPTCHAs/verification iframes
+                // Never modify viewport or inject desktop layout CSS inside subframes/CAPTCHAs/verification iframes
                 if (window.top !== window.self) return;
 
                 var host = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                var path = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+                var search = (window.location && window.location.search) ? window.location.search.toLowerCase() : '';
                 if (host.indexOf('challenges.cloudflare.com') !== -1 ||
                     host.indexOf('hcaptcha.com') !== -1 ||
                     host.indexOf('recaptcha.net') !== -1 ||
                     host.indexOf('arkoselabs.com') !== -1 ||
                     host.indexOf('octocaptcha.com') !== -1 ||
-                    host.indexOf('accounts.google.com') !== -1) {
+                    host.indexOf('geetest.com') !== -1 ||
+                    host.indexOf('friendlycaptcha.com') !== -1 ||
+                    host.indexOf('captcha-delivery.com') !== -1 ||
+                    host.indexOf('datadome.co') !== -1 ||
+                    host.indexOf('accounts.google.com') !== -1 ||
+                    path.indexOf('/cdn-cgi/') !== -1 ||
+                    path.indexOf('/recaptcha') !== -1 ||
+                    path.indexOf('/hcaptcha') !== -1 ||
+                    path.indexOf('/turnstile') !== -1 ||
+                    search.indexOf('__cf_chl_') !== -1) {
                     return;
                 }
 
-                // Never modify HTMLMetaElement prototypes or CSS on top-level Cloudflare / CAPTCHA challenge pages
-                try {
-                    if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
-                        document.getElementById('challenge-running') ||
-                        document.getElementById('challenge-form') ||
-                        document.querySelector('script[src*="/cdn-cgi/challenge-platform"], script[src*="challenges.cloudflare.com"], iframe[src*="challenges.cloudflare.com"], div.cf-turnstile')) {
-                        return;
-                    }
-                } catch (_) {}
-
-                var ua = navigator.userAgent || '';
-                var isDesktopMode = ua.length > 0 ? (ua.indexOf('Android') === -1 && ua.indexOf('Mobile') === -1) : $isDesktop;
-
-                if (!isDesktopMode) {
+                function cleanupDesktopOverrides() {
                     try {
+                        if (window.__kaspa_desktop_observer) {
+                            window.__kaspa_desktop_observer.disconnect();
+                            window.__kaspa_desktop_observer = null;
+                        }
                         var metas = document.querySelectorAll('meta[name="viewport"]');
                         for (var i = 0; i < metas.length; i++) {
                             var content = metas[i].getAttribute('content') || '';
@@ -624,73 +686,63 @@ object KaspaPrivacyEngine {
                             styleEl.parentNode.removeChild(styleEl);
                         }
                     } catch (_) {}
+                }
+
+                function hasChallengeContent() {
+                    try {
+                        if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                            document.getElementById('challenge-running') ||
+                            document.getElementById('challenge-form') ||
+                            document.querySelector('script[src*="/cdn-cgi/challenge-platform"], script[src*="challenges.cloudflare.com"], iframe[src*="challenges.cloudflare.com"], iframe[src*="recaptcha"], iframe[src*="hcaptcha.com"], div.cf-turnstile, div.g-recaptcha, div.h-captcha')) {
+                            return true;
+                        }
+                    } catch (_) {}
+                    return false;
+                }
+
+                if (hasChallengeContent()) {
+                    cleanupDesktopOverrides();
+                    return;
+                }
+
+                var ua = navigator.userAgent || '';
+                var isDesktopMode = ua.length > 0 ? (ua.indexOf('Android') === -1 && ua.indexOf('Mobile') === -1) : $isDesktop;
+
+                if (!isDesktopMode) {
+                    cleanupDesktopOverrides();
                     return;
                 }
 
                 var DESKTOP_VIEWPORT = 'width=980, user-scalable=yes';
+                var isSanitizingMeta = false;
 
-                // 1. Intercept meta element content attribute and setAttribute synchronously on top-level page
-                try {
-                    if (!HTMLMetaElement.prototype.__kaspaViewportPatched) {
-                        HTMLMetaElement.prototype.__kaspaViewportPatched = true;
-                        var origSetAttribute = HTMLMetaElement.prototype.setAttribute;
-                        HTMLMetaElement.prototype.setAttribute = function(name, value) {
-                            var curUa = navigator.userAgent || '';
-                            var currentlyDesktop = curUa.length > 0 ? (curUa.indexOf('Android') === -1 && curUa.indexOf('Mobile') === -1) : false;
-                            if (currentlyDesktop && name && name.toLowerCase() === 'content' && this.name && this.name.toLowerCase() === 'viewport') {
-                                return origSetAttribute.call(this, name, DESKTOP_VIEWPORT);
-                            }
-                            return origSetAttribute.apply(this, arguments);
-                        };
-
-                        var origContentDesc = Object.getOwnPropertyDescriptor(HTMLMetaElement.prototype, 'content');
-                        if (origContentDesc && origContentDesc.set) {
-                            Object.defineProperty(HTMLMetaElement.prototype, 'content', {
-                                get: function() {
-                                    var curUa = navigator.userAgent || '';
-                                    var currentlyDesktop = curUa.length > 0 ? (curUa.indexOf('Android') === -1 && curUa.indexOf('Mobile') === -1) : false;
-                                    return (currentlyDesktop && this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : origContentDesc.get.call(this);
-                                },
-                                set: function(val) {
-                                    var curUa = navigator.userAgent || '';
-                                    var currentlyDesktop = curUa.length > 0 ? (curUa.indexOf('Android') === -1 && curUa.indexOf('Mobile') === -1) : false;
-                                    var finalVal = (currentlyDesktop && this.name && this.name.toLowerCase() === 'viewport') ? DESKTOP_VIEWPORT : val;
-                                    origContentDesc.set.call(this, finalVal);
-                                },
-                                configurable: true
-                            });
-                        }
-                    }
-                } catch (_) {}
-
-                // 2. Synchronous sanitizer for meta elements
                 function sanitizeMeta(el) {
                     try {
-                        if (!el || el.nodeType !== 1 || el.nodeName !== 'META') return;
+                        if (isSanitizingMeta || !el || el.nodeType !== 1 || el.nodeName !== 'META') return;
                         var n = (el.getAttribute('name') || el.name || '').toLowerCase();
-                        if (n === 'viewport') {
-                            if (el.getAttribute('content') !== DESKTOP_VIEWPORT) {
+                        if (n === 'viewport' && el.getAttribute('content') !== DESKTOP_VIEWPORT) {
+                            isSanitizingMeta = true;
+                            try {
                                 el.setAttribute('content', DESKTOP_VIEWPORT);
+                            } finally {
+                                isSanitizingMeta = false;
                             }
                         }
-                    } catch (_) {}
+                    } catch (_) {
+                        isSanitizingMeta = false;
+                    }
                 }
 
-                // 3. Apply immediately to any existing meta tags in the document
-                try {
-                    var existing = document.getElementsByTagName('meta');
-                    for (var i = 0; i < existing.length; i++) {
-                        sanitizeMeta(existing[i]);
-                    }
-                } catch (_) {}
-
-                // 4. Ensure desktop viewport meta and layout CSS exist immediately
                 function enforceDesktopLayout() {
                     try {
-                        var target = document.head || document.documentElement || document.body;
+                        if (hasChallengeContent()) {
+                            cleanupDesktopOverrides();
+                            return;
+                        }
+                        var target = document.head;
                         if (!target) return;
 
-                        var metas = target.querySelectorAll('meta[name="viewport"]');
+                        var metas = document.querySelectorAll('meta[name="viewport"]');
                         if (metas.length === 0) {
                             var meta = document.createElement('meta');
                             meta.name = 'viewport';
@@ -713,18 +765,29 @@ object KaspaPrivacyEngine {
 
                 enforceDesktopLayout();
 
-                // 5. Observe DOM mutations from root immediately to prevent any mobile flash during parsing
                 try {
                     if (!window.__kaspa_desktop_observer) {
                         var rootTarget = document.documentElement || document;
                         var observer = new MutationObserver(function(mutations) {
+                            if (isSanitizingMeta) return;
+                            if (hasChallengeContent()) {
+                                cleanupDesktopOverrides();
+                                return;
+                            }
                             for (var m = 0; m < mutations.length; m++) {
-                                var added = mutations[m].addedNodes;
+                                var mut = mutations[m];
+                                if (mut.type === 'attributes' && mut.target && mut.target.nodeName === 'META') {
+                                    sanitizeMeta(mut.target);
+                                    continue;
+                                }
+                                var added = mut.addedNodes;
                                 if (!added) continue;
                                 for (var k = 0; k < added.length; k++) {
                                     var node = added[k];
                                     if (node.nodeType === 1) {
-                                        if (node.nodeName === 'META') {
+                                        if (node.nodeName === 'HEAD') {
+                                            enforceDesktopLayout();
+                                        } else if (node.nodeName === 'META') {
                                             sanitizeMeta(node);
                                         } else if (node.getElementsByTagName) {
                                             var childMetas = node.getElementsByTagName('meta');
@@ -736,7 +799,12 @@ object KaspaPrivacyEngine {
                                 }
                             }
                         });
-                        observer.observe(rootTarget, { childList: true, subtree: true });
+                        observer.observe(rootTarget, {
+                            childList: true,
+                            subtree: true,
+                            attributes: true,
+                            attributeFilter: ['content', 'name']
+                        });
                         window.__kaspa_desktop_observer = observer;
                     }
                 } catch (_) {}

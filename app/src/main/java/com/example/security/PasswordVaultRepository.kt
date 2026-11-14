@@ -98,6 +98,10 @@ class PasswordVaultRepository(
 
         val existing = dao.findByHostAndUsername(host, cleanUser)
             ?: dao.findByHostAndUsername(cleanRpId, cleanUser)
+            ?: getMatchingCredentialsForUrl(url).let { matches ->
+                matches.firstOrNull { it.username.equals(cleanUser, ignoreCase = true) }
+                    ?: if (username.isBlank()) matches.singleOrNull { it.hasPassword } else null
+            }
         val entity = if (existing != null) {
             val nextType = if (existing.hasPassword) {
                 VaultCredentialEntity.TYPE_PASSKEY_AND_PASSWORD

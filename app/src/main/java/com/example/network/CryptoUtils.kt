@@ -982,29 +982,6 @@ object CryptoUtils {
         )
     }
 
-    private val MNEMONIC_WORDS = listOf(
-        "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract", "absurd", "abuse",
-        "access", "accident", "account", "accuse", "achieve", "acid", "acoustic", "acquire", "across", "act",
-        "action", "actor", "actress", "actual", "adapt", "add", "addict", "address", "adjust", "admit",
-        "adult", "advance", "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent",
-        "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album", "alcohol", "alert",
-        "alien", "all", "alley", "allow", "almost", "alone", "alpha", "already", "also", "alter",
-        "always", "amateur", "amazing", "among", "amount", "amused", "analyst", "anchor", "ancient", "anger",
-        "angle", "angry", "animal", "ankle", "announce", "annual", "another", "answer", "antenna", "antique",
-        "anxiety", "any", "apart", "apology", "appear", "apple", "approve", "april", "arch", "arctic",
-        "area", "arena", "argue", "arm", "armed", "armor", "army", "around", "arrange", "arrest",
-        "arrive", "arrow", "art", "artefact", "artist", "artwork", "ask", "aspect", "assault", "asset",
-        "assist", "assume", "asthma", "athlete", "atom", "attack", "attend", "attitude", "attract", "auction",
-        "audit", "august", "aunt", "author", "auto", "autumn", "average", "avocado", "avoid", "awake",
-        "aware", "away", "awesome", "awful", "awkward", "axis", "baby", "bachelor", "bacon", "badge",
-        "bag", "balance", "balcony", "ball", "bamboo", "banana", "banner", "bar", "barely", "bargain",
-        "barrel", "base", "basic", "basket", "battle", "beach", "bean", "beauty", "because", "become",
-        "beef", "before", "begin", "behave", "behind", "believe", "below", "belt", "bench", "benefit",
-        "best", "betray", "better", "between", "beyond", "bicycle", "bid", "bike", "bind", "biology",
-        "bird", "birth", "bitter", "black", "blade", "blame", "blanket", "blast", "bleak", "bless",
-        "blind", "blood", "blossom", "blouse", "blue", "blur", "blush", "board", "boat", "body"
-    )
-
     private val LOW_ENTROPY_BIP39_PREFIX_256: Set<String> = """abandon ability able about above absent absorb abstract absurd abuse access accident account accuse achieve acid acoustic acquire across act action actor actress actual adapt add addict address adjust admit adult advance advice aerobic affair afford afraid again age agent agree ahead aim air airport aisle alarm album alcohol alert alien all alley allow almost alone alpha already also alter always amateur amazing among amount amused analyst anchor ancient anger angle angry animal ankle announce annual another answer antenna antique anxiety any apart apology appear apple approve april arch arctic area arena argue arm armed armor army around arrange arrest arrive arrow art artefact artist artwork ask aspect assault asset assist assume asthma athlete atom attack attend attitude attract auction audit august aunt author auto autumn average avocado avoid awake aware away awesome awful awkward axis baby bachelor bacon badge bag balance balcony ball bamboo banana banner bar barely bargain barrel base basic basket battle beach bean beauty because become beef before begin behave behind believe below belt bench benefit best betray better between beyond bicycle bid bike bind biology bird birth bitter black blade blame blanket blast bleak bless blind blood blossom blouse blue blur blush board boat body boil bomb bone bonus book boost border boring borrow boss bottom bounce box boy bracket brain brand brass brave bread breeze brick bridge brief bright bring brisk broccoli broken bronze broom brother brown brush bubble buddy budget buffalo build bulb bulk bullet bundle bunker burden burger burst bus business busy butter buyer buzz cabbage cabin cable"""
         .trim()
         .split(Regex("\\s+"))
@@ -1125,12 +1102,72 @@ object CryptoUtils {
         return verifyKaspaTransaction(signatureHex, txPayload.toByteArray(Charsets.UTF_8), pubKey32Bytes)
     }
 
+    fun hasLegacyMnemonicFingerprint(decryptedSeed: String): Boolean {
+        val words = decryptedSeed.trim().lowercase(java.util.Locale.ROOT)
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+        if (words.size != 12) return false
+        return words.all { it in LOW_ENTROPY_BIP39_PREFIX_256 }
+    }
+
+    fun isLegacyWallet(
+        account: com.example.data.AccountEntity?,
+        decryptedSeed: String? = null
+    ): Boolean {
+        if (account == null) return false
+        if (account.accountType == "GOOGLE_ZK_BRIDGE") return true
+        val seed = decryptedSeed ?: runCatching { getDecryptedSeed(account.seedPhrase) }.getOrNull()
+        return !seed.isNullOrBlank() && hasLegacyMnemonicFingerprint(seed)
+    }
+
+    fun isLegacySeed(seedPhraseOrDecrypted: String): Boolean {
+        val decrypted = runCatching { getDecryptedSeed(seedPhraseOrDecrypted) }.getOrNull() ?: return false
+        return hasLegacyMnemonicFingerprint(decrypted)
+    }
+
+    fun getDecryptedSeedForSigning(
+        account: com.example.data.AccountEntity,
+        keyPhrase: String = "",
+        isAuthorizedMigration: Boolean = false
+    ): String {
+        val decrypted = getDecryptedSeed(account.seedPhrase, keyPhrase)
+        if (isLegacyWallet(account, decrypted) && !isAuthorizedMigration) {
+            throw IllegalStateException(
+                "Legacy insecure wallet detected. All signing actions are blocked. " +
+                    "You must migrate your balance to a new secure wallet."
+            )
+        }
+        return decrypted
+    }
+
+    fun getDecryptedSeedForSigning(
+        seedPhrase: String,
+        account: com.example.data.AccountEntity? = null,
+        keyPhrase: String = "",
+        isAuthorizedMigration: Boolean = false
+    ): String {
+        val decrypted = getDecryptedSeed(seedPhrase, keyPhrase)
+        val legacy = if (account != null) {
+            isLegacyWallet(account, decrypted)
+        } else {
+            hasLegacyMnemonicFingerprint(decrypted)
+        }
+        if (legacy && !isAuthorizedMigration) {
+            throw IllegalStateException(
+                "Legacy insecure wallet detected. All signing actions are blocked. " +
+                    "You must migrate your balance to a new secure wallet."
+            )
+        }
+        return decrypted
+    }
+
     fun deriveDecentralizedAccount(
         customHandle: String? = null,
         seedMnemonic: String? = null,
         networkPrefix: String = "kaspatest",
         passphrase: String = "",
-        encryptionKeyPhrase: String = ""
+        encryptionKeyPhrase: String = "",
+        accountType: String = "DECENTRALIZED_NATIVE"
     ): com.example.data.AccountEntity {
         val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it, keyPhrase = encryptionKeyPhrase) } ?: generateMnemonic()
         val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase)
@@ -1157,7 +1194,7 @@ object CryptoUtils {
             peerId = peerId,
             publicKeyHex = kaspaKey.publicKeyHex,
             seedPhrase = encryptedMnemonic,
-            accountType = "DECENTRALIZED_NATIVE",
+            accountType = accountType,
             zkProofJson = zkProof.toJsonString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
@@ -1169,7 +1206,12 @@ object CryptoUtils {
 
 
 
-    fun legacyWalletWarning(storedSeed: String, createdAt: Long): String? {
+    fun legacyWalletWarning(
+        storedSeed: String,
+        createdAt: Long,
+        accountType: String = "DECENTRALIZED_NATIVE"
+    ): String? {
+        if (accountType == "GOOGLE_ZK_BRIDGE") return "compromised"
         if (storedSeed.isBlank()) return null
         val storedWords = try {
             getDecryptedSeed(storedSeed).trim().lowercase().split(Regex("\\s+"))

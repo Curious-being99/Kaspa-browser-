@@ -72,6 +72,28 @@ internal object EvmWalletEngine {
         return Credentials.create(derived)
     }
 
+    fun credentialsForSigning(seedPhrase: String, passphrase: String = ""): Credentials {
+        val mnemonic = CryptoUtils.getDecryptedSeedForSigning(seedPhrase)
+            .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
+        require(mnemonic.isNotBlank()) { "Wallet recovery phrase is unavailable" }
+        require(passphrase.length <= 256) { "BIP-39 passphrase is too long" }
+        val seed = CryptoUtils.mnemonicToSeed(mnemonic, passphrase)
+        val derived = try {
+            val master = Bip32ECKeyPair.generateKeyPair(seed)
+            val path = intArrayOf(
+                44 or Int.MIN_VALUE,
+                60 or Int.MIN_VALUE,
+                Int.MIN_VALUE,
+                0,
+                0
+            )
+            Bip32ECKeyPair.deriveKeyPair(master, path)
+        } finally {
+            java.util.Arrays.fill(seed, 0.toByte())
+        }
+        return Credentials.create(derived)
+    }
+
     fun isStandardMnemonic(seedPhrase: String): Boolean {
         val mnemonic = CryptoUtils.getDecryptedSeed(seedPhrase)
             .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
@@ -88,7 +110,7 @@ internal object EvmWalletEngine {
 
     fun signPersonalMessage(seedPhrase: String, message: String, passphrase: String = ""): String {
         require(message.length <= 8192) { "Message is too long" }
-        val signed = Sign.signPrefixedMessage(message.toByteArray(Charsets.UTF_8), credentials(seedPhrase, passphrase).ecKeyPair)
+        val signed = Sign.signPrefixedMessage(message.toByteArray(Charsets.UTF_8), credentialsForSigning(seedPhrase, passphrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signed.r), 64) +
             Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signed.s), 64) +
             String.format(Locale.ROOT, "%02x", signed.v[0].toInt() and 0xff)
@@ -97,7 +119,7 @@ internal object EvmWalletEngine {
     fun signPersonalMessageHex(seedPhrase: String, messageHex: String, passphrase: String = ""): String {
         require(messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){0,8192}"))) { "Invalid personal_sign message encoding" }
         val message = Numeric.hexStringToByteArray(messageHex)
-        val signature = Sign.signPrefixedMessage(message, credentials(seedPhrase, passphrase).ecKeyPair)
+        val signature = Sign.signPrefixedMessage(message, credentialsForSigning(seedPhrase, passphrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
             Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.s), 64) +
             String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
@@ -105,7 +127,7 @@ internal object EvmWalletEngine {
 
     fun signTypedData(seedPhrase: String, typedDataJson: String, passphrase: String = ""): String {
         require(typedDataJson.length in 1..32768) { "Typed-data request is empty or too large" }
-        val signature = Sign.signTypedData(typedDataJson, credentials(seedPhrase, passphrase).ecKeyPair)
+        val signature = Sign.signTypedData(typedDataJson, credentialsForSigning(seedPhrase, passphrase).ecKeyPair)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
             Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.s), 64) +
             String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
@@ -115,14 +137,14 @@ internal object EvmWalletEngine {
         require(messageHex.matches(Regex("0x(?:[0-9a-fA-F]{2}){1,8192}"))) { "Invalid eth_sign message encoding" }
         val message = Numeric.hexStringToByteArray(messageHex)
         val hash = org.web3j.crypto.Hash.sha3(message)
-        val signature = Sign.signMessage(hash, credentials(seedPhrase, passphrase).ecKeyPair, false)
+        val signature = Sign.signMessage(hash, credentialsForSigning(seedPhrase, passphrase).ecKeyPair, false)
         return "0x" + Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.r), 64) +
             Numeric.toHexStringNoPrefixZeroPadded(BigInteger(1, signature.s), 64) +
             String.format(Locale.ROOT, "%02x", signature.v[0].toInt() and 0xff)
     }
 
     fun signTransaction(seedPhrase: String, network: Network, tx: JSONObject, passphrase: String = ""): String {
-        val credentials = credentials(seedPhrase, passphrase)
+        val credentials = credentialsForSigning(seedPhrase, passphrase)
         val from = tx.optString("from", "").lowercase(Locale.ROOT)
         require(from.isBlank() || from == credentials.address.lowercase(Locale.ROOT)) {
             "Transaction sender does not match the active EVM account"
@@ -182,7 +204,7 @@ internal object EvmWalletEngine {
         val targetTo = toAddress.trim()
         require(targetTo.matches(Regex("0x[0-9a-fA-F]{40}"))) { "Invalid recipient EVM address" }
         require(amountTokens > 0) { "Amount must be greater than 0" }
-        val credentials = credentials(seedPhrase, passphrase)
+        val credentials = credentialsForSigning(seedPhrase, passphrase)
 
         // 1. Fetch current transaction count (nonce)
         val nonceResp = rpc(network, "eth_getTransactionCount", org.json.JSONArray().put(credentials.address).put("pending"))

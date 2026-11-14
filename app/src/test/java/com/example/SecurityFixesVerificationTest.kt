@@ -462,4 +462,190 @@ class SecurityFixesVerificationTest {
         )
     }
 
+    @Test
+    fun legacyWalletSigningGateRefusesLegacyAndAllowsAuthorizedMigration() {
+        val legacyPhrase = List(12) { "cable" }.joinToString(" ")
+        val rebuiltLegacyAccount = CryptoUtils.deriveDecentralizedAccount(
+            customHandle = "Rebuilt Legacy",
+            seedMnemonic = legacyPhrase,
+            networkPrefix = "kaspatest",
+            encryptionKeyPhrase = "unit-test-only-wallet-key",
+            accountType = "DECENTRALIZED_NATIVE"
+        )
+        val decrypted = CryptoUtils.getDecryptedSeed(
+            rebuiltLegacyAccount.seedPhrase,
+            keyPhrase = "unit-test-only-wallet-key"
+        )
+
+        assertTrue(CryptoUtils.hasLegacyMnemonicFingerprint(decrypted))
+        assertTrue(CryptoUtils.isLegacyWallet(rebuiltLegacyAccount, decrypted))
+        assertTrue(CryptoUtils.isLegacySeed(decrypted))
+
+        var blocked = false
+        try {
+            CryptoUtils.getDecryptedSeedForSigning(
+                account = rebuiltLegacyAccount,
+                keyPhrase = "unit-test-only-wallet-key",
+                isAuthorizedMigration = false
+            )
+        } catch (e: IllegalStateException) {
+            blocked = true
+        }
+        assertTrue("getDecryptedSeedForSigning must block legacy wallet", blocked)
+
+        val migratedSeed = CryptoUtils.getDecryptedSeedForSigning(
+            account = rebuiltLegacyAccount,
+            keyPhrase = "unit-test-only-wallet-key",
+            isAuthorizedMigration = true
+        )
+        assertEquals(legacyPhrase, migratedSeed)
+    }
+
+    @Test
+    fun legacyWalletSigningGateAllowsStandardBip39WalletWithWordAbove255() {
+        // 'cactus' is word index 256 (outside 0..255 legacy range)
+        val validSeed = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon cactus ability"
+        assertFalse(CryptoUtils.hasLegacyMnemonicFingerprint(validSeed))
+        assertEquals(validSeed, CryptoUtils.getDecryptedSeedForSigning(validSeed))
+    }
+
+    @Test
+    fun googleZkBridgeAccountTypeIsPreservedAndFlaggedCompromised() {
+        val phrase = "cactus cactus cactus cactus cactus cactus cactus cactus cactus cactus cactus cactus"
+        val account = CryptoUtils.deriveDecentralizedAccount(
+            customHandle = "Legacy Google Account",
+            seedMnemonic = phrase,
+            networkPrefix = "kaspatest",
+            encryptionKeyPhrase = "unit-test-only-wallet-key",
+            accountType = "GOOGLE_ZK_BRIDGE"
+        )
+        assertEquals("GOOGLE_ZK_BRIDGE", account.accountType)
+        assertTrue(CryptoUtils.isLegacyWallet(account, phrase))
+        assertEquals(
+            "compromised",
+            CryptoUtils.legacyWalletWarning(
+                storedSeed = phrase,
+                createdAt = 1_792_195_200_001L,
+                accountType = account.accountType
+            )
+        )
+    }
+
+    @Test
+    fun evmWalletEngineRefusesSigningForLegacySeed() {
+        val legacyPhrase = List(12) { "cable" }.joinToString(" ")
+        var personalBlocked = false
+        try {
+            com.example.dapp.EvmWalletEngine.signPersonalMessage(legacyPhrase, "hello")
+        } catch (_: IllegalStateException) {
+            personalBlocked = true
+        }
+        assertTrue("EvmWalletEngine.signPersonalMessage must refuse legacy seed", personalBlocked)
+
+        var rawBlocked = false
+        try {
+            com.example.dapp.EvmWalletEngine.signEthMessage(legacyPhrase, "0x" + "11".repeat(32))
+        } catch (_: IllegalStateException) {
+            rawBlocked = true
+        }
+        assertTrue("EvmWalletEngine.signEthMessage must refuse legacy seed", rawBlocked)
+    }
+
+    @Test
+    fun desktopCaptchaPagesAreExemptedAndNativeDomPrototypesPreserved() {
+        val privacy = com.example.network.KaspaPrivacyEngine
+        assertTrue(privacy.isEssentialAuthOrCaptchaUrl("https://www.google.com/recaptcha/api2/anchor?ar=1"))
+        assertTrue(privacy.isEssentialAuthOrCaptchaUrl("https://example.com/?__cf_chl_tk=abc"))
+        assertTrue(privacy.isEssentialAuthOrCaptchaUrl("https://api.geetest.com/get.php"))
+        assertTrue(privacy.isEssentialAuthOrCaptchaUrl("https://cdn.friendlycaptcha.com/widget.js"))
+
+        val script = privacy.getDesktopViewportScript(isDesktop = true)
+        assertTrue("Must not patch HTMLMetaElement.prototype.setAttribute", !script.contains("HTMLMetaElement.prototype.setAttribute"))
+        assertTrue("Must not redefine HTMLMetaElement.prototype properties", !script.contains("Object.defineProperty(HTMLMetaElement.prototype"))
+        assertTrue("Must skip /recaptcha and __cf_chl_ at document-start", script.contains("/recaptcha") && script.contains("__cf_chl_"))
+        assertTrue("Must remove injected desktop overrides when challenge mounts", script.contains("cleanupDesktopOverrides") && script.contains("__kaspa_desktop_css"))
+
+        val shield = privacy.JS_PRIVACY_SHIELD_INJECTION
+        assertTrue("Privacy shield must exempt /recaptcha and __cf_chl_", shield.contains("/recaptcha") && shield.contains("__cf_chl_"))
+
+        val context = RuntimeEnvironment.getApplication()
+        val webView = WebView(context)
+        try {
+            // Even when cold-starting directly into desktop settings then toggling back to mobile,
+            // mobile UA must restore an Android UA rather than retaining a desktop UA.
+            privacy.applyUserAgentAndMetadata(webView.settings, isDesktop = true, baseUa = null)
+            val desktopUa = webView.settings.userAgentString
+            assertTrue(desktopUa.contains("X11; Linux x86_64"))
+
+            privacy.applyUserAgentAndMetadata(webView.settings, isDesktop = false, baseUa = desktopUa)
+            val mobileUa = webView.settings.userAgentString
+            assertTrue("Toggling back to mobile must restore an Android UA", mobileUa.contains("Android") && mobileUa.contains("Mobile"))
+        } finally {
+            webView.destroy()
+        }
+    }
+
+    @Test
+    fun privacyShieldDoesNotTamperNavigatorDescriptorsAndSkipsCloudflare() {
+        val shield = com.example.network.KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION
+        assertFalse("Privacy shield must not redefine navigator.doNotTrack", shield.contains("doNotTrack"))
+        assertFalse("Privacy shield must not redefine navigator.globalPrivacyControl", shield.contains("globalPrivacyControl"))
+        assertFalse("Privacy shield must not define own properties on navigator", shield.contains("Object.defineProperty(navigator"))
+        assertTrue("Privacy shield must exempt /cdn-cgi/, /turnstile, and __cf_chl_",
+            shield.contains("/cdn-cgi/") && shield.contains("/turnstile") && shield.contains("__cf_chl_"))
+        assertTrue("Privacy shield must detect Cloudflare challenge DOM markers",
+            shield.contains("Just a moment") && shield.contains("challenge-running") && shield.contains("cf-turnstile"))
+        val relayGateIdx = shield.indexOf("window.__kaspa_relay_shield === true")
+        val injectedFlagIdx = shield.indexOf("window.__kaspa_shield_injected = true")
+        assertTrue("Privacy shield must gate __kaspa_shield_injected behind relay shield flag",
+            relayGateIdx >= 0 && injectedFlagIdx > relayGateIdx)
+    }
+
+    @Test
+    fun cosmeticHidingAndAutofillSkipCloudflareChallengePages() {
+        val cosmeticJs = com.example.network.UBlockEngine.getCosmeticHidingCss()
+        assertTrue("Cosmetic hiding must skip Cloudflare challenges and DOM markers",
+            cosmeticJs.contains("cloudflare.com") && cosmeticJs.contains("/cdn-cgi/") &&
+                cosmeticJs.contains("/turnstile") && cosmeticJs.contains("cf-turnstile"))
+
+        val autofill = com.example.security.PasswordAutofillBridge
+        assertFalse(autofill.isUrlEligibleForAutofill("https://challenges.cloudflare.com/turnstile/v0/api.js"))
+        assertFalse(autofill.isUrlEligibleForAutofill("https://kaspa.stream/cdn-cgi/challenge-platform/h/b/orchestrate/chl_api/v1"))
+        assertFalse(autofill.isUrlEligibleForAutofill("https://kaspa.stream/?__cf_chl_tk=abc123"))
+        assertTrue(autofill.isUrlEligibleForAutofill("https://kaspa.stream/"))
+        assertTrue("Autofill scanner must skip Cloudflare challenge DOM",
+            autofill.JS_FORM_SCANNER.contains("Just a moment") && autofill.JS_FORM_SCANNER.contains("cf-turnstile"))
+
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://kaspa.stream/cdn-cgi/challenge-platform/h/b/orchestrate/chl_api/v1"))
+        assertFalse(com.example.network.KaspaPrivacyEngine.isTrackerOrAd("https://kaspa.stream/?__cf_chl_tk=abc123"))
+        assertFalse(com.example.network.UBlockEngine.shouldBlock("https://kaspa.stream/cdn-cgi/challenge-platform/h/b/orchestrate/chl_api/v1"))
+    }
+
+    @Test
+    fun mobileAndDesktopUaPreserveChromeVersionAndStripWebViewMarkers() {
+        val rawWebViewUa = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/133.0.6943.50 Mobile Safari/537.36"
+        val cleanedMobile = com.example.network.KaspaPrivacyEngine.getMobileUserAgent(rawWebViewUa)
+        assertFalse("Mobile UA must strip '; wv' WebView token", cleanedMobile.contains("; wv"))
+        assertFalse("Mobile UA must strip 'Version/4.0' WebView token", cleanedMobile.contains("Version/4.0"))
+        assertTrue("Mobile UA must preserve actual WebView Chrome version", cleanedMobile.contains("Chrome/133.0.6943.50"))
+
+        val context = RuntimeEnvironment.getApplication()
+        val webView = WebView(context)
+        try {
+            KaspaWebViewConfigurator.applyKazviewSettings(webView.settings)
+            webView.settings.userAgentString = rawWebViewUa
+            com.example.network.KaspaPrivacyEngine.applyUserAgentAndMetadata(webView.settings, isDesktop = true, baseUa = null)
+            assertTrue("Desktop UA must preserve Chrome/133.0.6943.50 from WebSettings",
+                webView.settings.userAgentString.contains("Chrome/133.0.6943.50"))
+
+            com.example.network.KaspaPrivacyEngine.applyUserAgentAndMetadata(webView.settings, isDesktop = false, baseUa = null)
+            assertTrue("Restored mobile UA must preserve Chrome/133.0.6943.50",
+                webView.settings.userAgentString.contains("Chrome/133.0.6943.50") &&
+                    webView.settings.userAgentString.contains("Android"))
+        } finally {
+            webView.destroy()
+        }
+    }
+
 }
+

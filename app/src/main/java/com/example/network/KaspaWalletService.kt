@@ -912,7 +912,8 @@ class KaspaWalletService(
             var amount = total - KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
             require(amount >= KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS) { "Balance cannot cover the required fee and a standard destination output." }
 
-            val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = prefix)
+            val signingSeed = CryptoUtils.getDecryptedSeedForSigning(senderSeed, isAuthorizedMigration = true)
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed, prefix = prefix)
             try {
                 var finalTx: KaspaTransactionEngine.KaspaTransaction? = null
                 var finalFee = 0L
@@ -1036,7 +1037,8 @@ class KaspaWalletService(
         recipientAddress: String,
         amountKas: Double,
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS,
-        networkName: String = if (senderAddress.trim().startsWith("kaspatest:", ignoreCase = true)) "Kaspa Testnet 10" else "Kaspa Mainnet"
+        networkName: String = if (senderAddress.trim().startsWith("kaspatest:", ignoreCase = true)) "Kaspa Testnet 10" else "Kaspa Mainnet",
+        isAuthorizedMigration: Boolean = false
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         transactionMutex.withLock {
             try {
@@ -1062,8 +1064,12 @@ class KaspaWalletService(
                 val recipientScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanRecipient)
                 val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
 
-                // 2. Derive key pair
-                val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
+                // 2. Derive key pair via single signing gate
+                val signingSeed = CryptoUtils.getDecryptedSeedForSigning(
+                    senderSeed,
+                    isAuthorizedMigration = isAuthorizedMigration
+                )
+                val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed, prefix = expectedPrefix)
 
                 // 3. Fetch live UTXOs & calculate authentic transaction mass & real dynamic fee
                 val liveUtxos = fetchLiveUtxos(cleanSender, networkName)
@@ -1281,7 +1287,12 @@ class KaspaWalletService(
             val cleanSender = senderAddress.trim().lowercase()
             val isTestnet = cleanSender.startsWith("kaspatest:")
             val expectedPrefix = if (isTestnet) "kaspatest" else "kaspa"
-            val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
+            val signingSeed = try {
+                CryptoUtils.getDecryptedSeedForSigning(senderSeed)
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            }
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed, prefix = expectedPrefix)
 
             try {
                 val senderScriptPubKey = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
@@ -1440,7 +1451,8 @@ class KaspaWalletService(
 
                 // 1. Fetch bytecodes and keyPair
                 val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
-                val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed)
+                val signingSeed = CryptoUtils.getDecryptedSeedForSigning(senderSeed)
+                val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed)
 
                 var commitTxId = ""
                 var lastPendingDeedSpk = ByteArray(0)
@@ -1799,7 +1811,8 @@ class KaspaWalletService(
             try {
                 val cleanName = domain.lowercase().removeSuffix(".k").trim()
                 val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
-                val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed)
+                val signingSeed = CryptoUtils.getDecryptedSeedForSigning(senderSeed)
+                val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed)
                 val currentOwnerKey = keyPair.publicKeyBytes
                 val currentOwnerType: Byte = 0x00.toByte()
 
@@ -1914,7 +1927,8 @@ class KaspaWalletService(
         try {
             val cleanName = domain.lowercase().removeSuffix(".k").trim()
             val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
-            val keyPair = CryptoUtils.deriveKaspaKeyPair(ownerSeed)
+            val signingSeed = CryptoUtils.getDecryptedSeedForSigning(ownerSeed)
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed)
             val ownerPubKey = keyPair.publicKeyBytes
             val ownerType: Byte = 0x00.toByte()
 
@@ -2089,7 +2103,8 @@ class KaspaWalletService(
         cardsOverride: List<DotkProtocol.CardUtxo>? = null
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         try {
-            val keyPair = CryptoUtils.deriveKaspaKeyPair(spenderSeed)
+            val signingSeed = CryptoUtils.getDecryptedSeedForSigning(spenderSeed)
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed)
             val spenderKey = keyPair.publicKeyBytes
             val spenderType: Byte = 0x00.toByte()
 
@@ -2209,7 +2224,8 @@ class KaspaWalletService(
             val cleanName = domain.lowercase().removeSuffix(".k").trim()
             val deedKey = CryptoUtils.blake3(cleanName.encodeToByteArray())
             val bytecodes = DotkProtocol.getOrFetchBytecodes(client)
-            val keyPair = CryptoUtils.deriveKaspaKeyPair(ownerSeed)
+            val signingSeed = CryptoUtils.getDecryptedSeedForSigning(ownerSeed)
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(signingSeed)
             val ownerPubKey = keyPair.publicKeyBytes
             val ownerType: Byte = 0x00.toByte()
 

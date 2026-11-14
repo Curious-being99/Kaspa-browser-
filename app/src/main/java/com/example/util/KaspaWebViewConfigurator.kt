@@ -18,9 +18,14 @@ import com.example.engine.BrowserEngineManager
 import com.example.network.KaspaPrivacyEngine
 
 object KaspaWebViewConfigurator {
+    private val appliedWebAuthState = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Boolean>())
+    private val appliedWebAuthLevel = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Int>())
+
     /**
      * Configures WebAuthn / FIDO2 Passkey support for a browser WebView using
      * WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER (never FOR_APP, which rejects arbitrary websites).
+     * Memoized per WebSettings instance to prevent Compose recompositions from resetting
+     * Chromium's WebAuthn handler while an interactive passkey ceremony is in flight.
      * Returns the runtime-applied support level or -1 if unsupported.
      */
     fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
@@ -28,6 +33,13 @@ object KaspaWebViewConfigurator {
             if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
                 -1
             } else {
+                val alreadyApplied = synchronized(appliedWebAuthState) {
+                    appliedWebAuthState[settings] == enabled
+                }
+                if (alreadyApplied) {
+                    return synchronized(appliedWebAuthLevel) { appliedWebAuthLevel[settings] }
+                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                }
                 val targetLevel = if (enabled) {
                     WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
                 } else {
@@ -38,6 +50,10 @@ object KaspaWebViewConfigurator {
                     WebSettingsCompat.getWebAuthenticationSupport(settings)
                 } catch (_: Throwable) {
                     targetLevel
+                }
+                synchronized(appliedWebAuthState) {
+                    appliedWebAuthState[settings] = enabled
+                    appliedWebAuthLevel[settings] = actualLevel
                 }
                 BrowserEngineManager.recordPasskeySupport(enabled, actualLevel)
                 actualLevel
@@ -75,6 +91,14 @@ object KaspaWebViewConfigurator {
         } catch (t: Throwable) {
             Log.d(TAG, "Attribution privacy setup notice: ${t.message}")
         }
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setRequestedWithHeaderOriginAllowList(settings, emptySet())
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "Requested-With suppression notice: ${t.message}")
+        }
         BrowserEngineManager.recordWebSettingsApplied(
             bfCacheEnabled = bfCache,
             attributionDisabled = attributionDisabled
@@ -91,6 +115,7 @@ object KaspaWebViewConfigurator {
                 val cookieManager = CookieManager.getInstance()
                 cookieManager.setAcceptCookie(true)
                 cookieManager.setAcceptThirdPartyCookies(webView, true)
+                cookieManager.flush()
             }
         } catch (_: Throwable) {}
     }
@@ -116,6 +141,9 @@ object KaspaWebViewConfigurator {
                     if (request.isForMainFrame) return null
                     val reqUrl = request.url?.toString()
                     if (!reqUrl.isNullOrBlank()) {
+                        if (KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(reqUrl)) {
+                            return null
+                        }
                         // Never block PWA offline stylesheets, scripts, or fonts
                         val path = runCatching { request.url?.path?.lowercase() }.getOrNull() ?: ""
                         val isAsset = path.endsWith(".css") || path.endsWith(".js") || path.endsWith(".json") ||

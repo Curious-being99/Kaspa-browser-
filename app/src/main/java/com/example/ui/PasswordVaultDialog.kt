@@ -56,10 +56,18 @@ fun PasswordVaultSheet(
     val clipboard = LocalClipboardManager.current
     val credentials by viewModel.vaultCredentials.collectAsState()
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
+    val breachedCredentials by viewModel.breachedCredentials.collectAsState()
+    val isCheckingBreaches by viewModel.isCheckingBreaches.collectAsState()
+    val offerToSavePasswords by viewModel.offerToSavePasswords.collectAsState()
+    val autoCreatePasskeyEnabled by viewModel.autoCreatePasskeyEnabled.collectAsState()
+    val allowPasskeyUpgradeEnabled by viewModel.allowPasskeyUpgradeEnabled.collectAsState()
+    val autoSignInEnabled by viewModel.autoSignInEnabled.collectAsState()
+    val passwordAlertsEnabled by viewModel.passwordAlertsEnabled.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var filterMode by remember { mutableStateOf("ALL") }
     var showGenerator by remember { mutableStateOf(false) }
+    var showVaultSettings by remember { mutableStateOf(false) }
     var editingCredential by remember { mutableStateOf<VaultCredentialEntity?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<VaultCredentialEntity?>(null) }
@@ -68,11 +76,12 @@ fun PasswordVaultSheet(
 
     val hasDeviceLock = remember { BiometricAuthHelper.isDeviceLockAvailable(context) }
 
-    val filtered = remember(credentials, searchQuery, filterMode) {
+    val filtered = remember(credentials, searchQuery, filterMode, breachedCredentials) {
         credentials.filter { item ->
             val typeOk = when (filterMode) {
                 "PASSWORDS" -> item.hasPassword
                 "PASSKEYS" -> item.hasPasskey
+                "ALERTS" -> (breachedCredentials[item.id] ?: 0) > 0
                 else -> true
             }
             val q = searchQuery.trim().lowercase()
@@ -357,14 +366,21 @@ fun PasswordVaultSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            listOf("ALL" to "All", "PASSWORDS" to "Passwords", "PASSKEYS" to "Passkeys").forEach { (key, label) ->
+                            listOf("ALL" to "All", "PASSWORDS" to "Passwords", "PASSKEYS" to "Passkeys", "ALERTS" to "Alerts").forEach { (key, label) ->
                                 FilterChip(
                                     selected = filterMode == key,
                                     onClick = { filterMode = key },
-                                    label = { Text(label, fontSize = 12.sp) },
+                                    label = {
+                                        val countSuffix = if (key == "ALERTS" && breachedCredentials.isNotEmpty()) {
+                                            " (${breachedCredentials.size})"
+                                        } else {
+                                            ""
+                                        }
+                                        Text("$label$countSuffix", fontSize = 12.sp)
+                                    },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = ElectricCyan.copy(alpha = 0.2f),
-                                        selectedLabelColor = ElectricCyan,
+                                        selectedContainerColor = if (key == "ALERTS") RedTamper.copy(alpha = 0.22f) else ElectricCyan.copy(alpha = 0.2f),
+                                        selectedLabelColor = if (key == "ALERTS") RedTamper else ElectricCyan,
                                         containerColor = SurfaceDark,
                                         labelColor = TextSecondary
                                     )
@@ -382,6 +398,124 @@ fun PasswordVaultSheet(
                                     labelColor = TextSecondary
                                 )
                             )
+                            FilterChip(
+                                selected = showVaultSettings,
+                                onClick = { showVaultSettings = !showVaultSettings },
+                                leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                label = { Text("Options", fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = ElectricCyan.copy(alpha = 0.2f),
+                                    selectedLabelColor = ElectricCyan,
+                                    containerColor = SurfaceDark,
+                                    labelColor = TextSecondary
+                                ),
+                                modifier = Modifier.testTag("vault_options_chip")
+                            )
+                        }
+
+                        if (breachedCredentials.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = RedTamper.copy(alpha = 0.14f),
+                                border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.55f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { filterMode = "ALERTS" }
+                                    .testTag("vault_breach_alert_banner")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.WarningAmber, contentDescription = null, tint = RedTamper, modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Password Alert: ${breachedCredentials.size} compromised password(s)",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = RedTamper
+                                        )
+                                        Text(
+                                            text = "Found online in public data breaches. Update affected passwords now.",
+                                            fontSize = 11.sp,
+                                            color = TextSecondary
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = { viewModel.checkSavedPasswordsForBreaches(notifyOnNewBreach = false, userInitiated = true) },
+                                        enabled = !isCheckingBreaches
+                                    ) {
+                                        Text(if (isCheckingBreaches) "..." else "Recheck", color = ElectricCyan, fontSize = 11.5.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        if (showVaultSettings) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = SurfaceCard,
+                                border = BorderStroke(1.dp, SurfaceCardBorder),
+                                modifier = Modifier.fillMaxWidth().testTag("vault_options_panel")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    VaultOptionSwitchRow(
+                                        title = "Offer to save passwords",
+                                        subtitle = "Prompt to save or update website logins",
+                                        checked = offerToSavePasswords,
+                                        onCheckedChange = { viewModel.toggleOfferToSavePasswords(it) },
+                                        testTag = "vault_opt_offer_save"
+                                    )
+                                    VaultOptionSwitchRow(
+                                        title = "Automatically create a passkey to sign in faster",
+                                        subtitle = "Create passkeys seamlessly when supported",
+                                        checked = autoCreatePasskeyEnabled,
+                                        onCheckedChange = { viewModel.toggleAutoCreatePasskey(it) },
+                                        testTag = "vault_opt_auto_create_passkey"
+                                    )
+                                    VaultOptionSwitchRow(
+                                        title = "Allow passkey account upgrades",
+                                        subtitle = "Allow sites and apps to upgrade existing accounts to use passkeys.",
+                                        checked = allowPasskeyUpgradeEnabled,
+                                        onCheckedChange = { viewModel.toggleAllowPasskeyUpgrade(it) },
+                                        testTag = "vault_opt_allow_passkey_upgrade"
+                                    )
+                                    VaultOptionSwitchRow(
+                                        title = "Auto sign-in",
+                                        subtitle = "Automatically sign in using stored credentials. If disabled, asks confirmation every time.",
+                                        checked = autoSignInEnabled,
+                                        onCheckedChange = { viewModel.toggleAutoSignIn(it) },
+                                        testTag = "vault_opt_auto_sign_in"
+                                    )
+                                    VaultOptionSwitchRow(
+                                        title = "Password alerts",
+                                        subtitle = "Password alerts will notify you when your saved passwords are found online",
+                                        checked = passwordAlertsEnabled,
+                                        onCheckedChange = { viewModel.togglePasswordAlerts(it) },
+                                        testTag = "vault_opt_password_alerts"
+                                    )
+                                    OutlinedButton(
+                                        onClick = { viewModel.checkSavedPasswordsForBreaches(notifyOnNewBreach = true, userInitiated = true) },
+                                        enabled = !isCheckingBreaches && passwordAlertsEnabled,
+                                        border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f)),
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 42.dp).testTag("vault_run_breach_audit_button")
+                                    ) {
+                                        Icon(Icons.Default.Security, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isCheckingBreaches) "Checking saved passwords..." else "Check Saved Passwords for Breaches",
+                                            fontSize = 12.sp,
+                                            color = ElectricCyan
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         if (showGenerator) {
@@ -443,6 +577,7 @@ fun PasswordVaultSheet(
                                         item = item,
                                         isRevealed = isRevealed,
                                         revealedPassword = decrypted,
+                                        breachCount = breachedCredentials[item.id] ?: 0,
                                         onToggleReveal = {
                                             revealedIds = if (isRevealed) revealedIds - item.id else revealedIds + item.id
                                         },
@@ -602,10 +737,40 @@ fun PasswordVaultSheet(
 }
 
 @Composable
+private fun VaultOptionSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    testTag: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+            Text(text = title, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+            Text(text = subtitle, fontSize = 10.5.sp, color = TextSecondary, lineHeight = 14.sp)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = ObsidianBg,
+                checkedTrackColor = ElectricCyan
+            ),
+            modifier = Modifier.testTag(testTag)
+        )
+    }
+}
+
+@Composable
 private fun VaultCredentialCard(
     item: VaultCredentialEntity,
     isRevealed: Boolean,
     revealedPassword: String?,
+    breachCount: Int = 0,
     onToggleReveal: () -> Unit,
     onCopyUsername: () -> Unit,
     onCopyPassword: () -> Unit,
@@ -617,7 +782,7 @@ private fun VaultCredentialCard(
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = SurfaceDark,
-        border = BorderStroke(1.dp, SurfaceCardBorder),
+        border = BorderStroke(1.dp, if (breachCount > 0) RedTamper.copy(alpha = 0.65f) else SurfaceCardBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -648,18 +813,43 @@ private fun VaultCredentialCard(
                     VaultCredentialEntity.TYPE_PASSKEY -> "Passkey"
                     else -> "Password"
                 }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = (if (item.hasPasskey) EmeraldMesh else VioletBridge).copy(alpha = 0.16f)
-                ) {
-                    Text(
-                        text = typeLabel,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (item.hasPasskey) EmeraldMesh else Color(0xFFA5B4FC),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (breachCount > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = RedTamper.copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = "Breached",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = RedTamper,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = (if (item.hasPasskey) EmeraldMesh else VioletBridge).copy(alpha = 0.16f)
+                    ) {
+                        Text(
+                            text = typeLabel,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (item.hasPasskey) EmeraldMesh else Color(0xFFA5B4FC),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
                 }
+            }
+
+            if (breachCount > 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Warning: Password appeared in $breachCount online breach exposure(s). Edit and rotate now.",
+                    fontSize = 11.sp,
+                    color = RedTamper
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
