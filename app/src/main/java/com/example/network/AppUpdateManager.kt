@@ -480,17 +480,14 @@ class AppUpdateManager(
         var apkSize = 0L
         var assetDigest: String? = null
         if (assets != null) {
-            for (expectedName in listOf("Kazium-release-signed.apk", "KaspaBrowser-release-signed.apk")) {
-                for (i in 0 until assets.length()) {
-                    val asset = assets.getJSONObject(i)
-                    if (asset.optString("name") == expectedName) {
-                        downloadUrl = asset.optString("browser_download_url", "")
-                        apkSize = asset.optLong("size", 0L)
-                        assetDigest = asset.optString("digest", "").takeIf { it.isNotBlank() }
-                        break
-                    }
+            for (i in 0 until assets.length()) {
+                val asset = assets.getJSONObject(i)
+                if (asset.optString("name") == "Kazium-release-signed.apk") {
+                    downloadUrl = asset.optString("browser_download_url", "")
+                    apkSize = asset.optLong("size", 0L)
+                    assetDigest = asset.optString("digest", "").takeIf { it.isNotBlank() }
+                    break
                 }
-                if (downloadUrl.isNotBlank()) break
             }
         }
         val uri = Uri.parse(downloadUrl)
