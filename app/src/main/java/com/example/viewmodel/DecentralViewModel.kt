@@ -1477,7 +1477,7 @@ class DecentralViewModel(
 
     private fun getKaspaAddressFromPublicKey(account: AccountEntity?, prefix: String): String {
         if (account == null) return ""
-        val publicKeyHex = account.publicKeyHex.trim().removePrefix("0x")
+        val publicKeyHex = account.publicKeyHex.trim().removePrefix("0x").removePrefix("0X")
         if (publicKeyHex.matches(Regex("[0-9a-fA-F]{64}"))) {
             return try {
                 CryptoUtils.encodeRealKaspaAddress(CryptoUtils.hexToBytes(publicKeyHex), prefix)
