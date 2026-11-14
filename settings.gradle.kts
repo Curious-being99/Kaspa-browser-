@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Kaspa Browser"
+rootProject.name = "Kazium"
 
 include(":app")
