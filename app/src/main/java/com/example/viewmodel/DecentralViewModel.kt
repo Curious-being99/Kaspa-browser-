@@ -1236,6 +1236,7 @@ class DecentralViewModel(
     val legacyMigrationBusy: StateFlow<Boolean> = _legacyMigrationBusy.asStateFlow()
     private val _legacyMigrationAccount = MutableStateFlow<AccountEntity?>(null)
     val legacyMigrationAccount: StateFlow<AccountEntity?> = _legacyMigrationAccount.asStateFlow()
+    private val _legacyMigrationSourceDid = MutableStateFlow<String?>(null)
 
     val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
@@ -3068,7 +3069,10 @@ class DecentralViewModel(
                 require(sourceAddress.startsWith("$prefix:")) { "The source address does not match the selected network $network." }
 
                 val existingStaged = _legacyMigrationAccount.value
-                    ?.takeIf { it.did != source.did && it.kaspaAddress.startsWith("$prefix:") }
+                    ?.takeIf {
+                        _legacyMigrationSourceDid.value == source.did &&
+                            it.did != source.did && it.kaspaAddress.startsWith("$prefix:")
+                    }
                 val destination = existingStaged ?: run {
                     val generated = CryptoUtils.deriveDecentralizedAccount(
                         customHandle = "Secure replacement for ${source.handle}",
@@ -3076,6 +3080,7 @@ class DecentralViewModel(
                     ).copy(isActive = false, accountType = "DECENTRALIZED_NATIVE", googleEmail = null, googleDisplayName = null)
                     withContext(Dispatchers.IO) { database.accountDao().insertAccount(generated) }
                     _legacyMigrationAccount.value = generated
+                    _legacyMigrationSourceDid.value = source.did
                     generated
                 }
                 val sourceSeed = CryptoUtils.getDecryptedSeed(source.seedPhrase)
@@ -3124,6 +3129,9 @@ class DecentralViewModel(
                 val destination = _legacyMigrationAccount.value
                     ?: throw IllegalStateException("The replacement wallet record is missing.")
                 require(source.did != destination.did) { "Source and destination wallets must be different." }
+                require(_legacyMigrationSourceDid.value == source.did) {
+                    "The active source account changed after migration preparation. Nothing was broadcast."
+                }
                 require(_selectedNetwork.value == prepared.networkName) {
                     "The selected network changed after review. Reopen migration review on the intended network."
                 }
@@ -3157,6 +3165,7 @@ class DecentralViewModel(
                 }
                 _legacyMigrationReview.value = null
                 _legacyMigrationAccount.value = null
+                _legacyMigrationSourceDid.value = null
                 _kaspaWalletState.value = _kaspaWalletState.value.copy(
                     isSending = false,
                     kaspaAddress = destination.kaspaAddress,
