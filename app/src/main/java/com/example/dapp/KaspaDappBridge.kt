@@ -132,7 +132,7 @@ object KaspaDappBridge {
                     if (prefix.isBlank()) return null
                     val active = account ?: return null
                     return try {
-                        val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
+                        val seed = CryptoUtils.getDecryptedSeedForSigning(active)
                         require(seed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
                         CryptoUtils.deriveKaspaKeyPair(seed, prefix)
                     } catch (error: Throwable) {

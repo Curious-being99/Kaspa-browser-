@@ -1294,21 +1294,14 @@ class DecentralViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val account = activeAccount.value ?: return@launch
             val network = _selectedNetwork.value
-            val isMainnet = network.contains("Mainnet", ignoreCase = true)
-            val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
-            val keyPair = try {
-                val decryptedSeed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
-                require(decryptedSeed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
-                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
-            } catch (_: Exception) {
-                null
-            } ?: return@launch
+            val walletAddress = account.kaspaAddress
+            val walletPublicKeyHex = account.publicKeyHex
 
             try {
                 val pendingResult = Kcc20NoteScanner.registerPendingSwapTransaction(
                     txJsonString = txJsonString,
-                    walletAddress = keyPair.kaspaAddress,
-                    walletPublicKeyHex = keyPair.publicKeyHex,
+                    walletAddress = walletAddress,
+                    walletPublicKeyHex = walletPublicKeyHex,
                     network = network
                 )
                 if (pendingResult.walletTokens.isNotEmpty()) {
@@ -2553,7 +2546,6 @@ class DecentralViewModel(
                 val account = activeAccount.value ?: return@withLock
                 val network = _selectedNetwork.value
                 val isMainnet = network.contains("Mainnet", ignoreCase = true)
-                val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
                 val kascovNetwork = when {
                     isMainnet -> "mainnet"
                     network.contains("11") -> "testnet-11"
@@ -2573,15 +2565,13 @@ class DecentralViewModel(
                     }
 
                     // 2. Scan authentic L1 KCC-20 covenant notes using Kcc20NoteScanner
-                    val keyPair = withContext(Dispatchers.Default) {
-                        val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
-                        CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
-                    }
+                    val walletAddress = account.kaspaAddress
+                    val walletPublicKeyHex = account.publicKeyHex
                     try {
                         val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
                         val scanResult = Kcc20NoteScanner.scanWalletNotes(
-                            walletAddress = keyPair.kaspaAddress,
-                            walletPublicKeyHex = keyPair.publicKeyHex,
+                            walletAddress = walletAddress,
+                            walletPublicKeyHex = walletPublicKeyHex,
                             network = kascovNetwork,
                             knownContractIds = _kcc20ContractIds.value
                         )
@@ -2591,11 +2581,11 @@ class DecentralViewModel(
 
                         for (token in scanResult.walletTokens) {
                             val enriched = kcc20Service.fetchWalletToken(
-                                publicKeyHex = keyPair.publicKeyHex,
+                                publicKeyHex = walletPublicKeyHex,
                                 contractId = token.contractId,
                                 network = kascovNetwork,
                                 kasUsd = currentUsdRate,
-                                walletAddress = keyPair.kaspaAddress
+                                walletAddress = walletAddress
                             ).getOrNull()
 
                             if (enriched != null) {
@@ -2615,11 +2605,11 @@ class DecentralViewModel(
                         for (id in _kcc20ContractIds.value) {
                             if (!scannedIds.contains(id.lowercase())) {
                                 val t = kcc20Service.fetchWalletToken(
-                                    publicKeyHex = keyPair.publicKeyHex,
+                                    publicKeyHex = walletPublicKeyHex,
                                     contractId = id,
                                     network = kascovNetwork,
                                     kasUsd = currentUsdRate,
-                                    walletAddress = keyPair.kaspaAddress
+                                    walletAddress = walletAddress
                                 ).getOrNull()
                                 if (t != null) mergedTokens.add(t)
                             }
@@ -2644,14 +2634,14 @@ class DecentralViewModel(
                         txHistoryList.addAll(scanResult.historyItems)
 
                         for (id in _kcc20ContractIds.value) {
-                            val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
+                            val history = kcc20Service.fetchKcc20History(walletAddress, id).getOrNull()
                             if (!history.isNullOrEmpty()) {
                                 txHistoryList.addAll(history)
                             }
                         }
                         _kcc20Transactions.value = txHistoryList.distinctBy { it.txId }.sortedByDescending { it.timestamp }
-                    } finally {
-                        keyPair.wipe()
+                    } catch (scanError: Exception) {
+                        throw scanError
                     }
                 } catch (_: Exception) {
                     // Preserve the last successful live indexer result on transient failures.
@@ -2667,15 +2657,12 @@ class DecentralViewModel(
             val account = activeAccount.value ?: return@launch
             val network = _selectedNetwork.value
             val isMainnet = network.contains("Mainnet", ignoreCase = true)
-            val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
-            val keyPair = withContext(Dispatchers.Default) {
-                val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
-                CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
-            }
+            val walletAddress = account.kaspaAddress
+            val walletPublicKeyHex = account.publicKeyHex
             try {
                 val scanResult = Kcc20NoteScanner.scanWalletNotes(
-                    walletAddress = keyPair.kaspaAddress,
-                    walletPublicKeyHex = keyPair.publicKeyHex,
+                    walletAddress = walletAddress,
+                    walletPublicKeyHex = walletPublicKeyHex,
                     network = if (isMainnet) "mainnet" else "testnet-10",
                     knownContractIds = _kcc20ContractIds.value
                 )
@@ -2683,15 +2670,13 @@ class DecentralViewModel(
                 txHistoryList.addAll(scanResult.historyItems)
 
                 for (id in _kcc20ContractIds.value) {
-                    val history = kcc20Service.fetchKcc20History(keyPair.kaspaAddress, id).getOrNull()
+                    val history = kcc20Service.fetchKcc20History(walletAddress, id).getOrNull()
                     if (!history.isNullOrEmpty()) {
                         txHistoryList.addAll(history)
                     }
                 }
                 _kcc20Transactions.value = txHistoryList.distinctBy { it.txId }.sortedByDescending { it.timestamp }
             } catch (_: Exception) {
-            } finally {
-                keyPair.wipe()
             }
         }
     }
@@ -3187,6 +3172,11 @@ class DecentralViewModel(
                 _legacyMigrationBusy.value = false
             }
         }
+    }
+
+    fun getLegacyMigrationRecoveryPhrase(): String? {
+        val replacement = _legacyMigrationAccount.value ?: return null
+        return runCatching { CryptoUtils.getDecryptedSeedForSigning(replacement) }.getOrNull()
     }
 
     fun cancelLegacyWalletMigrationReview() {

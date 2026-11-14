@@ -165,7 +165,7 @@ class NetworkAuditUnitTest {
 
     @Test
     fun testRustyKaspaPersonalMessageSigningAndVerification() {
-        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val mnemonic = "legal winner thank year wave sausage worth useful legal winner thank yellow"
         val message = "Login to Kaspa Decentralized Gateway"
         val sigHex = CryptoUtils.signMessage(message, mnemonic)
         assertEquals(128, sigHex.length)
@@ -180,7 +180,7 @@ class NetworkAuditUnitTest {
 
     @Test
     fun testRustyKaspaTransactionSigningAndVerification() {
-        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val mnemonic = "legal winner thank year wave sausage worth useful legal winner thank yellow"
         val txPayload = "kaspa:qpm2qsznhks23z7629mms6s4cwef74vcwvi22gd86a_to_kaspa:qq366y5g29q58zfq2y5g29q58zfq2y5g29q58zfq2y5g29q58zfq27w9g4y_100000000_sompis"
         val sigHex = CryptoUtils.signTransaction(txPayload, mnemonic)
         assertEquals(128, sigHex.length)

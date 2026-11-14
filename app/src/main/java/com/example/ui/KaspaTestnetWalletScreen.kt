@@ -5036,13 +5036,31 @@ private fun LegacyMigrationReviewOverlay(
     val context = LocalContext.current
     val hasPassword by viewModel.hasWalletPassword.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+    val legacyKrc20Balances by viewModel.pinnedTokens.collectAsState()
+    val legacyKcc20Balances by viewModel.kcc20Tokens.collectAsState()
+    LaunchedEffect(prepared.senderAddress, prepared.networkName) {
+        viewModel.refreshKrc20Tokens()
+        viewModel.refreshKcc20Tokens()
+    }
     var passwordInput by remember { mutableStateOf("") }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
     var showPasswordFallback by remember { mutableStateOf(false) }
+    var replacementPhraseConfirmed by remember { mutableStateOf(false) }
+    val replacementPhrase = remember(prepared.recipientAddress) {
+        viewModel.getLegacyMigrationRecoveryPhrase().orEmpty()
+    }
+    val replacementWords = remember(replacementPhrase) {
+        replacementPhrase.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    }
+    val hasValidReplacementPhrase = replacementWords.size == 12
 
     val currencySymbol = if (prepared.networkName.contains("Mainnet", ignoreCase = true)) "KAS" else "tKAS"
 
     fun proceedToConfirm() {
+        if (!hasValidReplacementPhrase || !replacementPhraseConfirmed) {
+            authErrorMessage = "Review and confirm all 12 words of the replacement wallet recovery phrase before migration."
+            return
+        }
         authErrorMessage = null
         onConfirmMigration()
     }
@@ -5222,6 +5240,93 @@ private fun LegacyMigrationReviewOverlay(
                     }
                 }
 
+                item {
+                    Surface(
+                        color = SurfaceCard,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Replacement wallet recovery phrase", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text(
+                                "Write down these 12 words and keep them private. They are the only way to restore the replacement wallet.",
+                                fontSize = 11.5.sp,
+                                color = TextSecondary
+                            )
+                            if (hasValidReplacementPhrase) {
+                                replacementWords.forEachIndexed { index, word ->
+                                    Text(
+                                        text = "${index + 1}. $word",
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextPrimary
+                                    )
+                                }
+                            } else {
+                                Text("The replacement recovery phrase could not be decrypted. Migration is blocked.", color = RedTamper, fontSize = 12.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = replacementPhraseConfirmed,
+                                    enabled = hasValidReplacementPhrase && !isBusy,
+                                    onCheckedChange = { replacementPhraseConfirmed = it }
+                                )
+                                Text(
+                                    "I have saved and checked all 12 words.",
+                                    color = TextPrimary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Surface(
+                        color = RedTamper.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Other assets are not included in this KAS transfer", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = RedTamper)
+                            Text("KRC-20 balances currently loaded for the legacy wallet:", fontSize = 11.5.sp, color = TextSecondary)
+                            val positiveKrc20 = legacyKrc20Balances.filter { it.balance > 0.0 }
+                            if (positiveKrc20.isEmpty()) {
+                                Text("No positive KRC-20 balances are currently loaded.", fontSize = 11.5.sp, color = TextSecondary)
+                            } else {
+                                positiveKrc20.forEach { token ->
+                                    Text("${token.tick}: ${token.balance}", fontSize = 12.sp, color = TextPrimary)
+                                }
+                            }
+                            Text("KCC-20 balances currently loaded for the legacy wallet:", fontSize = 11.5.sp, color = TextSecondary)
+                            val positiveKcc20 = legacyKcc20Balances.filter {
+                                (it.balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).signum() > 0
+                            }
+                            if (positiveKcc20.isEmpty()) {
+                                Text("No positive KCC-20 balances are currently loaded.", fontSize = 11.5.sp, color = TextSecondary)
+                            } else {
+                                positiveKcc20.forEach { token ->
+                                    Text("${token.ticker}: ${token.balanceFormatted}", fontSize = 12.sp, color = TextPrimary)
+                                }
+                            }
+                            Text(
+                                "Kaspa Browser blocks signing from this flagged legacy wallet. KRC-20, KCC-20, and EVM assets cannot be sent from this wallet in the app and are not included in the KAS migration. To move them, restore the original 12-word recovery phrase in a separate wallet that explicitly supports the relevant token standard and network, then send each asset to the matching replacement-wallet address. Verify each token contract, network, and destination in that wallet. Do not erase this legacy wallet until every required transfer is confirmed.",
+                                fontSize = 11.5.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
                 if (showPasswordFallback) {
                     item {
                         Surface(
@@ -5291,7 +5396,7 @@ private fun LegacyMigrationReviewOverlay(
                             if (showPasswordFallback) verifyPasswordAndProceed()
                             else initiateAuthorization()
                         },
-                        enabled = !isBusy,
+                        enabled = !isBusy && hasValidReplacementPhrase && replacementPhraseConfirmed,
                         colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
@@ -6114,6 +6219,7 @@ private fun SignOutBottomSheet(
 ) {
     var passwordInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var hasRecoveryPhraseConfirmed by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
 
@@ -6148,7 +6254,7 @@ private fun SignOutBottomSheet(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Sign Out & Disconnect",
+                        text = "Delete Wallet",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
@@ -6162,11 +6268,26 @@ private fun SignOutBottomSheet(
             }
 
             Text(
-                text = "To disconnect your wallet from this session, enter your wallet password below. Active cryptographic keys will be securely cleared from memory.",
+                text = "This erases the wallet from this phone. You can only restore it with its 12-word recovery phrase.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 lineHeight = 18.sp
             )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = hasRecoveryPhraseConfirmed,
+                    onCheckedChange = {
+                        hasRecoveryPhraseConfirmed = it
+                        errorMessage = null
+                    }
+                )
+                Text(
+                    text = "I confirm I have the 12-word recovery phrase.",
+                    fontSize = 12.sp,
+                    color = TextPrimary
+                )
+            }
 
             OutlinedTextField(
                 value = passwordInput,
@@ -6193,6 +6314,10 @@ private fun SignOutBottomSheet(
 
             Button(
                 onClick = {
+                    if (!hasRecoveryPhraseConfirmed) {
+                        errorMessage = "Confirm that you have your 12-word recovery phrase before deleting this wallet."
+                        return@Button
+                    }
                     if (passwordInput.isBlank()) {
                         errorMessage = "Please enter your wallet password"
                         return@Button
@@ -6213,16 +6338,20 @@ private fun SignOutBottomSheet(
             ) {
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Confirm Disconnect", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Delete Wallet", color = Color.White, fontWeight = FontWeight.Bold)
             }
 
             if (biometricsEnabled && BiometricAuthHelper.isDeviceLockAvailable(context)) {
                 OutlinedButton(
                     onClick = {
+                        if (!hasRecoveryPhraseConfirmed) {
+                            errorMessage = "Confirm that you have your 12-word recovery phrase before deleting this wallet."
+                            return@OutlinedButton
+                        }
                         BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
                             context = context,
-                            title = "Sign Out Confirmation",
-                            subtitle = "Authenticate to confirm disconnecting wallet",
+                            title = "Delete Wallet",
+                            subtitle = "Authenticate to erase this wallet from this phone",
                             onSuccess = {
                                 viewModel.signOutActiveAccount()
                                 viewModel.setTab(AppTab.BROWSER_GATEWAY)

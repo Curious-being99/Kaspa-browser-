@@ -282,7 +282,7 @@ internal object EvmDappBridge {
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
                                     executor.execute {
-                                        try { val sig = EvmWalletEngine.signPersonalMessageHex(seedPhrase, messageHex, passphrase); mainHandler.post { respond(sig) } }
+                                        try { val sig = EvmWalletEngine.signPersonalMessageHex(seedPhrase, messageHex, passphrase, account); mainHandler.post { respond(sig) } }
                                         catch (e: Throwable) { mainHandler.post { respond(code = -32603, error = e.message ?: "Signing failed") } }
                                     }
                                 },
@@ -332,7 +332,7 @@ internal object EvmDappBridge {
                                     viewModel.dappPromptState.value = null
                                     executor.execute {
                                         try {
-                                            val signature = EvmWalletEngine.signEthMessage(seedPhrase, messageHex, passphrase)
+                                            val signature = EvmWalletEngine.signEthMessage(seedPhrase, messageHex, passphrase, account)
                                             mainHandler.post { respond(signature) }
                                         } catch (e: Throwable) {
                                             mainHandler.post { respond(code = -32603, error = e.message ?: "eth_sign failed") }
@@ -427,7 +427,7 @@ internal object EvmDappBridge {
                                     viewModel.dappPromptState.value = null
                                     executor.execute {
                                         try {
-                                            val signature = EvmWalletEngine.signTypedData(seedPhrase, typedData, passphrase)
+                                            val signature = EvmWalletEngine.signTypedData(seedPhrase, typedData, passphrase, account)
                                             mainHandler.post { respond(signature) }
                                         } catch (e: Throwable) {
                                             mainHandler.post { respond(code = -32603, error = e.message ?: "Typed-data signing failed") }
@@ -556,7 +556,7 @@ internal object EvmDappBridge {
                                             viewModel.dappPromptState.value = null
                                             executor.execute {
                                                 try {
-                                                    val raw = EvmWalletEngine.signTransaction(seedPhrase, chain, tx, passphrase)
+                                                    val raw = EvmWalletEngine.signTransaction(seedPhrase, chain, tx, passphrase, account)
                                                     if (method == "eth_signTransaction") {
                                                         mainHandler.post { respond(raw) }
                                                     } else {
