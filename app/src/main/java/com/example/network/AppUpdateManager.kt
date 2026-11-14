@@ -186,7 +186,7 @@ class AppUpdateManager(
                     currentVersionName = currentVersionName,
                     currentVersionCode = currentVersionCode,
                     isUpdateAvailable = false,
-                    releaseTitle = "KaspaBrowser v$currentVersionName",
+                    releaseTitle = "Kazium v$currentVersionName",
                     releaseNotes = "No newer releases published on GitHub. Check back later or configure your own public repository under 'GitHub Source'.",
                     releaseDate = formatIsoDate(""),
                     downloadUrl = "",
