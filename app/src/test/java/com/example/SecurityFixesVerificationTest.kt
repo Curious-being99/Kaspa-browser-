@@ -308,4 +308,69 @@ class SecurityFixesVerificationTest {
         }
     }
 
+    @Test
+    fun legacyWalletDetectionUsesExactFirst256Bip39EnglishWordsWithoutMetadata() {
+        val afterCutoff = 1_792_195_200_001L
+        val lastIncludedWordPhrase = List(12) { "cable" }.joinToString(" ")
+        val firstIncludedWordPhrase = List(12) { "abandon" }.joinToString(" ")
+
+        assertEquals(
+            "old wallet format, please move your funds",
+            CryptoUtils.legacyWalletWarning(
+                accountType = "DECENTRALIZED_NATIVE",
+                email = null,
+                storedSeed = lastIncludedWordPhrase,
+                createdAt = afterCutoff
+            )
+        )
+        assertEquals(
+            "old wallet format, please move your funds",
+            CryptoUtils.legacyWalletWarning(
+                accountType = "DECENTRALIZED_NATIVE",
+                email = null,
+                storedSeed = firstIncludedWordPhrase,
+                createdAt = afterCutoff
+            )
+        )
+    }
+
+    @Test
+    fun legacyWalletDetectionExcludesThe257thBip39EnglishWord() {
+        val outsidePrefixPhrase = List(12) { "cactus" }.joinToString(" ")
+        val mixedPhrase = List(11) { "cable" }.plus("cactus").joinToString(" ")
+
+        assertEquals(
+            null,
+            CryptoUtils.legacyWalletWarning(
+                accountType = "DECENTRALIZED_NATIVE",
+                email = null,
+                storedSeed = outsidePrefixPhrase,
+                createdAt = 1_792_195_200_001L
+            )
+        )
+        assertEquals(
+            null,
+            CryptoUtils.legacyWalletWarning(
+                accountType = "DECENTRALIZED_NATIVE",
+                email = null,
+                storedSeed = mixedPhrase,
+                createdAt = 1_792_195_200_001L
+            )
+        )
+    }
+
+    @Test
+    fun legacyWalletDetectionUsesCreatedAtForPreCutoffWarning() {
+        val phrase = List(12) { "cable" }.joinToString(" ")
+        assertEquals(
+            "made with a non-secure generator, move your funds now",
+            CryptoUtils.legacyWalletWarning(
+                accountType = "DECENTRALIZED_NATIVE",
+                email = null,
+                storedSeed = phrase,
+                createdAt = 1_792_195_200_000L
+            )
+        )
+    }
+
 }
