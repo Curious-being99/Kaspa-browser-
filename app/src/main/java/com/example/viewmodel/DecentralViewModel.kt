@@ -2574,7 +2574,7 @@ class DecentralViewModel(
 
                     // 2. Scan authentic L1 KCC-20 covenant notes using Kcc20NoteScanner
                     val keyPair = withContext(Dispatchers.Default) {
-                        val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
+                        val decryptedSeed = CryptoUtils.getDecryptedSeedForSigning(account)
                         CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
                     }
                     try {
@@ -2669,7 +2669,7 @@ class DecentralViewModel(
             val isMainnet = network.contains("Mainnet", ignoreCase = true)
             val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
             val keyPair = withContext(Dispatchers.Default) {
-                val decryptedSeed = try { CryptoUtils.getDecryptedSeed(account.seedPhrase) } catch (_: Exception) { account.seedPhrase }
+                val decryptedSeed = CryptoUtils.getDecryptedSeedForSigning(account)
                 CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
             }
             try {
