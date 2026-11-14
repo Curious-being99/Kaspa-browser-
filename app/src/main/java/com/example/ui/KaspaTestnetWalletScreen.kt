@@ -5318,7 +5318,7 @@ private fun LegacyMigrationReviewOverlay(
                                 }
                             }
                             Text(
-                                "These KRC-20, KCC-20, and EVM assets are not included in this KAS migration. To move them, import the legacy wallet's original 12-word recovery phrase into another compatible wallet, then send each token and EVM asset from that wallet to the matching replacement-wallet address. Verify the network and destination for every transfer before erasing this legacy wallet.",
+                                "Kaspa Browser blocks signing from this flagged legacy wallet. KRC-20, KCC-20, and EVM assets cannot be sent from this wallet in the app and are not included in the KAS migration. To move them, restore the original 12-word recovery phrase in a separate wallet that explicitly supports the relevant token standard and network, then send each asset to the matching replacement-wallet address. Verify each token contract, network, and destination in that wallet. Do not erase this legacy wallet until every required transfer is confirmed.",
                                 fontSize = 11.5.sp,
                                 color = TextSecondary,
                                 lineHeight = 16.sp
