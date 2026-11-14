@@ -2158,7 +2158,13 @@ class DecentralViewModel(
                                 customHandle = cleanHandle,
                                 seedMnemonic = acc.seedPhrase,
                                 networkPrefix = existingNetworkPrefix
-                            ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
+                            ).copy(
+                                isActive = acc.isActive,
+                                createdAt = acc.createdAt,
+                                accountType = acc.accountType,
+                                googleEmail = acc.googleEmail,
+                                googleDisplayName = acc.googleDisplayName
+                            )
                             database.accountDao().insertAccount(refreshedAcc)
                         }
                     }
@@ -2740,9 +2746,9 @@ class DecentralViewModel(
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
-        if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(account.accountType, account.googleEmail, account.seedPhrase)) {
+        CryptoUtils.legacyWalletWarning(account.accountType, account.googleEmail, account.seedPhrase, account.createdAt)?.let { warning ->
             return@withContext Result.failure(
-                SecurityException("This legacy Google wallet is compromised because its key was derived from a public email address. Import its recovery phrase into a newly generated wallet and move funds using a trusted wallet before using this account again.")
+                SecurityException("Legacy wallet: $warning. Create a new wallet and move the funds before using this account.")
             )
         }
 
@@ -3035,8 +3041,7 @@ class DecentralViewModel(
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ) {
         val senderAcc = activeAccount.value ?: return
-        if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase)) {
-            val warning = "This legacy Google wallet is compromised because its key was derived from a public email address. Import its recovery phrase into a newly generated wallet and move funds using a trusted wallet. No transaction was sent."
+        CryptoUtils.legacyWalletWarning(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase, senderAcc.createdAt)?.let { warning ->
             _statusMessage.value = warning
             _kaspaWalletState.value = _kaspaWalletState.value.copy(
                 isSending = false,
