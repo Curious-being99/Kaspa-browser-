@@ -1228,6 +1228,15 @@ class DecentralViewModel(
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
+    private val _legacyMigrationReview =
+        MutableStateFlow<KaspaWalletService.PreparedFullBalanceTransfer?>(null)
+    val legacyMigrationReview: StateFlow<KaspaWalletService.PreparedFullBalanceTransfer?> =
+        _legacyMigrationReview.asStateFlow()
+    private val _legacyMigrationBusy = MutableStateFlow(false)
+    val legacyMigrationBusy: StateFlow<Boolean> = _legacyMigrationBusy.asStateFlow()
+    private val _legacyMigrationAccount = MutableStateFlow<AccountEntity?>(null)
+    val legacyMigrationAccount: StateFlow<AccountEntity?> = _legacyMigrationAccount.asStateFlow()
+
     val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
     private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
@@ -3032,6 +3041,148 @@ class DecentralViewModel(
             )
         } finally {
             keyPair.wipe()
+        }
+    }
+
+    /**
+     * Creates and securely persists a replacement wallet without switching away
+     * from the legacy account. Prepares an exact full-balance transfer for review.
+     */
+    fun prepareLegacyWalletMigration(
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+    ) {
+        if (_legacyMigrationBusy.value) return
+        viewModelScope.launch {
+            _legacyMigrationBusy.value = true
+            try {
+                val source = activeAccount.value
+                    ?: throw IllegalStateException("No active source wallet is available.")
+                val warning = CryptoUtils.legacyWalletWarning(
+                    source.accountType, source.googleEmail, source.seedPhrase, source.createdAt
+                ) ?: throw SecurityException("The active wallet is not classified as a legacy wallet.")
+                val network = _selectedNetwork.value
+                require(!isEvmNetwork(network)) { "Legacy wallet migration is only available on native Kaspa networks." }
+                val isMainnet = network.contains("Mainnet", ignoreCase = true)
+                val prefix = if (isMainnet) "kaspa" else "kaspatest"
+                val sourceAddress = if (isMainnet) getMainnetAddressForAccount(source) else getTestnetAddressForAccount(source)
+                require(sourceAddress.startsWith("$prefix:")) { "The source address does not match the selected network $network." }
+
+                val existingStaged = _legacyMigrationAccount.value
+                    ?.takeIf { it.did != source.did && it.kaspaAddress.startsWith("$prefix:") }
+                val destination = existingStaged ?: run {
+                    val sourceSeed = CryptoUtils.getDecryptedSeed(source.seedPhrase)
+                    val generated = try {
+                        CryptoUtils.deriveDecentralizedAccount(
+                            customHandle = "Secure replacement for ${source.handle}",
+                            networkPrefix = prefix
+                        ).copy(isActive = false, accountType = "DECENTRALIZED_NATIVE", googleEmail = null, googleDisplayName = null)
+                    } finally {
+                        // No plaintext source or replacement seed is retained by this scope.
+                    }
+                    withContext(Dispatchers.IO) { database.accountDao().insertAccount(generated) }
+                    _legacyMigrationAccount.value = generated
+                    generated
+                }
+                val sourceSeed = CryptoUtils.getDecryptedSeed(source.seedPhrase)
+                val prepared = kaspaWalletService.prepareFullBalanceTransfer(
+                    senderAddress = sourceAddress,
+                    senderSeed = sourceSeed,
+                    recipientAddress = destination.kaspaAddress,
+                    networkName = network,
+                    sompiPerMass = sompiPerMass
+                ).getOrElse { throw it }
+                require(prepared.senderAddress == sourceAddress && prepared.recipientAddress == destination.kaspaAddress) {
+                    "Prepared migration addresses changed unexpectedly."
+                }
+                _legacyMigrationReview.value = prepared
+                _statusMessage.value = "Secure replacement wallet created. Review the exact full-balance transfer before authorizing it. ($warning)"
+            } catch (e: Exception) {
+                _legacyMigrationReview.value = null
+                _statusMessage.value = "Migration preparation failed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active."
+            } finally {
+                _legacyMigrationBusy.value = false
+            }
+        }
+    }
+
+    fun cancelLegacyWalletMigrationReview() {
+        _legacyMigrationReview.value = null
+        // Keep the encrypted, inactive replacement account so the user can retry
+        // without generating another recovery phrase. It is not activated or funded.
+    }
+
+    /**
+     * Called only after the native review overlay's existing password/biometric
+     * authorization succeeds. Rechecks the selected account and network first.
+     */
+    fun confirmLegacyWalletMigration() {
+        val prepared = _legacyMigrationReview.value ?: return
+        if (_legacyMigrationBusy.value) return
+        viewModelScope.launch {
+            _legacyMigrationBusy.value = true
+            _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                isSending = true, lastBroadcastTxId = null, statusNotice = null
+            )
+            try {
+                val source = activeAccount.value
+                    ?: throw IllegalStateException("The source wallet is no longer active.")
+                val destination = _legacyMigrationAccount.value
+                    ?: throw IllegalStateException("The replacement wallet record is missing.")
+                require(source.did != destination.did) { "Source and destination wallets must be different." }
+                require(_selectedNetwork.value == prepared.networkName) {
+                    "The selected network changed after review. Reopen migration review on the intended network."
+                }
+                require(prepared.senderAddress == (if (prepared.networkName.contains("Mainnet", true))
+                    getMainnetAddressForAccount(source) else getTestnetAddressForAccount(source))) {
+                    "The source account changed after review. Nothing was broadcast."
+                }
+                require(prepared.recipientAddress == destination.kaspaAddress) {
+                    "The replacement wallet changed after review. Nothing was broadcast."
+                }
+                require(CryptoUtils.legacyWalletWarning(
+                    source.accountType, source.googleEmail, source.seedPhrase, source.createdAt
+                ) != null) { "The source wallet is no longer classified as a legacy wallet." }
+
+                val result = kaspaWalletService.broadcastPreparedFullBalanceTransfer(prepared)
+                    .getOrElse { throw it }
+
+                withContext(Dispatchers.IO) {
+                    database.transactionDao().insert(TransactionEntity(
+                        txId = result.txId,
+                        blockTime = result.blockTime,
+                        amountKas = result.amountKas,
+                        type = "SENT",
+                        isAccepted = false,
+                        feeKas = result.feeKas,
+                        counterpartyAddress = result.counterpartyAddress,
+                        network = prepared.networkName
+                    ))
+                    database.accountDao().deactivateAll()
+                    database.accountDao().setActive(destination.did)
+                }
+                _legacyMigrationReview.value = null
+                _legacyMigrationAccount.value = null
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isSending = false,
+                    kaspaAddress = destination.kaspaAddress,
+                    balanceKas = 0.0,
+                    balanceSompis = 0L,
+                    lastBroadcastTxId = result.txId,
+                    recentTransactions = listOf(result) + _kaspaWalletState.value.recentTransactions,
+                    statusNotice = "Migration transaction submitted to ${prepared.networkName}. Awaiting network acceptance."
+                )
+                _statusMessage.value = "Migration submitted. The replacement wallet is now active; verify network acceptance before considering the migration complete."
+                refreshTestnetWallet()
+            } catch (e: Exception) {
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isSending = false,
+                    lastBroadcastTxId = null,
+                    statusNotice = "Error: Migration not completed. ${e.message ?: e.javaClass.simpleName}"
+                )
+                _statusMessage.value = "Migration not completed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active unless the network accepted a previously submitted transaction."
+            } finally {
+                _legacyMigrationBusy.value = false
+            }
         }
     }
 
