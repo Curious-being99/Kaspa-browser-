@@ -4784,6 +4784,19 @@ private fun ConfirmSendScreenOverlay(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
+                                    Text("Total source balance:", fontSize = 12.sp, color = TextMuted)
+                                    Text(
+                                        text = "${KaspaTransactionEngine.formatKas(amountKas + actualFeeKas)} KAS",
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextSecondary
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
                                     Text("Actual network fee:", fontSize = 12.sp, color = TextMuted)
                                     Text(
                                         text = "${KaspaTransactionEngine.formatKas(actualFeeKas)} KAS",
