@@ -1493,7 +1493,11 @@ class DecentralViewModel(
         if (account == null) return ""
         val currentNet = _selectedNetwork.value
         if (isEvmNetwork(currentNet)) {
-            return account.kaspaAddress.takeIf { it.startsWith("0x", ignoreCase = true) }.orEmpty()
+            return try {
+                com.example.dapp.EvmWalletEngine.address(account.seedPhrase)
+            } catch (_: Throwable) {
+                if (account.kaspaAddress.startsWith("0x", ignoreCase = true)) account.kaspaAddress else ""
+            }
         }
         val expectedPrefix = if (currentNet.contains("Mainnet", ignoreCase = true)) "kaspa" else "kaspatest"
         return getKaspaAddressFromPublicKey(account, expectedPrefix)
