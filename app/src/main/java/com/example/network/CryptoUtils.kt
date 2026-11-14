@@ -1180,21 +1180,10 @@ object CryptoUtils {
 
 
     /**
-     * Detects legacy 12-word seeds using only the exact first 256 BIP-39 English words.
-     * Account type and email metadata never influence detection or classification.
+     * Detects legacy native-wallet 12-word seeds using the first 256 official
+     * BIP-39 English words. Classification depends only on the seed and createdAt.
      */
-    fun isLegacyEmailDerivedGoogleWallet(
-        accountType: String,
-        email: String?,
-        storedSeed: String
-    ): Boolean = legacyWalletWarning(accountType, email, storedSeed, System.currentTimeMillis()) != null
-
-    fun legacyWalletWarning(
-        accountType: String,
-        email: String?,
-        storedSeed: String,
-        createdAt: Long
-    ): String? {
+    fun legacyWalletWarning(storedSeed: String, createdAt: Long): String? {
         if (storedSeed.isBlank()) return null
         val storedWords = try {
             getDecryptedSeed(storedSeed).trim().lowercase().split(Regex("\\s+"))
@@ -1202,9 +1191,7 @@ object CryptoUtils {
             return null
         }
         if (storedWords.size != 12) return null
-
-        val lowEntropySeed = storedWords.all { it in LOW_ENTROPY_BIP39_PREFIX_256 }
-        if (!lowEntropySeed) return null
+        if (!storedWords.all { it in LOW_ENTROPY_BIP39_PREFIX_256 }) return null
 
         return if (createdAt <= LEGACY_GENERATOR_CUTOFF_UTC_MS) {
             "made with a non-secure generator, move your funds now"
@@ -1212,7 +1199,6 @@ object CryptoUtils {
             "old wallet format, please move your funds"
         }
     }
-
 
 }
 
