@@ -2173,9 +2173,7 @@ class DecentralViewModel(
                             ).copy(
                                 isActive = acc.isActive,
                                 createdAt = acc.createdAt,
-                                accountType = acc.accountType,
-                                googleEmail = acc.googleEmail,
-                                googleDisplayName = acc.googleDisplayName
+                                accountType = "DECENTRALIZED_NATIVE"
                             )
                             database.accountDao().insertAccount(refreshedAcc)
                         }
@@ -3081,9 +3079,7 @@ class DecentralViewModel(
                         networkPrefix = prefix
                     ).copy(
                         isActive = false,
-                        accountType = "DECENTRALIZED_NATIVE",
-                        googleEmail = null,
-                        googleDisplayName = null
+                        accountType = "DECENTRALIZED_NATIVE"
                     )
                     require(generated.seedPhrase.startsWith("hw1:")) {
                         "Android Keystore encryption is required for a replacement wallet. Nothing was transferred."
