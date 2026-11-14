@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class, VaultCredentialEntity::class],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -78,6 +78,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE decentralized_accounts_new (
+                        did TEXT NOT NULL, handle TEXT NOT NULL, kaspaAddress TEXT NOT NULL,
+                        peerId TEXT NOT NULL, publicKeyHex TEXT NOT NULL, seedPhrase TEXT NOT NULL,
+                        accountType TEXT NOT NULL DEFAULT 'DECENTRALIZED_NATIVE',
+                        zkProofJson TEXT, createdAt INTEGER NOT NULL, isActive INTEGER NOT NULL,
+                        PRIMARY KEY(did)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO decentralized_accounts_new
+                    (did, handle, kaspaAddress, peerId, publicKeyHex, seedPhrase,
+                     accountType, zkProofJson, createdAt, isActive)
+                    SELECT did, handle, kaspaAddress, peerId, publicKeyHex, seedPhrase,
+                           accountType, zkProofJson, createdAt, isActive
+                    FROM decentralized_accounts
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE decentralized_accounts")
+                db.execSQL("ALTER TABLE decentralized_accounts_new RENAME TO decentralized_accounts")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -88,7 +117,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "decentralnet_db"
                 )
-                    .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

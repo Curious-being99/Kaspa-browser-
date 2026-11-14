@@ -53,9 +53,7 @@ data class AccountEntity(
     val peerId: String,
     val publicKeyHex: String,
     val seedPhrase: String,
-    val accountType: String, // "DECENTRALIZED_NATIVE" or "GOOGLE_ZK_BRIDGE"
-    val googleEmail: String? = null,
-    val googleDisplayName: String? = null,
+    val accountType: String = "DECENTRALIZED_NATIVE", // Native non-custodial wallet only
     val zkProofJson: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val isActive: Boolean = true

@@ -499,32 +499,44 @@ object CryptoUtils {
         return mac.doFinal(data)
     }
 
-    // BIP-39 PBKDF2-HMAC-SHA512 Mnemonic to Seed
     fun mnemonicToSeed(mnemonic: String, passphrase: String = ""): ByteArray {
-        val normalizedMnemonic = mnemonic.trim().replace("\\s+".toRegex(), " ")
+        val normalizedMnemonic = java.text.Normalizer.normalize(
+            mnemonic.trim().split(Regex("\\s+")).joinToString(" "),
+            java.text.Normalizer.Form.NFKD
+        )
+        val normalizedPassphrase = java.text.Normalizer.normalize(
+            passphrase,
+            java.text.Normalizer.Form.NFKD
+        )
         val password = normalizedMnemonic.toByteArray(Charsets.UTF_8)
-        val salt = ("mnemonic$passphrase").toByteArray(Charsets.UTF_8)
-        
-        val mac = javax.crypto.Mac.getInstance("HmacSHA512")
-        mac.init(javax.crypto.spec.SecretKeySpec(password, "HmacSHA512"))
-
+        val salt = ("mnemonic" + normalizedPassphrase).toByteArray(Charsets.UTF_8)
         val saltWithIndex = ByteArray(salt.size + 4)
         System.arraycopy(salt, 0, saltWithIndex, 0, salt.size)
-        saltWithIndex[salt.size] = 0
-        saltWithIndex[salt.size + 1] = 0
-        saltWithIndex[salt.size + 2] = 0
         saltWithIndex[salt.size + 3] = 1
 
-        var u = mac.doFinal(saltWithIndex)
-        val xorSum = u.clone()
-
-        for (iter in 2..2048) {
-            u = mac.doFinal(u)
-            for (j in 0 until 64) {
-                xorSum[j] = (xorSum[j].toInt() xor u[j].toInt()).toByte()
+        var u = ByteArray(0)
+        val xorSum = ByteArray(64)
+        try {
+            val mac = javax.crypto.Mac.getInstance("HmacSHA512")
+            mac.init(javax.crypto.spec.SecretKeySpec(password, "HmacSHA512"))
+            u = mac.doFinal(saltWithIndex)
+            System.arraycopy(u, 0, xorSum, 0, xorSum.size)
+            for (iteration in 2..2048) {
+                val next = mac.doFinal(u)
+                java.util.Arrays.fill(u, 0.toByte())
+                u = next
+                for (i in xorSum.indices) {
+                    xorSum[i] = (xorSum[i].toInt() xor u[i].toInt()).toByte()
+                }
             }
+            return xorSum.clone()
+        } finally {
+            java.util.Arrays.fill(password, 0.toByte())
+            java.util.Arrays.fill(salt, 0.toByte())
+            java.util.Arrays.fill(saltWithIndex, 0.toByte())
+            java.util.Arrays.fill(u, 0.toByte())
+            java.util.Arrays.fill(xorSum, 0.toByte())
         }
-        return xorSum
     }
 
     // BIP-32 / BIP-44 Derivation with Kaspa Coin Type 111111'
@@ -993,11 +1005,37 @@ object CryptoUtils {
         "blind", "blood", "blossom", "blouse", "blue", "blur", "blush", "board", "boat", "body"
     )
 
+    private val LOW_ENTROPY_BIP39_PREFIX_256: Set<String> = """abandon ability able about above absent absorb abstract absurd abuse access accident account accuse achieve acid acoustic acquire across act action actor actress actual adapt add addict address adjust admit adult advance advice aerobic affair afford afraid again age agent agree ahead aim air airport aisle alarm album alcohol alert alien all alley allow almost alone alpha already also alter always amateur amazing among amount amused analyst anchor ancient anger angle angry animal ankle announce annual another answer antenna antique anxiety any apart apology appear apple approve april arch arctic area arena argue arm armed armor army around arrange arrest arrive arrow art artefact artist artwork ask aspect assault asset assist assume asthma athlete atom attack attend attitude attract auction audit august aunt author auto autumn average avocado avoid awake aware away awesome awful awkward axis baby bachelor bacon badge bag balance balcony ball bamboo banana banner bar barely bargain barrel base basic basket battle beach bean beauty because become beef before begin behave behind believe below belt bench benefit best betray better between beyond bicycle bid bike bind biology bird birth bitter black blade blame blanket blast bleak bless blind blood blossom blouse blue blur blush board boat body boil bomb bone bonus book boost border boring borrow boss bottom bounce box boy bracket brain brand brass brave bread breeze brick bridge brief bright bring brisk broccoli broken bronze broom brother brown brush bubble buddy budget buffalo build bulb bulk bullet bundle bunker burden burger burst bus business busy butter buyer buzz cabbage cabin cable"""
+        .trim()
+        .split(Regex("\\s+"))
+        .also { words ->
+            check(words.size == 256 && words.toSet().size == 256) {
+                }
+        }
+        .toSet()
+
+    private const val LEGACY_GENERATOR_CUTOFF_UTC_MS = 1_792_195_200_000L
+
+    fun isValidBip39Mnemonic(mnemonic: String): Boolean {
+        val words = mnemonic.trim().lowercase().split(Regex("\\s+"))
+        if (words.size != 12 && words.size != 15 && words.size != 18 &&
+            words.size != 21 && words.size != 24
+        ) return false
+        return try {
+            org.web3j.crypto.MnemonicUtils.validateMnemonic(words.joinToString(" "))
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     fun generateMnemonic(): String {
         val entropy = ByteArray(16)
         java.security.SecureRandom().nextBytes(entropy)
         return try {
-            org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy)
+            org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy).also { mnemonic ->
+                check(isValidBip39Mnemonic(mnemonic) && mnemonic.trim().split(Regex("\\s+")).size == 12) {
+                }
+            }
         } finally {
             java.util.Arrays.fill(entropy, 0.toByte())
         }
@@ -1097,6 +1135,7 @@ object CryptoUtils {
         val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it, keyPhrase = encryptionKeyPhrase) } ?: generateMnemonic()
         val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase)
         
+        try {
         // Form W3C Compliant DID (did:key with multibase format)
         val did = "did:key:z6Mku" + kaspaKey.publicKeyHex.take(38)
         val peerId = "12D3KooW" + kaspaKey.publicKeyHex.take(24)
@@ -1119,14 +1158,33 @@ object CryptoUtils {
             publicKeyHex = kaspaKey.publicKeyHex,
             seedPhrase = encryptedMnemonic,
             accountType = "DECENTRALIZED_NATIVE",
-            googleEmail = null,
-            googleDisplayName = null,
             zkProofJson = zkProof.toJsonString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
         )
+        } finally {
+            kaspaKey.wipe()
+        }
     }
 
+
+
+    fun legacyWalletWarning(storedSeed: String, createdAt: Long): String? {
+        if (storedSeed.isBlank()) return null
+        val storedWords = try {
+            getDecryptedSeed(storedSeed).trim().lowercase().split(Regex("\\s+"))
+        } catch (_: Throwable) {
+            return null
+        }
+        if (storedWords.size != 12) return null
+        if (!storedWords.all { it in LOW_ENTROPY_BIP39_PREFIX_256 }) return null
+
+        return if (createdAt <= LEGACY_GENERATOR_CUTOFF_UTC_MS) {
+            "made with a non-secure generator, move your funds now"
+        } else {
+            "old wallet format, please move your funds"
+        }
+    }
 
 }
 

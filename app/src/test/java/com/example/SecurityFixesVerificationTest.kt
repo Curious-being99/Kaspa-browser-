@@ -6,6 +6,7 @@ import android.webkit.WebView
 import android.webkit.CookieManager
 import org.robolectric.RuntimeEnvironment
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -19,6 +20,106 @@ import org.robolectric.annotation.Config
 class SecurityFixesVerificationTest {
 
     @Test
+    fun signedFullBalanceTransferConservesValueAndCoversActualFee() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val sender = CryptoUtils.deriveKaspaKeyPair(mnemonic, prefix = "kaspatest")
+        val destination = CryptoUtils.deriveKaspaKeyPair(
+            mnemonic,
+            prefix = "kaspatest",
+            passphrase = "migration-destination-test"
+        )
+        val inputAmount = 100_000_000L
+        try {
+            val senderScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(sender.kaspaAddress)
+            val destinationScript = com.example.network.kaspa.KaspaTransactionEngine.decodeAddressToScriptPublicKey(destination.kaspaAddress)
+            val entry = com.example.network.kaspa.KaspaTransactionEngine.KaspaUtxoEntry(
+                amount = inputAmount,
+                scriptPublicKey = senderScript
+            )
+            val transaction = com.example.network.kaspa.KaspaTransactionEngine.KaspaTransaction(
+                version = 0,
+                inputs = listOf(
+                    com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionInput(
+                        previousOutpoint = com.example.network.kaspa.KaspaTransactionEngine.KaspaOutpoint(
+                            transactionId = "a".repeat(64),
+                            index = 0L
+                        )
+                    )
+                ),
+                outputs = listOf(
+                    com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
+                        amount = inputAmount - 20_000_000L,
+                        scriptPublicKey = destinationScript
+                    )
+                )
+            )
+            com.example.network.kaspa.KaspaTransactionEngine.signTransaction(
+                transaction,
+                listOf(entry),
+                sender.privateKey
+            )
+            val signedMass = com.example.network.kaspa.KaspaTransactionEngine.calculateMass(
+                transaction,
+                listOf(inputAmount)
+            )
+            val actualFee = inputAmount - transaction.outputs.single().amount
+            val requiredFee = maxOf(
+                com.example.network.kaspa.KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                com.example.network.kaspa.KaspaTransactionEngine.calculateToccataMinimumStandardFee(transaction),
+                com.example.network.kaspa.KaspaTransactionEngine.calculateFeeForMass(
+                    signedMass,
+                    com.example.network.kaspa.KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+                )
+            )
+            assertTrue("Signed full-balance fee must cover the actual required fee", actualFee >= requiredFee)
+            assertEquals("All source value must be either transferred or paid as fee", inputAmount, transaction.outputs.single().amount + actualFee)
+            assertTrue("Signed transaction must fit the standard mass limit", signedMass <= com.example.network.kaspa.KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS)
+        } finally {
+            sender.wipe()
+            destination.wipe()
+        }
+    }
+
+    @Test
+    fun generatedReplacementMnemonicIsValidTwelveWordBip39() {
+        val first = CryptoUtils.generateMnemonic()
+        val second = CryptoUtils.generateMnemonic()
+        assertEquals(12, first.trim().split(Regex("\\s+")).size)
+        assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(first))
+        assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(second))
+        assertNotEquals(first, second)
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(first))
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(second))
+    }
+
+    @Test
+    fun bip39PassphraseMatchesOfficialSeedVector() {
+        val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val seed = CryptoUtils.mnemonicToSeed(mnemonic, "TREZOR")
+        try {
+            assertEquals(
+                "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04",
+                seed.joinToString("") { "%02x".format(it) }
+            )
+        } finally {
+            java.util.Arrays.fill(seed, 0.toByte())
+        }
+    }
+
+    @Test
+    fun bip39ChecksumValidationSupportsTwelveAndTwentyFourWordRecovery() {
+        val validTwelve = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        val invalidTwelve = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon ability"
+        val validTwentyFour = (List(23) { "abandon" } + "art").joinToString(" ")
+        val invalidTwentyFour = (List(23) { "abandon" } + "about").joinToString(" ")
+
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(validTwelve))
+        assertFalse(CryptoUtils.isValidBip39Mnemonic(invalidTwelve))
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(validTwentyFour))
+        assertFalse(CryptoUtils.isValidBip39Mnemonic(invalidTwentyFour))
+    }
+
+    @Test
     fun walletCreationIsNativeAndContainsNoGoogleIdentity() {
         val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         val account = CryptoUtils.deriveDecentralizedAccount(
@@ -29,8 +130,6 @@ class SecurityFixesVerificationTest {
         )
 
         assertEquals("DECENTRALIZED_NATIVE", account.accountType)
-        assertEquals(null, account.googleEmail)
-        assertEquals(null, account.googleDisplayName)
         assertEquals(mnemonic, CryptoUtils.getDecryptedSeed(account.seedPhrase, keyPhrase = "unit-test-only-wallet-key"))
     }
 
@@ -306,6 +405,61 @@ class SecurityFixesVerificationTest {
         } finally {
             webView.destroy()
         }
+    }
+
+    @Test
+    fun legacyWalletDetectionUsesExactFirst256Bip39EnglishWordsWithoutMetadata() {
+        val afterCutoff = 1_792_195_200_001L
+        val lastIncludedWordPhrase = List(12) { "cable" }.joinToString(" ")
+        val firstIncludedWordPhrase = List(12) { "abandon" }.joinToString(" ")
+
+        assertEquals(
+            "old wallet format, please move your funds",
+            CryptoUtils.legacyWalletWarning(
+                storedSeed = lastIncludedWordPhrase,
+                createdAt = afterCutoff
+            )
+        )
+        assertEquals(
+            "old wallet format, please move your funds",
+            CryptoUtils.legacyWalletWarning(
+                storedSeed = firstIncludedWordPhrase,
+                createdAt = afterCutoff
+            )
+        )
+    }
+
+    @Test
+    fun legacyWalletDetectionExcludesThe257thBip39EnglishWord() {
+        val outsidePrefixPhrase = List(12) { "cactus" }.joinToString(" ")
+        val mixedPhrase = List(11) { "cable" }.plus("cactus").joinToString(" ")
+
+        assertEquals(
+            null,
+            CryptoUtils.legacyWalletWarning(
+                storedSeed = outsidePrefixPhrase,
+                createdAt = 1_792_195_200_001L
+            )
+        )
+        assertEquals(
+            null,
+            CryptoUtils.legacyWalletWarning(
+                storedSeed = mixedPhrase,
+                createdAt = 1_792_195_200_001L
+            )
+        )
+    }
+
+    @Test
+    fun legacyWalletDetectionUsesCreatedAtForPreCutoffWarning() {
+        val phrase = List(12) { "cable" }.joinToString(" ")
+        assertEquals(
+            "made with a non-secure generator, move your funds now",
+            CryptoUtils.legacyWalletWarning(
+                storedSeed = phrase,
+                createdAt = 1_792_195_200_000L
+            )
+        )
     }
 
 }

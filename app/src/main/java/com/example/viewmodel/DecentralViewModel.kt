@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.example.data.AppDatabase
 import com.example.data.AccountEntity
 import com.example.data.ContentEntity
@@ -1228,6 +1229,19 @@ class DecentralViewModel(
     private val _kaspaWalletState = MutableStateFlow(KaspaWalletState())
     val kaspaWalletState: StateFlow<KaspaWalletState> = _kaspaWalletState.asStateFlow()
 
+    private val _legacyMigrationReview =
+        MutableStateFlow<KaspaWalletService.PreparedFullBalanceTransfer?>(null)
+    val legacyMigrationReview: StateFlow<KaspaWalletService.PreparedFullBalanceTransfer?> =
+        _legacyMigrationReview.asStateFlow()
+    private val _legacyMigrationBusy = MutableStateFlow(false)
+    val legacyMigrationBusy: StateFlow<Boolean> = _legacyMigrationBusy.asStateFlow()
+    private val _legacyMigrationAccount = MutableStateFlow<AccountEntity?>(null)
+    val legacyMigrationAccount: StateFlow<AccountEntity?> = _legacyMigrationAccount.asStateFlow()
+    private val _legacyMigrationSourceDid = MutableStateFlow<String?>(null)
+
+    private val _activeAccountLegacyWarning = MutableStateFlow<String?>(null)
+    val activeAccountLegacyWarning: StateFlow<String?> = _activeAccountLegacyWarning.asStateFlow()
+
     val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
     private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
@@ -2139,10 +2153,8 @@ class DecentralViewModel(
                 database.domainDao().deleteLegacyMockDomains()
                 val allAccounts = database.accountDao().getAllAccountsList()
                 if (allAccounts.isNotEmpty()) {
-                    val hasActive = allAccounts.any { it.isActive }
-                    if (!hasActive) {
-                        database.accountDao().setActive(allAccounts.first().did)
-                    }
+                    // Never silently restore an account after sign-out. Account selection
+                    // must be an explicit user action when no wallet is active.
                     for (acc in allAccounts) {
                         val cleanHandle = if (acc.handle.contains(".k") || acc.handle.startsWith("@kas")) {
                             "Kaspa Account (${acc.kaspaAddress.takeLast(6)})"
@@ -2151,14 +2163,18 @@ class DecentralViewModel(
                         }
 
                         if (!CryptoUtils.isAnyValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
-                            // Legacy Google bridge metadata is ignored. Rebuild the wallet identity
-                            // from the existing locally stored seed only; never use email for wallet identity.
+                            // Rebuild native wallet identity from the existing locally stored seed.
+                            // Account identity never depends on external account metadata.
                             val existingNetworkPrefix = if (acc.kaspaAddress.startsWith("kaspa:", ignoreCase = true)) "kaspa" else "kaspatest"
                             val refreshedAcc = CryptoUtils.deriveDecentralizedAccount(
                                 customHandle = cleanHandle,
                                 seedMnemonic = acc.seedPhrase,
                                 networkPrefix = existingNetworkPrefix
-                            ).copy(isActive = acc.isActive, createdAt = acc.createdAt)
+                            ).copy(
+                                isActive = acc.isActive,
+                                createdAt = acc.createdAt,
+                                accountType = "DECENTRALIZED_NATIVE"
+                            )
                             database.accountDao().insertAccount(refreshedAcc)
                         }
                     }
@@ -2169,6 +2185,12 @@ class DecentralViewModel(
         // Keep Kaspa Wallet synced with active account on Testnet 10
         viewModelScope.launch {
             activeAccount.collect { account ->
+                _activeAccountLegacyWarning.value = account?.let {
+                    CryptoUtils.legacyWalletWarning(
+                        storedSeed = it.seedPhrase,
+                        createdAt = it.createdAt
+                    )
+                }
                 val testnetAddr = getTestnetAddressForAccount(account)
                 if (testnetAddr.isNotBlank()) {
                     refreshKaspaWallet(testnetAddr)
@@ -2740,7 +2762,6 @@ class DecentralViewModel(
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
-
         val currentNet = _selectedNetwork.value
         val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
         val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
@@ -3024,6 +3045,175 @@ class DecentralViewModel(
         }
     }
 
+    /**
+     * Creates and securely persists a replacement wallet without switching away
+     * from the legacy account. Prepares an exact full-balance transfer for review.
+     */
+    fun prepareLegacyWalletMigration(
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+    ) {
+        if (_legacyMigrationBusy.value) return
+        viewModelScope.launch {
+            _legacyMigrationBusy.value = true
+            try {
+                val source = activeAccount.value
+                    ?: throw IllegalStateException("No active source wallet is available.")
+                val network = _selectedNetwork.value
+                require(!isEvmNetwork(network)) { "Legacy wallet migration is only available on native Kaspa networks." }
+                val isMainnet = network.contains("Mainnet", ignoreCase = true)
+                val prefix = if (isMainnet) "kaspa" else "kaspatest"
+                val sourceAddress = if (isMainnet) getMainnetAddressForAccount(source) else getTestnetAddressForAccount(source)
+                require(sourceAddress.startsWith("$prefix:")) { "The source address does not match the selected network $network." }
+
+                val existingStaged = _legacyMigrationAccount.value
+                    ?.takeIf {
+                        _legacyMigrationSourceDid.value == source.did &&
+                            it.did != source.did && it.kaspaAddress.startsWith("$prefix:")
+                    }
+                val destination = existingStaged ?: run {
+                    // generateMnemonic() uses SecureRandom; deriveDecentralizedAccount()
+                    // encrypts through Android Keystore and wipes its derived private key
+                    // in a finally block before returning the account record.
+                    val generated = CryptoUtils.deriveDecentralizedAccount(
+                        customHandle = "Secure replacement for ${source.handle}",
+                        networkPrefix = prefix
+                    ).copy(
+                        isActive = false,
+                        accountType = "DECENTRALIZED_NATIVE"
+                    )
+                    require(generated.seedPhrase.startsWith("hw1:")) {
+                        "Android Keystore encryption is required for a replacement wallet. Nothing was transferred."
+                    }
+                    require(generated.kaspaAddress.startsWith("$prefix:")) {
+                        "Replacement wallet address does not match the selected network."
+                    }
+                    withContext(Dispatchers.IO) {
+                        database.accountDao().insertAccount(generated)
+                    }
+                    _legacyMigrationAccount.value = generated
+                    _legacyMigrationSourceDid.value = source.did
+                    generated
+                }
+                val sourceSeed = CryptoUtils.getDecryptedSeed(source.seedPhrase)
+                val prepared = kaspaWalletService.prepareFullBalanceTransfer(
+                    senderAddress = sourceAddress,
+                    senderSeed = sourceSeed,
+                    recipientAddress = destination.kaspaAddress,
+                    networkName = network,
+                    sompiPerMass = sompiPerMass
+                ).getOrElse { throw it }
+                require(prepared.senderAddress == sourceAddress && prepared.recipientAddress == destination.kaspaAddress) {
+                    "Prepared migration addresses changed unexpectedly."
+                }
+                _legacyMigrationReview.value = prepared
+                _statusMessage.value = "Replacement wallet ready for native transaction review."
+            } catch (e: Exception) {
+                _legacyMigrationReview.value = null
+                _statusMessage.value = "Migration preparation failed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active."
+            } finally {
+                _legacyMigrationBusy.value = false
+            }
+        }
+    }
+
+    fun cancelLegacyWalletMigrationReview() {
+        _legacyMigrationReview.value = null
+        // Keep the encrypted, inactive replacement account so the user can retry
+        // without generating another recovery phrase. It is not activated or funded.
+    }
+
+    /**
+     * Called only after the native review overlay's existing password/biometric
+     * authorization succeeds. Rechecks the selected account and network first.
+     */
+    fun confirmLegacyWalletMigration() {
+        val prepared = _legacyMigrationReview.value ?: return
+        if (_legacyMigrationBusy.value) return
+        viewModelScope.launch {
+            _legacyMigrationBusy.value = true
+            var submittedResult: KaspaTransactionItem? = null
+            _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                isSending = true, lastBroadcastTxId = null, statusNotice = null
+            )
+            try {
+                val source = activeAccount.value
+                    ?: throw IllegalStateException("The source wallet is no longer active.")
+                val destination = _legacyMigrationAccount.value
+                    ?: throw IllegalStateException("The replacement wallet record is missing.")
+                require(source.did != destination.did) { "Source and destination wallets must be different." }
+                require(_legacyMigrationSourceDid.value == source.did) {
+                    "The active source account changed after migration preparation. Nothing was broadcast."
+                }
+                require(_selectedNetwork.value == prepared.networkName) {
+                    "The selected network changed after review. Reopen migration review on the intended network."
+                }
+                require(prepared.senderAddress == (if (prepared.networkName.contains("Mainnet", true))
+                    getMainnetAddressForAccount(source) else getTestnetAddressForAccount(source))) {
+                    "The source account changed after review. Nothing was broadcast."
+                }
+                require(prepared.recipientAddress == destination.kaspaAddress) {
+                    "The replacement wallet changed after review. Nothing was broadcast."
+                }
+
+                val result = kaspaWalletService.broadcastPreparedFullBalanceTransfer(prepared)
+                    .getOrElse { throw it }
+                submittedResult = result
+
+                withContext(Dispatchers.IO) {
+                    database.withTransaction {
+                        database.transactionDao().insert(TransactionEntity(
+                            txId = result.txId,
+                            blockTime = result.blockTime,
+                            amountKas = result.amountKas,
+                            type = "SENT",
+                            isAccepted = false,
+                            feeKas = result.feeKas,
+                            counterpartyAddress = result.counterpartyAddress,
+                            network = prepared.networkName
+                        ))
+                        database.accountDao().deactivateAll()
+                        database.accountDao().setActive(destination.did)
+                    }
+                }
+                _legacyMigrationReview.value = null
+                _legacyMigrationAccount.value = null
+                _legacyMigrationSourceDid.value = null
+                _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                    isSending = false,
+                    kaspaAddress = destination.kaspaAddress,
+                    balanceKas = 0.0,
+                    balanceSompis = 0L,
+                    lastBroadcastTxId = result.txId,
+                    recentTransactions = listOf(result) + _kaspaWalletState.value.recentTransactions,
+                    statusNotice = "Migration transaction submitted to ${prepared.networkName}. Awaiting network acceptance."
+                )
+                _statusMessage.value = "Migration submitted. The replacement wallet is now active; verify network acceptance before considering the migration complete."
+                refreshTestnetWallet()
+            } catch (e: Exception) {
+                val submitted = submittedResult
+                if (submitted != null) {
+                    _legacyMigrationReview.value = null
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = submitted.txId,
+                        recentTransactions = listOf(submitted) + _kaspaWalletState.value.recentTransactions,
+                        statusNotice = "Migration transaction ${submitted.txId} was submitted, but local wallet activation failed. Do not submit another migration. The replacement wallet remains saved in your accounts."
+                    )
+                    _statusMessage.value = "Transaction submitted as ${submitted.txId}, but local wallet activation failed: ${e.message ?: e.javaClass.simpleName}. Keep the source wallet and replacement wallet; verify the transaction on the selected network before taking further action."
+                } else {
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = null,
+                        statusNotice = "Error: Migration not completed. ${e.message ?: e.javaClass.simpleName}"
+                    )
+                    _statusMessage.value = "Migration not completed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active."
+                }
+            } finally {
+                _legacyMigrationBusy.value = false
+            }
+        }
+    }
+
     fun sendKaspaTransaction(
         recipientAddress: String,
         amountKas: Double,
@@ -3161,7 +3351,8 @@ class DecentralViewModel(
                     senderSeed = decryptedSeed,
                     recipientAddress = targetRecipient,
                     amountKas = amountKas,
-                    sompiPerMass = sompiPerMass
+                    sompiPerMass = sompiPerMass,
+                    networkName = currentNet
                 )
                 result.onSuccess { txItem ->
                     // Persist the outgoing transaction immediately as pending.
@@ -3573,8 +3764,22 @@ class DecentralViewModel(
     fun signOutActiveAccount() {
         viewModelScope.launch {
             try {
+                // Sign out removes only the currently active wallet from local persistence.
+                // Other saved accounts are left untouched.
+                val activeAccount = database.accountDao()
+                    .getAllAccountsList()
+                    .firstOrNull { it.isActive }
+
+                if (activeAccount != null) {
+                    database.accountDao().deleteAccount(activeAccount)
+                }
                 database.accountDao().deactivateAll()
-                _statusMessage.value = "Signed out successfully"
+
+                _legacyMigrationReview.value = null
+                _legacyMigrationAccount.value = null
+                _legacyMigrationSourceDid.value = null
+
+                _statusMessage.value = "Signed out. Active wallet removed from this device."
             } catch (e: Exception) {
                 _statusMessage.value = "Failed to sign out: ${e.message}"
             }
