@@ -6134,6 +6134,7 @@ private fun SignOutBottomSheet(
 ) {
     var passwordInput by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var hasRecoveryPhraseConfirmed by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
 
@@ -6168,7 +6169,7 @@ private fun SignOutBottomSheet(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Sign Out & Disconnect",
+                        text = "Delete Wallet",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
@@ -6187,6 +6188,21 @@ private fun SignOutBottomSheet(
                 color = TextSecondary,
                 lineHeight = 18.sp
             )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = hasRecoveryPhraseConfirmed,
+                    onCheckedChange = {
+                        hasRecoveryPhraseConfirmed = it
+                        errorMessage = null
+                    }
+                )
+                Text(
+                    text = "I confirm I have the 12-word recovery phrase.",
+                    fontSize = 12.sp,
+                    color = TextPrimary
+                )
+            }
 
             OutlinedTextField(
                 value = passwordInput,
@@ -6237,16 +6253,20 @@ private fun SignOutBottomSheet(
             ) {
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Confirm Disconnect", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Delete Wallet", color = Color.White, fontWeight = FontWeight.Bold)
             }
 
             if (biometricsEnabled && BiometricAuthHelper.isDeviceLockAvailable(context)) {
                 OutlinedButton(
                     onClick = {
+                        if (!hasRecoveryPhraseConfirmed) {
+                            errorMessage = "Confirm that you have your 12-word recovery phrase before deleting this wallet."
+                            return@OutlinedButton
+                        }
                         BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
                             context = context,
-                            title = "Sign Out Confirmation",
-                            subtitle = "Authenticate to confirm disconnecting wallet",
+                            title = "Delete Wallet",
+                            subtitle = "Authenticate to erase this wallet from this phone",
                             onSuccess = {
                                 viewModel.signOutActiveAccount()
                                 viewModel.setTab(AppTab.BROWSER_GATEWAY)
