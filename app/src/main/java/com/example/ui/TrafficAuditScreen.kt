@@ -888,7 +888,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
                     PrivacyToggleRow(
                         title = "Background Playback",
-                        desc = "Allow supported website audio to continue when Kaspa Browser is in the background",
+                        desc = "Allow supported website audio to continue when Kazium is in the background",
                         icon = Icons.Default.MusicNote,
                         checked = backgroundPlaybackEnabled,
                         onCheckedChange = { viewModel.toggleBackgroundPlayback(it) }
