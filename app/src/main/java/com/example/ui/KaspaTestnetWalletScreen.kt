@@ -5314,7 +5314,7 @@ private fun LegacyMigrationReviewOverlay(
                                 }
                             }
                             Text(
-                                "EVM native coins and tokens are not swept by this Kaspa L1 migration. Switch to every EVM network, verify its balances, and transfer those assets separately before erasing the legacy wallet.",
+                                "These KRC-20, KCC-20, and EVM assets are not included in this KAS migration. To move them, import the legacy wallet's original 12-word recovery phrase into another compatible wallet, then send each token and EVM asset from that wallet to the matching replacement-wallet address. Verify the network and destination for every transfer before erasing this legacy wallet.",
                                 fontSize = 11.5.sp,
                                 color = TextSecondary,
                                 lineHeight = 16.sp
