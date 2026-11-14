@@ -3768,8 +3768,22 @@ class DecentralViewModel(
     fun signOutActiveAccount() {
         viewModelScope.launch {
             try {
+                // Sign out removes only the currently active wallet from local persistence.
+                // Other saved accounts are left untouched.
+                val activeAccount = database.accountDao()
+                    .getAllAccountsList()
+                    .firstOrNull { it.isActive }
+
+                if (activeAccount != null) {
+                    database.accountDao().deleteAccount(activeAccount)
+                }
                 database.accountDao().deactivateAll()
-                _statusMessage.value = "Signed out successfully"
+
+                _legacyMigrationReview.value = null
+                _legacyMigrationAccount.value = null
+                _legacyMigrationSourceDid.value = null
+
+                _statusMessage.value = "Signed out. Active wallet removed from this device."
             } catch (e: Exception) {
                 _statusMessage.value = "Failed to sign out: ${e.message}"
             }
