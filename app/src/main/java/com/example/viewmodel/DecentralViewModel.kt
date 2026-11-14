@@ -3189,6 +3189,11 @@ class DecentralViewModel(
         }
     }
 
+    fun getLegacyMigrationRecoveryPhrase(): String? {
+        val replacement = _legacyMigrationAccount.value ?: return null
+        return runCatching { CryptoUtils.getDecryptedSeedForSigning(replacement) }.getOrNull()
+    }
+
     fun cancelLegacyWalletMigrationReview() {
         _legacyMigrationReview.value = null
         // Keep the encrypted, inactive replacement account so the user can retry
