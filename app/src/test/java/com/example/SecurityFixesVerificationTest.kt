@@ -87,7 +87,8 @@ class SecurityFixesVerificationTest {
         assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(first))
         assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(second))
         assertNotEquals(first, second)
-        assertTrue(CryptoUtils.isValidBip39Mnemonic(mnemonic))
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(first))
+        assertTrue(CryptoUtils.isValidBip39Mnemonic(second))
     }
 
     @Test
