@@ -3051,9 +3051,6 @@ class DecentralViewModel(
             try {
                 val source = activeAccount.value
                     ?: throw IllegalStateException("No active source wallet is available.")
-                CryptoUtils.legacyWalletWarning(
-                    source.accountType, source.googleEmail, source.seedPhrase, source.createdAt
-                ) ?: throw SecurityException("")
                 val network = _selectedNetwork.value
                 require(!isEvmNetwork(network)) { "Legacy wallet migration is only available on native Kaspa networks." }
                 val isMainnet = network.contains("Mainnet", ignoreCase = true)
@@ -3136,9 +3133,6 @@ class DecentralViewModel(
                 require(prepared.recipientAddress == destination.kaspaAddress) {
                     "The replacement wallet changed after review. Nothing was broadcast."
                 }
-                require(CryptoUtils.legacyWalletWarning(
-                    source.accountType, source.googleEmail, source.seedPhrase, source.createdAt
-                ) != null) { "The source wallet is no longer classified as a legacy wallet." }
 
                 val result = kaspaWalletService.broadcastPreparedFullBalanceTransfer(prepared)
                     .getOrElse { throw it }
