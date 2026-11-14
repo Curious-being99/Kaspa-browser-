@@ -1111,6 +1111,7 @@ object CryptoUtils {
         val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it, keyPhrase = encryptionKeyPhrase) } ?: generateMnemonic()
         val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase)
         
+        try {
         // Form W3C Compliant DID (did:key with multibase format)
         val did = "did:key:z6Mku" + kaspaKey.publicKeyHex.take(38)
         val peerId = "12D3KooW" + kaspaKey.publicKeyHex.take(24)
@@ -1139,6 +1140,9 @@ object CryptoUtils {
             createdAt = System.currentTimeMillis(),
             isActive = true
         )
+        } finally {
+            kaspaKey.wipe()
+        }
     }
 
 
