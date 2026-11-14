@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.example.data.AppDatabase
 import com.example.data.AccountEntity
 import com.example.data.ContentEntity
@@ -3150,18 +3151,20 @@ class DecentralViewModel(
                     .getOrElse { throw it }
 
                 withContext(Dispatchers.IO) {
-                    database.transactionDao().insert(TransactionEntity(
-                        txId = result.txId,
-                        blockTime = result.blockTime,
-                        amountKas = result.amountKas,
-                        type = "SENT",
-                        isAccepted = false,
-                        feeKas = result.feeKas,
-                        counterpartyAddress = result.counterpartyAddress,
-                        network = prepared.networkName
-                    ))
-                    database.accountDao().deactivateAll()
-                    database.accountDao().setActive(destination.did)
+                    database.withTransaction {
+                        database.transactionDao().insert(TransactionEntity(
+                            txId = result.txId,
+                            blockTime = result.blockTime,
+                            amountKas = result.amountKas,
+                            type = "SENT",
+                            isAccepted = false,
+                            feeKas = result.feeKas,
+                            counterpartyAddress = result.counterpartyAddress,
+                            network = prepared.networkName
+                        ))
+                        database.accountDao().deactivateAll()
+                        database.accountDao().setActive(destination.did)
+                    }
                 }
                 _legacyMigrationReview.value = null
                 _legacyMigrationAccount.value = null
