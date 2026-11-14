@@ -3629,6 +3629,21 @@ private fun WalletLockOverlay(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                androidx.compose.material3.Checkbox(
+                    checked = hasRecoveryPhraseConfirmed,
+                    onCheckedChange = { hasRecoveryPhraseConfirmed = it }
+                )
+                Text(
+                    text = "I have my 12-word recovery phrase and can restore this wallet.",
+                    color = TextPrimary,
+                    fontSize = 12.sp
+                )
+            }
+
             OutlinedTextField(
                 value = passwordInput,
                 onValueChange = { 
@@ -3670,6 +3685,10 @@ private fun WalletLockOverlay(
                 Spacer(modifier = Modifier.height(16.dp))
                 OutlinedButton(
                     onClick = {
+                        if (!hasRecoveryPhraseConfirmed) {
+                            errorMessage = "Confirm that you have your 12-word recovery phrase before deleting this wallet."
+                            return@OutlinedButton
+                        }
                         BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
                             context = context,
                             title = "Unlock Wallet",
@@ -4513,6 +4532,7 @@ private fun ConfirmSendScreenOverlay(
     var passwordInput by remember { mutableStateOf("") }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
     var showPasswordFallback by remember { mutableStateOf(false) }
+    var hasRecoveryPhraseConfirmed by remember { mutableStateOf(false) }
 
     fun proceedToBroadcast() {
         authErrorMessage = null
@@ -6162,7 +6182,7 @@ private fun SignOutBottomSheet(
             }
 
             Text(
-                text = "To disconnect your wallet from this session, enter your wallet password below. Active cryptographic keys will be securely cleared from memory.",
+                text = "This erases the wallet from this phone. You can only restore it with its 12-word recovery phrase.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 lineHeight = 18.sp
@@ -6193,6 +6213,10 @@ private fun SignOutBottomSheet(
 
             Button(
                 onClick = {
+                    if (!hasRecoveryPhraseConfirmed) {
+                        errorMessage = "Confirm that you have your 12-word recovery phrase before deleting this wallet."
+                        return@Button
+                    }
                     if (passwordInput.isBlank()) {
                         errorMessage = "Please enter your wallet password"
                         return@Button
