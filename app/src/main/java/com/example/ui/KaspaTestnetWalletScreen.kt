@@ -5036,6 +5036,8 @@ private fun LegacyMigrationReviewOverlay(
     val context = LocalContext.current
     val hasPassword by viewModel.hasWalletPassword.collectAsState()
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
+    val legacyKrc20Balances by viewModel.pinnedTokens.collectAsState()
+    val legacyKcc20Balances by viewModel.kcc20Tokens.collectAsState()
     var passwordInput by remember { mutableStateOf("") }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
     var showPasswordFallback by remember { mutableStateOf(false) }
@@ -5275,6 +5277,48 @@ private fun LegacyMigrationReviewOverlay(
                                     fontSize = 12.sp
                                 )
                             }
+                        }
+                    }
+                }
+
+                item {
+                    Surface(
+                        color = RedTamper.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Other assets are not included in this KAS transfer", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = RedTamper)
+                            Text("KRC-20 balances currently loaded for the legacy wallet:", fontSize = 11.5.sp, color = TextSecondary)
+                            val positiveKrc20 = legacyKrc20Balances.filter { it.balance > 0.0 }
+                            if (positiveKrc20.isEmpty()) {
+                                Text("No positive KRC-20 balances are currently loaded.", fontSize = 11.5.sp, color = TextSecondary)
+                            } else {
+                                positiveKrc20.forEach { token ->
+                                    Text("${token.tick}: ${token.balance}", fontSize = 12.sp, color = TextPrimary)
+                                }
+                            }
+                            Text("KCC-20 balances currently loaded for the legacy wallet:", fontSize = 11.5.sp, color = TextSecondary)
+                            val positiveKcc20 = legacyKcc20Balances.filter {
+                                (it.balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO).signum() > 0
+                            }
+                            if (positiveKcc20.isEmpty()) {
+                                Text("No positive KCC-20 balances are currently loaded.", fontSize = 11.5.sp, color = TextSecondary)
+                            } else {
+                                positiveKcc20.forEach { token ->
+                                    Text("${token.ticker}: ${token.balanceFormatted}", fontSize = 12.sp, color = TextPrimary)
+                                }
+                            }
+                            Text(
+                                "EVM native coins and tokens are not swept by this Kaspa L1 migration. Switch to every EVM network, verify its balances, and transfer those assets separately before erasing the legacy wallet.",
+                                fontSize = 11.5.sp,
+                                color = TextSecondary,
+                                lineHeight = 16.sp
+                            )
                         }
                     }
                 }
