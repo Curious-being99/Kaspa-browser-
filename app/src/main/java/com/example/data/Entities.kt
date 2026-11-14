@@ -53,12 +53,7 @@ data class AccountEntity(
     val peerId: String,
     val publicKeyHex: String,
     val seedPhrase: String,
-    // Retained only to read existing Room rows; native wallet logic never uses these legacy fields.
     val accountType: String = "DECENTRALIZED_NATIVE",
-    @Deprecated("Legacy database compatibility only; Google-linked wallets are unsupported.")
-    val googleEmail: String? = null,
-    @Deprecated("Legacy database compatibility only; Google-linked wallets are unsupported.")
-    val googleDisplayName: String? = null,
     val zkProofJson: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val isActive: Boolean = true
