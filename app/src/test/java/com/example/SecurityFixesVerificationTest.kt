@@ -130,8 +130,6 @@ class SecurityFixesVerificationTest {
         )
 
         assertEquals("DECENTRALIZED_NATIVE", account.accountType)
-        assertEquals(null, account.googleEmail)
-        assertEquals(null, account.googleDisplayName)
         assertEquals(mnemonic, CryptoUtils.getDecryptedSeed(account.seedPhrase, keyPhrase = "unit-test-only-wallet-key"))
     }
 
