@@ -1194,7 +1194,7 @@ object CryptoUtils {
 
         return when {
             emailMatch -> "compromised"
-            createdAt < LEGACY_GENERATOR_CUTOFF_UTC_MS ->
+            createdAt <= LEGACY_GENERATOR_CUTOFF_UTC_MS ->
                 "made with a non-secure generator, move your funds now"
             else -> "old wallet format, please move your funds"
         }
