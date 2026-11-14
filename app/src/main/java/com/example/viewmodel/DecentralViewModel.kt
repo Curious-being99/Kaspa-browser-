@@ -1294,7 +1294,12 @@ class DecentralViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val account = activeAccount.value ?: return@launch
             val network = _selectedNetwork.value
-            val walletAddress = account.kaspaAddress
+            val walletAddress = if (network.contains("Mainnet", ignoreCase = true)) {
+                getMainnetAddressForAccount(account)
+            } else {
+                getTestnetAddressForAccount(account)
+            }
+            if (walletAddress.isBlank()) return@launch
             val walletPublicKeyHex = account.publicKeyHex
 
             try {
@@ -1470,6 +1475,20 @@ class DecentralViewModel(
         appPrefs.edit().putString("selected_testnet_explorer", url).apply()
     }
 
+    private fun getKaspaAddressFromPublicKey(account: AccountEntity?, prefix: String): String {
+        if (account == null) return ""
+        val publicKeyHex = account.publicKeyHex.trim().removePrefix("0x").removePrefix("0X")
+        if (publicKeyHex.matches(Regex("[0-9a-fA-F]{64}"))) {
+            return try {
+                CryptoUtils.encodeRealKaspaAddress(CryptoUtils.hexToBytes(publicKeyHex), prefix)
+            } catch (_: Exception) {
+                ""
+            }
+        }
+        val storedAddress = account.kaspaAddress
+        return storedAddress.takeIf { CryptoUtils.isValidKaspaAddress(it, prefix) }.orEmpty()
+    }
+
     fun getTestnetAddressForAccount(account: AccountEntity?): String {
         if (account == null) return ""
         val currentNet = _selectedNetwork.value
@@ -1477,18 +1496,11 @@ class DecentralViewModel(
             return try {
                 com.example.dapp.EvmWalletEngine.address(account.seedPhrase)
             } catch (_: Throwable) {
-                if (account.kaspaAddress.startsWith("0x")) account.kaspaAddress else ""
+                if (account.kaspaAddress.startsWith("0x", ignoreCase = true)) account.kaspaAddress else ""
             }
         }
-        val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
-        val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
-        if (account.kaspaAddress.startsWith("$expectedPrefix:")) return account.kaspaAddress
-        return try {
-            val seed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
-            CryptoUtils.deriveKaspaKeyPair(seed, prefix = expectedPrefix).kaspaAddress
-        } catch (_: Exception) {
-            account.kaspaAddress
-        }
+        val expectedPrefix = if (currentNet.contains("Mainnet", ignoreCase = true)) "kaspa" else "kaspatest"
+        return getKaspaAddressFromPublicKey(account, expectedPrefix)
     }
 
     val testnetAddress: StateFlow<String> = combine(activeAccount, _selectedNetwork) { acc, _ ->
@@ -1496,13 +1508,7 @@ class DecentralViewModel(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     fun getMainnetAddressForAccount(account: AccountEntity?): String {
-        if (account == null) return ""
-        return try {
-            val seed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
-            CryptoUtils.deriveKaspaKeyPair(seed, prefix = "kaspa").kaspaAddress
-        } catch (_: Exception) {
-            if (account.kaspaAddress.startsWith("kaspa:")) account.kaspaAddress else ""
-        }
+        return getKaspaAddressFromPublicKey(account, "kaspa")
     }
 
     val mainnetAddress: StateFlow<String> = combine(activeAccount, _selectedNetwork) { acc, _ ->
