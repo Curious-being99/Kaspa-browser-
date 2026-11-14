@@ -47,7 +47,7 @@ class SecurityFixesVerificationTest {
                 ),
                 outputs = listOf(
                     com.example.network.kaspa.KaspaTransactionEngine.KaspaTransactionOutput(
-                        amount = inputAmount - 10_000_000L,
+                        amount = inputAmount - 20_000_000L,
                         scriptPublicKey = destinationScript
                     )
                 )
