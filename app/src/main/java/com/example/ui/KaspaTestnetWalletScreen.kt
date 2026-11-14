@@ -4852,6 +4852,15 @@ private fun ConfirmSendScreenOverlay(
                                 color = TextSecondary,
                                 lineHeight = 16.sp
                             )
+                            if (isMigration) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "After the transfer, back up the replacement wallet recovery phrase from Wallet > Manage > Recovery. The phrase is not displayed in this confirmation.",
+                                    fontSize = 11.sp,
+                                    color = AmberCentral,
+                                    lineHeight = 16.sp
+                                )
+                            }
 
                             if (showPasswordFallback) {
                                 Spacer(modifier = Modifier.height(14.dp))
