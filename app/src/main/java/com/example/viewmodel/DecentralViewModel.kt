@@ -3070,15 +3070,10 @@ class DecentralViewModel(
                 val existingStaged = _legacyMigrationAccount.value
                     ?.takeIf { it.did != source.did && it.kaspaAddress.startsWith("$prefix:") }
                 val destination = existingStaged ?: run {
-                    val sourceSeed = CryptoUtils.getDecryptedSeed(source.seedPhrase)
-                    val generated = try {
-                        CryptoUtils.deriveDecentralizedAccount(
-                            customHandle = "Secure replacement for ${source.handle}",
-                            networkPrefix = prefix
-                        ).copy(isActive = false, accountType = "DECENTRALIZED_NATIVE", googleEmail = null, googleDisplayName = null)
-                    } finally {
-                        // No plaintext source or replacement seed is retained by this scope.
-                    }
+                    val generated = CryptoUtils.deriveDecentralizedAccount(
+                        customHandle = "Secure replacement for ${source.handle}",
+                        networkPrefix = prefix
+                    ).copy(isActive = false, accountType = "DECENTRALIZED_NATIVE", googleEmail = null, googleDisplayName = null)
                     withContext(Dispatchers.IO) { database.accountDao().insertAccount(generated) }
                     _legacyMigrationAccount.value = generated
                     generated
@@ -3332,7 +3327,8 @@ class DecentralViewModel(
                     senderSeed = decryptedSeed,
                     recipientAddress = targetRecipient,
                     amountKas = amountKas,
-                    sompiPerMass = sompiPerMass
+                    sompiPerMass = sompiPerMass,
+                    networkName = currentNet
                 )
                 result.onSuccess { txItem ->
                     // Persist the outgoing transaction immediately as pending.
