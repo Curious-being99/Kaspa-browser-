@@ -1307,8 +1307,8 @@ class DecentralViewModel(
             try {
                 val pendingResult = Kcc20NoteScanner.registerPendingSwapTransaction(
                     txJsonString = txJsonString,
-                    walletAddress = walletAddress,
-                    walletPublicKeyHex = walletPublicKeyHex,
+                    walletAddress = keyPair.kaspaAddress,
+                    walletPublicKeyHex = keyPair.publicKeyHex,
                     network = network
                 )
                 if (pendingResult.walletTokens.isNotEmpty()) {
@@ -2873,13 +2873,13 @@ class DecentralViewModel(
             val contractId = "b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"
             var pieces = kcc20Service.fetchLiveTokenCells(
                 contractId = contractId,
-                publicKeyHex = walletPublicKeyHex,
-                walletAddress = walletAddress
+                publicKeyHex = keyPair.publicKeyHex,
+                walletAddress = keyPair.kaspaAddress
             ).getOrElse { emptyList() }
 
             if (pieces.isEmpty()) {
                 return@withContext Result.failure(
-                    IllegalStateException("No live $KB_TICK covenant cells found for ${walletAddress.take(16)}... on $currentNet. Please ensure the sender wallet holds $KB_TICK covenant token cells.")
+                    IllegalStateException("No live $KB_TICK covenant cells found for ${keyPair.kaspaAddress.take(16)}... on $currentNet. Please ensure the sender wallet holds $KB_TICK covenant token cells.")
                 )
             }
 
@@ -2974,7 +2974,7 @@ class DecentralViewModel(
 
             val networkFees = walletService.fetchNetworkFeeEstimate(isTestnet = !isMainnet)
             val feeRateSompiPerGram = maxOf(networkFees.normalFeerate, KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
-            val liveKasUtxos = walletService.fetchLiveUtxos(walletAddress, currentNet)
+            val liveKasUtxos = walletService.fetchLiveUtxos(keyPair.kaspaAddress, currentNet)
                 .filter { it.utxoEntry.amount > 0L }
                 .sortedByDescending { it.utxoEntry.amount }
             val tokenInputSompis = utxoEntries.take(selectedPieces.size).sumOf { it.amount }
@@ -3012,10 +3012,10 @@ class DecentralViewModel(
             val changeSompi = totalInSompi - successorDepositSompis - feeRequired
             if (changeSompi < 0L) return@withContext Result.failure(IllegalStateException("Selected live inputs do not cover covenant deposits plus the current network fee."))
             if (changeSompi >= minimumChangeSompis) {
-                outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = changeSompi, scriptPublicKey = KaspaTransactionEngine.addressToScriptPublicKey(walletAddress)))
+                outputs.add(KaspaTransactionEngine.KaspaTransactionOutput(amount = changeSompi, scriptPublicKey = KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress)))
             }
 
-            val changeScript = KaspaTransactionEngine.addressToScriptPublicKey(walletAddress)
+            val changeScript = KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress)
             var feeConverged = false
             var currentTx = KaspaTransactionEngine.KaspaTransaction(
                 version = 0,
@@ -3086,7 +3086,7 @@ class DecentralViewModel(
             val txId = KaspaTransactionEngine.calcTransactionId(tx)
 
             // Broadcast to Kaspa Mainnet nodes via DApp transaction submission
-            val receipt = walletService.submitDappTransaction(tx, walletAddress, _selectedNetwork.value)
+            val receipt = walletService.submitDappTransaction(tx, keyPair.kaspaAddress, _selectedNetwork.value)
             if (receipt.accepted) {
                 val confirmedId = receipt.transactionId.ifBlank { txId }
                 triggerPostSwapRefresh()
