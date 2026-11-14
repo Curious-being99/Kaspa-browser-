@@ -844,6 +844,188 @@ class KaspaWalletService(
         return BroadcastResult(broadcastConfirmed, confirmedTxId, lastBroadcastError)
     }
 
+    class PreparedFullBalanceTransfer internal constructor(
+        val senderAddress: String,
+        val recipientAddress: String,
+        val networkName: String,
+        val amountSompis: Long,
+        val feeSompis: Long,
+        val mass: Long,
+        val inputCount: Int,
+        internal val transaction: KaspaTransactionEngine.KaspaTransaction,
+        internal val utxoSnapshot: List<KaspaTransactionEngine.KaspaUtxo>,
+        internal val transactionId: String,
+        internal val consumed: java.util.concurrent.atomic.AtomicBoolean =
+            java.util.concurrent.atomic.AtomicBoolean(false)
+    ) {
+        val amountKas: Double get() = KaspaTransactionEngine.sompiToKas(amountSompis)
+        val feeKas: Double get() = KaspaTransactionEngine.sompiToKas(feeSompis)
+    }
+
+    /**
+     * Builds and signs the complete wallet transfer locally. This method never broadcasts.
+     * All live UTXOs must fit into one standard transaction; otherwise it fails closed.
+     */
+    suspend fun prepareFullBalanceTransfer(
+        senderAddress: String,
+        senderSeed: String,
+        recipientAddress: String,
+        networkName: String,
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+    ): Result<PreparedFullBalanceTransfer> = withContext(Dispatchers.IO) {
+        try {
+            val cleanSender = senderAddress.trim().lowercase()
+            val cleanRecipient = recipientAddress.trim().lowercase()
+            val isMainnet = networkName.contains("Mainnet", ignoreCase = true)
+            val isTestnet = !isMainnet && (networkName.contains("Testnet", ignoreCase = true) || networkName.contains("tn", ignoreCase = true))
+            require(isMainnet || isTestnet) { "Migration supports only native Kaspa Mainnet or Testnet." }
+            val prefix = if (isMainnet) "kaspa" else "kaspatest"
+            require(cleanSender.startsWith("${prefix}:") && cleanRecipient.startsWith("${prefix}:")) {
+                "Source and destination must both match the selected network $networkName."
+            }
+            require(CryptoUtils.isValidKaspaAddress(cleanSender, prefix) && CryptoUtils.isValidKaspaAddress(cleanRecipient, prefix)) {
+                "Invalid source or destination address for $networkName."
+            }
+            require(cleanSender != cleanRecipient) { "Migration destination must differ from the source address." }
+            require(sompiPerMass >= KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM) {
+                "Fee rate is below the minimum-standard relay rate."
+            }
+
+            val utxos = fetchLiveUtxos(cleanSender, networkName)
+                .sortedWith(compareBy({ it.outpoint.transactionId }, { it.outpoint.index }))
+            require(utxos.isNotEmpty()) { "No live source UTXOs were returned on $networkName. No transfer was prepared." }
+            require(utxos.map { it.outpoint }.distinct().size == utxos.size) { "Duplicate source UTXOs were returned. No transfer was prepared." }
+            val total = utxos.fold(0L) { sum, utxo ->
+                require(utxo.utxoEntry.amount > 0L) { "A source UTXO has an invalid amount." }
+                Math.addExact(sum, utxo.utxoEntry.amount)
+            }
+            val senderScript = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanSender)
+            val recipientScript = KaspaTransactionEngine.decodeAddressToScriptPublicKey(cleanRecipient)
+            val entries = utxos.map { utxo ->
+                if (utxo.utxoEntry.scriptPublicKey.script.isBlank()) utxo.utxoEntry.copy(scriptPublicKey = senderScript)
+                else {
+                    require(utxo.utxoEntry.scriptPublicKey == senderScript) { "A UTXO script does not match the source wallet." }
+                    utxo.utxoEntry
+                }
+            }
+            val inputs = utxos.map { KaspaTransactionEngine.KaspaTransactionInput(previousOutpoint = it.outpoint) }
+            var amount = total - KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+            require(amount >= KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS) { "Balance cannot cover the required fee and a standard destination output." }
+
+            val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = prefix)
+            try {
+                var finalTx: KaspaTransactionEngine.KaspaTransaction? = null
+                var finalFee = 0L
+                var finalMass = 0L
+                for (attempt in 0 until 8) {
+                    val tx = KaspaTransactionEngine.KaspaTransaction(
+                        version = 0,
+                        inputs = inputs.map { it.copy() },
+                        outputs = listOf(KaspaTransactionEngine.KaspaTransactionOutput(amount, recipientScript)),
+                        lockTime = 0L,
+                        subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID,
+                        gas = 0L,
+                        payload = ""
+                    )
+                    KaspaTransactionEngine.signTransaction(tx, entries, keyPair.privateKey)
+                    val signedMass = KaspaTransactionEngine.calculateMass(tx, entries.map { it.amount })
+                    require(signedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                        "All ${utxos.size} UTXOs exceed the single-transaction mass limit (${signedMass}). A reviewed multi-transaction migration is required; nothing was broadcast."
+                    }
+                    val fee = maxOf(
+                        KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                        KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                        KaspaTransactionEngine.calculateFeeForMass(signedMass, sompiPerMass)
+                    )
+                    val nextAmount = Math.subtractExact(total, fee)
+                    require(nextAmount >= KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS) {
+                        "Actual signed fee leaves less than the standard destination output threshold."
+                    }
+                    if (nextAmount == amount) {
+                        tx.mass = signedMass
+                        finalTx = tx
+                        finalFee = fee
+                        finalMass = signedMass
+                        break
+                    }
+                    amount = nextAmount
+                }
+                val tx = finalTx ?: throw IllegalStateException("Signed fee calculation did not converge. Nothing was broadcast.")
+                require(Math.subtractExact(total, tx.outputs.single().amount) == finalFee) { "Full-balance value conservation check failed." }
+                require(finalFee >= maxOf(
+                    KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+                    KaspaTransactionEngine.calculateToccataMinimumStandardFee(tx),
+                    KaspaTransactionEngine.calculateFeeForMass(finalMass, sompiPerMass)
+                )) { "Signed fee is below the actual required fee." }
+                Result.success(
+                    PreparedFullBalanceTransfer(
+                        senderAddress = cleanSender,
+                        recipientAddress = cleanRecipient,
+                        networkName = networkName,
+                        amountSompis = tx.outputs.single().amount,
+                        feeSompis = finalFee,
+                        mass = finalMass,
+                        inputCount = utxos.size,
+                        transaction = tx,
+                        utxoSnapshot = utxos,
+                        transactionId = KaspaTransactionEngine.calcTransactionId(tx)
+                    )
+                )
+            } finally {
+                keyPair.wipe()
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Re-fetches the source UTXOs and refuses broadcast if anything changed since review.
+     */
+    suspend fun broadcastPreparedFullBalanceTransfer(
+        prepared: PreparedFullBalanceTransfer
+    ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
+        transactionMutex.withLock {
+            try {
+                require(prepared.consumed.compareAndSet(false, true)) { "This migration review has already been used." }
+                val current = fetchLiveUtxos(prepared.senderAddress, prepared.networkName)
+                    .sortedWith(compareBy({ it.outpoint.transactionId }, { it.outpoint.index }))
+                require(current == prepared.utxoSnapshot) {
+                    "Source UTXOs changed after review. Nothing was broadcast; prepare a fresh migration review."
+                }
+                require(prepared.transaction.outputs.size == 1 &&
+                    prepared.transaction.outputs.single().amount == prepared.amountSompis) {
+                    "Reviewed transaction output changed. Nothing was broadcast."
+                }
+                val total = prepared.utxoSnapshot.fold(0L) { sum, utxo -> Math.addExact(sum, utxo.utxoEntry.amount) }
+                require(Math.subtractExact(total, prepared.amountSompis) == prepared.feeSompis) {
+                    "Reviewed amount and fee do not conserve the full source balance."
+                }
+                require(KaspaTransactionEngine.calcTransactionId(prepared.transaction) == prepared.transactionId) {
+                    "Signed transaction changed after review. Nothing was broadcast."
+                }
+                val result = broadcastTransactionWithFailover(
+                    prepared.transaction,
+                    prepared.transactionId,
+                    prepared.senderAddress,
+                    prepared.networkName
+                )
+                require(result.isConfirmed) { "Kaspa node rejected migration broadcast: ${result.errorMessage}" }
+                Result.success(KaspaTransactionItem(
+                    txId = result.txId,
+                    blockTime = System.currentTimeMillis(),
+                    amountKas = prepared.amountKas,
+                    type = "SENT",
+                    isAccepted = false,
+                    feeKas = prepared.feeKas,
+                    counterpartyAddress = prepared.recipientAddress
+                ))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
     /**
      * Sends KAS to a destination address.
      * Protected by FIFO Transaction Queue Mutex to prevent out-of-order broadcasting when chaining transactions.
@@ -853,7 +1035,8 @@ class KaspaWalletService(
         senderSeed: String,
         recipientAddress: String,
         amountKas: Double,
-        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
+        sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS,
+        networkName: String = if (senderAddress.trim().startsWith("kaspatest:", ignoreCase = true)) "Kaspa Testnet 10" else "Kaspa Mainnet"
     ): Result<KaspaTransactionItem> = withContext(Dispatchers.IO) {
         transactionMutex.withLock {
             try {
@@ -883,7 +1066,7 @@ class KaspaWalletService(
                 val keyPair = CryptoUtils.deriveKaspaKeyPair(senderSeed, prefix = expectedPrefix)
 
                 // 3. Fetch live UTXOs & calculate authentic transaction mass & real dynamic fee
-                val liveUtxos = fetchLiveUtxos(cleanSender)
+                val liveUtxos = fetchLiveUtxos(cleanSender, networkName)
                 val txPlan = KaspaTransactionEngine.selectUtxosAndPlanTransaction(
                     availableUtxos = liveUtxos,
                     targetAmountSompis = amountSompis,
@@ -1056,7 +1239,7 @@ class KaspaWalletService(
                     tx,
                     computedTxId,
                     senderAddress,
-                    if (isTestnet) "Kaspa Testnet 10" else "Kaspa Mainnet"
+                    networkName
                 )
 
                 if (!broadcast.isConfirmed) {
