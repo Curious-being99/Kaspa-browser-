@@ -418,8 +418,6 @@ class SecurityFixesVerificationTest {
         assertEquals(
             "old wallet format, please move your funds",
             CryptoUtils.legacyWalletWarning(
-                accountType = "GOOGLE_OAUTH_LEGACY",
-                email = "metadata-must-not-affect-detection@example.com",
                 storedSeed = lastIncludedWordPhrase,
                 createdAt = afterCutoff
             )
@@ -427,8 +425,6 @@ class SecurityFixesVerificationTest {
         assertEquals(
             "old wallet format, please move your funds",
             CryptoUtils.legacyWalletWarning(
-                accountType = "DECENTRALIZED_NATIVE",
-                email = null,
                 storedSeed = firstIncludedWordPhrase,
                 createdAt = afterCutoff
             )
@@ -443,8 +439,6 @@ class SecurityFixesVerificationTest {
         assertEquals(
             null,
             CryptoUtils.legacyWalletWarning(
-                accountType = "DECENTRALIZED_NATIVE",
-                email = null,
                 storedSeed = outsidePrefixPhrase,
                 createdAt = 1_792_195_200_001L
             )
@@ -452,8 +446,6 @@ class SecurityFixesVerificationTest {
         assertEquals(
             null,
             CryptoUtils.legacyWalletWarning(
-                accountType = "DECENTRALIZED_NATIVE",
-                email = null,
                 storedSeed = mixedPhrase,
                 createdAt = 1_792_195_200_001L
             )
@@ -466,8 +458,6 @@ class SecurityFixesVerificationTest {
         assertEquals(
             "made with a non-secure generator, move your funds now",
             CryptoUtils.legacyWalletWarning(
-                accountType = "DECENTRALIZED_NATIVE",
-                email = null,
                 storedSeed = phrase,
                 createdAt = 1_792_195_200_000L
             )
