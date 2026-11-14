@@ -774,7 +774,10 @@ object KaspaWebAuthnBridge {
                                 }
                             }
                             try {
-                                postBridgeMessage(payload);
+                                if (!postBridgeMessage(payload)) {
+                                    delete window.__kaspaWebAuthnPending[callId];
+                                    reject(makeDomError('Passkey channel unavailable', 'NotSupportedError'));
+                                }
                             } catch (e) {
                                 delete window.__kaspaWebAuthnPending[callId];
                                 reject(e);
@@ -871,7 +874,10 @@ object KaspaWebAuthnBridge {
                                     return cred;
                                 }).catch(function(err) {
                                     var elapsed = Date.now() - t0;
-                                    if (window.kaspaWebAuthnChannel) {
+                                    var errorName = err && err.name;
+                                    if (window.kaspaWebAuthnChannel &&
+                                        errorName !== 'NotAllowedError' &&
+                                        errorName !== 'AbortError') {
                                         return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
                                             isUpgrade: isConditionalUpgrade,
                                             nativeElapsedMs: elapsed,
@@ -938,7 +944,10 @@ object KaspaWebAuthnBridge {
                                     return cred;
                                 }).catch(function(err) {
                                     var elapsed = Date.now() - t0;
-                                    if (window.kaspaWebAuthnChannel) {
+                                    var errorName = err && err.name;
+                                    if (window.kaspaWebAuthnChannel &&
+                                        errorName !== 'NotAllowedError' &&
+                                        errorName !== 'AbortError') {
                                         return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
                                             nativeElapsedMs: elapsed,
                                             nativeError: (err && (err.name + ': ' + err.message)) || ''
