@@ -131,15 +131,6 @@ object KaspaDappBridge {
                 fun currentKeyPair(): CryptoUtils.KaspaKeyPair? {
                     if (prefix.isBlank()) return null
                     val active = account ?: return null
-                    if (CryptoUtils.isLegacyEmailDerivedGoogleWallet(
-                            active.accountType,
-                            active.googleEmail,
-                            active.seedPhrase
-                        )
-                    ) {
-                        Log.e(LOG_TAG, "Refusing dApp signing from a compromised legacy email-derived wallet")
-                        return null
-                    }
                     return try {
                         val seed = CryptoUtils.getDecryptedSeed(active.seedPhrase)
                         require(seed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
