@@ -1239,6 +1239,9 @@ class DecentralViewModel(
     val legacyMigrationAccount: StateFlow<AccountEntity?> = _legacyMigrationAccount.asStateFlow()
     private val _legacyMigrationSourceDid = MutableStateFlow<String?>(null)
 
+    private val _activeAccountLegacyWarning = MutableStateFlow<String?>(null)
+    val activeAccountLegacyWarning: StateFlow<String?> = _activeAccountLegacyWarning.asStateFlow()
+
     val krc20Service: Krc20Service by lazy { Krc20Service(getApplication()) }
     private val kcc20Service by lazy { Kcc20KasivoService(getApplication()) }
     private val _kcc20Tokens = MutableStateFlow<List<Kcc20WalletToken>>(emptyList())
@@ -2184,6 +2187,14 @@ class DecentralViewModel(
         // Keep Kaspa Wallet synced with active account on Testnet 10
         viewModelScope.launch {
             activeAccount.collect { account ->
+                _activeAccountLegacyWarning.value = account?.let {
+                    CryptoUtils.legacyWalletWarning(
+                        accountType = it.accountType,
+                        email = it.googleEmail,
+                        storedSeed = it.seedPhrase,
+                        createdAt = it.createdAt
+                    )
+                }
                 val testnetAddr = getTestnetAddressForAccount(account)
                 if (testnetAddr.isNotBlank()) {
                     refreshKaspaWallet(testnetAddr)
