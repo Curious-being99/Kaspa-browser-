@@ -77,8 +77,11 @@ internal object EvmWalletEngine {
         passphrase: String = "",
         account: com.example.data.AccountEntity? = null
     ): Credentials {
-        val mnemonic = if (account != null) CryptoUtils.getDecryptedSeedForSigning(account) else CryptoUtils.getDecryptedSeedForSigning(seedPhrase)
-            .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
+        val mnemonic = (if (account != null) {
+            CryptoUtils.getDecryptedSeedForSigning(account)
+        } else {
+            CryptoUtils.getDecryptedSeedForSigning(seedPhrase)
+        }).trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
         require(mnemonic.isNotBlank()) { "Wallet recovery phrase is unavailable" }
         require(passphrase.length <= 256) { "BIP-39 passphrase is too long" }
         val seed = CryptoUtils.mnemonicToSeed(mnemonic, passphrase)
