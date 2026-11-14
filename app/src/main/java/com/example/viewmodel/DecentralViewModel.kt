@@ -1297,7 +1297,7 @@ class DecentralViewModel(
             val isMainnet = network.contains("Mainnet", ignoreCase = true)
             val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
             val keyPair = try {
-                val decryptedSeed = CryptoUtils.getDecryptedSeed(account.seedPhrase)
+                val decryptedSeed = CryptoUtils.getDecryptedSeedForSigning(account)
                 require(decryptedSeed.isNotBlank()) { "Wallet recovery phrase is unavailable" }
                 CryptoUtils.deriveKaspaKeyPair(decryptedSeed, prefix = expectedPrefix)
             } catch (_: Exception) {
