@@ -2755,10 +2755,6 @@ class DecentralViewModel(
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
-        if (CryptoUtils.legacyWalletWarning(account.accountType, account.googleEmail, account.seedPhrase, account.createdAt) != null) {
-            return@withContext Result.failure(SecurityException(""))
-        }
-
         val currentNet = _selectedNetwork.value
         val isMainnet = currentNet.contains("Mainnet", ignoreCase = true)
         val expectedPrefix = if (isMainnet) "kaspa" else "kaspatest"
@@ -3209,9 +3205,6 @@ class DecentralViewModel(
         sompiPerMass: Long = KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS
     ) {
         val senderAcc = activeAccount.value ?: return
-        if (CryptoUtils.legacyWalletWarning(senderAcc.accountType, senderAcc.googleEmail, senderAcc.seedPhrase, senderAcc.createdAt) != null) {
-            return
-        }
         val currentNet = _selectedNetwork.value
         viewModelScope.launch {
             _kaspaWalletState.value = _kaspaWalletState.value.copy(isSending = true, lastBroadcastTxId = null, statusNotice = null)
