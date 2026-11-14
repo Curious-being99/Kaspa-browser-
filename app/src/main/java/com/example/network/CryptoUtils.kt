@@ -1166,8 +1166,6 @@ object CryptoUtils {
             publicKeyHex = kaspaKey.publicKeyHex,
             seedPhrase = encryptedMnemonic,
             accountType = "DECENTRALIZED_NATIVE",
-            googleEmail = null,
-            googleDisplayName = null,
             zkProofJson = zkProof.toJsonString(),
             createdAt = System.currentTimeMillis(),
             isActive = true
