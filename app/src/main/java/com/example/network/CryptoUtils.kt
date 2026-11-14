@@ -501,12 +501,14 @@ object CryptoUtils {
 
     // BIP-39 PBKDF2-HMAC-SHA512 Mnemonic to Seed (2048 rounds, NFKD normalization).
     fun mnemonicToSeed(mnemonic: String, passphrase: String = ""): ByteArray {
-        val normalizer = java.text.Normalizer
-        val normalizedMnemonic = normalizer.normalize(
+        val normalizedMnemonic = java.text.Normalizer.normalize(
             mnemonic.trim().split(Regex("\\s+")).joinToString(" "),
-            normalizer.Form.NFKD
+            java.text.Normalizer.Form.NFKD
         )
-        val normalizedPassphrase = normalizer.normalize(passphrase, normalizer.Form.NFKD)
+        val normalizedPassphrase = java.text.Normalizer.normalize(
+            passphrase,
+            java.text.Normalizer.Form.NFKD
+        )
         val password = normalizedMnemonic.toByteArray(Charsets.UTF_8)
         val salt = ("mnemonic" + normalizedPassphrase).toByteArray(Charsets.UTF_8)
         val saltWithIndex = ByteArray(salt.size + 4)
