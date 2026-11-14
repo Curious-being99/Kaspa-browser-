@@ -5039,10 +5039,22 @@ private fun LegacyMigrationReviewOverlay(
     var passwordInput by remember { mutableStateOf("") }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
     var showPasswordFallback by remember { mutableStateOf(false) }
+    var replacementPhraseConfirmed by remember { mutableStateOf(false) }
+    val replacementPhrase = remember(prepared.recipientAddress) {
+        viewModel.getLegacyMigrationRecoveryPhrase().orEmpty()
+    }
+    val replacementWords = remember(replacementPhrase) {
+        replacementPhrase.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    }
+    val hasValidReplacementPhrase = replacementWords.size == 12
 
     val currencySymbol = if (prepared.networkName.contains("Mainnet", ignoreCase = true)) "KAS" else "tKAS"
 
     fun proceedToConfirm() {
+        if (!hasValidReplacementPhrase || !replacementPhraseConfirmed) {
+            authErrorMessage = "Review and confirm all 12 words of the replacement wallet recovery phrase before migration."
+            return
+        }
         authErrorMessage = null
         onConfirmMigration()
     }
@@ -5222,6 +5234,51 @@ private fun LegacyMigrationReviewOverlay(
                     }
                 }
 
+                item {
+                    Surface(
+                        color = SurfaceCard,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("Replacement wallet recovery phrase", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Text(
+                                "Write down these 12 words and keep them private. They are the only way to restore the replacement wallet.",
+                                fontSize = 11.5.sp,
+                                color = TextSecondary
+                            )
+                            if (hasValidReplacementPhrase) {
+                                replacementWords.forEachIndexed { index, word ->
+                                    Text(
+                                        text = "${index + 1}. $word",
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = TextPrimary
+                                    )
+                                }
+                            } else {
+                                Text("The replacement recovery phrase could not be decrypted. Migration is blocked.", color = RedTamper, fontSize = 12.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = replacementPhraseConfirmed,
+                                    enabled = hasValidReplacementPhrase && !isBusy,
+                                    onCheckedChange = { replacementPhraseConfirmed = it }
+                                )
+                                Text(
+                                    "I have saved and checked all 12 words.",
+                                    color = TextPrimary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (showPasswordFallback) {
                     item {
                         Surface(
@@ -5291,7 +5348,7 @@ private fun LegacyMigrationReviewOverlay(
                             if (showPasswordFallback) verifyPasswordAndProceed()
                             else initiateAuthorization()
                         },
-                        enabled = !isBusy,
+                        enabled = !isBusy && hasValidReplacementPhrase && replacementPhraseConfirmed,
                         colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
