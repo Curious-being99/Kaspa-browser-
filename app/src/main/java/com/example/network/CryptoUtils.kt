@@ -1007,11 +1007,32 @@ object CryptoUtils {
 
     private const val LEGACY_GENERATOR_CUTOFF_UTC_MS = 1_792_195_200_000L
 
+    /**
+     * Validates the BIP-39 English word list membership and SHA-256 checksum.
+     * Twelve words alone are not sufficient: the final four bits must match
+     * the checksum derived from the 128-bit entropy.
+     */
+    fun isValidBip39Mnemonic(mnemonic: String): Boolean {
+        val words = mnemonic.trim().lowercase().split(Regex("\\s+"))
+        if (words.size != 12 && words.size != 15 && words.size != 18 &&
+            words.size != 21 && words.size != 24
+        ) return false
+        return try {
+            org.web3j.crypto.MnemonicUtils.validateMnemonic(words.joinToString(" "))
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     fun generateMnemonic(): String {
         val entropy = ByteArray(16)
         java.security.SecureRandom().nextBytes(entropy)
         return try {
-            org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy)
+            org.web3j.crypto.MnemonicUtils.generateMnemonic(entropy).also { mnemonic ->
+                check(isValidBip39Mnemonic(mnemonic) && mnemonic.trim().split(Regex("\\s+")).size == 12) {
+                    "Generated BIP-39 mnemonic failed word-list or checksum validation"
+                }
+            }
         } finally {
             java.util.Arrays.fill(entropy, 0.toByte())
         }
