@@ -236,7 +236,7 @@ private val SI_AGENT_COMMANDS = listOf(
     SiCommandItem(
         command = "/swap",
         title = "KCC-20 token tracker",
-        description = "Open the native Kaspa Browser dApp command center",
+        description = "Open the native Kazium dApp command center",
         icon = Icons.Default.SwapHoriz
     ),
     SiCommandItem(
@@ -2168,7 +2168,7 @@ suspend fun executeSiAgentCommand(
         }
 
         lower.contains("swap") || lower.contains("dex") || lower.contains("braid") || lower.contains("aggregator") || lower.contains("dapp") -> {
-            "Kaspa Browser dApp Command Center\n• KCC-20 balances and metadata are available in the KCC-20 Tokens screen for contracts the user chooses to track.\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
+            "Kazium dApp Command Center\n• KCC-20 balances and metadata are available in the KCC-20 Tokens screen for contracts the user chooses to track.\n• External dApps remain available through browser navigation; SI Agent does not claim a swap was quoted or executed unless a real transaction receipt is returned."
         }
 
         lower.contains("price") -> {

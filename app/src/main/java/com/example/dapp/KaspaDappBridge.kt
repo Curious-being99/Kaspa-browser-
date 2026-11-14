@@ -1637,7 +1637,7 @@ object KaspaDappBridge {
                   const kaspaBrowserProvider = Object.freeze({
                     ...requestProvider,
                     id: 'org.kaspa.browser',
-                    name: 'Kaspa Browser',
+                    name: 'Kazium',
                     isKaspabrowser: true,
                     isKaspaBrowser: true,
                     isKasware: true,
@@ -1754,7 +1754,7 @@ object KaspaDappBridge {
                   }
                   const info = Object.freeze({
                     id: 'org.kaspa.browser',
-                    name: 'Kaspa Browser',
+                    name: 'Kazium',
                     icon: '',
                     methods: ['kaspa:requestAccounts', 'kaspa:getAccounts', 'kaspa:getNetwork', 'kaspa:getBalance', 'kaspa:getUtxoEntries', 'kaspa:getPublicKey', 'kaspa:signMessage', 'kaspa:signPskt', 'kaspa:submitTransaction', 'kaspa:disconnect'],
                     uuid: 'UUID_PLACEHOLDER',

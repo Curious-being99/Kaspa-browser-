@@ -4632,7 +4632,7 @@ class DecentralViewModel(
                     @Suppress("DEPRECATION")
                     dm?.addCompletedDownload(
                         actualFileName,
-                        "Downloaded via Kaspa Browser",
+                        "Downloaded via Kazium",
                         true,
                         mimeType,
                         targetFile.absolutePath,
@@ -4801,7 +4801,7 @@ class DecentralViewModel(
                         @Suppress("DEPRECATION")
                         dm?.addCompletedDownload(
                             activeFileName,
-                            "Downloaded via Kaspa Browser",
+                            "Downloaded via Kazium",
                             true,
                             mimeType,
                             targetFile.absolutePath,

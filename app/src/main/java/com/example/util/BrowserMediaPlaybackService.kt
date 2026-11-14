@@ -272,7 +272,7 @@ class BrowserMediaPlaybackService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val host = runCatching { android.net.Uri.parse(pageUrl).host }.getOrNull().orEmpty()
-        val displaySub = if (artist.isNotBlank()) artist else host.ifBlank { "Kaspa Browser Background Playback" }
+        val displaySub = if (artist.isNotBlank()) artist else host.ifBlank { "Kazium Background Playback" }
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)

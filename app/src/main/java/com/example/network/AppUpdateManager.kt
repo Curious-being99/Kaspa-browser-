@@ -405,7 +405,7 @@ class AppUpdateManager(
             }
             if (!hasMatchingInstalledSigner(context, apkFile)) {
                 return Result.failure(
-                    SecurityException("Downloaded APK package name or signing certificate does not match the installed Kaspa Browser app.")
+                    SecurityException("Downloaded APK package name or signing certificate does not match the installed Kazium app.")
                 )
             }
 
@@ -418,7 +418,7 @@ class AppUpdateManager(
                     }
                     context.startActivity(manageIntent)
                     return Result.failure(
-                        SecurityException("PERMISSION_REQUIRED: Please grant 'Install unknown apps' permission to allow Kaspa Browser to update itself.")
+                        SecurityException("PERMISSION_REQUIRED: Please grant 'Install unknown apps' permission to allow Kazium to update itself.")
                     )
                 }
             }
@@ -481,7 +481,7 @@ class AppUpdateManager(
         var assetDigest: String? = null
         if (assets != null) for (i in 0 until assets.length()) {
             val asset = assets.getJSONObject(i)
-            if (asset.optString("name") == "KaspaBrowser-release-signed.apk") {
+            if (asset.optString("name") == "Kazium-release-signed.apk") {
                 downloadUrl = asset.optString("browser_download_url", "")
                 apkSize = asset.optLong("size", 0L)
                 assetDigest = asset.optString("digest", "").takeIf { it.isNotBlank() }
@@ -502,7 +502,7 @@ class AppUpdateManager(
             latestVersionName = targetVersionName, latestVersionCode = currentVersionCode,
             currentVersionName = currentVersionName, currentVersionCode = currentVersionCode,
             isUpdateAvailable = isNewer,
-            releaseTitle = json.optString("name", "").ifBlank { "Kaspa Browser Release v$targetVersionName" },
+            releaseTitle = json.optString("name", "").ifBlank { "Kazium Release v$targetVersionName" },
             releaseNotes = releaseBody, releaseDate = formatIsoDate(json.optString("published_at", "")),
             downloadUrl = downloadUrl, apkSizeBytes = apkSize,
             apkSizeFormatted = "%.1f MB".format(Locale.US, apkSize / (1024.0 * 1024.0)),

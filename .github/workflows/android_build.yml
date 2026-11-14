@@ -164,12 +164,12 @@ jobs:
               --v1-signing-enabled true \
               --v2-signing-enabled true \
               --v3-signing-enabled true \
-              --out "release-artifacts/KaspaBrowser-release-signed.apk" \
+              --out "release-artifacts/Kazium-release-signed.apk" \
               "$RAW_APK"
 
             echo "=== Verifying Signed APK ==="
-            "$APKSIGNER" verify --verbose "release-artifacts/KaspaBrowser-release-signed.apk"
-            echo "Signed Release APK successfully generated: release-artifacts/KaspaBrowser-release-signed.apk"
+            "$APKSIGNER" verify --verbose "release-artifacts/Kazium-release-signed.apk"
+            echo "Signed Release APK successfully generated: release-artifacts/Kazium-release-signed.apk"
 
             # Remove sensitive keystore from disk
             rm -f "${GITHUB_WORKSPACE}/release.keystore"
@@ -196,10 +196,10 @@ jobs:
               exit 1
             fi
 
-            cp "$RAW_APK" "release-artifacts/KaspaBrowser-release-unsigned.apk"
-            zip -d "release-artifacts/KaspaBrowser-release-unsigned.apk" "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" "META-INF/MANIFEST.MF" "META-INF/SIG-*" || true
+            cp "$RAW_APK" "release-artifacts/Kazium-release-unsigned.apk"
+            zip -d "release-artifacts/Kazium-release-unsigned.apk" "META-INF/*.SF" "META-INF/*.RSA" "META-INF/*.DSA" "META-INF/MANIFEST.MF" "META-INF/SIG-*" || true
 
-            echo "Unsigned Release APK successfully generated: release-artifacts/KaspaBrowser-release-unsigned.apk"
+            echo "Unsigned Release APK successfully generated: release-artifacts/Kazium-release-unsigned.apk"
             rm -f "${GITHUB_WORKSPACE}/my-upload-key.jks"
           fi
 
@@ -208,8 +208,8 @@ jobs:
         run: |
           set -euo pipefail
           cd release-artifacts
-          sha256sum KaspaBrowser-release-signed.apk > KaspaBrowser-release-signed.sha256
-          sha256sum --check KaspaBrowser-release-signed.sha256
+          sha256sum Kazium-release-signed.apk > Kazium-release-signed.sha256
+          sha256sum --check Kazium-release-signed.sha256
 
       - name: Determine Release Tag & Title
         id: release_info
@@ -226,7 +226,7 @@ jobs:
           if [ -n "${{ github.event.inputs.release_title }}" ]; then
             TITLE="${{ github.event.inputs.release_title }}"
           else
-            TITLE="KaspaBrowser ${TAG}"
+            TITLE="Kazium ${TAG}"
           fi
           echo "TITLE=$TITLE" >> "$GITHUB_OUTPUT"
 
@@ -241,20 +241,20 @@ jobs:
           prerelease: false
           generate_release_notes: false
           body: |
-            KaspaBrowser Android Release
+            Kazium Android Release
 
             - Android release APK
             - Built from commit ${{ github.sha }}
           files: |
-            release-artifacts/KaspaBrowser-release-signed.apk
+            release-artifacts/Kazium-release-signed.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Artifacts to Workflow Run
         uses: actions/upload-artifact@v4
         with:
-          name: kaspabrowser-release-apk
+          name: kazium-release-apk
           path: |
-            release-artifacts/KaspaBrowser-release-signed.apk
-            release-artifacts/KaspaBrowser-release-signed.sha256
+            release-artifacts/Kazium-release-signed.apk
+            release-artifacts/Kazium-release-signed.sha256
           if-no-files-found: error

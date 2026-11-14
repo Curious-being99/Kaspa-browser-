@@ -103,7 +103,7 @@ object PwaShortcutHelper {
                     context.startActivity(settingsIntent)
                     Toast.makeText(
                         context,
-                        "Please allow Kaspa Browser to install unknown apps, then tap Install again.",
+                        "Please allow Kazium to install unknown apps, then tap Install again.",
                         Toast.LENGTH_LONG
                     ).show()
                     return Pair(false, "Permission required: Allow installing unknown apps.")

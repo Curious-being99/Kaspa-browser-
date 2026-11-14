@@ -719,7 +719,7 @@ internal object EvmDappBridge {
                   Object.defineProperty(window, 'ethereum', {configurable: false, enumerable: true, writable: false, value: ethereum});
                   const providerInfo = Object.freeze({
                     uuid: 'UUID_PLACEHOLDER',
-                    name: 'Kaspa Browser',
+                    name: 'Kazium',
                     icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='20' fill='%2370C7BA'/%3E%3Cpath d='M24 24h48v14H38v10h28v14H38v10H24z' fill='%230b1720'/%3E%3C/svg%3E",
                     rdns: 'xyz.kaspabrowser'
                   });

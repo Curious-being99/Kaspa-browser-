@@ -71,6 +71,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="kaspabrowser" android:host="open" />
+                <data android:scheme="kazium" android:host="open" />
             </intent-filter>
             <!-- Browser Intent Filter -->
             <intent-filter>

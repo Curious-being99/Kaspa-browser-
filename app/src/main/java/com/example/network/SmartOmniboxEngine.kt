@@ -5,7 +5,7 @@ import java.util.Locale
 import kotlin.math.*
 
 /**
- * Smart Omnibox Engine for Kaspa Browser.
+ * Smart Omnibox Engine for Kazium.
  * 
  * Provides:
  * 1. Real-time Website Live Preview metadata & verification

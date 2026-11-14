@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="logo.png" alt="Kaspa Browser Logo" width="180" height="180" style="border-radius: 28px;" />
+  <img src="logo.png" alt="Kazium Logo" width="180" height="180" style="border-radius: 28px;" />
 </p>
 
-<h1 align="center">Kaspa Browser</h1>
+<h1 align="center">Kazium</h1>
 
 <p align="center">
   <i>Security-First Android Browser &amp; Web3 Gateway Powered by Kazview</i>
@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/License-Apache%202.0-475569.svg?style=for-the-badge" alt="Apache 2.0 License" />
 </p>
 
-**Kaspa Browser** is an Android web browser and Web3 gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It pairs **Kazview** (its hybrid Chromium/Android System WebView + Jetpack WebKit + Custom Tabs orchestration core) with a hardware-backed Password & Passkey Vault, fail-closed encrypted DNS-over-HTTPS (DoH), real-time tracker/ad shielding, decentralized name resolution, an encrypted Kaspa wallet & dApp bridge, signal-only ecosystem notifications, and optional native Rust crates (`kaspasearch-engine`, `kaspasearch-core`).
+**Kazium** is an Android web browser and Web3 gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It pairs **Kazview** (its hybrid Chromium/Android System WebView + Jetpack WebKit + Custom Tabs orchestration core) with a hardware-backed Password & Passkey Vault, fail-closed encrypted DNS-over-HTTPS (DoH), real-time tracker/ad shielding, decentralized name resolution, an encrypted Kaspa wallet & dApp bridge, signal-only ecosystem notifications, and optional native Rust crates (`kaspasearch-engine`, `kaspasearch-core`).
 
 ---
 
@@ -42,9 +42,9 @@
 
 ---
 
-## Why Kaspa Browser Is Different
+## Why Kazium Is Different
 
-Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, or thin single-process WebView wrappers. **Kaspa Browser** is engineered differently from the ground up:
+Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, or thin single-process WebView wrappers. **Kazium** is engineered differently from the ground up:
 
 1. **Security-First Defaults Without Telemetry**:
    - Credentials live in an on-device **Android Keystore AES-256-GCM** Room vault gated by biometrics/device lock and automatically locked whenever the app leaves the foreground (`MainActivity.onStop`).
@@ -64,7 +64,7 @@ Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, 
 
 ## Kazview: Browser Core Architecture
 
-**Kazview** (`com.example.engine.BrowserEngineManager`, `com.example.util.KaspaWebViewConfigurator`, `com.example.util.BrowserTabWebViewManager`) is Kaspa Browser's browser core coordinator.
+**Kazview** (`com.example.engine.BrowserEngineManager`, `com.example.util.KaspaWebViewConfigurator`, `com.example.util.BrowserTabWebViewManager`) is Kazium's browser core coordinator.
 
 ### How Kazview Works
 
@@ -152,7 +152,7 @@ Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, 
 
 ## Connecting From Another Android App
 
-External apps can open HTTPS/HTTP URLs in Kaspa Browser using standard `Intent.ACTION_VIEW`:
+External apps can open HTTPS/HTTP URLs in Kazium using standard `Intent.ACTION_VIEW`:
 
 ```kotlin
 val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com")).apply {

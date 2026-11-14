@@ -100,8 +100,8 @@ class KaspaAppUpdateManagerUnitTest {
                 "published_at": "2026-10-06T12:00:00Z",
                 "assets": [
                     {
-                        "name": "KaspaBrowser-release-signed.apk",
-                        "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.0/KaspaBrowser-release-signed.apk",
+                        "name": "Kazium-release-signed.apk",
+                        "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.0/Kazium-release-signed.apk",
                         "size": 29884416
                     }
                 ],
@@ -114,7 +114,7 @@ class KaspaAppUpdateManagerUnitTest {
         // Assert that once updated to the same latest release tag, isUpdateAvailable is false (won't nag again!)
         assertFalse(info.isUpdateAvailable)
         assertEquals("1.0.0", info.latestVersionName)
-        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.0/KaspaBrowser-release-signed.apk", info.downloadUrl)
+        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.0/Kazium-release-signed.apk", info.downloadUrl)
         assertEquals(29884416L, info.apkSizeBytes)
     }
 
@@ -129,8 +129,8 @@ class KaspaAppUpdateManagerUnitTest {
                     "published_at": "2026-10-06T15:30:00Z",
                     "assets": [
                         {
-                            "name": "KaspaBrowser-release-signed.apk",
-                            "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/KaspaBrowser-release-signed.apk",
+                            "name": "Kazium-release-signed.apk",
+                            "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/Kazium-release-signed.apk",
                             "size": 1500000
                         }
                     ],
@@ -144,7 +144,7 @@ class KaspaAppUpdateManagerUnitTest {
         // Assert that JSON arrays are supported and properly parsed from the first index
         assertTrue(info.isUpdateAvailable)
         assertEquals("1.0.1", info.latestVersionName)
-        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/KaspaBrowser-release-signed.apk", info.downloadUrl)
+        assertEquals("https://github.com/Curious-being99/Kaspa-browser-/releases/download/1.0.1/Kazium-release-signed.apk", info.downloadUrl)
         assertEquals(1500000L, info.apkSizeBytes)
     }
     @Test
@@ -163,7 +163,7 @@ class KaspaAppUpdateManagerUnitTest {
 
     @Test
     fun testParseReleaseJson_RejectsMissingChecksum() {
-        val release = """{"tag_name":"v1.0.2","assets":[{"name":"KaspaBrowser-release-signed.apk","browser_download_url":"https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.2/KaspaBrowser-release-signed.apk","size":1000}]}"""
+        val release = """{"tag_name":"v1.0.2","assets":[{"name":"Kazium-release-signed.apk","browser_download_url":"https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.2/Kazium-release-signed.apk","size":1000}]}"""
         try {
             updateManager.parseReleaseJson(release, "1.0.0", 1)
             throw AssertionError("Release without checksum must be rejected")

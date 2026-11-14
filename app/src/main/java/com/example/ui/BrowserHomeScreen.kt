@@ -112,7 +112,7 @@ import com.example.viewmodel.AppTab
 import com.example.viewmodel.DecentralViewModel
 
 /**
- * Pixel-accurate implementation of the Kaspa Browser Home/Start Screen
+ * Pixel-accurate implementation of the Kazium Home/Start Screen
  * matching the user reference design:
  * - Top Header & Hero Banner with Anime character, Kaspa cap/hoodie, and "Kaspa The Fastest Blockchain"
  * - Interactive hotspot overlays for Logo (Account), Shield (Security), and Gear (Settings / 3-dot menu)
@@ -279,7 +279,7 @@ fun BrowserHomeScreen(
                 ) {
                     Image(
                         painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
-                        contentDescription = "Kaspa Browser Logo",
+                        contentDescription = "Kazium Logo",
                         modifier = Modifier
                             .size(24.dp)
                             .clip(CircleShape)
