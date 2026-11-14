@@ -2150,10 +2150,8 @@ class DecentralViewModel(
                 database.domainDao().deleteLegacyMockDomains()
                 val allAccounts = database.accountDao().getAllAccountsList()
                 if (allAccounts.isNotEmpty()) {
-                    val hasActive = allAccounts.any { it.isActive }
-                    if (!hasActive) {
-                        database.accountDao().setActive(allAccounts.first().did)
-                    }
+                    // Never silently restore an account after sign-out. Account selection
+                    // must be an explicit user action when no wallet is active.
                     for (acc in allAccounts) {
                         val cleanHandle = if (acc.handle.contains(".k") || acc.handle.startsWith("@kas")) {
                             "Kaspa Account (${acc.kaspaAddress.takeLast(6)})"
