@@ -1060,7 +1060,8 @@ object CryptoUtils {
     }
 
     fun deriveKeyPairFromSeed(seedPhrase: String): java.security.KeyPair {
-        val kaspaKey = deriveKaspaKeyPair(seedPhrase)
+        val authorizedSeed = getDecryptedSeedForSigning(seedPhrase)
+        val kaspaKey = deriveKaspaKeyPair(authorizedSeed)
         val pubPoint = ECPoint(
             java.math.BigInteger(1, kaspaKey.publicKeyBytes),
             java.math.BigInteger.ZERO
@@ -1085,7 +1086,8 @@ object CryptoUtils {
     }
 
     fun signMessage(message: String, seedPhrase: String): String {
-        val kaspaKey = deriveKaspaKeyPair(seedPhrase)
+        val authorizedSeed = getDecryptedSeedForSigning(seedPhrase)
+        val kaspaKey = deriveKaspaKeyPair(authorizedSeed)
         return signKaspaPersonalMessage(kaspaKey.privateKey, message.toByteArray(Charsets.UTF_8))
     }
 
@@ -1094,7 +1096,8 @@ object CryptoUtils {
     }
 
     fun signTransaction(txPayload: String, seedPhrase: String): String {
-        val kaspaKey = deriveKaspaKeyPair(seedPhrase)
+        val authorizedSeed = getDecryptedSeedForSigning(seedPhrase)
+        val kaspaKey = deriveKaspaKeyPair(authorizedSeed)
         return signKaspaTransaction(kaspaKey.privateKey, txPayload.toByteArray(Charsets.UTF_8))
     }
 
