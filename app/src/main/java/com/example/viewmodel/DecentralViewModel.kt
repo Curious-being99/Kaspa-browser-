@@ -3121,6 +3121,7 @@ class DecentralViewModel(
         if (_legacyMigrationBusy.value) return
         viewModelScope.launch {
             _legacyMigrationBusy.value = true
+            var submittedResult: KaspaTransactionItem? = null
             _kaspaWalletState.value = _kaspaWalletState.value.copy(
                 isSending = true, lastBroadcastTxId = null, statusNotice = null
             )
@@ -3149,6 +3150,7 @@ class DecentralViewModel(
 
                 val result = kaspaWalletService.broadcastPreparedFullBalanceTransfer(prepared)
                     .getOrElse { throw it }
+                submittedResult = result
 
                 withContext(Dispatchers.IO) {
                     database.withTransaction {
@@ -3181,12 +3183,24 @@ class DecentralViewModel(
                 _statusMessage.value = "Migration submitted. The replacement wallet is now active; verify network acceptance before considering the migration complete."
                 refreshTestnetWallet()
             } catch (e: Exception) {
-                _kaspaWalletState.value = _kaspaWalletState.value.copy(
-                    isSending = false,
-                    lastBroadcastTxId = null,
-                    statusNotice = "Error: Migration not completed. ${e.message ?: e.javaClass.simpleName}"
-                )
-                _statusMessage.value = "Migration not completed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active unless the network accepted a previously submitted transaction."
+                val submitted = submittedResult
+                if (submitted != null) {
+                    _legacyMigrationReview.value = null
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = submitted.txId,
+                        recentTransactions = listOf(submitted) + _kaspaWalletState.value.recentTransactions,
+                        statusNotice = "Migration transaction ${submitted.txId} was submitted, but local wallet activation failed. Do not submit another migration. The replacement wallet remains saved in your accounts."
+                    )
+                    _statusMessage.value = "Transaction submitted as ${submitted.txId}, but local wallet activation failed: ${e.message ?: e.javaClass.simpleName}. Keep the source wallet and replacement wallet; verify the transaction on the selected network before taking further action."
+                } else {
+                    _kaspaWalletState.value = _kaspaWalletState.value.copy(
+                        isSending = false,
+                        lastBroadcastTxId = null,
+                        statusNotice = "Error: Migration not completed. ${e.message ?: e.javaClass.simpleName}"
+                    )
+                    _statusMessage.value = "Migration not completed: ${e.message ?: e.javaClass.simpleName}. The original wallet remains active."
+                }
             } finally {
                 _legacyMigrationBusy.value = false
             }
