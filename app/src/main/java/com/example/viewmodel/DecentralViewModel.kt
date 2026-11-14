@@ -2711,8 +2711,10 @@ class DecentralViewModel(
         batches: Int = 1,
         onResult: (Boolean, String, String?) -> Unit
     ) {
-        // Fail closed until the bonding-curve destination and transaction intent
-        // are protocol-verified and shown in the native wallet confirmation screen.
+        // Fail closed: do not send KAS until a protocol-verified bonding-curve
+        // quote, destination, and transaction intent are available and shown in the
+        // native wallet confirmation screen. The required commit/reveal transaction
+        // is not implemented; a self-payment must never be treated as a purchase.
         onResult(
             false,
             "Bonding-curve purchases are temporarily paused for security. No KAS was sent.",
