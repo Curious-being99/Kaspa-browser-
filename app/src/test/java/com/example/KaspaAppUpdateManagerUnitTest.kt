@@ -119,6 +119,28 @@ class KaspaAppUpdateManagerUnitTest {
     }
 
     @Test
+    fun testParseReleaseJson_RejectsPreKaziumSignedApkName() {
+        val legacyReleaseJson = """
+            {
+                "tag_name": "v1.0.1",
+                "assets": [
+                    {
+                        "name": "KaspaBrowser-release-signed.apk",
+                        "browser_download_url": "https://github.com/Curious-being99/Kaspa-browser-/releases/download/v1.0.1/KaspaBrowser-release-signed.apk",
+                        "size": 1500000
+                    }
+                ]
+            }
+        """.trimIndent()
+
+        try {
+            updateManager.parseReleaseJson(legacyReleaseJson, "1.0.0", 1)
+            throw AssertionError("A pre-Kazium APK must not be offered as an update")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
     fun testParseReleaseJson_WithJSONArray() {
         val jsonArrayResponse = """
             [

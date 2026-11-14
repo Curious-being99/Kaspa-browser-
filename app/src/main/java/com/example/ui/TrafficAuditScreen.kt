@@ -1584,7 +1584,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
             Spacer(modifier = Modifier.height(14.dp))
 
             // ==========================================
-            // KASPABROWSER UPDATE ZONE (IN-APP SIDELOAD INSTALLER)
+            // KAZIUM UPDATE ZONE (IN-APP SIDELOAD INSTALLER)
             // ==========================================
             KaspaUpdateZoneCard(viewModel = viewModel)
 
@@ -1606,7 +1606,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "About KaspaBrowser",
+                            text = "About Kazium",
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
                             fontSize = 14.sp
@@ -1901,7 +1901,7 @@ fun PrivacyToggleRow(
 }
 
 /**
- * KaspaBrowser In-App Sideload Update Zone & Native Package Installer Card.
+ * Kazium In-App Sideload Update Zone & Native Package Installer Card.
  * Allows checking, downloading, and installing browser releases in-app.
  */
 @Composable
@@ -1944,7 +1944,7 @@ fun KaspaUpdateZoneCard(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Column {
                         Text(
-                            text = "KaspaBrowser Update Zone",
+                            text = "Kazium Update Zone",
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
                             fontSize = 14.sp
@@ -2310,7 +2310,7 @@ fun KaspaUpdateZoneCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "KaspaBrowser is up to date (v${status.currentVersion})",
+                            text = "Kazium is up to date (v${status.currentVersion})",
                             fontSize = 11.5.sp,
                             color = TextPrimary
                         )
