@@ -993,6 +993,17 @@ object CryptoUtils {
         "blind", "blood", "blossom", "blouse", "blue", "blur", "blush", "board", "boat", "body"
     )
 
+    private val LOW_ENTROPY_BIP39_PREFIX_256: Set<String> = (MNEMONIC_WORDS + listOf(
+        "boil", "bomb", "bone", "bonus", "book", "boost", "border", "boring", "borrow", "boss",
+        "bottom", "bounce", "box", "boy", "bracket", "brain", "brand", "brass", "brave", "bread",
+        "breeze", "brick", "bridge", "brief", "bright", "bring", "brisk", "broccoli", "broken", "bronze",
+        "broom", "brother", "brown", "brush", "bubble", "buddy", "budget", "buffalo", "build", "bulb",
+        "bulk", "bullet", "bundle", "bunker", "burden", "burger", "burst", "bus", "business", "busy",
+        "butter", "buyer", "buzz", "cabbage", "cabin", "cable"
+    )).toSet()
+
+    private const val LEGACY_GENERATOR_CUTOFF_UTC_MS = 1_792_195_200_000L
+
     fun generateMnemonic(): String {
         val entropy = ByteArray(16)
         java.security.SecureRandom().nextBytes(entropy)
@@ -1130,33 +1141,54 @@ object CryptoUtils {
 
 
     /**
-     * Identifies wallets produced by the historical public-email-derived Google bridge.
-     * A matching seed is compromised and must never be used to sign or spend.
+     * Detects weak historical 12-word seeds without depending on account metadata.
+     * The email-derived comparison is retained as an additional historical check.
      */
     fun isLegacyEmailDerivedGoogleWallet(
         accountType: String,
         email: String?,
         storedSeed: String
-    ): Boolean {
-        if (accountType != "GOOGLE_ZK_BRIDGE" || email.isNullOrBlank() || storedSeed.isBlank()) return false
-        val cleanEmail = email.trim().lowercase()
-        val legacyMnemonic = try {
-            val entropy = sha256("google_oauth_bridge_" + cleanEmail + "_zkDecentralNet2026")
-            (0 until 12).map { index ->
-                val start = (index * 2) % entropy.length
-                val end = (start + 2) % entropy.length
-                val byteValue = entropy.substring(start, end).toIntOrNull(16) ?: index
-                MNEMONIC_WORDS[byteValue % MNEMONIC_WORDS.size]
+    ): Boolean = legacyWalletWarning(accountType, email, storedSeed, System.currentTimeMillis()) != null
+
+    fun legacyWalletWarning(
+        accountType: String,
+        email: String?,
+        storedSeed: String,
+        createdAt: Long
+    ): String? {
+        if (storedSeed.isBlank()) return null
+        val storedWords = try {
+            getDecryptedSeed(storedSeed).trim().lowercase().split(Regex("\\s+"))
+        } catch (_: Throwable) {
+            return null
+        }
+        if (storedWords.size != 12) return null
+
+        val emailMatch = if (email.isNullOrBlank()) {
+            false
+        } else {
+            val cleanEmail = email.trim().lowercase()
+            val legacyMnemonic = try {
+                val entropy = sha256("google_oauth_bridge_" + cleanEmail + "_zkDecentralNet2026")
+                (0 until 12).map { index ->
+                    val start = (index * 2) % entropy.length
+                    val end = (start + 2) % entropy.length
+                    val byteValue = entropy.substring(start, end).toIntOrNull(16) ?: index
+                    MNEMONIC_WORDS[byteValue % MNEMONIC_WORDS.size]
+                }
             }.joinToString(" ")
-        } catch (_: Throwable) {
-            return false
+            storedWords.joinToString(" ") == legacyMnemonic
         }
-        val storedMnemonic = try {
-            getDecryptedSeed(storedSeed)
-        } catch (_: Throwable) {
-            return false
+
+        val lowEntropySeed = storedWords.all { it in LOW_ENTROPY_BIP39_PREFIX_256 }
+        if (!emailMatch && !lowEntropySeed) return null
+
+        return when {
+            emailMatch -> "compromised"
+            createdAt < LEGACY_GENERATOR_CUTOFF_UTC_MS ->
+                "made with a non-secure generator, move your funds now"
+            else -> "old wallet format, please move your funds"
         }
-        return storedMnemonic == legacyMnemonic
     }
 
 
