@@ -19,6 +19,16 @@ import org.robolectric.annotation.Config
 class SecurityFixesVerificationTest {
 
     @Test
+    fun generatedReplacementMnemonicIsValidTwelveWordBip39() {
+        val first = CryptoUtils.generateMnemonic()
+        val second = CryptoUtils.generateMnemonic()
+        assertEquals(12, first.trim().split(Regex("\\s+")).size)
+        assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(first))
+        assertTrue(org.web3j.crypto.MnemonicUtils.validateMnemonic(second))
+        assertNotEquals(first, second)
+    }
+
+    @Test
     fun walletCreationIsNativeAndContainsNoGoogleIdentity() {
         val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         val account = CryptoUtils.deriveDecentralizedAccount(
