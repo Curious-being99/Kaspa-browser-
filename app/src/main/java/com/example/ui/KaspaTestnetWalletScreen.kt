@@ -5038,6 +5038,10 @@ private fun LegacyMigrationReviewOverlay(
     val biometricsEnabled by viewModel.biometricsEnabled.collectAsState()
     val legacyKrc20Balances by viewModel.pinnedTokens.collectAsState()
     val legacyKcc20Balances by viewModel.kcc20Tokens.collectAsState()
+    LaunchedEffect(prepared.senderAddress, prepared.networkName) {
+        viewModel.refreshKrc20Tokens()
+        viewModel.refreshKcc20Tokens()
+    }
     var passwordInput by remember { mutableStateOf("") }
     var authErrorMessage by remember { mutableStateOf<String?>(null) }
     var showPasswordFallback by remember { mutableStateOf(false) }
