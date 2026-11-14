@@ -2163,8 +2163,8 @@ class DecentralViewModel(
                         }
 
                         if (!CryptoUtils.isAnyValidKaspaAddress(acc.kaspaAddress) || acc.zkProofJson.isNullOrBlank() || cleanHandle != acc.handle) {
-                            // Legacy Google bridge metadata is ignored. Rebuild the wallet identity
-                            // from the existing locally stored seed only; never use email for wallet identity.
+                            // Rebuild native wallet identity from the existing locally stored seed.
+                            // Account identity never depends on external account metadata.
                             val existingNetworkPrefix = if (acc.kaspaAddress.startsWith("kaspa:", ignoreCase = true)) "kaspa" else "kaspatest"
                             val refreshedAcc = CryptoUtils.deriveDecentralizedAccount(
                                 customHandle = cleanHandle,
