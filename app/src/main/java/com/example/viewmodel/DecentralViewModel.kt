@@ -2189,8 +2189,6 @@ class DecentralViewModel(
             activeAccount.collect { account ->
                 _activeAccountLegacyWarning.value = account?.let {
                     CryptoUtils.legacyWalletWarning(
-                        accountType = it.accountType,
-                        email = it.googleEmail,
                         storedSeed = it.seedPhrase,
                         createdAt = it.createdAt
                     )
