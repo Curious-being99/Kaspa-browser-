@@ -2565,7 +2565,14 @@ class DecentralViewModel(
                     }
 
                     // 2. Scan authentic L1 KCC-20 covenant notes using Kcc20NoteScanner
-                    val walletAddress = account.kaspaAddress
+                    val walletAddress = if (isMainnet) {
+                        getMainnetAddressForAccount(account)
+                    } else {
+                        getTestnetAddressForAccount(account)
+                    }
+                    if (walletAddress.isBlank()) {
+                        throw IllegalStateException("Unable to derive the selected network KCC-20 address.")
+                    }
                     val walletPublicKeyHex = account.publicKeyHex
                     try {
                         val currentUsdRate = (_liveKasUsdPrice.value.takeIf { it > 0.0 } ?: liveKasUsd)?.toString()
@@ -2657,13 +2664,23 @@ class DecentralViewModel(
             val account = activeAccount.value ?: return@launch
             val network = _selectedNetwork.value
             val isMainnet = network.contains("Mainnet", ignoreCase = true)
-            val walletAddress = account.kaspaAddress
+            val kascovNetwork = when {
+                isMainnet -> "mainnet"
+                network.contains("11") -> "testnet-11"
+                else -> "testnet-10"
+            }
+            val walletAddress = if (isMainnet) {
+                getMainnetAddressForAccount(account)
+            } else {
+                getTestnetAddressForAccount(account)
+            }
+            if (walletAddress.isBlank()) return@launch
             val walletPublicKeyHex = account.publicKeyHex
             try {
                 val scanResult = Kcc20NoteScanner.scanWalletNotes(
                     walletAddress = walletAddress,
                     walletPublicKeyHex = walletPublicKeyHex,
-                    network = if (isMainnet) "mainnet" else "testnet-10",
+                    network = kascovNetwork,
                     knownContractIds = _kcc20ContractIds.value
                 )
                 val txHistoryList = mutableListOf<Kcc20TransactionHistoryItem>()
