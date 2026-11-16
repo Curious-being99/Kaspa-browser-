@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Kazium Logo" width="180" height="180" style="border-radius: 28px;" />
 </p>
 
-<h1 align="center">Kazium</h1>
+<h1 align="center">Kazium Browser</h1>
 
 <p align="center">
   <i>Security-First Android Browser &amp; Web3 Gateway Powered by Kazview</i>
