@@ -102,7 +102,7 @@ fun BiometricUnlockView(
     modifier: Modifier = Modifier,
     onVerifyPassword: ((String) -> Boolean)? = null,
     onDeviceCredentialRecovered: (() -> Unit)? = null,
-    autoPromptBiometric: Boolean = true,
+    autoPromptBiometric: Boolean = false,
     onLaunchBiometricOverride: ((isForgotPasswordRecovery: Boolean) -> Unit)? = null
 ) {
     val context = LocalContext.current
