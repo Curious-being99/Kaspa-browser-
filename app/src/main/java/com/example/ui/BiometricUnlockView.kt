@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -524,11 +526,11 @@ fun BiometricUnlockView(
                         .border(1.5.dp, ElectricCyan.copy(alpha = 0.65f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Kazium Privacy Lock",
-                        tint = ElectricCyan,
-                        modifier = Modifier.size(30.dp)
+                    Image(
+                        painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
+                        contentDescription = "Kazium Browser logo",
+                        modifier = Modifier.size(42.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
                     )
                 }
             }
