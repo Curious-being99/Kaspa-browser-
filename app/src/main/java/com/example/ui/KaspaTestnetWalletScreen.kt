@@ -3314,7 +3314,7 @@ private fun NetworkSwitchOverlay(
                 list.forEach { net ->
                     val isSelected = selectedNetwork == net.name
                     val themeColor = when {
-                        net.name.contains("Kasplex", ignoreCase = true) -> Color(0xFF00E5FF)
+                        net.name.contains("Kasplex", ignoreCase = true) -> ElectricCyan
                         net.name.contains("Igra", ignoreCase = true) -> Color(0xFF7C4DFF)
                         net.isMainnet -> KaspaTea
                         else -> Color(0xFF00B0FF)
@@ -6436,7 +6436,7 @@ private fun NetworkDetailsScreenOverlay(
     }
 
     val themeColor = when {
-        isKasplex -> Color(0xFF00E5FF)
+        isKasplex -> ElectricCyan
         isIgra -> Color(0xFF7C4DFF)
         isMainnet -> KaspaTea
         else -> Color(0xFF00B0FF)

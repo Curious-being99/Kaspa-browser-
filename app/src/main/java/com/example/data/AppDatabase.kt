@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class, VaultCredentialEntity::class],
-    version = 15,
+    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class, VaultCredentialEntity::class, AuthenticatorSecretEntity::class],
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun newsArticleDao(): NewsArticleDao
     abstract fun transactionDao(): TransactionDao
     abstract fun vaultCredentialDao(): VaultCredentialDao
+    abstract fun authenticatorSecretDao(): AuthenticatorSecretDao
 
     companion object {
         private val MIGRATION_11_12 = object : Migration(11, 12) {
@@ -107,6 +108,34 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS authenticator_secrets (
+                        id TEXT NOT NULL,
+                        siteHost TEXT NOT NULL,
+                        siteOrigin TEXT NOT NULL,
+                        issuer TEXT NOT NULL,
+                        accountName TEXT NOT NULL,
+                        encryptedSecret TEXT NOT NULL,
+                        otpType TEXT NOT NULL DEFAULT 'TOTP',
+                        algorithm TEXT NOT NULL DEFAULT 'SHA1',
+                        digits INTEGER NOT NULL DEFAULT 6,
+                        periodSeconds INTEGER NOT NULL DEFAULT 30,
+                        counter INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_authenticator_secrets_siteHost ON authenticator_secrets (siteHost)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_authenticator_secrets_otpType ON authenticator_secrets (otpType)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_authenticator_secrets_siteHost_issuer_accountName ON authenticator_secrets (siteHost, issuer, accountName)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -117,7 +146,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "decentralnet_db"
                 )
-                    .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                    .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                     .build()
                 INSTANCE = instance
                 instance

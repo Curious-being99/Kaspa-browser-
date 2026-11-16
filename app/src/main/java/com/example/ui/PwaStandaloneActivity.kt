@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.webkit.*
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import com.example.MainActivity
+import com.example.engine.BrowserEngineManager
 import com.example.network.CronetClientFactory
 import com.example.network.KaspaPrivacyEngine
 import com.example.network.KaspaPrivacyRelayEngine
@@ -55,7 +57,6 @@ import com.example.util.BrowserTabWebViewManager
 import com.example.util.KaspaWebViewConfigurator
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
-import java.io.File
 
 /**
  * Dedicated Standalone Web Application (PWA / WebAPK) Activity.
@@ -99,21 +100,16 @@ class PwaStandaloneActivity : FragmentActivity() {
             defaultHandler?.uncaughtException(thread, throwable)
         }
 
-        // Initialize WebView cache directories synchronously before UI / WebView initialization
-        try {
-            val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
-            if (!crashpadDir.exists()) crashpadDir.mkdirs()
-            val wasmCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
-            if (!wasmCacheDir.exists()) wasmCacheDir.mkdirs()
-            val jsCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
-            if (!jsCacheDir.exists()) jsCacheDir.mkdirs()
-        } catch (_: Exception) {}
+        // Prepare Chromium WebView cache/storage directories safely before async startup
+        BrowserEngineManager.ensureWebViewDirectories(applicationContext)
+        BrowserEngineManager.warmUpEngineAsync(applicationContext) {
+            KaspaWebViewConfigurator.initServiceWorkerSupport()
+        }
 
-        // Initialize background networking and ServiceWorker subsystem
+        // Initialize background networking
         try {
             CronetClientFactory.initialize(applicationContext)
             WebViewAssetLruCache.initialize(applicationContext)
-            KaspaWebViewConfigurator.initServiceWorkerSupport()
         } catch (e: Exception) {
             Log.w(TAG, "Failed to initialize network services in PWA: ${e.message}")
         }
@@ -573,7 +569,13 @@ fun PwaStandaloneScreen(
                                 isLoading = true
                                 isRefreshing = true
                                 webProgress = 0.15f
-                                webViewRef?.reload()
+                                val activeUrl = webViewRef?.url.orEmpty()
+                                if (activeUrl.isBlank() || activeUrl == "about:blank" || activeUrl.startsWith("kaspa-error://", ignoreCase = true)) {
+                                    val target = currentUrl.takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) } ?: initialUrl
+                                    webViewRef?.loadUrl(target)
+                                } else {
+                                    webViewRef?.reload()
+                                }
                             }
                         },
                         modifier = Modifier.size(36.dp)
@@ -599,10 +601,9 @@ fun PwaStandaloneScreen(
                             )
                         }
 
-                        DropdownMenu(
+                        ScrollableThreeDotsMenu(
                             expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            modifier = Modifier.background(SurfaceDark)
+                            onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Refresh Page", color = TextPrimary) },
@@ -614,7 +615,13 @@ fun PwaStandaloneScreen(
                                     isLoading = true
                                     isRefreshing = true
                                     webProgress = 0.15f
-                                    webViewRef?.reload()
+                                    val activeUrl = webViewRef?.url.orEmpty()
+                                    if (activeUrl.isBlank() || activeUrl == "about:blank" || activeUrl.startsWith("kaspa-error://", ignoreCase = true)) {
+                                        val target = currentUrl.takeIf { it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) } ?: initialUrl
+                                        webViewRef?.loadUrl(target)
+                                    } else {
+                                        webViewRef?.reload()
+                                    }
                                 }
                             )
 
@@ -719,7 +726,7 @@ fun PwaStandaloneScreen(
                         setLayerType(View.LAYER_TYPE_NONE, null)
                         isHapticFeedbackEnabled = true
                         isVerticalScrollBarEnabled = false
-                        isHorizontalScrollBarEnabled = false
+                        isHorizontalScrollBarEnabled = true
                         overScrollMode = View.OVER_SCROLL_NEVER
                         isNestedScrollingEnabled = false
                         setOnScrollChangeListener { _, _, _, _, _ ->
@@ -912,12 +919,17 @@ fun PwaStandaloneScreen(
                                 val reqHost = request.url?.host?.lowercase()
                                 val isFirstParty = mainHost != null && reqHost != null && (reqHost == mainHost || reqHost.endsWith(".$mainHost") || mainHost.endsWith(".$reqHost"))
 
-                                // Never block styles, fonts, images, or assets needed for PWA rendering
+                                // Never block styles, fonts, images, media, or game/WASM assets needed for PWA rendering
                                 val path = runCatching { request.url?.path?.lowercase() }.getOrNull() ?: ""
                                 val isAsset = path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
                                     path.endsWith(".ttf") || path.endsWith(".otf") || path.endsWith(".png") ||
                                     path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".webp") ||
-                                    path.endsWith(".svg") || path.endsWith(".ico")
+                                    path.endsWith(".svg") || path.endsWith(".ico") || path.endsWith(".gif") ||
+                                    path.endsWith(".wasm") || path.endsWith(".mjs") || path.endsWith(".pck") ||
+                                    path.endsWith(".data") || path.endsWith(".unityweb") || path.endsWith(".glb") ||
+                                    path.endsWith(".gltf") || path.endsWith(".mp3") || path.endsWith(".ogg") ||
+                                    path.endsWith(".opus") || path.endsWith(".wav") || path.endsWith(".mp4") ||
+                                    path.endsWith(".webm")
                                 if (isAsset) {
                                     return null
                                 }
@@ -940,6 +952,25 @@ fun PwaStandaloneScreen(
                                 val url = request?.url?.toString() ?: return false
                                 val hasGesture = request?.hasGesture() ?: false
                                 val uri = request?.url
+
+                                if (url.startsWith("kaspa-action://retry", ignoreCase = true)) {
+                                    val paramUrl = uri?.getQueryParameter("url").orEmpty()
+                                    val retryTarget = when {
+                                        paramUrl.startsWith("http://", ignoreCase = true) || paramUrl.startsWith("https://", ignoreCase = true) -> paramUrl
+                                        currentUrl.startsWith("http://", ignoreCase = true) || currentUrl.startsWith("https://", ignoreCase = true) -> currentUrl
+                                        else -> initialUrl
+                                    }
+                                    isLoading = true
+                                    isRefreshing = true
+                                    webProgress = 0.15f
+                                    view?.loadUrl(retryTarget)
+                                    return true
+                                }
+
+                                if (url.startsWith("kaspa-action://home", ignoreCase = true)) {
+                                    onCloseApp()
+                                    return true
+                                }
 
                                 // Support internal PWA routing: same origin / domain stays within the PWA viewport
                                 val currentHost = runCatching { Uri.parse(view?.url ?: currentUrl).host?.lowercase() }.getOrNull() ?: ""
@@ -1120,9 +1151,11 @@ fun PwaStandaloneScreen(
                                     val w = tempRef ?: return
                                     w.post {
                                         try {
-                                            w.stopLoading()
-                                            w.webViewClient = WebViewClient()
                                             (w.parent as? ViewGroup)?.removeView(w)
+                                            w.webViewClient = object : WebViewClient() {
+                                                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean = true
+                                            }
+                                            w.stopLoading()
                                             w.destroy()
                                         } catch (_: Throwable) {}
                                     }
@@ -1145,6 +1178,11 @@ fun PwaStandaloneScreen(
                                                 view.loadUrl(target)
                                             }
                                             cleanupTemp()
+                                        }
+
+                                        override fun onRenderProcessGone(wv: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                            cleanupTemp()
+                                            return true
                                         }
                                     }
                                 }
@@ -1328,14 +1366,46 @@ fun PwaStandaloneScreen(
                 )
             }
 
-            // Fullscreen Custom Video Player Overlay
+            // Fullscreen Custom Video / HTML5 Game Container Overlay
             customVideoView?.let { videoView ->
-                AndroidView(
-                    factory = { videoView },
+                BackHandler {
+                    try {
+                        customVideoCallback?.onCustomViewHidden()
+                    } catch (_: Throwable) {}
+                    customVideoView = null
+                    customVideoCallback = null
+                }
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black)
-                )
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                ) {
+                    AndroidView(
+                        factory = { videoView },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    IconButton(
+                        onClick = {
+                            try {
+                                customVideoCallback?.onCustomViewHidden()
+                            } catch (_: Throwable) {}
+                            customVideoView = null
+                            customVideoCallback = null
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Fullscreen",
+                            tint = Color.White
+                        )
+                    }
+                }
             }
 
             // Location Access Consent Dialog

@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import com.example.ui.MainScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.DecentralViewModel
-import java.io.File
 
 class MainActivity : FragmentActivity() {
   private val viewModel: DecentralViewModel by viewModels()
@@ -50,18 +49,20 @@ class MainActivity : FragmentActivity() {
       defaultHandler?.uncaughtException(thread, throwable)
     }
 
-    // Ensure WebView cache directories exist synchronously before UI / WebView initialization
-    try {
-      val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
-      if (!crashpadDir.exists()) crashpadDir.mkdirs()
-      val wasmCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
-      if (!wasmCacheDir.exists()) wasmCacheDir.mkdirs()
-      val jsCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
-      if (!jsCacheDir.exists()) jsCacheDir.mkdirs()
-    } catch (_: Exception) {}
+    // Prepare Chromium WebView cache/storage trees safely before async startup
+    com.example.engine.BrowserEngineManager.ensureWebViewDirectories(applicationContext)
+    com.example.security.BrowserLockStore.init(applicationContext)
 
-    // Async Chromium WebView engine startup (off the UI thread) + engine diagnostics
-    com.example.engine.BrowserEngineManager.warmUpEngineAsync(applicationContext)
+    // Async Chromium WebView engine startup (off the UI thread) + post-startup configuration
+    com.example.engine.BrowserEngineManager.warmUpEngineAsync(applicationContext) {
+      com.example.util.KaspaWebViewConfigurator.initServiceWorkerSupport()
+      try {
+        android.webkit.WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+      } catch (e: Exception) {
+        Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
+      }
+      applyInitialWebViewProxyConfig()
+    }
 
     enableEdgeToEdge()
     if (checkAndRoutePwaIntent(intent)) {
@@ -88,19 +89,6 @@ class MainActivity : FragmentActivity() {
     // Initialize background services asynchronously on IO dispatcher to avoid UI thread startup delay
     CoroutineScope(Dispatchers.IO).launch {
       try {
-        val crashpadDir = File(cacheDir, "WebView/Crashpad/attachments")
-        if (!crashpadDir.exists()) {
-          crashpadDir.mkdirs()
-        }
-        val wasmCacheDir = File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
-        if (!wasmCacheDir.exists()) {
-          wasmCacheDir.mkdirs()
-        }
-      } catch (e: Exception) {
-        Log.d("MainActivity", "WebView directory notice: ${e.message}")
-      }
-
-      try {
         com.example.network.CronetClientFactory.initialize(applicationContext)
         com.example.network.WebViewAssetLruCache.initialize(applicationContext)
         com.example.network.KrpRelayDaemon.start()
@@ -108,41 +96,40 @@ class MainActivity : FragmentActivity() {
             com.example.network.LightweightTorEngine.start()
         }
         com.example.security.PlayIntegrityManager.initialize(applicationContext)
-        com.example.util.KaspaWebViewConfigurator.initServiceWorkerSupport()
+        com.example.security.PasswordGenerator.init(applicationContext)
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 com.example.security.PlayIntegrityManager.requestIntegrityToken(applicationContext)
             } catch (_: Throwable) {}
         }
-
-        val proxyPrefs = getSharedPreferences("kaspa_proxy_prefs", android.content.Context.MODE_PRIVATE)
-        if (proxyPrefs.getBoolean("custom_proxy_enabled", false)) {
-            val host = proxyPrefs.getString("custom_proxy_host", "")
-            val port = proxyPrefs.getString("custom_proxy_port", "")?.toIntOrNull() ?: 0
-            val isSocks = proxyPrefs.getBoolean("custom_proxy_is_socks", true)
-            if (!host.isNullOrBlank() && port > 0) {
-                com.example.network.KaspaPrivacyRelayEngine.setRemoteProxy(host, port, isSocks)
-                com.example.network.WebViewProxyManager.applyCustomProxy(host, port, isSocks)
-            } else {
-                com.example.network.WebViewProxyManager.clearProxy()
-            }
-        } else {
-            // Keep native WebView connection clean and direct without cutting off network access
-            com.example.network.WebViewProxyManager.clearProxy()
-        }
       } catch (t: Throwable) {
         Log.w("MainActivity", "Network services initialization notice: ${t.message}")
       }
 
-      try {
-        android.webkit.WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-      } catch (e: Exception) {
-        Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
-      }
-
       // Delegate WebView cache management safely to native Chromium engine
       performAutomaticWebViewCacheMaintenance()
+    }
+  }
+
+  private fun applyInitialWebViewProxyConfig() {
+    try {
+      val proxyPrefs = getSharedPreferences("kaspa_proxy_prefs", android.content.Context.MODE_PRIVATE)
+      if (proxyPrefs.getBoolean("custom_proxy_enabled", false)) {
+        val host = proxyPrefs.getString("custom_proxy_host", "")
+        val port = proxyPrefs.getString("custom_proxy_port", "")?.toIntOrNull() ?: 0
+        val isSocks = proxyPrefs.getBoolean("custom_proxy_is_socks", true)
+        if (!host.isNullOrBlank() && port > 0) {
+          com.example.network.KaspaPrivacyRelayEngine.setRemoteProxy(host, port, isSocks)
+          com.example.network.WebViewProxyManager.applyCustomProxy(host, port, isSocks)
+        } else {
+          com.example.network.WebViewProxyManager.clearProxy()
+        }
+      } else {
+        com.example.network.WebViewProxyManager.clearProxy()
+      }
+    } catch (t: Throwable) {
+      Log.w("MainActivity", "WebView proxy config notice: ${t.message}")
     }
   }
 
@@ -219,9 +206,10 @@ class MainActivity : FragmentActivity() {
     super.onStop()
     com.example.util.BrowserStateLog.save("MainActivity onStop - saving tabs state")
     viewModel.saveAllTabsState("onStop")
-    // Auto-lock wallet and encrypted password vault when app goes to background
+    // Auto-lock wallet, browser privacy gate, and encrypted password vault when app goes to background
     viewModel.lockWallet()
     viewModel.lockVault()
+    com.example.security.BrowserLockStore.lockBrowser()
   }
 
   override fun onSaveInstanceState(outState: Bundle) {
@@ -239,7 +227,7 @@ class MainActivity : FragmentActivity() {
   override fun onTrimMemory(level: Int) {
     super.onTrimMemory(level)
     try {
-      if (level >= TRIM_MEMORY_MODERATE) {
+      if (level >= TRIM_MEMORY_BACKGROUND) {
         com.example.network.WebViewAssetLruCache.clearCache()
       }
     } catch (_: Exception) {}

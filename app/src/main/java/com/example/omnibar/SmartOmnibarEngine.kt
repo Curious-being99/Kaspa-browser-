@@ -499,15 +499,43 @@ object SmartOmnibarEngine {
         // Avoid triggering website preview if user is writing math
         if (evaluateMath(q) != null) return null
 
-        val lower = q.lowercase()
+        val normalizedQ = com.example.network.DomainConstants.normalizeKaspaScheme(q)
+        val lower = normalizedQ.lowercase()
 
         // Exclude if it has whitespace unless it explicitly starts with a URL scheme
-        if (lower.contains(" ") && !lower.startsWith("http://") && !lower.startsWith("https://") && !lower.startsWith("kas://") && !lower.startsWith("ipfs://")) {
+        if (lower.contains(" ") && !lower.startsWith("http://") && !lower.startsWith("https://") &&
+            !lower.startsWith("kas://") && !lower.startsWith("kaspa://") && !lower.startsWith("ipfs://")
+        ) {
             return null
         }
 
         // Exclude price queries
         if (isKaspaPriceQuery(lower) || isBuyKaspaQuery(lower)) return null
+
+        // Direct Kaspa native URI handling (prevents "Kaspa.//" -> "https://kaspa." preview)
+        if (lower.startsWith("kaspa://") || lower.startsWith("kas://") || lower.startsWith("kns://")) {
+            val hostPart = lower
+                .substringAfter("://")
+                .substringBefore("/")
+                .ifBlank { "portal" }
+            val (title, desc) = when (hostPart) {
+                "offline-game", "offline-games", "arcade", "games" ->
+                    "Kaspa Offline Arcade" to "Play native 60fps offline games (DAG Dash, Kaspa 2048+, Prism Breaker)."
+                "portal", "home", "index" ->
+                    "Kaspa Sovereign Portal" to "Open the local Kaspa BlockDAG gateway and verified quick destinations."
+                else ->
+                    "$hostPart" to "Resolve decentralized Kaspa resource cleanly via BlockDAG P2P."
+            }
+            return WebsitePreviewData(
+                domain = hostPart,
+                fullUrl = normalizedQ,
+                title = title,
+                description = desc,
+                protocolBadge = "Kaspa BlockDAG P2P",
+                isSecure = true,
+                isDecentralized = true
+            )
+        }
 
         // 1. Direct alias match for instant typing feedback (e.g. typing "kaspa", "google", "youtube", "dot")
         val aliasTarget = siteAliases[lower] ?: siteAliases[lower.removeSuffix("/")]
@@ -553,7 +581,7 @@ object SmartOmnibarEngine {
         val description = kb?.second ?: "Real-time preview ready. Protected by Kaspa Zero-Telemetry Privacy Shield and uBlock Ad Blocker."
         val badge = kb?.third ?: (if (isDecentralized) "Decentralized P2P" else "HTTPS Verified")
 
-        val targetUrl = if (q.contains("://")) q else "https://$candidateHost"
+        val targetUrl = if (normalizedQ.contains("://")) normalizedQ else "https://$candidateHost"
 
         return WebsitePreviewData(
             domain = candidateHost,

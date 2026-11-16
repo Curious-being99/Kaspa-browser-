@@ -187,7 +187,19 @@ class KaspaNewsNotificationWorker(
             .setGroup(NOTIFICATION_GROUP)
             .build()
 
-        NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        try {
+            NotificationManagerCompat.from(applicationContext).notify(notificationId, notification)
+        } catch (_: SecurityException) {
+            // Permission revoked concurrently at runtime.
+        }
     }
 
     internal data class NotificationCandidate(

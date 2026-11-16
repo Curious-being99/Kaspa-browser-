@@ -74,6 +74,12 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
 
     val onboardingCompleted by viewModel.onboardingCompleted.collectAsState()
     val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        com.example.security.BrowserLockStore.init(context)
+    }
+    val isBrowserLockEnabled by com.example.security.BrowserLockStore.isBrowserLockEnabled.collectAsState()
+    val isBrowserUnlocked by com.example.security.BrowserLockStore.isBrowserUnlocked.collectAsState()
+    val hasCustomBrowserLockPassword by com.example.security.BrowserLockStore.hasCustomLockPassword.collectAsState()
     val sharedPrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
     var onboardingStep by remember(onboardingCompleted) {
         mutableStateOf(if (onboardingCompleted || sharedPrefs.getBoolean("has_seen_tutorial_v1", false)) 2 else 0)
@@ -114,6 +120,21 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
     }
 
     PhotoBackgroundWrapper(currentTheme = currentPhotoTheme) {
+        if (isBrowserLockEnabled && !isBrowserUnlocked) {
+            BiometricUnlockView(
+                hasCustomPassword = hasCustomBrowserLockPassword,
+                onVerifyPassword = { candidate ->
+                    com.example.security.BrowserLockStore.verifyLockPassword(context, candidate)
+                },
+                onDeviceCredentialRecovered = {
+                    com.example.security.BrowserLockStore.clearCustomLockPasswordAfterDeviceUnlock(context)
+                },
+                onUnlockSucceeded = {
+                    // Marks browser UI unlocked only — wallet signing remains independently gated.
+                    com.example.security.BrowserLockStore.markBrowserUnlocked()
+                }
+            )
+        } else {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
@@ -242,11 +263,11 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
-                            text = "High-Speed Web Decentralized Gateway",
+                            text = "Private Browser & Kaspa Wallet",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = ElectricCyan,
-                            letterSpacing = 0.3.sp
+                            letterSpacing = 0.2.sp
                         )
 
                         Spacer(modifier = Modifier.weight(1f))
@@ -324,7 +345,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = "Sovereign, Autonomous & Peer-to-Peer",
+                            text = "Peer-to-Peer Web & Native Assets",
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium,
                             color = ElectricCyan,
@@ -449,6 +470,7 @@ fun MainScreen(viewModel: DecentralViewModel = viewModel()) {
                     }
                 }
             }
+        }
         }
     }
 }

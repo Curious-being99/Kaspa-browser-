@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -192,10 +194,25 @@ fun WebsiteLivePreviewModal(
                                     super.onPageFinished(view, url)
                                     isPreviewLoading = false
                                 }
+
+                                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                    isPreviewLoading = false
+                                    try {
+                                        (view?.parent as? ViewGroup)?.removeView(view)
+                                        view?.destroy()
+                                    } catch (_: Throwable) {}
+                                    return true
+                                }
                             }
                             loadUrl(previewUrl)
                         }
                         wv
+                    },
+                    onRelease = { wv ->
+                        try {
+                            (wv.parent as? ViewGroup)?.removeView(wv)
+                            wv.destroy()
+                        } catch (_: Throwable) {}
                     },
                     modifier = Modifier.fillMaxSize()
                 )

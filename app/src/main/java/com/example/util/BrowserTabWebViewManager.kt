@@ -311,8 +311,10 @@ class BrowserTabWebViewManager {
         val task = Runnable {
             try {
                 (wv.parent as? ViewGroup)?.removeView(wv)
-                wv.stopLoading()
-                wv.clearHistory()
+                if (!reason.contains("renderer crash", ignoreCase = true)) {
+                    wv.stopLoading()
+                    wv.clearHistory()
+                }
                 wv.destroy()
             } catch (e: Exception) {
                 android.util.Log.w("BrowserTabWebViewManager", "Error destroying webView for $tabId: ${e.message}")
@@ -364,21 +366,36 @@ class BrowserTabWebViewManager {
             }
         }
 
+        private fun canonicalizeForComparison(raw: String): String {
+            var s = raw.trim()
+            s = when {
+                s.startsWith("https://", ignoreCase = true) -> s.substring(8)
+                s.startsWith("http://", ignoreCase = true) -> s.substring(7)
+                else -> s
+            }
+            if (s.startsWith("www.", ignoreCase = true)) {
+                s = s.substring(4)
+            }
+            val qIdx = s.indexOf('?')
+            val hIdx = s.indexOf('#')
+            val suffixStart = when {
+                qIdx != -1 && hIdx != -1 -> minOf(qIdx, hIdx)
+                qIdx != -1 -> qIdx
+                else -> hIdx
+            }
+            return if (suffixStart == -1) {
+                s.trimEnd('/')
+            } else {
+                val base = s.substring(0, suffixStart).trimEnd('/')
+                val suffix = s.substring(suffixStart)
+                base + suffix
+            }
+        }
+
         fun isSameUrl(url1: String?, url2: String?): Boolean {
             if (url1.isNullOrBlank() || url2.isNullOrBlank()) return false
             if (url1 == url2) return true
-            val clean1 = url1.trim().trimEnd('/')
-            val clean2 = url2.trim().trimEnd('/')
-            if (clean1 == clean2) return true
-            val noProto1 = clean1.removePrefix("https://").removePrefix("http://")
-            val noProto2 = clean2.removePrefix("https://").removePrefix("http://")
-            if (noProto1 == noProto2) return true
-            val noWww1 = noProto1.removePrefix("www.")
-            val noWww2 = noProto2.removePrefix("www.")
-            if (noWww1 == noWww2) return true
-            val base1 = noWww1.substringBefore("?")
-            val base2 = noWww2.substringBefore("?")
-            return base1 == base2
+            return canonicalizeForComparison(url1) == canonicalizeForComparison(url2)
         }
     }
 }

@@ -384,36 +384,42 @@ object SmartOmniboxEngine {
      */
     fun generateWebsitePreview(input: String): WebsitePreviewInfo? {
         if (input.isBlank()) return null
-        val clean = input.trim().lowercase(Locale.ROOT)
+        val clean = DomainConstants.normalizeKaspaScheme(input).lowercase(Locale.ROOT)
 
         val isUrlLike = clean.contains(".") || clean.startsWith("http://") || clean.startsWith("https://") ||
-                clean.startsWith("kaspa://") || clean.startsWith("ipfs://") || clean.startsWith("dnet://") || clean.startsWith("mesh://")
+                clean.startsWith("kaspa://") || clean.startsWith("kas://") || clean.startsWith("ipfs://") ||
+                clean.startsWith("dnet://") || clean.startsWith("mesh://") || clean.startsWith("kns://")
 
         if (!isUrlLike && clean.split(" ").size > 3) return null
 
         val domain = when {
             clean.startsWith("https://") -> clean.substringAfter("https://").substringBefore("/")
             clean.startsWith("http://") -> clean.substringAfter("http://").substringBefore("/")
-            clean.startsWith("kaspa://") -> clean.substringAfter("kaspa://").substringBefore("/")
+            clean.startsWith("kaspa://") -> clean.substringAfter("kaspa://").substringBefore("/").ifBlank { "portal" }
+            clean.startsWith("kas://") -> clean.substringAfter("kas://").substringBefore("/").ifBlank { "portal" }
+            clean.startsWith("kns://") -> clean.substringAfter("kns://").substringBefore("/").ifBlank { "portal" }
             clean.startsWith("ipfs://") -> clean.substringAfter("ipfs://").substringBefore("/")
             else -> clean.substringBefore("/")
         }
 
         val fullUrl = when {
             clean.startsWith("http://") || clean.startsWith("https://") ||
-                    clean.startsWith("kaspa://") || clean.startsWith("ipfs://") -> clean
-            clean.endsWith(".kns") || clean.startsWith("kaspa") -> "kaspa://$domain"
+                    clean.startsWith("kaspa://") || clean.startsWith("kas://") ||
+                    clean.startsWith("kns://") || clean.startsWith("ipfs://") -> clean
+            clean.endsWith(".kns") || clean.startsWith("kaspa:") -> if (clean.startsWith("kaspa:")) clean else "kaspa://$domain"
             else -> "https://$domain"
         }
 
         val protocol = when {
-            fullUrl.startsWith("kaspa://") -> "Kaspa BlockDAG P2P"
+            fullUrl.startsWith("kaspa://") || fullUrl.startsWith("kas://") || fullUrl.startsWith("kns://") || fullUrl.startsWith("kaspa:") -> "Kaspa BlockDAG P2P"
             fullUrl.startsWith("ipfs://") -> "IPFS Decentralized Storage"
             fullUrl.startsWith("https://") -> "HTTPS Secured TLS 1.3"
             else -> "HTTP Web"
         }
 
-        val isKaspaNative = fullUrl.startsWith("kaspa://") || domain.contains("kaspa") || domain.endsWith(".kns")
+        val isKaspaNative = fullUrl.startsWith("kaspa://") || fullUrl.startsWith("kas://") ||
+                fullUrl.startsWith("kns://") || fullUrl.startsWith("kaspa:") ||
+                domain.contains("kaspa") || domain.endsWith(".kns")
         val isSecure = fullUrl.startsWith("https://") || isKaspaNative || fullUrl.startsWith("ipfs://")
 
         val title = when {

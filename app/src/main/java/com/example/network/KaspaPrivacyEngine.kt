@@ -237,6 +237,10 @@ object KaspaPrivacyEngine {
 
         // Never block decentralized Kaspa schemes or localhost nodes
         if (url.startsWith("kaspa://", ignoreCase = true) ||
+            url.startsWith("kas://", ignoreCase = true) ||
+            url.startsWith("kaspa:", ignoreCase = true) ||
+            url.startsWith("kaspa-action://", ignoreCase = true) ||
+            url.startsWith("kns://", ignoreCase = true) ||
             url.startsWith("dnet://", ignoreCase = true) ||
             url.startsWith("ipfs://", ignoreCase = true) ||
             url.startsWith("hyper://", ignoreCase = true) ||
@@ -263,9 +267,15 @@ object KaspaPrivacyEngine {
             path.endsWith(".ico") || path.endsWith(".bmp") || path.endsWith(".avif") ||
             path.endsWith(".mp4") || path.endsWith(".webm") || path.endsWith(".m4v") ||
             path.endsWith(".m4s") || path.endsWith(".m4a") || path.endsWith(".mp3") ||
-            path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".ts") ||
-            path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".css") ||
-            path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") ||
+            path.endsWith(".ogg") || path.endsWith(".ogv") || path.endsWith(".opus") ||
+            path.endsWith(".ts") || path.endsWith(".m3u8") || path.endsWith(".mpd") ||
+            path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") ||
+            path.endsWith(".ttf") || path.endsWith(".otf") || path.endsWith(".eot") ||
+            path.endsWith(".wasm") || path.endsWith(".mjs") || path.endsWith(".pck") ||
+            path.endsWith(".data") || path.endsWith(".unityweb") || path.endsWith(".mem") ||
+            path.endsWith(".atlas") || path.endsWith(".fnt") || path.endsWith(".glb") ||
+            path.endsWith(".gltf") || path.endsWith(".obj") || path.endsWith(".mtl") ||
+            path.endsWith(".glsl") || path.endsWith(".vert") || path.endsWith(".frag") ||
             path.endsWith(".pdf") || path.endsWith(".zip") || path.endsWith(".tar") ||
             path.endsWith(".gz") || path.endsWith(".apk") || path.endsWith(".exe") ||
             path.endsWith(".dmg") || path.endsWith(".pkg") || path.endsWith(".iso") ||
@@ -859,5 +869,30 @@ object KaspaPrivacyEngine {
     fun getPrivacyShieldScript(@Suppress("UNUSED_PARAMETER") safeGpuMode: Boolean = !isDrmRendernodeAvailable, isDesktop: Boolean = false, baseUa: String? = null): String {
         val viewportScript = getDesktopViewportScript(isDesktop, baseUa)
         return "$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript"
+    }
+
+    /**
+     * Returns true for loopback, `.local` mDNS, or RFC1918 LAN addresses where HTTPS is normally
+     * unavailable (e.g. local dev/game servers) and upgrading to HTTPS breaks loading.
+     */
+    fun isLocalOrPrivateHost(rawHost: String?): Boolean {
+        if (rawHost.isNullOrBlank()) return false
+        val host = rawHost.trim().lowercase().removePrefix("[").removeSuffix("]")
+        if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host == "::1" || host == "0.0.0.0") {
+            return true
+        }
+        val parts = host.split('.')
+        if (parts.size == 4 && parts.all { it.toIntOrNull() in 0..255 }) {
+            val a = parts[0].toInt()
+            val b = parts[1].toInt()
+            return a == 127 || a == 10 || (a == 192 && b == 168) || (a == 172 && b in 16..31)
+        }
+        return false
+    }
+
+    fun isLocalOrPrivateHttpUrl(rawUrl: String): Boolean {
+        val uri = runCatching { android.net.Uri.parse(rawUrl.trim()) }.getOrNull()
+        val host = uri?.host ?: extractHostFast(rawUrl)
+        return isLocalOrPrivateHost(host)
     }
 }

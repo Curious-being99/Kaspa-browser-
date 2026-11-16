@@ -48,27 +48,21 @@ object NativeIntentRoutingEngine {
         // 1. Android Intent URI (intent://...)
         if (cleanUrl.startsWith("intent://", ignoreCase = true)) {
             return try {
+                val grantFlagsMask = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
                 val parsedIntent = Intent.parseUri(cleanUrl, Intent.URI_INTENT_SCHEME).apply {
                     addCategory(Intent.CATEGORY_BROWSABLE)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    removeFlags(
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
-                    )
+                    flags = flags and grantFlagsMask.inv()
                     component = null
                 }
                 parsedIntent.selector?.let {
                     it.addCategory(Intent.CATEGORY_BROWSABLE)
                     it.component = null
                     it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    it.removeFlags(
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
-                    )
+                    it.flags = it.flags and grantFlagsMask.inv()
                 }
 
                 // Prevent malicious web pages from targeting internal components of this app

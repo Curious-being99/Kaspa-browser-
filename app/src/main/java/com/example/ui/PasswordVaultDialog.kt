@@ -37,13 +37,20 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.VaultCredentialEntity
 import com.example.engine.BrowserEngineManager
+import com.example.security.AuthenticatorAccount
+import com.example.security.OtpAuthType
+import com.example.security.OtpHashAlgorithm
 import com.example.security.PasswordGenerator
 import com.example.security.PasswordVaultRepository
+import com.example.security.TotpAuthenticator
 import com.example.ui.theme.*
 import com.example.utils.BiometricAuthHelper
 import com.example.viewmodel.DecentralViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PasswordVaultSheet(
@@ -70,9 +77,26 @@ fun PasswordVaultSheet(
     var showVaultSettings by remember { mutableStateOf(false) }
     var editingCredential by remember { mutableStateOf<VaultCredentialEntity?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
+    var showAddAuthDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<VaultCredentialEntity?>(null) }
+    var pendingDeleteAuth by remember { mutableStateOf<AuthenticatorAccount?>(null) }
     var revealedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var authError by remember { mutableStateOf<String?>(null) }
+    var addAuthExternalError by remember { mutableStateOf<String?>(null) }
+
+    val coroutineScope = rememberCoroutineScope()
+    val authAccounts by viewModel.authenticatorAccounts.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        PasswordGenerator.init(context)
+    }
+    val nowMillis by produceState(initialValue = System.currentTimeMillis(), key1 = filterMode) {
+        if (filterMode == "AUTHENTICATOR") {
+            while (true) {
+                value = System.currentTimeMillis()
+                delay(500L)
+            }
+        }
+    }
 
     val hasDeviceLock = remember { BiometricAuthHelper.isDeviceLockAvailable(context) }
 
@@ -169,7 +193,7 @@ fun PasswordVaultSheet(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "AES-256-GCM Encrypted · ${credentials.size} saved",
+                                    text = "AES-256-GCM Encrypted · ${credentials.size} saved · ${authAccounts.size} 2FA",
                                     fontSize = 11.sp,
                                     color = TextSecondary,
                                     maxLines = 1,
@@ -194,14 +218,20 @@ fun PasswordVaultSheet(
                                     )
                                 }
                                 IconButton(
-                                    onClick = { showAddDialog = true },
+                                    onClick = {
+                                        if (filterMode == "AUTHENTICATOR") {
+                                            showAddAuthDialog = true
+                                        } else {
+                                            showAddDialog = true
+                                        }
+                                    },
                                     modifier = Modifier
                                         .size(48.dp)
                                         .testTag("vault_add_button")
                                 ) {
                                     Icon(
                                         Icons.Default.Add,
-                                        contentDescription = "Add Login",
+                                        contentDescription = if (filterMode == "AUTHENTICATOR") "Add 2FA Authenticator" else "Add Login",
                                         tint = ElectricCyan
                                     )
                                 }
@@ -366,24 +396,42 @@ fun PasswordVaultSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            listOf("ALL" to "All", "PASSWORDS" to "Passwords", "PASSKEYS" to "Passkeys", "ALERTS" to "Alerts").forEach { (key, label) ->
+                            listOf(
+                                "ALL" to "All",
+                                "AUTHENTICATOR" to "Authenticator",
+                                "PASSWORDS" to "Passwords",
+                                "PASSKEYS" to "Passkeys",
+                                "ALERTS" to "Alerts"
+                            ).forEach { (key, label) ->
                                 FilterChip(
                                     selected = filterMode == key,
                                     onClick = { filterMode = key },
+                                    leadingIcon = if (key == "AUTHENTICATOR") {
+                                        { Icon(Icons.Default.VerifiedUser, contentDescription = null, modifier = Modifier.size(15.dp)) }
+                                    } else null,
                                     label = {
-                                        val countSuffix = if (key == "ALERTS" && breachedCredentials.isNotEmpty()) {
-                                            " (${breachedCredentials.size})"
-                                        } else {
-                                            ""
+                                        val countSuffix = when {
+                                            key == "ALERTS" && breachedCredentials.isNotEmpty() -> " (${breachedCredentials.size})"
+                                            key == "AUTHENTICATOR" && authAccounts.isNotEmpty() -> " (${authAccounts.size})"
+                                            else -> ""
                                         }
                                         Text("$label$countSuffix", fontSize = 12.sp)
                                     },
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = if (key == "ALERTS") RedTamper.copy(alpha = 0.22f) else ElectricCyan.copy(alpha = 0.2f),
-                                        selectedLabelColor = if (key == "ALERTS") RedTamper else ElectricCyan,
+                                        selectedContainerColor = when (key) {
+                                            "ALERTS" -> RedTamper.copy(alpha = 0.22f)
+                                            "AUTHENTICATOR" -> EmeraldMesh.copy(alpha = 0.2f)
+                                            else -> ElectricCyan.copy(alpha = 0.2f)
+                                        },
+                                        selectedLabelColor = when (key) {
+                                            "ALERTS" -> RedTamper
+                                            "AUTHENTICATOR" -> EmeraldMesh
+                                            else -> ElectricCyan
+                                        },
                                         containerColor = SurfaceDark,
                                         labelColor = TextSecondary
-                                    )
+                                    ),
+                                    modifier = if (key == "AUTHENTICATOR") Modifier.testTag("vault_authenticator_chip") else Modifier
                                 )
                             }
                             FilterChip(
@@ -530,7 +578,101 @@ fun PasswordVaultSheet(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        if (filtered.isEmpty()) {
+                        if (filterMode == "AUTHENTICATOR") {
+                            val q = searchQuery.trim().lowercase()
+                            val filteredAuth = remember(authAccounts, q) {
+                                if (q.isEmpty()) authAccounts else authAccounts.filter {
+                                    it.issuer.lowercase().contains(q) || it.accountName.lowercase().contains(q)
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Live 2FA Authenticator",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = EmeraldMesh
+                                )
+                                FilledTonalButton(
+                                    onClick = { showAddAuthDialog = true },
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("vault_add_2fa_button")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Enter setup key", fontSize = 12.sp)
+                                }
+                            }
+                            if (filteredAuth.isEmpty()) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(horizontal = 24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.VerifiedUser,
+                                            contentDescription = "2FA Authenticator",
+                                            tint = EmeraldMesh.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(42.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = if (authAccounts.isEmpty()) "No 2FA keys added yet" else "No matching 2FA keys",
+                                            color = TextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Enter an app or website's 2FA setup key with Time based or Counter based verification to generate real codes offline.",
+                                            color = TextSecondary,
+                                            fontSize = 12.sp,
+                                            lineHeight = 17.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Button(
+                                            onClick = { showAddAuthDialog = true },
+                                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldMesh, contentColor = ObsidianBg),
+                                            modifier = Modifier.heightIn(min = 48.dp)
+                                        ) {
+                                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Enter 2FA Setup Key", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(bottom = 12.dp)
+                                ) {
+                                    items(filteredAuth, key = { it.id }) { acct ->
+                                        val secret = remember(acct.id, acct.encryptedSecret) {
+                                            viewModel.authenticatorRepository.decryptSecret(acct)
+                                        }
+                                        AuthenticatorAccountCard(
+                                            account = acct,
+                                            decryptedSecret = secret,
+                                            nowMillis = nowMillis,
+                                            onCopyCode = { rawCode ->
+                                                clipboard.setText(AnnotatedString(rawCode))
+                                                viewModel.setStatusMessage("2FA code copied for ${acct.issuer}")
+                                            },
+                                            onNextHotp = {
+                                                viewModel.incrementAuthenticatorHotp(acct.id, acct.issuer)
+                                            },
+                                            onDelete = { pendingDeleteAuth = acct }
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (filtered.isEmpty()) {
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -729,6 +871,68 @@ fun PasswordVaultSheet(
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    if (showAddAuthDialog) {
+        AddAuthenticatorDialog(
+            onDismiss = {
+                addAuthExternalError = null
+                showAddAuthDialog = false
+            },
+            externalError = addAuthExternalError,
+            onSaveManual = { accountTitle, secret, type ->
+                addAuthExternalError = null
+                coroutineScope.launch {
+                    val res = viewModel.saveAuthenticatorSecretSuspend(
+                        accountTitle = accountTitle,
+                        rawBase32Secret = secret,
+                        type = type
+                    )
+                    if (res.isSuccess) {
+                        showAddAuthDialog = false
+                    } else {
+                        addAuthExternalError = res.exceptionOrNull()?.message ?: "Unable to store 2FA key"
+                    }
+                }
+                null
+            }
+        )
+    }
+
+    pendingDeleteAuth?.let { authDelete ->
+        val label = if (authDelete.accountName.isNotBlank()) {
+            "${authDelete.issuer} (${authDelete.accountName})"
+        } else {
+            authDelete.issuer
+        }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteAuth = null },
+            containerColor = SurfaceCard,
+            title = { Text("Remove 2FA Key?", color = TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Delete the 2FA Authenticator key for $label? Make sure you still have your backup codes or recovery method on that site.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteAuthenticatorAccount(authDelete.id, authDelete.issuer)
+                        pendingDeleteAuth = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = RedTamper, contentColor = Color.White)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteAuth = null }) {
                     Text("Cancel", color = TextSecondary)
                 }
             }
@@ -944,10 +1148,17 @@ private fun VaultCredentialCard(
 
 @Composable
 private fun VaultPasswordGeneratorCard(onCopy: (String) -> Unit) {
-    var length by remember { mutableIntStateOf(20) }
+    var length by remember { mutableIntStateOf(24) }
     var includeSymbols by remember { mutableStateOf(true) }
-    var generated by remember(length, includeSymbols) {
-        mutableStateOf(PasswordGenerator.generate(length = length, includeSymbols = includeSymbols))
+    var avoidAmbiguous by remember { mutableStateOf(false) }
+    var generated by remember(length, includeSymbols, avoidAmbiguous) {
+        mutableStateOf(
+            PasswordGenerator.generateUnique(
+                length = length,
+                includeSymbols = includeSymbols,
+                avoidAmbiguous = avoidAmbiguous
+            )
+        )
     }
     val strength = remember(generated) { PasswordGenerator.evaluateStrength(generated) }
 
@@ -963,8 +1174,11 @@ private fun VaultPasswordGeneratorCard(onCopy: (String) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("CSPRNG Password Generator", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                Text("${strength.label} (${strength.entropyBits} bits)", fontSize = 11.sp, color = EmeraldMesh)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Collision-Free CSPRNG Generator", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                    Text("Per-install 256-bit salt · SHA-512 DRBG · 0-repeat guard", fontSize = 10.sp, color = TextMuted)
+                }
+                Text("${strength.label} (${strength.entropyBits}b)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EmeraldMesh)
             }
             Spacer(modifier = Modifier.height(6.dp))
             LinearProgressIndicator(
@@ -988,11 +1202,17 @@ private fun VaultPasswordGeneratorCard(onCopy: (String) -> Unit) {
                         text = generated,
                         color = ElectricCyan,
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(
-                        onClick = { generated = PasswordGenerator.generate(length = length, includeSymbols = includeSymbols) },
+                        onClick = {
+                            generated = PasswordGenerator.generateUnique(
+                                length = length,
+                                includeSymbols = includeSymbols,
+                                avoidAmbiguous = avoidAmbiguous
+                            )
+                        },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Regenerate password", tint = TextPrimary, modifier = Modifier.size(18.dp))
@@ -1004,11 +1224,11 @@ private fun VaultPasswordGeneratorCard(onCopy: (String) -> Unit) {
             }
             Spacer(modifier = Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Length: $length", fontSize = 11.sp, color = TextSecondary, modifier = Modifier.width(72.dp))
+                Text("Len: $length", fontSize = 11.sp, color = TextSecondary, modifier = Modifier.width(56.dp))
                 Slider(
                     value = length.toFloat(),
-                    onValueChange = { length = it.toInt().coerceIn(10, 32) },
-                    valueRange = 10f..32f,
+                    onValueChange = { length = it.toInt().coerceIn(12, 48) },
+                    valueRange = 12f..48f,
                     modifier = Modifier.weight(1f),
                     colors = SliderDefaults.colors(thumbColor = ElectricCyan, activeTrackColor = ElectricCyan)
                 )
@@ -1019,9 +1239,387 @@ private fun VaultPasswordGeneratorCard(onCopy: (String) -> Unit) {
                     Checkbox(checked = includeSymbols, onCheckedChange = { includeSymbols = it })
                     Text("!@#", fontSize = 11.sp, color = TextSecondary)
                 }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { avoidAmbiguous = !avoidAmbiguous }
+                ) {
+                    Checkbox(checked = avoidAmbiguous, onCheckedChange = { avoidAmbiguous = it })
+                    Text("No 0O", fontSize = 11.sp, color = TextSecondary)
+                }
             }
         }
     }
+}
+
+@Composable
+internal fun AuthenticatorAccountCard(
+    account: AuthenticatorAccount,
+    decryptedSecret: String?,
+    nowMillis: Long,
+    onCopyCode: (String) -> Unit,
+    onNextHotp: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val totpSnapshot = remember(decryptedSecret, nowMillis, account.periodSeconds, account.digits, account.algorithm, account.type) {
+        if (decryptedSecret != null && account.type == OtpAuthType.TOTP) {
+            runCatching {
+                TotpAuthenticator.computeTotpSnapshot(
+                    base32Secret = decryptedSecret,
+                    nowMillis = nowMillis,
+                    periodSeconds = account.periodSeconds,
+                    digits = account.digits,
+                    algorithm = account.algorithm
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
+    val hotpCode = remember(decryptedSecret, account.counter, account.digits, account.algorithm, account.type) {
+        if (decryptedSecret != null && account.type == OtpAuthType.HOTP) {
+            runCatching {
+                TotpAuthenticator.generateHotpCode(
+                    base32Secret = decryptedSecret,
+                    counter = account.counter,
+                    digits = account.digits,
+                    algorithm = account.algorithm
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+    }
+    val rawCode = totpSnapshot?.code ?: hotpCode ?: "------"
+    val displayCode = totpSnapshot?.formattedCode
+        ?: hotpCode?.let { TotpAuthenticator.formatCodeForDisplay(it) }
+        ?: "Decrypt error"
+    val isExpiring = totpSnapshot != null && totpSnapshot.remainingSeconds <= 5
+    val codeColor = when {
+        decryptedSecret == null -> RedTamper
+        isExpiring -> AmberCentral
+        else -> ElectricCyan
+    }
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = SurfaceDark,
+        border = BorderStroke(1.dp, if (isExpiring) AmberCentral.copy(alpha = 0.55f) else SurfaceCardBorder),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = rawCode.all { it.isDigit() }) { onCopyCode(rawCode) }
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = account.issuer,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (account.accountName.isNotBlank() && !account.accountName.equals(account.issuer, ignoreCase = true)) {
+                        Text(
+                            text = account.accountName,
+                            color = TextSecondary,
+                            fontSize = 11.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = EmeraldMesh.copy(alpha = 0.14f)
+                ) {
+                    Text(
+                        text = if (account.type == OtpAuthType.TOTP) {
+                            "Time based · ${account.periodSeconds}s"
+                        } else {
+                            "Counter based · #${account.counter}"
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = EmeraldMesh,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = displayCode,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 28.sp,
+                        letterSpacing = 2.sp,
+                        color = codeColor
+                    )
+                    if (totpSnapshot != null && totpSnapshot.remainingSeconds <= 7) {
+                        Text(
+                            text = "Next: ${totpSnapshot.formattedNextCode}",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = TextMuted
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (totpSnapshot != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = (if (isExpiring) AmberCentral else EmeraldMesh).copy(alpha = 0.16f)
+                        ) {
+                            Text(
+                                text = "${totpSnapshot.remainingSeconds}s",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = if (isExpiring) AmberCentral else EmeraldMesh,
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                            )
+                        }
+                    } else if (account.type == OtpAuthType.HOTP) {
+                        OutlinedButton(
+                            onClick = onNextHotp,
+                            border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.6f)),
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Next Code", fontSize = 11.5.sp, color = ElectricCyan)
+                        }
+                    }
+                    IconButton(
+                        onClick = { if (rawCode.all { it.isDigit() }) onCopyCode(rawCode) },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy 2FA code", tint = EmeraldMesh, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete 2FA key", tint = RedTamper, modifier = Modifier.size(17.dp))
+                    }
+                }
+            }
+
+            if (totpSnapshot != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { totpSnapshot.progress },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    color = if (isExpiring) AmberCentral else EmeraldMesh,
+                    trackColor = SurfaceCardBorder.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AddAuthenticatorDialog(
+    onDismiss: () -> Unit,
+    externalError: String? = null,
+    onSaveManual: (
+        accountTitle: String,
+        secret: String,
+        type: OtpAuthType
+    ) -> String?
+) {
+    var nameInput by remember { mutableStateOf("") }
+    var secretInput by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(OtpAuthType.TOTP) }
+    var typeMenuExpanded by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val previewCode = remember(secretInput, type) {
+        val clean = TotpAuthenticator.normalizeBase32Secret(secretInput)
+        if (!TotpAuthenticator.isValidBase32Secret(clean)) null
+        else runCatching {
+            val code = if (type == OtpAuthType.TOTP) {
+                TotpAuthenticator.generateTotpCode(clean, periodSeconds = 30, digits = 6, algorithm = OtpHashAlgorithm.SHA1)
+            } else {
+                TotpAuthenticator.generateHotpCode(clean, counter = 0L, digits = 6, algorithm = OtpHashAlgorithm.SHA1)
+            }
+            TotpAuthenticator.formatCodeForDisplay(code)
+        }.getOrNull()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = SurfaceCard,
+        title = {
+            Text(
+                text = "Enter setup key",
+                color = TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Add the app or site name and its 2FA key from your security settings.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it; errorMsg = null },
+                    label = { Text("Account name") },
+                    placeholder = { Text("App, site, or account name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("auth_name_input")
+                )
+                OutlinedTextField(
+                    value = secretInput,
+                    onValueChange = { secretInput = it; errorMsg = null },
+                    label = { Text("Your key") },
+                    placeholder = { Text("Paste 2FA setup key from app or site") },
+                    singleLine = false,
+                    maxLines = 2,
+                    modifier = Modifier.fillMaxWidth().testTag("auth_key_input")
+                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Type of key",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = SurfaceDark,
+                            border = BorderStroke(1.dp, SurfaceCardBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { typeMenuExpanded = true }
+                                .testTag("auth_type_selector")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = if (type == OtpAuthType.TOTP) "Time based" else "Counter based",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Select type of key",
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = typeMenuExpanded,
+                            onDismissRequest = { typeMenuExpanded = false },
+                            modifier = Modifier.background(SurfaceElevated)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Time based", color = TextPrimary) },
+                                trailingIcon = if (type == OtpAuthType.TOTP) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, tint = EmeraldMesh) }
+                                } else null,
+                                onClick = {
+                                    type = OtpAuthType.TOTP
+                                    typeMenuExpanded = false
+                                },
+                                modifier = Modifier.testTag("auth_type_time_based")
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Counter based", color = TextPrimary) },
+                                trailingIcon = if (type == OtpAuthType.HOTP) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, tint = EmeraldMesh) }
+                                } else null,
+                                onClick = {
+                                    type = OtpAuthType.HOTP
+                                    typeMenuExpanded = false
+                                },
+                                modifier = Modifier.testTag("auth_type_counter_based")
+                            )
+                        }
+                    }
+                }
+                if (previewCode != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = ObsidianBg,
+                        border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth().testTag("auth_live_preview")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Verified 2FA Code:", fontSize = 12.sp, color = TextSecondary)
+                            Text(
+                                text = previewCode,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = EmeraldMesh
+                            )
+                        }
+                    }
+                }
+                val shownError = errorMsg ?: externalError
+                if (shownError != null) {
+                    Text(shownError, fontSize = 11.5.sp, color = RedTamper)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val trimmedName = nameInput.trim()
+                    val cleanSecret = TotpAuthenticator.normalizeBase32Secret(secretInput)
+                    errorMsg = when {
+                        trimmedName.isBlank() -> "Please enter an app, site, or account name."
+                        !TotpAuthenticator.isValidBase32Secret(cleanSecret) ->
+                            "Invalid 2FA key. Enter the Base32 setup key (letters A-Z and digits 2-7, at least 8 characters)."
+                        else -> onSaveManual(trimmedName, cleanSecret, type)
+                    }
+                },
+                enabled = nameInput.isNotBlank() && secretInput.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = EmeraldMesh, contentColor = ObsidianBg),
+                modifier = Modifier.heightIn(min = 48.dp).testTag("auth_save_button")
+            ) {
+                Text("Add", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) {
+                Text("Cancel", color = TextSecondary)
+            }
+        }
+    )
 }
 
 @Composable
@@ -1099,7 +1697,7 @@ private fun VaultEditCredentialDialog(
                 )
                 TextButton(
                     onClick = {
-                        password = PasswordGenerator.generate(length = 20, includeSymbols = true)
+                        password = PasswordGenerator.generateUnique(length = 24, includeSymbols = true)
                         showPassword = true
                     },
                     modifier = Modifier.align(Alignment.End)

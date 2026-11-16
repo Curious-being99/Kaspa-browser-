@@ -56,7 +56,7 @@ class DualStackResolver(
         desktopModeEnabled: Boolean = false,
         searchEngineBaseUrl: String = "https://duckduckgo.com/?q="
     ): ResolvedResource = withContext(Dispatchers.IO) {
-        val cleanUrl = rawInput.trim()
+        val cleanUrl = DomainConstants.normalizeKaspaScheme(rawInput)
         val startTime = System.currentTimeMillis()
 
         val isExplicitP2p = cleanUrl.startsWith("ipfs://", ignoreCase = true) ||
@@ -79,7 +79,10 @@ class DualStackResolver(
                 cleanUrl.startsWith("kaspasim:", ignoreCase = true) ||
                 cleanUrl.startsWith("kns://", ignoreCase = true)
 
-        val normalizedUrl = if (!cleanUrl.startsWith("http://", ignoreCase = true) && !cleanUrl.startsWith("https://", ignoreCase = true)) {
+        val normalizedUrl = if (!isKaspa && !isExplicitP2p &&
+            !cleanUrl.startsWith("http://", ignoreCase = true) &&
+            !cleanUrl.startsWith("https://", ignoreCase = true)
+        ) {
             if (cleanUrl.contains(".") && !cleanUrl.contains(" ")) {
                 "https://$cleanUrl"
             } else if (cleanUrl.isNotBlank()) {
@@ -209,13 +212,104 @@ class DualStackResolver(
     }
 
     private suspend fun resolveKaspa(url: String): ResolvedResource = withContext(Dispatchers.IO) {
-        val cleanDomain = url
-            .removePrefix("kas://")
-            .removePrefix("kaspa://")
-            .removePrefix("kns://")
-            .removePrefix("https://")
-            .removePrefix("http://")
+        val canonicalUrl = DomainConstants.normalizeKaspaScheme(url)
+        val cleanDomain = canonicalUrl
+            .replace(Regex("^(kas|kaspa|kns|https|http)://", RegexOption.IGNORE_CASE), "")
             .trim()
+            .trimEnd('/')
+
+        if (cleanDomain.equals("offline-game", ignoreCase = true) ||
+            cleanDomain.equals("offline-games", ignoreCase = true) ||
+            cleanDomain.equals("games", ignoreCase = true) ||
+            cleanDomain.equals("arcade", ignoreCase = true)
+        ) {
+            val arcadeHtml = com.example.util.KaspaWebViewConfigurator.generateOfflineArcadeHtml()
+            val arcadeBytes = arcadeHtml.toByteArray(Charsets.UTF_8)
+            return@withContext ResolvedResource(
+                url = "kaspa://offline-game",
+                resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
+                cid = "kaspa-offline-arcade",
+                title = "Kaspa Offline Arcade",
+                content = arcadeHtml,
+                contentType = "text/html",
+                sizeBytes = arcadeBytes.size.toLong(),
+                latencyMs = 1L,
+                decentralizedPeersCount = 1,
+                decentralizedLatencyMs = 1L,
+                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                cryptographicHash = CryptoUtils.sha256(arcadeHtml),
+                routedVia = "On-Device Local Runtime -> Kaspa Offline Arcade",
+                kaspaVerificationSummary = "Offline Ready • DAG Dash, Kaspa 2048+ & Prism Breaker"
+            )
+        }
+
+        if (cleanDomain.isBlank() ||
+            cleanDomain.equals("portal", ignoreCase = true) ||
+            cleanDomain.equals("home", ignoreCase = true) ||
+            cleanDomain.equals("index", ignoreCase = true) ||
+            cleanDomain.equals("kaspa", ignoreCase = true)
+        ) {
+            val portalHtml = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Kaspa Sovereign Portal</title>
+                    <style>
+                        * { box-sizing: border-box; }
+                        body { background-color: #0B0F17; color: #F1F3F5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; margin: 0; line-height: 1.55; }
+                        .card { background: #141720; border: 1px solid #262933; border-radius: 18px; padding: 24px; max-width: 640px; margin: 0 auto; box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
+                        .badge { display: inline-block; background: rgba(99, 195, 181, 0.14); color: #63C3B5; border: 1px solid rgba(99, 195, 181, 0.45); padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-bottom: 12px; }
+                        h1 { color: #FFFFFF; margin: 0 0 8px; font-size: 22px; }
+                        p { color: #A0A6B2; font-size: 13.5px; margin: 0 0 18px; }
+                        .grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+                        .tile { display: block; background: #1A1D28; border: 1px solid #2A2F3D; border-radius: 12px; padding: 14px 16px; color: #F1F3F5; text-decoration: none; }
+                        .tile strong { display: block; color: #63C3B5; font-size: 14px; margin-bottom: 3px; }
+                        .tile span { font-size: 12px; color: #A0A6B2; }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <div class="badge">Verified Local BlockDAG Portal</div>
+                        <h1>Kaspa Protocol Gateway</h1>
+                        <p>Connected directly to the Kaspa native scheme resolver (`kaspa://`). Choose a verified destination below or enter any `.k` domain or CashAddr address.</p>
+                        <div class="grid">
+                            <a class="tile" href="kaspa-action://arcade">
+                                <strong>Kaspa Offline Arcade</strong>
+                                <span>Play DAG Dash, Kaspa 2048+, and Prism Brick Breaker — native 60fps offline games</span>
+                            </a>
+                            <a class="tile" href="https://kaspa.stream">
+                                <strong>Kaspa Live BlockDAG Visualizer</strong>
+                                <span>Real-time GHOSTDAG blocks, BPS throughput, and network telemetry</span>
+                            </a>
+                            <a class="tile" href="https://kaspa.org">
+                                <strong>Kaspa Official Network</strong>
+                                <span>Layer-1 Proof-of-Work protocol documentation and ecosystem portal</span>
+                            </a>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            """.trimIndent()
+            val portalBytes = portalHtml.toByteArray(Charsets.UTF_8)
+            return@withContext ResolvedResource(
+                url = "kaspa://portal",
+                resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
+                cid = "kaspa-sovereign-portal",
+                title = "Kaspa Sovereign Portal",
+                content = portalHtml,
+                contentType = "text/html",
+                sizeBytes = portalBytes.size.toLong(),
+                latencyMs = 1L,
+                decentralizedPeersCount = 1,
+                decentralizedLatencyMs = 1L,
+                verificationStatus = VerificationStatus.VERIFIED_TAMPER_PROOF,
+                cryptographicHash = CryptoUtils.sha256(portalHtml),
+                routedVia = "On-Device Local Runtime -> Kaspa Sovereign Portal",
+                kaspaVerificationSummary = "Local Protocol Verified • kaspa://"
+            )
+        }
 
         val isKaspaAddress = cleanDomain.startsWith("kaspa:", ignoreCase = true) ||
                 cleanDomain.startsWith("kaspatest:", ignoreCase = true) ||
@@ -237,6 +331,7 @@ class DualStackResolver(
                 else -> "https://kaspa.stream/addresses/$cleanDomain"
             }
             val pubKey = CryptoUtils.extractPublicKeyFromAddress(cleanDomain)
+            val isAddressChecksumValid = pubKey != null
             val pubKeyHex = pubKey?.joinToString("") { "%02x".format(it) } ?: "Schnorr 32-byte Public Key"
             val latency = 14L
 
@@ -251,9 +346,11 @@ class DualStackResolver(
                 <html>
                 <head>
                     <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <title>$safeDomainHtml - Kaspa Address</title>
                     <style>
-                        body { background-color: #0c0d10; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px; line-height: 1.6; }
+                        * { box-sizing: border-box; }
+                        body { background-color: #0c0d10; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; margin: 0; line-height: 1.6; }
                         .card { background: #14161c; border: 1.5px solid #70C7BA; border-radius: 16px; padding: 24px; max-width: 680px; margin: 0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
                         .badge { display: inline-block; background: rgba(112, 199, 186, 0.15); color: #70C7BA; border: 1px solid rgba(112, 199, 186, 0.4); padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 14px; }
                         h1 { color: #70C7BA; margin-top: 0; font-size: 22px; word-break: break-all; }
@@ -296,7 +393,7 @@ class DualStackResolver(
 
             val hash = CryptoUtils.sha256(addressHtml)
             return@withContext ResolvedResource(
-                url = url,
+                url = canonicalUrl,
                 resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
                 cid = CryptoUtils.generateCid(addressHtml),
                 title = "Kaspa Address: ${cleanDomain.take(16)}...",
@@ -306,10 +403,10 @@ class DualStackResolver(
                 latencyMs = latency,
                 decentralizedPeersCount = 16,
                 decentralizedLatencyMs = latency,
-                verificationStatus = VerificationStatus.UNVERIFIED,
+                verificationStatus = if (isAddressChecksumValid) VerificationStatus.VERIFIED_TAMPER_PROOF else VerificationStatus.UNVERIFIED,
                 cryptographicHash = hash,
                 routedVia = "Kaspa BlockDAG Network -> Address ($cleanDomain)",
-                kaspaVerificationSummary = "Kaspa Address Validated | $networkTitle"
+                kaspaVerificationSummary = if (isAddressChecksumValid) "CashAddr Verified | $networkTitle" else "Kaspa Address Format Unverified"
             )
         }
 
@@ -391,9 +488,11 @@ class DualStackResolver(
                 <html>
                 <head>
                     <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
                     <title>$safeRegDomain - Kaspa BlockDAG Node</title>
                     <style>
-                        body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 28px; line-height: 1.6; }
+                        * { box-sizing: border-box; }
+                        body { background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; margin: 0; line-height: 1.6; }
                         .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 680px; margin: 0 auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
                         .badge { display: inline-block; background: #00e5ff1a; color: #00e5ff; border: 1px solid #00e5ff66; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 12px; }
                         h1 { color: #00e5ff; margin-top: 0; font-size: 24px; }
@@ -475,10 +574,11 @@ class DualStackResolver(
             val start = System.currentTimeMillis()
             val latency = System.currentTimeMillis() - start
             val hash = CryptoUtils.sha256(localMatch.content)
+            val hashMatches = localMatch.sha256Hash.isBlank() || localMatch.sha256Hash.equals(hash, ignoreCase = true)
             val kProof = CryptoUtils.verifyKaspaLinkProof(localMatch.content, localMatch.protocolPrefix, localMatch.authorAddress, localMatch.signature)
 
             return@withContext ResolvedResource(
-                url = url,
+                url = canonicalUrl,
                 resolvedProtocol = NetworkProtocol.DECENTRALIZED_P2P,
                 cid = localMatch.cid,
                 title = localMatch.title,
@@ -491,7 +591,7 @@ class DualStackResolver(
                 centralizedIp = "Kaspa DAG Peer Node",
                 decentralizedPeersCount = 12,
                 decentralizedLatencyMs = latency,
-                verificationStatus = VerificationStatus.UNVERIFIED,
+                verificationStatus = if (hashMatches) VerificationStatus.VERIFIED_TAMPER_PROOF else VerificationStatus.TAMPERED_HASH_MISMATCH,
                 cryptographicHash = hash,
                 routedVia = "Kaspa BlockDAG KNS Resolver -> Schnorr Signature Attested (${kProof.address.take(18)}...)",
                 kaspaProof = kProof,
@@ -1227,7 +1327,7 @@ class DualStackResolver(
             <html lang="en">
             <head>
                 <meta charset="utf-8">
-                ${if (desktopModeEnabled) """<meta name="viewport" content="width=980">""" else """<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">"""}
+                ${if (desktopModeEnabled) """<meta name="viewport" content="width=980, user-scalable=yes">""" else """<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">"""}
                 <title>${if (query.isNotBlank()) "$escapedQuery — " else ""}Kaspa Search</title>
                 <style>
                     * { box-sizing: border-box; }

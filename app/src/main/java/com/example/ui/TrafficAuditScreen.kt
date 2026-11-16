@@ -158,7 +158,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
         val allGranted = perms.values.all { it }
         if (allGranted) {
             // Permissions granted, check if Bluetooth is enabled
-            val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            val adapter = (context.getSystemService(android.content.Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
             if (adapter != null && !adapter.isEnabled) {
                 val enableBtIntent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE)
                 bluetoothLauncher.launch(enableBtIntent)
@@ -174,7 +174,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
     val onBluetoothToggle: (Boolean) -> Unit = { enable ->
         if (enable) {
             if (viewModel.bluetoothMeshManager.hasRequiredPermissions()) {
-                val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                val adapter = (context.getSystemService(android.content.Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
                 if (adapter != null && !adapter.isEnabled) {
                     val enableBtIntent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE)
                     bluetoothLauncher.launch(enableBtIntent)
@@ -232,7 +232,12 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
         when (filterMode) {
             "P2P" -> audits.filter { it.protocol.contains("DECENTRALIZED") || it.protocol.contains("HYBRID") }
             "CENTRAL" -> audits.filter { it.protocol.contains("CENTRALIZED") }
-            "ALERTS" -> audits.filter { !it.isTamperProof }
+            "ALERTS" -> audits.filter { audit ->
+                !audit.isTamperProof && (
+                    audit.verificationSummary.contains("TAMPERED", ignoreCase = true) ||
+                    audit.verificationSummary.contains("MISMATCH", ignoreCase = true)
+                )
+            }
             else -> audits
         }
     }
@@ -488,7 +493,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         text = "FIX",
                                         color = RedTamper,
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Black,
+                                        fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.clickable {
                                             try {
                                                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=com.google.android.gms"))
@@ -851,6 +856,144 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         ) {
                             Text("Passkey Diagnostics", fontSize = 11.sp, color = ElectricCyan, fontWeight = FontWeight.SemiBold)
                         }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = SurfaceCardBorder)
+
+                    val isBrowserLockEnabled by com.example.security.BrowserLockStore.isBrowserLockEnabled.collectAsState()
+                    val hasCustomLockPassword by com.example.security.BrowserLockStore.hasCustomLockPassword.collectAsState()
+                    var showBrowserLockPasswordDialog by remember { mutableStateOf(false) }
+                    var newLockPassword by remember { mutableStateOf("") }
+                    var confirmLockPassword by remember { mutableStateOf("") }
+                    var lockPasswordError by remember { mutableStateOf<String?>(null) }
+
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        com.example.security.BrowserLockStore.init(context)
+                    }
+
+                    PrivacyToggleRow(
+                        title = "Browser App Privacy Lock",
+                        desc = "Require biometric or phone lock before opening the browser (separate from wallet transaction signing)",
+                        icon = Icons.Default.Lock,
+                        checked = isBrowserLockEnabled,
+                        onCheckedChange = { enable ->
+                            if (enable) {
+                                com.example.security.BrowserLockStore.enableBrowserLock(context)
+                                viewModel.setStatusMessage("Browser Privacy Lock enabled")
+                            } else {
+                                com.example.security.BrowserLockStore.disableBrowserLock(context)
+                                viewModel.setStatusMessage("Browser Privacy Lock disabled")
+                            }
+                        }
+                    )
+
+                    if (isBrowserLockEnabled) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (hasCustomLockPassword) {
+                                    "Phone biometric/PIN + custom browser password active"
+                                } else {
+                                    "Using phone biometric / PIN only"
+                                },
+                                fontSize = 10.5.sp,
+                                color = EmeraldMesh,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    newLockPassword = ""
+                                    confirmLockPassword = ""
+                                    lockPasswordError = null
+                                    showBrowserLockPasswordDialog = true
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = if (hasCustomLockPassword) "Manage Password" else "Add Password",
+                                    fontSize = 11.sp,
+                                    color = ElectricCyan,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+
+                    if (showBrowserLockPasswordDialog) {
+                        androidx.compose.material3.AlertDialog(
+                            onDismissRequest = { showBrowserLockPasswordDialog = false },
+                            title = { Text("Browser Lock Password") },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "Optional extra password for unlocking the browser. If forgotten, you can always recover with your phone's lock — your wallet will never be wiped.",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary
+                                    )
+                                    OutlinedTextField(
+                                        value = newLockPassword,
+                                        onValueChange = { newLockPassword = it; lockPasswordError = null },
+                                        label = { Text("New browser password (min 4 chars)") },
+                                        singleLine = true,
+                                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    OutlinedTextField(
+                                        value = confirmLockPassword,
+                                        onValueChange = { confirmLockPassword = it; lockPasswordError = null },
+                                        label = { Text("Confirm password") },
+                                        singleLine = true,
+                                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    lockPasswordError?.let { err ->
+                                        Text(err, color = RedTamper, fontSize = 11.5.sp)
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        when {
+                                            newLockPassword.trim().length < 4 ->
+                                                lockPasswordError = "Password must be at least 4 characters."
+                                            newLockPassword != confirmLockPassword ->
+                                                lockPasswordError = "Passwords do not match."
+                                            else -> {
+                                                com.example.security.BrowserLockStore.setCustomLockPassword(context, newLockPassword)
+                                                showBrowserLockPasswordDialog = false
+                                                viewModel.setStatusMessage("Browser lock password saved")
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Text("Save Password")
+                                }
+                            },
+                            dismissButton = {
+                                Row {
+                                    if (hasCustomLockPassword) {
+                                        TextButton(
+                                            onClick = {
+                                                com.example.security.BrowserLockStore.clearCustomLockPasswordAfterDeviceUnlock(context)
+                                                showBrowserLockPasswordDialog = false
+                                                viewModel.setStatusMessage("Browser lock password removed")
+                                            }
+                                        ) {
+                                            Text("Remove", color = AmberCentral)
+                                        }
+                                    }
+                                    TextButton(onClick = { showBrowserLockPasswordDialog = false }) {
+                                        Text("Cancel")
+                                    }
+                                }
+                            }
+                        )
                     }
 
 
@@ -1741,6 +1884,20 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 fun RealTrafficAuditItemCard(audit: TrafficAuditEntity) {
     val timeFormatter = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     val timeString = timeFormatter.format(Date(audit.timestamp))
+    val isActualTamper = !audit.isTamperProof && (
+        audit.verificationSummary.contains("TAMPERED", ignoreCase = true) ||
+        audit.verificationSummary.contains("MISMATCH", ignoreCase = true)
+    )
+    val statusColor = when {
+        audit.isTamperProof -> EmeraldMesh
+        isActualTamper -> RedTamper
+        else -> AmberCentral
+    }
+    val statusLabel = when {
+        audit.isTamperProof -> "Verified Authentic"
+        isActualTamper -> "Tamper Warning"
+        else -> "Standard Route"
+    }
 
     Card(
         modifier = Modifier
@@ -1750,7 +1907,7 @@ fun RealTrafficAuditItemCard(audit: TrafficAuditEntity) {
         shape = RoundedCornerShape(14.dp),
         border = CardDefaults.outlinedCardBorder().copy(
             brush = androidx.compose.ui.graphics.SolidColor(
-                if (audit.isTamperProof) SurfaceCardBorder else RedTamper.copy(alpha = 0.5f)
+                if (isActualTamper) RedTamper.copy(alpha = 0.5f) else SurfaceCardBorder
             )
         )
     ) {
@@ -1823,16 +1980,20 @@ fun RealTrafficAuditItemCard(audit: TrafficAuditEntity) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = if (audit.isTamperProof) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        imageVector = when {
+                            audit.isTamperProof -> Icons.Default.CheckCircle
+                            isActualTamper -> Icons.Default.Warning
+                            else -> Icons.Default.Shield
+                        },
                         contentDescription = null,
-                        tint = if (audit.isTamperProof) EmeraldMesh else RedTamper,
+                        tint = statusColor,
                         modifier = Modifier.size(13.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (audit.isTamperProof) "Verified Authentic" else "Tamper Warning",
+                        text = statusLabel,
                         fontSize = 10.sp,
-                        color = if (audit.isTamperProof) EmeraldMesh else RedTamper,
+                        color = statusColor,
                         fontWeight = FontWeight.Medium
                     )
                 }

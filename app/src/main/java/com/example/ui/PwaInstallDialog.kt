@@ -121,14 +121,14 @@ fun PwaInstallDialog(
                         .size(72.dp)
                         .clip(RoundedCornerShape(18.dp))
                         .background(SurfaceCard)
-                        .border(1.5.dp, ElectricCyan.copy(alpha = 0.8f), RoundedCornerShape(18.dp)),
+                        .border(0.85.dp, ElectricCyan.copy(alpha = 0.45f), RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     val initialChar = title.trim().firstOrNull()?.uppercase() ?: "W"
                     Text(
                         text = initialChar,
                         fontSize = 32.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.Bold,
                         color = ElectricCyan
                     )
 

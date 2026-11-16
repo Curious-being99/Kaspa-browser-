@@ -76,13 +76,13 @@ fun AppUpdateDialog(
                 .wrapContentHeight()
                 .padding(vertical = 12.dp)
                 .testTag("app_update_dialog"),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(20.dp),
             color = SurfaceCard,
             border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                Brush.verticalGradient(listOf(ElectricCyan.copy(alpha = 0.6f), Color.Transparent))
+                0.75.dp,
+                SurfaceCardBorder
             ),
-            tonalElevation = 8.dp
+            tonalElevation = 4.dp
         ) {
             Column(
                 modifier = Modifier
@@ -107,7 +107,7 @@ fun AppUpdateDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.AutoAwesome,
+                                imageVector = Icons.Default.CloudDownload,
                                 contentDescription = null,
                                 tint = ElectricCyan,
                                 modifier = Modifier.size(16.dp)
@@ -118,28 +118,28 @@ fun AppUpdateDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "Update App",
-                                    fontWeight = FontWeight.ExtraBold,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = TextPrimary,
-                                    letterSpacing = (-0.3).sp
+                                    letterSpacing = (-0.2).sp
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = KaspaTea.copy(alpha = 0.2f)
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = KaspaTea.copy(alpha = 0.16f)
                                 ) {
                                     Text(
                                         text = "v${currentUpdateInfo?.latestVersionName ?: ""}",
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Black,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = KaspaTea,
                                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                             Text(
-                                text = "Enhance your secure experience",
-                                fontSize = 10.sp,
+                                text = "New release ready",
+                                fontSize = 10.5.sp,
                                 color = TextMuted
                             )
                         }
@@ -187,7 +187,7 @@ fun AppUpdateDialog(
                             Text(
                                 text = info.apkSizeFormatted,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
                         }
@@ -377,7 +377,7 @@ fun AppUpdateDialog(
                                      is UpdateStatus.Downloading -> "Wait..."
                                      else -> "Update Now"
                                  },
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.5.sp
                             )
                         }

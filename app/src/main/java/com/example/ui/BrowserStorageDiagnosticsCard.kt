@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.content.Context
 import android.webkit.WebStorage
+import android.webkit.WebView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.engine.BrowserEngineManager
+import com.example.network.WebViewAssetLruCache
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldMesh
 import com.example.ui.theme.KaspaTea
@@ -320,7 +323,7 @@ fun BrowserStorageDiagnosticsCard(context: Context) {
                     onClick = {
                         showConfirm = false
                         scope.launch {
-                            val result = withContext(Dispatchers.IO) { clearCacheOnly(context) }
+                            val result = clearCacheOnly(context)
                             status = "Cache cleanup freed ${formatBytes(result)}. Website storage and user records were preserved."
                             measure()
                         }
@@ -450,40 +453,38 @@ private fun webViewSiteStorageSize(context: Context): Long {
     return totalSize
 }
 
-private fun clearCacheOnly(context: Context): Long {
-    var before = directorySize(context.cacheDir) + (context.externalCacheDir?.let(::directorySize) ?: 0L)
-    val roots = getWebViewDataDirs(context)
-    val cacheSubPaths = listOf(
-        "Default/Cache",
-        "Default/Code Cache",
-        "Default/GPUCache",
-        "Cache",
-        "Code Cache",
-        "GPUCache"
-    )
-    val cacheFolders = mutableListOf<File>()
-    for (root in roots) {
-        if (!root.exists()) continue
-        for (sub in cacheSubPaths) {
-            val f = File(root, sub)
-            if (f.exists()) {
-                cacheFolders.add(f)
-            }
+private suspend fun clearCacheOnly(context: Context): Long {
+    val before = withContext(Dispatchers.IO) {
+        val total = directorySize(context.cacheDir) +
+            (context.externalCacheDir?.let(::directorySize) ?: 0L) +
+            webViewCacheSize(context)
+        // Clear non-Chromium app cache entries without unlinking live Chromium WebView directories
+        clearDirectoryContents(context.cacheDir, excludedNames = setOf("WebView", "webview_asset_lru_cache"))
+        clearDirectoryContents(context.externalCacheDir, excludedNames = setOf("WebView"))
+        runCatching { WebViewAssetLruCache.clearCache() }
+        total
+    }
+    // Delegate HTTP/Code cache clearing to Chromium's own cache backend on the Main thread
+    withContext(Dispatchers.Main) {
+        runCatching {
+            val wv = WebView(context)
+            wv.clearCache(true)
+            wv.destroy()
         }
     }
-    cacheFolders.forEach { before += directorySize(it) }
-    clearDirectoryContents(context.cacheDir)
-    context.externalCacheDir?.let(::clearDirectoryContents)
-    cacheFolders.forEach(::clearDirectoryContents)
-    val after = directorySize(context.cacheDir) +
-        (context.externalCacheDir?.let(::directorySize) ?: 0L) +
-        cacheFolders.sumOf(::directorySize)
+    val after = withContext(Dispatchers.IO) {
+        BrowserEngineManager.ensureWebViewDirectories(context)
+        directorySize(context.cacheDir) +
+            (context.externalCacheDir?.let(::directorySize) ?: 0L) +
+            webViewCacheSize(context)
+    }
     return (before - after).coerceAtLeast(0L)
 }
 
-private fun clearDirectoryContents(directory: File?) {
+private fun clearDirectoryContents(directory: File?, excludedNames: Set<String> = emptySet()) {
     if (directory == null || !directory.exists() || !directory.isDirectory) return
     directory.listFiles()?.forEach { child ->
+        if (child.name in excludedNames) return@forEach
         try {
             if (child.isDirectory) child.deleteRecursively() else child.delete()
         } catch (_: SecurityException) {

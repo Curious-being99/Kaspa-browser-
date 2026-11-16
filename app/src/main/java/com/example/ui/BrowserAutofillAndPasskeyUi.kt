@@ -302,7 +302,7 @@ fun WebAuthnDiagnosticsDialog(
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
-                                text = "How Passkeys Work in KaspaBrowser",
+                                text = "How Passkeys Work in Kazium",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
@@ -785,7 +785,7 @@ fun BrowserAutofillBar(
                 if (showGeneratorSuggestion) {
                     OutlinedButton(
                         onClick = {
-                            val generated = PasswordGenerator.generate(length = 20, includeSymbols = true)
+                            val generated = PasswordGenerator.generate(length = 24, includeSymbols = true, avoidAmbiguous = false)
                             onFillGeneratedPassword(generated)
                         },
                         border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.6f)),

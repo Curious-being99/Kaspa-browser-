@@ -50,6 +50,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.ElectricCyan
+import com.example.ui.theme.KaspaTea
+import com.example.ui.theme.SurfaceCard
+import com.example.ui.theme.SurfaceCardBorder
+import com.example.ui.theme.TextPrimary
+import com.example.ui.theme.TextSecondary
 
 data class SupportedLanguage(
     val code: String,
@@ -270,7 +276,7 @@ fun PageTranslatorBar(
                                         Icon(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = null,
-                                            tint = Color(0xFF00E5FF),
+                                            tint = ElectricCyan,
                                             modifier = Modifier.size(11.dp)
                                         )
                                     }
@@ -278,7 +284,7 @@ fun PageTranslatorBar(
                                         text = lang.name,
                                         color = textColor,
                                         fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                                     )
                                 }
                             }
@@ -288,8 +294,8 @@ fun PageTranslatorBar(
                         Box {
                             Surface(
                                 shape = RoundedCornerShape(16.dp),
-                                color = Color(0xFF1E222D),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2A2E39)),
+                                color = SurfaceCard,
+                                border = androidx.compose.foundation.BorderStroke(0.75.dp, SurfaceCardBorder),
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(16.dp))
                                     .clickable(enabled = !isTranslating) {
@@ -304,12 +310,12 @@ fun PageTranslatorBar(
                                     Icon(
                                         imageVector = Icons.Default.Language,
                                         contentDescription = "More languages",
-                                        tint = Color(0xFF94A3B8),
+                                        tint = TextSecondary,
                                         modifier = Modifier.size(12.dp)
                                     )
                                     Text(
                                         text = "More...",
-                                        color = Color(0xFF94A3B8),
+                                        color = TextSecondary,
                                         fontSize = 11.sp
                                     )
                                 }
@@ -318,7 +324,7 @@ fun PageTranslatorBar(
                             DropdownMenu(
                                 expanded = showFullLanguageMenu,
                                 onDismissRequest = { showFullLanguageMenu = false },
-                                modifier = Modifier.background(Color(0xFF1E222D))
+                                modifier = Modifier.background(SurfaceCard)
                             ) {
                                 SupportedLanguage.ALL.forEach { lang ->
                                     val isSelected = lang.code.equals(selectedTargetLanguage, ignoreCase = true)
@@ -331,15 +337,15 @@ fun PageTranslatorBar(
                                             ) {
                                                 Text(
                                                     text = "${lang.name} (${lang.nativeName})",
-                                                    color = if (isSelected) Color(0xFF00E5FF) else Color(0xFFE0E3EB),
+                                                    color = if (isSelected) ElectricCyan else TextPrimary,
                                                     fontSize = 13.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
                                                 )
                                                 if (isSelected) {
                                                     Icon(
                                                         imageVector = Icons.Default.Check,
                                                         contentDescription = null,
-                                                        tint = Color(0xFF00E5FF),
+                                                        tint = ElectricCyan,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                 }
@@ -360,11 +366,11 @@ fun PageTranslatorBar(
 
                     // Gateway Translate button (Full Proxy)
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFF70C7BA).copy(alpha = 0.15f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF70C7BA).copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(10.dp),
+                        color = KaspaTea.copy(alpha = 0.14f),
+                        border = androidx.compose.foundation.BorderStroke(0.75.dp, KaspaTea.copy(alpha = 0.35f)),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .clickable(enabled = !isTranslating) {
                                 onWebGatewayTranslate(selectedTargetLanguage)
                             }
@@ -377,14 +383,14 @@ fun PageTranslatorBar(
                             Icon(
                                 imageVector = Icons.Default.OpenInBrowser,
                                 contentDescription = "Web Proxy Translate",
-                                tint = Color(0xFF70C7BA),
+                                tint = KaspaTea,
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 text = "Gateway",
-                                color = Color(0xFF70C7BA),
+                                color = KaspaTea,
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }

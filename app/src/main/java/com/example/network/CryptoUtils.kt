@@ -277,6 +277,8 @@ object CryptoUtils {
     private const val ANDROID_KEYSTORE_NAME = "AndroidKeyStore"
     private const val MASTER_KEY_ALIAS = "KaspaWalletMasterKey_v1"
     private const val HARDWARE_KEY_PREFIX = "hw1:"
+    private const val SITE_ISOLATED_HW_PREFIX = "hws1:"
+    private const val SITE_ISOLATED_SW_PREFIX = "sws1:"
 
     private fun getOrCreateHardwareKey(): javax.crypto.SecretKey? {
         return try {
@@ -403,6 +405,158 @@ object CryptoUtils {
             encrypted.fill(0)
             combined.fill(0)
             iv.fill(0)
+        }
+    }
+
+    /**
+     * Encrypts a 2FA secret (TOTP/HOTP) at rest using AES-256-GCM bound to the normalized site
+     * scope and record ID via Additional Authenticated Data (AAD) and, when key-phrase derived,
+     * an isolated per-site HMAC-SHA256 subkey. Moving ciphertext to another site record fails
+     * GCM tag verification immediately.
+     */
+    fun encryptSiteIsolatedAes256(
+        plainText: String,
+        siteScope: String,
+        recordId: String,
+        keyPhrase: String = ""
+    ): String {
+        val cleanScope = siteScope.trim().lowercase(java.util.Locale.ROOT).ifBlank { "default" }
+        val cleanId = recordId.trim().ifBlank { "0" }
+        val aadBytes = "kazium-2fa-v1|$cleanScope|$cleanId".toByteArray(Charsets.UTF_8)
+        val plainBytes = plainText.toByteArray(Charsets.UTF_8)
+        try {
+            val hwKey = getOrCreateHardwareKey()
+            if (hwKey != null) {
+                try {
+                    val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, hwKey)
+                    cipher.updateAAD(aadBytes)
+                    val iv = cipher.iv
+                    val encrypted = cipher.doFinal(plainBytes)
+                    val combined = ByteArray(iv.size + encrypted.size)
+                    System.arraycopy(iv, 0, combined, 0, iv.size)
+                    System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
+                    return SITE_ISOLATED_HW_PREFIX + encodeBase64(combined)
+                } catch (_: Throwable) {}
+            }
+
+            require(keyPhrase.isNotBlank()) {
+                "Android Keystore is unavailable; refusing to encrypt 2FA secret without key isolation phrase"
+            }
+            val siteKeyBytes = deriveSiteSubkeyBytes(keyPhrase, cleanScope, cleanId)
+            val iv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+            try {
+                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                val keySpec = javax.crypto.spec.SecretKeySpec(siteKeyBytes, "AES")
+                cipher.init(
+                    javax.crypto.Cipher.ENCRYPT_MODE,
+                    keySpec,
+                    javax.crypto.spec.GCMParameterSpec(128, iv)
+                )
+                cipher.updateAAD(aadBytes)
+                val encrypted = cipher.doFinal(plainBytes)
+                val combined = ByteArray(iv.size + encrypted.size)
+                System.arraycopy(iv, 0, combined, 0, iv.size)
+                System.arraycopy(encrypted, 0, combined, iv.size, encrypted.size)
+                return SITE_ISOLATED_SW_PREFIX + encodeBase64(combined)
+            } finally {
+                siteKeyBytes.fill(0)
+                iv.fill(0)
+            }
+        } finally {
+            plainBytes.fill(0)
+            aadBytes.fill(0)
+        }
+    }
+
+    /**
+     * Decrypts a site-isolated 2FA secret encrypted via [encryptSiteIsolatedAes256], verifying
+     * GCM authentication tag and site-scope AAD binding. Also supports legacy non-isolated
+     * AES-256-GCM records transparently for backward compatibility.
+     */
+    fun decryptSiteIsolatedAes256(
+        cipherText: String,
+        siteScope: String,
+        recordId: String,
+        keyPhrase: String = ""
+    ): String {
+        val cleanScope = siteScope.trim().lowercase(java.util.Locale.ROOT).ifBlank { "default" }
+        val cleanId = recordId.trim().ifBlank { "0" }
+        val aadBytes = "kazium-2fa-v1|$cleanScope|$cleanId".toByteArray(Charsets.UTF_8)
+        try {
+            if (cipherText.startsWith(SITE_ISOLATED_HW_PREFIX)) {
+                val hwKey = getOrCreateHardwareKey()
+                    ?: throw IllegalStateException("Android Keystore unavailable for hardware 2FA secret")
+                val combined = decodeBase64(cipherText.removePrefix(SITE_ISOLATED_HW_PREFIX))
+                require(combined.size > 12) { "Invalid cipher text length" }
+                val iv = combined.copyOfRange(0, 12)
+                val encrypted = combined.copyOfRange(12, combined.size)
+                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(
+                    javax.crypto.Cipher.DECRYPT_MODE,
+                    hwKey,
+                    javax.crypto.spec.GCMParameterSpec(128, iv)
+                )
+                cipher.updateAAD(aadBytes)
+                val decrypted = cipher.doFinal(encrypted)
+                return try {
+                    String(decrypted, Charsets.UTF_8)
+                } finally {
+                    decrypted.fill(0)
+                    iv.fill(0)
+                    encrypted.fill(0)
+                    combined.fill(0)
+                }
+            }
+            if (cipherText.startsWith(SITE_ISOLATED_SW_PREFIX)) {
+                require(keyPhrase.isNotBlank()) {
+                    "A decryption phrase is required for non-Keystore site-isolated ciphertext"
+                }
+                val combined = decodeBase64(cipherText.removePrefix(SITE_ISOLATED_SW_PREFIX))
+                require(combined.size > 12) { "Invalid cipher text length" }
+                val iv = combined.copyOfRange(0, 12)
+                val encrypted = combined.copyOfRange(12, combined.size)
+                val siteKeyBytes = deriveSiteSubkeyBytes(keyPhrase, cleanScope, cleanId)
+                try {
+                    val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                    val keySpec = javax.crypto.spec.SecretKeySpec(siteKeyBytes, "AES")
+                    cipher.init(
+                        javax.crypto.Cipher.DECRYPT_MODE,
+                        keySpec,
+                        javax.crypto.spec.GCMParameterSpec(128, iv)
+                    )
+                    cipher.updateAAD(aadBytes)
+                    val decrypted = cipher.doFinal(encrypted)
+                    return try {
+                        String(decrypted, Charsets.UTF_8)
+                    } finally {
+                        decrypted.fill(0)
+                    }
+                } finally {
+                    siteKeyBytes.fill(0)
+                    iv.fill(0)
+                    encrypted.fill(0)
+                    combined.fill(0)
+                }
+            }
+            return decryptAes256(cipherText, keyPhrase = keyPhrase)
+        } finally {
+            aadBytes.fill(0)
+        }
+    }
+
+    private fun deriveSiteSubkeyBytes(
+        keyPhrase: String,
+        cleanScope: String,
+        cleanId: String
+    ): ByteArray {
+        val masterBytes = sha256Raw(keyPhrase.toByteArray(Charsets.UTF_8))
+        return try {
+            val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+            mac.init(javax.crypto.spec.SecretKeySpec(masterBytes, "HmacSHA256"))
+            mac.doFinal("kazium-site-2fa-key|$cleanScope|$cleanId".toByteArray(Charsets.UTF_8))
+        } finally {
+            masterBytes.fill(0)
         }
     }
 
@@ -596,7 +750,12 @@ object CryptoUtils {
         }
     }
 
-    fun deriveKaspaKeyPair(seedPhrase: String, prefix: String = "kaspa", passphrase: String = ""): KaspaKeyPair {
+    fun deriveKaspaKeyPair(
+        seedPhrase: String,
+        prefix: String = "kaspa",
+        passphrase: String = "",
+        isAuthorizedMigration: Boolean = false
+    ): KaspaKeyPair {
         val decryptedSeed = getDecryptedSeed(seedPhrase)
         val seed = mnemonicToSeed(decryptedSeed, passphrase)
         var privKey = deriveKaspaPrivateKey(seed)
@@ -621,6 +780,23 @@ object CryptoUtils {
             publicKeyHex = pubKeyHex,
             kaspaAddress = address
         )
+    }
+
+    fun deriveKaspaAddress(seedPhrase: String, prefix: String = "kaspa", passphrase: String = ""): String {
+        val decryptedSeed = getDecryptedSeed(seedPhrase)
+        val seed = mnemonicToSeed(decryptedSeed, passphrase)
+        var privKey = deriveKaspaPrivateKey(seed)
+        java.util.Arrays.fill(seed, 0.toByte())
+
+        var pubPoint = pointMultiply(privKey, ECPoint.G)
+        privKey = java.math.BigInteger.ZERO
+
+        if (pubPoint.y.testBit(0)) {
+            pubPoint = ECPoint(pubPoint.x, SECP256K1_P.subtract(pubPoint.y))
+        }
+
+        val pubKey32 = to32ByteArray(pubPoint.x)
+        return encodeRealKaspaAddress(pubKey32, prefix)
     }
 
     // ==========================================
@@ -1173,7 +1349,7 @@ object CryptoUtils {
         accountType: String = "DECENTRALIZED_NATIVE"
     ): com.example.data.AccountEntity {
         val plainMnemonic = seedMnemonic?.let { getDecryptedSeed(it, keyPhrase = encryptionKeyPhrase) } ?: generateMnemonic()
-        val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase)
+        val kaspaKey = deriveKaspaKeyPair(plainMnemonic, prefix = networkPrefix, passphrase = passphrase, isAuthorizedMigration = true)
         
         try {
         // Form W3C Compliant DID (did:key with multibase format)

@@ -3,6 +3,7 @@ package com.example.network
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -16,9 +17,12 @@ import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.exceptions.CreateCredentialCancellationException
 import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.CreateCredentialInterruptedException
 import androidx.credentials.exceptions.CreateCredentialNoCreateOptionException
+import androidx.credentials.exceptions.CreateCredentialProviderConfigurationException
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.GetCredentialInterruptedException
 import androidx.credentials.exceptions.GetCredentialProviderConfigurationException
 import androidx.credentials.exceptions.NoCredentialException
 import androidx.webkit.JavaScriptReplyProxy
@@ -30,6 +34,7 @@ import com.example.security.PasswordVaultRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Collections
 import java.util.Locale
@@ -69,16 +74,22 @@ data class RecordedPasskeyInfo(
 
 /**
  * Origin-checked, main-frame-only WebAuthn / FIDO2 Passkey coordinator built on
- * Jetpack WebKit `WebMessageListener` + `DOCUMENT_START_SCRIPT` + Android `CredentialManager`.
+ * Chromium WebView (`WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER`), Jetpack WebKit
+ * `WebMessageListener` + `DOCUMENT_START_SCRIPT`, and Android `CredentialManager`.
  *
- * Fixes embedded WebView passkey sheet flash-closing on sites using "Login with passkey",
- * adds W3C `getClientCapabilities()` & conditional-create upgrade support, enforces
- * auto-sign-in / auto-create / passkey-upgrade preferences, and triggers in-tab recovery
- * when OS policy blocks WebView FIDO2 origin delegation.
+ * Key reliability guarantees:
+ * - Preserves browser user activation by invoking Chromium's real native WebAuthn
+ *   (`originalCreate` / `originalGet`) immediately without preemptive dialog pauses.
+ * - Strips null/undefined fields cleanly from WebAuthn JSON before `CredentialManager`
+ *   so Google Play Services FIDO2 does not reject options with "internal error".
+ * - Preserves `PublicKeyCredential` native static methods & `Symbol.hasInstance`.
+ * - Only supplies `origin` to `CredentialManager` when `CREDENTIAL_MANAGER_SET_ORIGIN`
+ *   is granted by the OS; otherwise lets WebView / Custom Tab handle origin trust safely.
  */
 object KaspaWebAuthnBridge {
     private const val TAG = "KaspaWebAuthnBridge"
     private const val CHANNEL_NAME = "kaspaWebAuthnChannel"
+    private const val PERM_SET_ORIGIN = "android.permission.CREDENTIAL_MANAGER_SET_ORIGIN"
     private val validCallbackIdRegex = Regex("^[A-Za-z0-9_]{1,64}$")
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -100,6 +111,14 @@ object KaspaWebAuthnBridge {
             current = current.baseContext
         }
         return null
+    }
+
+    private fun hasPrivilegedOriginPermission(context: Context): Boolean {
+        return try {
+            context.checkSelfPermission(PERM_SET_ORIGIN) == PackageManager.PERMISSION_GRANTED
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     fun install(
@@ -209,6 +228,83 @@ object KaspaWebAuthnBridge {
         return obj.toString()
     }
 
+    /**
+     * Recursively strips JSON null entries and ensures mandatory WebAuthn FIDO2 fields
+     * (`rp.id`, `rpId`, `pubKeyCredParams`) are well-formed for Android `CredentialManager`.
+     */
+    internal fun sanitizeCredentialJsonForManager(
+        source: JSONObject,
+        fallbackRpId: String,
+        isCreate: Boolean
+    ): JSONObject {
+        fun cleanObject(obj: JSONObject): JSONObject {
+            val cleaned = JSONObject()
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val rawVal = obj.opt(key)
+                if (rawVal == null || rawVal == JSONObject.NULL) continue
+                when (rawVal) {
+                    is JSONObject -> {
+                        val sub = cleanObject(rawVal)
+                        if (sub.length() > 0 || key == "extensions") {
+                            if (!(key == "extensions" && sub.length() == 0)) {
+                                cleaned.put(key, sub)
+                            }
+                        }
+                    }
+                    is JSONArray -> {
+                        val arr = JSONArray()
+                        for (i in 0 until rawVal.length()) {
+                            val elem = rawVal.opt(i)
+                            if (elem == null || elem == JSONObject.NULL) continue
+                            if (elem is JSONObject) {
+                                val sub = cleanObject(elem)
+                                if (sub.length() > 0) arr.put(sub)
+                            } else {
+                                arr.put(elem)
+                            }
+                        }
+                        if (arr.length() > 0 || key == "allowCredentials" || key == "excludeCredentials") {
+                            cleaned.put(key, arr)
+                        }
+                    }
+                    else -> cleaned.put(key, rawVal)
+                }
+            }
+            return cleaned
+        }
+
+        val out = cleanObject(source)
+        val cleanHost = fallbackRpId.trim()
+        if (isCreate) {
+            val rp = out.optJSONObject("rp") ?: JSONObject().also { out.put("rp", it) }
+            if (rp.optString("id").isBlank() && cleanHost.isNotBlank()) {
+                rp.put("id", cleanHost)
+            }
+            if (rp.optString("name").isBlank()) {
+                rp.put("name", rp.optString("id").ifBlank { cleanHost.ifBlank { "Passkey" } })
+            }
+            val params = out.optJSONArray("pubKeyCredParams")
+            if (params == null || params.length() == 0) {
+                out.put(
+                    "pubKeyCredParams",
+                    JSONArray()
+                        .put(JSONObject().put("type", "public-key").put("alg", -7))
+                        .put(JSONObject().put("type", "public-key").put("alg", -257))
+                )
+            }
+            if (out.optString("attestation").isBlank()) {
+                out.put("attestation", "none")
+            }
+        } else {
+            if (out.optString("rpId").isBlank() && cleanHost.isNotBlank()) {
+                out.put("rpId", cleanHost)
+            }
+        }
+        return out
+    }
+
     private fun handleMessage(
         webView: WebView,
         pageUrl: String,
@@ -305,9 +401,9 @@ object KaspaWebAuthnBridge {
             "CREATE_CREDENTIAL" -> {
                 val callId = payload.optString("callId", "")
                 if (!validCallbackIdRegex.matches(callId)) return
-                val requestObj = payload.optJSONObject("request")
-                if (requestObj == null) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Invalid WebAuthn registration request")
+                val rawRequestObj = payload.optJSONObject("request")
+                if (rawRequestObj == null) {
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Invalid WebAuthn registration request", "TypeError")
                     return
                 }
                 val isUpgrade = payload.optBoolean("isUpgrade", false)
@@ -315,15 +411,15 @@ object KaspaWebAuthnBridge {
                 val nativeError = payload.optString("nativeError", "")
 
                 if (!CredentialSettingsStore.webAuthEnabled.value) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "WebAuthn is disabled in browser privacy settings")
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "WebAuthn is disabled in Kazium settings", "NotAllowedError")
                     return
                 }
                 if (isUpgrade && !CredentialSettingsStore.allowPasskeyUpgradeEnabled.value) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Passkey account upgrades are disabled in settings")
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Passkey account upgrades are disabled in settings", "NotAllowedError")
                     return
                 }
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Passkeys require Android 9 (API 28) or higher")
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Passkeys require Android 9 (API 28) or higher", "NotSupportedError")
                     mainHandler.post {
                         callbacks.onRecoveryNeeded(
                             PasskeyRecoveryEvent(
@@ -337,6 +433,8 @@ object KaspaWebAuthnBridge {
                     return
                 }
 
+                val requestObj = sanitizeCredentialJsonForManager(rawRequestObj, host, isCreate = true)
+
                 callbacks.scope.launch(Dispatchers.Main) {
                     val startMs = System.currentTimeMillis()
                     try {
@@ -345,9 +443,13 @@ object KaspaWebAuthnBridge {
                             else "Creating passkey for $host..."
                         )
                         val activity = findActivity(webView.context) ?: webView.context
-                        val credentialManager = CredentialManager.create(webView.context)
+                        val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
-                        val request = CreatePublicKeyCredentialRequest(validRequestJson)
+                        val originArg = if (hasPrivilegedOriginPermission(activity)) expectedOrigin else null
+                        val request = CreatePublicKeyCredentialRequest(
+                            requestJson = validRequestJson,
+                            origin = originArg
+                        )
                         val response = credentialManager.createCredential(activity, request)
                         if (response is CreatePublicKeyCredentialResponse) {
                             sendCredSuccess(webView, expectedOrigin, replyProxy, callId, response.registrationResponseJson)
@@ -370,15 +472,18 @@ object KaspaWebAuthnBridge {
                                 else "Passkey created for $rpId"
                             )
                         } else {
-                            sendCredError(webView, expectedOrigin, replyProxy, callId, "Unsupported passkey registration response")
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, "Unsupported passkey registration response", "NotSupportedError")
                         }
                     } catch (e: CreateCredentialException) {
                         val elapsed = System.currentTimeMillis() - startMs
+                        val domName = mapCreateDomErrorName(e)
                         Log.w(TAG, "CredentialManager createCredential failed (${e.javaClass.simpleName}, ${elapsed}ms): ${e.message}")
-                        sendCredError(webView, expectedOrigin, replyProxy, callId, e.message ?: "Passkey creation failed")
+                        sendCredError(webView, expectedOrigin, replyProxy, callId, e.message ?: "Passkey creation failed", domName)
                         val shouldOfferRecovery = when (e) {
                             is CreateCredentialCancellationException -> elapsed < 1500L || (nativeElapsedMs in 0..1500L)
-                            is CreateCredentialNoCreateOptionException -> true
+                            is CreateCredentialNoCreateOptionException,
+                            is CreateCredentialProviderConfigurationException,
+                            is CreateCredentialInterruptedException -> true
                             else -> true
                         }
                         if (shouldOfferRecovery) {
@@ -393,7 +498,7 @@ object KaspaWebAuthnBridge {
                         }
                     } catch (t: Throwable) {
                         Log.w(TAG, "Unexpected createCredential error: ${t.message}")
-                        sendCredError(webView, expectedOrigin, replyProxy, callId, t.message ?: "Passkey creation failed")
+                        sendCredError(webView, expectedOrigin, replyProxy, callId, t.message ?: "Passkey creation failed", "UnknownError")
                         callbacks.onRecoveryNeeded(
                             PasskeyRecoveryEvent(
                                 url = pageUrl,
@@ -409,20 +514,20 @@ object KaspaWebAuthnBridge {
             "GET_CREDENTIAL" -> {
                 val callId = payload.optString("callId", "")
                 if (!validCallbackIdRegex.matches(callId)) return
-                val requestObj = payload.optJSONObject("request")
-                if (requestObj == null) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Invalid WebAuthn assertion request")
+                val rawRequestObj = payload.optJSONObject("request")
+                if (rawRequestObj == null) {
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Invalid WebAuthn assertion request", "TypeError")
                     return
                 }
                 val nativeElapsedMs = payload.optLong("nativeElapsedMs", -1L)
                 val nativeError = payload.optString("nativeError", "")
 
                 if (!CredentialSettingsStore.webAuthEnabled.value) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "WebAuthn is disabled in browser privacy settings")
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "WebAuthn is disabled in Kazium settings", "NotAllowedError")
                     return
                 }
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Passkeys require Android 9 (API 28) or higher")
+                    sendCredError(webView, expectedOrigin, replyProxy, callId, "Passkeys require Android 9 (API 28) or higher", "NotSupportedError")
                     mainHandler.post {
                         callbacks.onRecoveryNeeded(
                             PasskeyRecoveryEvent(
@@ -436,23 +541,29 @@ object KaspaWebAuthnBridge {
                     return
                 }
 
+                val requestObj = sanitizeCredentialJsonForManager(rawRequestObj, host, isCreate = false)
+
                 callbacks.scope.launch(Dispatchers.Main) {
                     val startMs = System.currentTimeMillis()
                     try {
                         callbacks.onStatusMessage("Requesting passkey verification for $host...")
                         val activity = findActivity(webView.context) ?: webView.context
-                        val credentialManager = CredentialManager.create(webView.context)
+                        val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
                         val option = GetPublicKeyCredentialOption(validRequestJson)
-                        val request = GetCredentialRequest(listOf(option))
-                        val response = credentialManager.getCredential(activity, request)
+                        val reqBuilder = GetCredentialRequest.Builder()
+                            .addCredentialOption(option)
+                        if (hasPrivilegedOriginPermission(activity)) {
+                            reqBuilder.setOrigin(expectedOrigin)
+                        }
+                        val response = credentialManager.getCredential(activity, reqBuilder.build())
                         val cred = response.credential
                         if (cred is PublicKeyCredential) {
                             sendCredSuccess(webView, expectedOrigin, replyProxy, callId, cred.authenticationResponseJson)
                             val rpId = requestObj.optString("rpId", host).ifBlank { host }
                             callbacks.onStatusMessage("Passkey verified successfully ($rpId)")
                         } else {
-                            sendCredError(webView, expectedOrigin, replyProxy, callId, "No matching passkey credential returned")
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, "No matching passkey credential returned", "NotAllowedError")
                             callbacks.onRecoveryNeeded(
                                 PasskeyRecoveryEvent(
                                     url = pageUrl,
@@ -464,7 +575,7 @@ object KaspaWebAuthnBridge {
                         }
                     } catch (e: NoCredentialException) {
                         Log.w(TAG, "No credential in embedded WebView CredentialManager: ${e.message}")
-                        sendCredError(webView, expectedOrigin, replyProxy, callId, "No passkey accessible to embedded browser for $host")
+                        sendCredError(webView, expectedOrigin, replyProxy, callId, "No passkey accessible to embedded browser for $host", "NotAllowedError")
                         callbacks.onRecoveryNeeded(
                             PasskeyRecoveryEvent(
                                 url = pageUrl,
@@ -473,11 +584,12 @@ object KaspaWebAuthnBridge {
                                 reason = buildRecoveryReason(e.message ?: nativeError, host)
                             )
                         )
-                        callbacks.onStatusMessage("Passkey unavailable in WebView — Custom Tab handoff ready")
+                        callbacks.onStatusMessage("Passkey unavailable in WebView — System Browser Tab handoff ready")
                     } catch (e: GetCredentialException) {
                         val elapsed = System.currentTimeMillis() - startMs
+                        val domName = mapGetDomErrorName(e)
                         Log.w(TAG, "CredentialManager getCredential failed (${e.javaClass.simpleName}, ${elapsed}ms): ${e.message}")
-                        sendCredError(webView, expectedOrigin, replyProxy, callId, e.message ?: "Passkey verification failed")
+                        sendCredError(webView, expectedOrigin, replyProxy, callId, e.message ?: "Passkey verification failed", domName)
                         val isSlowUserCancel = e is GetCredentialCancellationException &&
                             elapsed >= 1800L &&
                             (nativeElapsedMs < 0L || nativeElapsedMs >= 1800L)
@@ -494,7 +606,7 @@ object KaspaWebAuthnBridge {
                         callbacks.onStatusMessage("Passkey could not complete in embedded WebView")
                     } catch (t: Throwable) {
                         Log.w(TAG, "Unexpected getCredential error: ${t.message}")
-                        sendCredError(webView, expectedOrigin, replyProxy, callId, t.message ?: "Passkey verification failed")
+                        sendCredError(webView, expectedOrigin, replyProxy, callId, t.message ?: "Passkey verification failed", "UnknownError")
                         callbacks.onRecoveryNeeded(
                             PasskeyRecoveryEvent(
                                 url = pageUrl,
@@ -506,6 +618,33 @@ object KaspaWebAuthnBridge {
                     }
                 }
             }
+        }
+    }
+
+    private fun mapCreateDomErrorName(e: CreateCredentialException): String {
+        val type = e.type.lowercase(Locale.ROOT)
+        return when {
+            e is CreateCredentialCancellationException -> "NotAllowedError"
+            e is CreateCredentialInterruptedException -> "AbortError"
+            type.contains("invalid_state") -> "InvalidStateError"
+            type.contains("not_supported") -> "NotSupportedError"
+            type.contains("security") -> "SecurityError"
+            type.contains("constraint") -> "ConstraintError"
+            type.contains("not_allowed") -> "NotAllowedError"
+            type.contains("unknown") -> "UnknownError"
+            else -> "NotAllowedError"
+        }
+    }
+
+    private fun mapGetDomErrorName(e: GetCredentialException): String {
+        val type = e.type.lowercase(Locale.ROOT)
+        return when {
+            e is GetCredentialCancellationException -> "NotAllowedError"
+            e is GetCredentialInterruptedException -> "AbortError"
+            type.contains("not_supported") -> "NotSupportedError"
+            type.contains("security") -> "SecurityError"
+            type.contains("unknown") -> "UnknownError"
+            else -> "NotAllowedError"
         }
     }
 
@@ -542,13 +681,15 @@ object KaspaWebAuthnBridge {
         expectedOrigin: String,
         replyProxy: JavaScriptReplyProxy,
         callId: String,
-        errorMessage: String
+        errorMessage: String,
+        errorName: String = "NotAllowedError"
     ) {
         val reply = JSONObject().apply {
             put("type", "CRED_RESULT")
             put("callId", callId)
             put("ok", false)
             put("error", errorMessage)
+            put("errorName", errorName)
         }
         postReply(webView, expectedOrigin, replyProxy, reply.toString())
     }
@@ -602,6 +743,13 @@ object KaspaWebAuthnBridge {
                         return bytes.buffer;
                     }
 
+                    function isBinaryLike(val) {
+                        if (!val || typeof val !== 'object') return false;
+                        if (val instanceof ArrayBuffer || ArrayBuffer.isView(val)) return true;
+                        var tag = Object.prototype.toString.call(val);
+                        return tag === '[object ArrayBuffer]' || tag === '[object Uint8Array]' || tag === '[object DataView]';
+                    }
+
                     function bufToB64(buf) {
                         if (!buf) return '';
                         var bytes = ArrayBuffer.isView(buf)
@@ -612,15 +760,20 @@ object KaspaWebAuthnBridge {
                         return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
                     }
 
-                    function sanitizeForCredentialManager(options) {
+                    function sanitizeForCredentialManager(options, isCreate) {
                         if (!options) return options;
                         function convert(val) {
-                            if (val === null || val === undefined) return null;
-                            if (val instanceof ArrayBuffer || ArrayBuffer.isView(val)) {
+                            if (val === null || val === undefined || typeof val === 'function') return undefined;
+                            if (isBinaryLike(val)) {
                                 return bufToB64(val);
                             }
                             if (Array.isArray(val)) {
-                                return val.map(convert);
+                                var arr = [];
+                                for (var i = 0; i < val.length; i++) {
+                                    var item = convert(val[i]);
+                                    if (item !== undefined) arr.push(item);
+                                }
+                                return arr;
                             }
                             if (typeof val === 'object') {
                                 var obj = {};
@@ -632,10 +785,28 @@ object KaspaWebAuthnBridge {
                                 }
                                 return obj;
                             }
-                            if (typeof val === 'function') return undefined;
                             return val;
                         }
-                        return convert(options);
+                        var sanitized = convert(options) || {};
+                        var host = (window.location && window.location.hostname) || '';
+                        if (isCreate) {
+                            sanitized.rp = sanitized.rp || {};
+                            if (!sanitized.rp.id && host) sanitized.rp.id = host;
+                            if (!sanitized.rp.name) sanitized.rp.name = sanitized.rp.id || host || 'Passkey';
+                            if (!Array.isArray(sanitized.pubKeyCredParams) || sanitized.pubKeyCredParams.length === 0) {
+                                sanitized.pubKeyCredParams = [
+                                    { type: 'public-key', alg: -7 },
+                                    { type: 'public-key', alg: -257 }
+                                ];
+                            }
+                            if (!sanitized.attestation) sanitized.attestation = 'none';
+                        } else {
+                            if (!sanitized.rpId && host) sanitized.rpId = host;
+                        }
+                        if (sanitized.extensions && Object.keys(sanitized.extensions).length === 0) {
+                            delete sanitized.extensions;
+                        }
+                        return sanitized;
                     }
 
                     function makeDomError(message, name) {
@@ -678,6 +849,7 @@ object KaspaWebAuthnBridge {
                         }
                         var extResults = data.clientExtensionResults || {};
                         return {
+                            __kaspaCred: true,
                             id: data.id,
                             rawId: b64ToBuf(data.rawId || data.id),
                             type: data.type || 'public-key',
@@ -704,7 +876,7 @@ object KaspaWebAuthnBridge {
                                 if (msg.ok) {
                                     activeCb.resolve(buildPublicKeyCredential(msg.resultJson));
                                 } else {
-                                    activeCb.reject(makeDomError(msg.error || 'Passkey operation failed', 'NotAllowedError'));
+                                    activeCb.reject(makeDomError(msg.error || 'Passkey operation failed', msg.errorName || 'NotAllowedError'));
                                 }
                             }
                         } catch (e) {
@@ -766,7 +938,7 @@ object KaspaWebAuthnBridge {
                             var payload = {
                                 type: msgType,
                                 callId: callId,
-                                request: sanitizeForCredentialManager(pubKeyOptions)
+                                request: sanitizeForCredentialManager(pubKeyOptions, msgType === 'CREATE_CREDENTIAL')
                             };
                             if (extra) {
                                 for (var k in extra) {
@@ -785,22 +957,58 @@ object KaspaWebAuthnBridge {
                         });
                     }
 
-                    if (typeof window.PublicKeyCredential === 'undefined') {
+                    var hadNativePkc = (typeof window.PublicKeyCredential !== 'undefined');
+                    if (!hadNativePkc) {
                         window.PublicKeyCredential = function() {};
                     }
 
+                    var origIsUvpaa = hadNativePkc && window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable
+                        ? window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable.bind(window.PublicKeyCredential)
+                        : null;
+                    var origIsConditional = hadNativePkc && window.PublicKeyCredential.isConditionalMediationAvailable
+                        ? window.PublicKeyCredential.isConditionalMediationAvailable.bind(window.PublicKeyCredential)
+                        : null;
+                    var origGetCaps = hadNativePkc && window.PublicKeyCredential.getClientCapabilities
+                        ? window.PublicKeyCredential.getClientCapabilities.bind(window.PublicKeyCredential)
+                        : null;
+
+                    if (hadNativePkc && typeof Symbol !== 'undefined' && Symbol.hasInstance) {
+                        try {
+                            var origHasInstance = Object.getOwnPropertyDescriptor(window.PublicKeyCredential, Symbol.hasInstance);
+                            Object.defineProperty(window.PublicKeyCredential, Symbol.hasInstance, {
+                                configurable: true,
+                                value: function(inst) {
+                                    if (inst && inst.__kaspaCred) return true;
+                                    if (origHasInstance && typeof origHasInstance.value === 'function') {
+                                        return origHasInstance.value.call(window.PublicKeyCredential, inst);
+                                    }
+                                    return Object.prototype.isPrototypeOf.call(window.PublicKeyCredential.prototype, inst);
+                                }
+                            });
+                        } catch (_) {}
+                    }
+
                     window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = function() {
-                        return Promise.resolve(Boolean(getPolicy().webAuthEnabled));
+                        if (!getPolicy().webAuthEnabled) return Promise.resolve(false);
+                        if (origIsUvpaa) {
+                            return origIsUvpaa().then(function(ok) { return Boolean(ok || window.kaspaWebAuthnChannel); })
+                                .catch(function() { return true; });
+                        }
+                        return Promise.resolve(true);
                     };
 
                     window.PublicKeyCredential.isConditionalMediationAvailable = function() {
+                        if (!getPolicy().webAuthEnabled) return Promise.resolve(false);
+                        if (origIsConditional) {
+                            return origIsConditional().catch(function() { return false; });
+                        }
                         return Promise.resolve(false);
                     };
 
                     window.PublicKeyCredential.getClientCapabilities = function() {
                         var p = getPolicy();
                         var enabled = Boolean(p.webAuthEnabled);
-                        return Promise.resolve({
+                        var base = {
                             conditionalCreate: enabled && Boolean(p.allowPasskeyUpgrade),
                             conditionalGet: false,
                             hybridTransport: enabled,
@@ -810,7 +1018,19 @@ object KaspaWebAuthnBridge {
                             signalCurrentUserDetails: enabled,
                             signalUnknownCredential: enabled,
                             userVerifyingPlatformAuthenticator: enabled
-                        });
+                        };
+                        if (origGetCaps && enabled) {
+                            return origGetCaps().then(function(nativeCaps) {
+                                var merged = {};
+                                for (var k in base) merged[k] = base[k];
+                                if (nativeCaps && typeof nativeCaps === 'object') {
+                                    for (var nk in nativeCaps) merged[nk] = nativeCaps[nk];
+                                }
+                                merged.conditionalCreate = enabled && Boolean(p.allowPasskeyUpgrade);
+                                return merged;
+                            }).catch(function() { return base; });
+                        }
+                        return Promise.resolve(base);
                     };
 
                     if (!window.PublicKeyCredential.signalAllAcceptedCredentials) {
@@ -833,6 +1053,17 @@ object KaspaWebAuthnBridge {
                     var originalGet = navigator.credentials.get
                         ? navigator.credentials.get.bind(navigator.credentials)
                         : null;
+
+                    function shouldFallbackAfterNativeError(err, elapsedMs, confirmedByDialog) {
+                        if (!window.kaspaWebAuthnChannel) return false;
+                        var name = (err && err.name) || '';
+                        var msg = ((err && err.message) || '').toLowerCase();
+                        if (name === 'InvalidStateError' || name === 'AbortError') return false;
+                        if (confirmedByDialog) return true;
+                        if (name !== 'NotAllowedError') return true;
+                        var looksUserCancel = msg.indexOf('cancel') !== -1 || msg.indexOf('declined') !== -1 || msg.indexOf('aborted by user') !== -1;
+                        return !looksUserCancel && elapsedMs < 1200;
+                    }
 
                     navigator.credentials.create = function(options) {
                         if (!options || !options.publicKey) {
@@ -858,9 +1089,7 @@ object KaspaWebAuthnBridge {
                         var siteName = (pubKey.rp && pubKey.rp.name) || document.title || rpId;
                         var userName = (pubKey.user && (pubKey.user.name || pubKey.user.displayName)) || '';
 
-                        var proceedCreate = function() {
-                            // WebKit WebView does not natively support mediation: 'conditional' passkey upgrades;
-                            // route conditional create directly through CredentialManager so upgrades succeed.
+                        var proceedCreate = function(confirmedByDialog) {
                             if (!isConditionalUpgrade && originalCreate && !policy.skipNativeWebView) {
                                 var t0 = Date.now();
                                 return originalCreate(options).then(function(cred) {
@@ -874,10 +1103,7 @@ object KaspaWebAuthnBridge {
                                     return cred;
                                 }).catch(function(err) {
                                     var elapsed = Date.now() - t0;
-                                    var errorName = err && err.name;
-                                    if (window.kaspaWebAuthnChannel &&
-                                        errorName !== 'NotAllowedError' &&
-                                        errorName !== 'AbortError') {
+                                    if (shouldFallbackAfterNativeError(err, elapsed, confirmedByDialog)) {
                                         return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
                                             isUpgrade: isConditionalUpgrade,
                                             nativeElapsedMs: elapsed,
@@ -890,7 +1116,7 @@ object KaspaWebAuthnBridge {
                             return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
                                 isUpgrade: isConditionalUpgrade,
                                 nativeElapsedMs: -1,
-                                nativeError: ''
+                                nativeError: policy.skipNativeWebView ? 'WebView WebAuthn restricted by OS' : ''
                             });
                         };
 
@@ -904,11 +1130,11 @@ object KaspaWebAuthnBridge {
                                 if (!approved) {
                                     throw makeDomError('Passkey creation declined by user', 'NotAllowedError');
                                 }
-                                return proceedCreate();
+                                return proceedCreate(true);
                             });
                         }
 
-                        return proceedCreate();
+                        return proceedCreate(false);
                     };
 
                     navigator.credentials.get = function(options) {
@@ -925,15 +1151,17 @@ object KaspaWebAuthnBridge {
                             return Promise.reject(makeDomError('Passkeys are disabled in Kazium settings', 'NotAllowedError'));
                         }
 
-                        // Conditional mediation background listeners must not fail/close noisy recovery dialogs
                         if (options.mediation === 'conditional') {
+                            if (originalGet && !policy.skipNativeWebView) {
+                                return originalGet(options);
+                            }
                             return Promise.reject(makeDomError('Conditional mediation not active in WebView', 'NotAllowedError'));
                         }
 
                         var pubKey = options.publicKey;
                         var rpId = pubKey.rpId || (window.location && window.location.hostname) || '';
 
-                        var proceedGet = function() {
+                        var proceedGet = function(confirmedByDialog) {
                             if (originalGet && !policy.skipNativeWebView) {
                                 var t0 = Date.now();
                                 return originalGet(options).then(function(cred) {
@@ -944,10 +1172,7 @@ object KaspaWebAuthnBridge {
                                     return cred;
                                 }).catch(function(err) {
                                     var elapsed = Date.now() - t0;
-                                    var errorName = err && err.name;
-                                    if (window.kaspaWebAuthnChannel &&
-                                        errorName !== 'NotAllowedError' &&
-                                        errorName !== 'AbortError') {
+                                    if (shouldFallbackAfterNativeError(err, elapsed, confirmedByDialog)) {
                                         return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
                                             nativeElapsedMs: elapsed,
                                             nativeError: (err && (err.name + ': ' + err.message)) || ''
@@ -970,11 +1195,11 @@ object KaspaWebAuthnBridge {
                                 if (!approved) {
                                     throw makeDomError('Sign-in cancelled by user confirmation prompt', 'NotAllowedError');
                                 }
-                                return proceedGet();
+                                return proceedGet(true);
                             });
                         }
 
-                        return proceedGet();
+                        return proceedGet(false);
                     };
                 } catch (e) {
                     console.warn('Kaspa WebAuthn bridge setup notice', e);

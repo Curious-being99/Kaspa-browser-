@@ -50,27 +50,8 @@ internal object EvmWalletEngine {
         return network(id)
     }
 
-    fun credentials(seedPhrase: String, passphrase: String = ""): Credentials {
-        val mnemonic = CryptoUtils.getDecryptedSeed(seedPhrase)
-            .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
-        require(mnemonic.isNotBlank()) { "Wallet recovery phrase is unavailable" }
-        require(passphrase.length <= 256) { "BIP-39 passphrase is too long" }
-        val seed = CryptoUtils.mnemonicToSeed(mnemonic, passphrase)
-        val derived = try {
-            val master = Bip32ECKeyPair.generateKeyPair(seed)
-            val path = intArrayOf(
-                44 or Int.MIN_VALUE,
-                60 or Int.MIN_VALUE,
-                Int.MIN_VALUE,
-                0,
-                0
-            )
-            Bip32ECKeyPair.deriveKeyPair(master, path)
-        } finally {
-            java.util.Arrays.fill(seed, 0.toByte())
-        }
-        return Credentials.create(derived)
-    }
+    fun credentials(seedPhrase: String, passphrase: String = ""): Credentials =
+        credentialsForSigning(seedPhrase, passphrase)
 
     fun credentialsForSigning(
         seedPhrase: String,
@@ -113,7 +94,27 @@ internal object EvmWalletEngine {
         }
     }
 
-    fun address(seedPhrase: String, passphrase: String = ""): String = credentials(seedPhrase, passphrase).address.lowercase(Locale.ROOT)
+    fun address(seedPhrase: String, passphrase: String = ""): String {
+        val mnemonic = CryptoUtils.getDecryptedSeed(seedPhrase)
+            .trim().replace("\\s+".toRegex(), " ").lowercase(Locale.ROOT)
+        require(mnemonic.isNotBlank()) { "Wallet recovery phrase is unavailable" }
+        require(passphrase.length <= 256) { "BIP-39 passphrase is too long" }
+        val seed = CryptoUtils.mnemonicToSeed(mnemonic, passphrase)
+        val derived = try {
+            val master = Bip32ECKeyPair.generateKeyPair(seed)
+            val path = intArrayOf(
+                44 or Int.MIN_VALUE,
+                60 or Int.MIN_VALUE,
+                Int.MIN_VALUE,
+                0,
+                0
+            )
+            Bip32ECKeyPair.deriveKeyPair(master, path)
+        } finally {
+            java.util.Arrays.fill(seed, 0.toByte())
+        }
+        return Credentials.create(derived).address.lowercase(Locale.ROOT)
+    }
 
     fun signPersonalMessage(seedPhrase: String, message: String, passphrase: String = "", account: com.example.data.AccountEntity? = null): String {
         require(message.length <= 8192) { "Message is too long" }

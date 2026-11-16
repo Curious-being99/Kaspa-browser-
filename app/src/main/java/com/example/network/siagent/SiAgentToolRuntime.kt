@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.net.URI
 
 /**
- * Executes SI Agent's narrowly-scoped app tools against live KaspaBrowser services.
+ * Executes SI Agent's narrowly-scoped app tools against live Kazium services.
  * Wallet details are returned only when the model explicitly invokes the matching tool.
  */
 object SiAgentToolRuntime {
@@ -48,12 +48,14 @@ object SiAgentToolRuntime {
         addTool("get_kcc20_transactions", "Read recent KCC-20 token transaction history.")
         addTool("get_browser_state", "Read current page, open tabs, bookmarks, recent browsing history and download status.")
         addTool("get_dapp_state", "Read installed PWAs and the current PWA context. This does not connect to or control a dApp wallet.")
-        addTool("search_public_web", "Search the public web and retrieve readable pages using KaspaBrowser's safe web research service.", "query")
+        addTool("search_public_web", "Search the public web and retrieve readable pages using Kazium's safe web research service.", "query")
         addTool("crawl_public_website", "Crawl a public HTTPS website and retrieve readable pages. Private, local and non-public destinations are blocked.", "url")
         addTool("browser_navigate", "Navigate the active browser tab to a public HTTP or HTTPS URL. This changes browser state but never submits a form or performs a purchase.", "url")
         addTool("browser_open_tab", "Open a new browser tab at a public HTTP or HTTPS URL, or a blank home tab.", optional = "url")
         addTool("browser_switch_tab", "Switch to an existing browser tab by its 1-based tab number.", "tab_number")
         addTool("browser_close_tab", "Close an existing browser tab by its 1-based tab number. Do not close the final tab.", "tab_number")
+        addTool("get_kazium_updates", "Read Kazium browser identity, Kazview engine status, WebAuthn/Passkey mode, and the latest What's New changelog.")
+        addTool("open_kazium_surface", "Navigate inside Kazium to a built-in surface: 'wallet', 'dapps', 'browser', 'vault', or 'arcade' (offline games).", "surface")
     }
 
     private fun JSONArray.addPaymentTool() {
@@ -75,6 +77,13 @@ object SiAgentToolRuntime {
             "query" -> properties.put("query", JSONObject().put("type", "string").put("description", "The public web search query"))
             "url" -> properties.put("url", JSONObject().put("type", "string").put("description", "An absolute public HTTP or HTTPS URL"))
             "tab_number" -> properties.put("tab_number", JSONObject().put("type", "integer").put("minimum", 1))
+            "surface" -> properties.put(
+                "surface",
+                JSONObject()
+                    .put("type", "string")
+                    .put("enum", JSONArray().put("wallet").put("dapps").put("browser").put("vault").put("arcade"))
+                    .put("description", "Built-in Kazium screen to open")
+            )
         }
         val parameters = JSONObject()
             .put("type", "object")
@@ -441,6 +450,54 @@ withContext(Dispatchers.Main) { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
                     else {
 withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
                         JSONObject().put("success", true).put("action", "close_tab").put("tab_number", index + 1).put("title", tab.title).toString()
+                    }
+                }
+                "get_kazium_updates" -> {
+                    val engine = com.example.engine.BrowserEngineManager.engineStatus.value
+                    JSONObject()
+                        .put("browser_name", KaziumKnowledgeBase.BROWSER_NAME)
+                        .put("engine_name", KaziumKnowledgeBase.ENGINE_NAME)
+                        .put("home_theme", KaziumKnowledgeBase.HOME_THEME)
+                        .put("passkey_support_mode", engine.passkeySupportMode)
+                        .put("web_auth_enabled", com.example.security.CredentialSettingsStore.webAuthEnabled.value)
+                        .put("offline_arcade_url", "kaspa://offline-game")
+                        .put("whats_new", JSONArray().apply {
+                            KaziumKnowledgeBase.whatsNewHighlights.forEach { item ->
+                                put(JSONObject().put("title", item.title).put("summary", item.summary))
+                            }
+                        })
+                        .toString()
+                }
+                "open_kazium_surface" -> {
+                    val surface = args.optString("surface").trim().lowercase()
+                    when (surface) {
+                        "wallet" -> {
+                            withContext(Dispatchers.Main) { viewModel.setTab(AppTab.KASPA_WALLET) }
+                            JSONObject().put("success", true).put("opened", "wallet").toString()
+                        }
+                        "dapps" -> {
+                            withContext(Dispatchers.Main) { viewModel.setTab(AppTab.DAPPS) }
+                            JSONObject().put("success", true).put("opened", "dapps").toString()
+                        }
+                        "browser" -> {
+                            withContext(Dispatchers.Main) { viewModel.setTab(AppTab.BROWSER_GATEWAY) }
+                            JSONObject().put("success", true).put("opened", "browser").toString()
+                        }
+                        "vault" -> {
+                            withContext(Dispatchers.Main) {
+                                viewModel.setTab(AppTab.BROWSER_GATEWAY)
+                                viewModel.setShowPasswordVaultSheet(true)
+                            }
+                            JSONObject().put("success", true).put("opened", "vault").toString()
+                        }
+                        "arcade" -> {
+                            withContext(Dispatchers.Main) {
+                                viewModel.openUrlInBrowser("kaspa://offline-game", isExternal = false)
+                                viewModel.setTab(AppTab.BROWSER_GATEWAY)
+                            }
+                            JSONObject().put("success", true).put("opened", "arcade").put("url", "kaspa://offline-game").toString()
+                        }
+                        else -> errorJson("Unsupported Kazium surface '$surface'. Supported: wallet, dapps, browser, vault, arcade.")
                     }
                 }
                 else -> errorJson("Unknown or unsupported SI Agent tool: $name")

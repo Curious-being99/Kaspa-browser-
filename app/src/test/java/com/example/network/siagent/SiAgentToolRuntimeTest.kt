@@ -36,6 +36,8 @@ class SiAgentToolRuntimeTest {
         assertTrue(names.contains("browser_go_back"))
         assertTrue(names.contains("browser_go_forward"))
         assertTrue(names.contains("browser_reload"))
+        assertTrue(names.contains("get_kazium_updates"))
+        assertTrue(names.contains("open_kazium_surface"))
     }
 
     @Test

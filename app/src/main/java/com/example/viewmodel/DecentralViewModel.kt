@@ -347,6 +347,18 @@ class DecentralViewModel(
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+    val authenticatorRepository by lazy {
+        com.example.security.AuthenticatorRepository(
+            dao = database.authenticatorSecretDao(),
+            context = application
+        )
+    }
+    val authenticatorAccounts: StateFlow<List<com.example.security.AuthenticatorAccount>> =
+        authenticatorRepository.accountsFlow.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     private val _showPasswordVaultSheet = MutableStateFlow(false)
     val showPasswordVaultSheet: StateFlow<Boolean> = _showPasswordVaultSheet.asStateFlow()
@@ -946,7 +958,7 @@ class DecentralViewModel(
         if (id == null || id == _activeTabId.value) return
         val prevId = _activeTabId.value
         if (prevId != null && !_backgroundPlaybackEnabled.value) webViewTabManager.pauseTab(prevId)
-        if (id != null) webViewTabManager.resumeTab(id)
+        webViewTabManager.resumeTab(id)
         BrowserStateLog.tabSwitch("Switching active tab from $prevId to $id")
         _activeTabId.value = id
         savedStateHandle["active_tab_id"] = id
@@ -1993,6 +2005,63 @@ class DecentralViewModel(
         }
     }
 
+    suspend fun saveAuthenticatorSecretSuspend(
+        accountTitle: String,
+        rawBase32Secret: String,
+        type: com.example.security.OtpAuthType,
+        siteUrl: String? = null
+    ): Result<com.example.security.AuthenticatorAccount> {
+        return runCatching {
+            val added = authenticatorRepository.addManualSuspend(
+                issuer = accountTitle,
+                accountName = "",
+                rawBase32Secret = rawBase32Secret,
+                type = type,
+                algorithm = com.example.security.OtpHashAlgorithm.SHA1,
+                digits = 6,
+                periodSeconds = 30,
+                siteUrl = siteUrl
+            )
+            _statusMessage.value = "2FA key saved for ${added.issuer}"
+            added
+        }
+    }
+
+    fun importOtpAuthUri(rawUri: String, siteUrl: String? = null) {
+        viewModelScope.launch {
+            runCatching {
+                authenticatorRepository.addFromOtpAuthUriSuspend(rawUri = rawUri, siteUrl = siteUrl)
+            }.onSuccess { added ->
+                _statusMessage.value = "Added 2FA Authenticator key for ${added.issuer}"
+                setShowPasswordVaultSheet(true)
+            }.onFailure { err ->
+                _statusMessage.value = "Invalid 2FA key link: ${err.message}"
+            }
+        }
+    }
+
+    fun incrementAuthenticatorHotp(id: String, label: String) {
+        viewModelScope.launch {
+            runCatching {
+                authenticatorRepository.incrementHotpCounterSuspend(id)
+            }.onSuccess { modified ->
+                if (modified != null) {
+                    _statusMessage.value = "Generated next HOTP counter (#${modified.counter}) for $label"
+                }
+            }
+        }
+    }
+
+    fun deleteAuthenticatorAccount(id: String, label: String) {
+        viewModelScope.launch {
+            runCatching {
+                authenticatorRepository.deleteAccountSuspend(id)
+            }.onSuccess {
+                _statusMessage.value = "Removed 2FA key for $label"
+            }
+        }
+    }
+
     fun deleteVaultCredential(id: String) {
         viewModelScope.launch {
             passwordVaultRepository.deleteCredential(id)
@@ -2428,7 +2497,7 @@ class DecentralViewModel(
                     val net = com.example.dapp.EvmWalletEngine.network(chainId)
                     val params = org.json.JSONArray().put(targetAddress).put("latest")
                     val resp = withContext(Dispatchers.IO) { com.example.dapp.EvmWalletEngine.rpc(net, "eth_getBalance", params) }
-                    val resultHex = if (resp is org.json.JSONObject) resp.optString("result", "0x0") else "0x0"
+                    val resultHex = resp?.optString("result", "0x0") ?: "0x0"
                     val cleanHex = resultHex.removePrefix("0x").ifBlank { "0" }
                     val balanceWei = java.math.BigInteger(cleanHex, 16)
                     val balanceTokens = balanceWei.toDouble() / 1e18
@@ -4087,7 +4156,7 @@ class DecentralViewModel(
     }
 
     fun normalizeUrlOrQuery(raw: String): String {
-        val trimmed = raw.trim()
+        val trimmed = DomainConstants.normalizeKaspaScheme(raw)
         if (trimmed.isBlank()) return ""
 
         // Check if input is a valid Kaspa network address
@@ -4154,11 +4223,16 @@ class DecentralViewModel(
         // Check if input looks like a web address (e.g. domain.tld, subdomain.domain.tld, localhost, IP address)
         val hasWhitespace = trimmed.any { it.isWhitespace() }
         val hasDot = trimmed.contains(".")
-        val isLocalhost = trimmed.startsWith("localhost", ignoreCase = true)
+        val isLocalhost = trimmed.matches(Regex("^localhost(:\\d+)?(/.*)?$", RegexOption.IGNORE_CASE))
+        val isIpv6Loopback = trimmed.matches(Regex("^\\[::1\\](:\\d+)?(/.*)?$"))
         val isIp = trimmed.matches(Regex("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(:\\d+)?(/.*)?$"))
 
-        if (!hasWhitespace && (hasDot || isLocalhost || isIp)) {
-            return "https://$trimmed"
+        if (!hasWhitespace && (hasDot || isLocalhost || isIpv6Loopback || isIp)) {
+            val candidateHost = trimmed.substringBefore('/').let { hostPort ->
+                if (hostPort.startsWith("[")) hostPort else hostPort.substringBefore(':')
+            }
+            val defaultScheme = if (com.example.network.KaspaPrivacyEngine.isLocalOrPrivateHost(candidateHost)) "http://" else "https://"
+            return "$defaultScheme$trimmed"
         }
 
         // Search fallback using selected engine
@@ -4241,7 +4315,12 @@ class DecentralViewModel(
     }
 
     fun updateCurrentUrl(newUrl: String) {
-        if (newUrl.isBlank() || newUrl.startsWith("data:") || newUrl.startsWith("about:") || newUrl.contains(".ipfs.dweb.link")) return
+        if (newUrl.isBlank() ||
+            newUrl.startsWith("data:") ||
+            newUrl.startsWith("about:") ||
+            newUrl.startsWith("kaspa-error:", ignoreCase = true) ||
+            newUrl.contains(".ipfs.dweb.link")
+        ) return
         val extractedQuery = extractSearchQuery(newUrl)
         val displayUrl = if (!extractedQuery.isNullOrBlank()) extractedQuery else newUrl
         if (_urlInput.value != displayUrl && !com.example.util.BrowserTabWebViewManager.isSameUrl(_urlInput.value, displayUrl)) {

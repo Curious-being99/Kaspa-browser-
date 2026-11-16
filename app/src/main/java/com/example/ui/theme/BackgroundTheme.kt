@@ -45,61 +45,61 @@ enum class PhotoTheme(
     EMERALD_KASPA(
         id = "emerald_kaspa",
         displayName = "Emerald Kaspa",
-        description = "Futuristic glowing Kaspa crystal lattice",
+        description = "Deep teal crystal backdrop",
         drawableRes = R.drawable.img_theme_emerald_kaspa,
-        primaryAccent = Color(0xFF70C7BA)
+        primaryAccent = Color(0xFF63C3B5)
     ),
     OBSIDIAN_GALAXY(
         id = "obsidian_galaxy",
-        displayName = "Obsidian Galaxy",
-        description = "Deep cosmic nebula with glowing stardust",
+        displayName = "Obsidian Night",
+        description = "Subtle deep starfield horizon",
         drawableRes = R.drawable.img_theme_obsidian_galaxy,
-        primaryAccent = Color(0xFF38BDF8)
+        primaryAccent = Color(0xFF56B4E9)
     ),
     AURORA_TEALS(
         id = "aurora_teals",
-        displayName = "Aurora Teals",
-        description = "Atmospheric northern lights over dark peaks",
+        displayName = "Aurora Dusk",
+        description = "Northern twilight over dark peaks",
         drawableRes = R.drawable.img_theme_aurora_teals,
-        primaryAccent = Color(0xFF2DD4BF)
+        primaryAccent = Color(0xFF4FB8A8)
     ),
     KASPA_LATTICE(
         id = "kaspa_lattice",
         displayName = "Kaspa Lattice",
-        description = "Sovereign decentralized network weave",
+        description = "Minimalist geometric weave",
         drawableRes = R.drawable.img_theme_kaspa_lattice,
         primaryAccent = Color(0xFF49A89A)
     ),
     CYBER_SUNSET(
         id = "cyber_sunset",
-        displayName = "Cyber Sunset",
-        description = "Glow of neon horizon over cyberpunk skyline",
+        displayName = "Warm Horizon",
+        description = "Amber dusk silhouette",
         drawableRes = R.drawable.img_theme_cyber_sunset,
-        primaryAccent = Color(0xFFF97316)
+        primaryAccent = Color(0xFFE07A3D)
     ),
     COSMIC_OCEAN(
         id = "cosmic_ocean",
-        displayName = "Cosmic Ocean",
-        description = "Bioluminescent marine flow and starry heavens",
+        displayName = "Deep Ocean",
+        description = "Midnight pelagic gradient",
         drawableRes = R.drawable.img_theme_cosmic_ocean,
-        primaryAccent = Color(0xFF818CF8)
+        primaryAccent = Color(0xFF7C83E8)
     ),
     CYBER_MATRIX(
         id = "cyber_matrix",
-        displayName = "Cyber Matrix",
-        description = "Minimalist dark slate digital mesh",
+        displayName = "Graphite Matte",
+        description = "Clean dark charcoal canvas",
         drawableRes = null,
-        primaryAccent = Color(0xFF6366F1)
+        primaryAccent = Color(0xFF63C3B5)
     );
 
     val cardBgColor: Color
-        get() = Color(0xFF0B101D).copy(alpha = 0.94f)
+        get() = Color(0xFF12141B).copy(alpha = 0.86f)
 
     val cardBorderColor: Color
-        get() = primaryAccent.copy(alpha = 0.35f)
+        get() = Color.White.copy(alpha = 0.08f)
 
     val topBarBgColor: Color
-        get() = Color(0xFF070B14).copy(alpha = 0.88f)
+        get() = Color(0xFF0A0B0E).copy(alpha = 0.88f)
 
     companion object {
         fun fromId(id: String?): PhotoTheme {
@@ -175,16 +175,16 @@ fun PhotoBackgroundWrapper(
                         )
                     }
 
-                    // Dark atmospheric contrast overlay ensuring high UI legibility
+                    // Subtle dark scrim preserving wallpaper clarity while keeping text legible
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        Color.Black.copy(alpha = 0.55f),
-                                        Color.Black.copy(alpha = 0.75f),
-                                        Color.Black.copy(alpha = 0.88f)
+                                        Color(0xFF0A0B0E).copy(alpha = 0.42f),
+                                        Color(0xFF0A0B0E).copy(alpha = 0.72f),
+                                        Color(0xFF0A0B0E).copy(alpha = 0.90f)
                                     )
                                 )
                             )

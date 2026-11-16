@@ -1,10 +1,13 @@
 package com.example.engine
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebStorage
@@ -25,6 +28,7 @@ import com.example.network.KaspaPrivacyEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -86,8 +90,12 @@ object BrowserEngineManager {
     )
 
     private val startupExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val dirInitLock = Any()
     private val warmupStarted = AtomicBoolean(false)
+    private val webViewStartupCompleted = AtomicBoolean(false)
     private val profileTuned = AtomicBoolean(false)
+    private val pendingReadyCallbacks = mutableListOf<() -> Unit>()
     private val totalPreconnects = AtomicInteger(0)
     private val totalHibernatedTabs = AtomicInteger(0)
     private val recentPreconnects = ConcurrentHashMap<String, Long>()
@@ -95,13 +103,141 @@ object BrowserEngineManager {
     private val _engineStatus = MutableStateFlow(BrowserEngineStatus())
     val engineStatus: StateFlow<BrowserEngineStatus> = _engineStatus.asStateFlow()
 
-    fun warmUpEngineAsync(context: Context) {
-        val appContext = context.applicationContext
+    /**
+     * Ensures Chromium WebView's required cache and storage directory trees exist and are
+     * writable, cleaning up any stale non-directory files that would otherwise cause
+     * Chromium's SimpleBackendImpl::InitCacheStructureOnDisk to fail creating Code Cache/js.
+     */
+    fun ensureWebViewDirectories(context: Context): Boolean {
+        val appContext = context.applicationContext ?: context
+        return synchronized(dirInitLock) {
+            var allOk = true
+            try {
+                val cacheRoot = appContext.cacheDir
+                if (cacheRoot != null) {
+                    if (cacheRoot.exists() && !cacheRoot.isDirectory) {
+                        cacheRoot.delete()
+                    }
+                    if (!cacheRoot.exists()) {
+                        cacheRoot.mkdirs()
+                    }
+                    val requiredCachePaths = listOf(
+                        "WebView/Crashpad/attachments",
+                        "WebView/Default/HTTP Cache/Cache_Data",
+                        "WebView/Default/HTTP Cache/Code Cache/js",
+                        "WebView/Default/HTTP Cache/Code Cache/wasm"
+                    )
+                    for (relPath in requiredCachePaths) {
+                        if (!ensureDirectoryTree(cacheRoot, relPath)) {
+                            allOk = false
+                        }
+                    }
+                }
+                val codeCache = appContext.codeCacheDir
+                if (codeCache != null) {
+                    if (codeCache.exists() && !codeCache.isDirectory) {
+                        codeCache.delete()
+                    }
+                    if (!codeCache.exists()) {
+                        codeCache.mkdirs()
+                    }
+                }
+                val dataRoot = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    appContext.dataDir
+                } else {
+                    appContext.filesDir?.parentFile
+                }
+                if (dataRoot != null) {
+                    val appWebView = File(dataRoot, "app_webview")
+                    if (appWebView.exists() && !appWebView.isDirectory) {
+                        appWebView.delete()
+                    }
+                    if (!appWebView.exists()) {
+                        appWebView.mkdirs()
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "ensureWebViewDirectories notice: ${t.message}")
+                allOk = false
+            }
+            allOk
+        }
+    }
+
+    private fun ensureDirectoryTree(root: File, relativePath: String): Boolean {
+        var current = root
+        for (segment in relativePath.split('/')) {
+            if (segment.isBlank()) continue
+            current = File(current, segment)
+            if (current.exists()) {
+                if (!current.isDirectory) {
+                    if (!current.delete()) {
+                        Log.w(TAG, "Blocking file prevents WebView directory: ${current.absolutePath}")
+                        return false
+                    }
+                    if (!current.mkdir() && !current.isDirectory) {
+                        Log.w(TAG, "Failed to recreate WebView directory: ${current.absolutePath}")
+                        return false
+                    }
+                }
+            } else {
+                if (!current.mkdirs() && !current.isDirectory) {
+                    Log.w(TAG, "Failed to create WebView directory: ${current.absolutePath}")
+                    return false
+                }
+            }
+        }
+        return current.isDirectory && current.canWrite()
+    }
+
+    private fun dispatchReadyCallbacks() {
+        val callbacks = synchronized(pendingReadyCallbacks) {
+            webViewStartupCompleted.set(true)
+            val copy = pendingReadyCallbacks.toList()
+            pendingReadyCallbacks.clear()
+            copy
+        }
+        if (callbacks.isEmpty()) return
+        val runnable = Runnable {
+            callbacks.forEach { cb ->
+                runCatching { cb() }.onFailure { err ->
+                    Log.w(TAG, "Post-startup callback notice: ${err.message}")
+                }
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            runnable.run()
+        } else {
+            mainHandler.post(runnable)
+        }
+    }
+
+    fun warmUpEngineAsync(context: Context, onReady: (() -> Unit)? = null) {
+        val appContext = context.applicationContext ?: context
+        ensureWebViewDirectories(appContext)
+        if (onReady != null) {
+            val alreadyCompleted = synchronized(pendingReadyCallbacks) {
+                if (webViewStartupCompleted.get()) {
+                    true
+                } else {
+                    pendingReadyCallbacks.add(onReady)
+                    false
+                }
+            }
+            if (alreadyCompleted) {
+                if (Looper.myLooper() == Looper.getMainLooper()) {
+                    runCatching { onReady() }
+                } else {
+                    mainHandler.post { runCatching { onReady() } }
+                }
+            }
+        }
         if (!warmupStarted.compareAndSet(false, true)) {
             refreshEngineStatus(appContext)
             return
         }
-        refreshEngineStatus(appContext)
+        // Defer ProfileStore queries until startUpWebView completes so we don't trigger synchronous UI init.
+        refreshEngineStatus(appContext, allowProfileQuery = false)
         val startMs = System.currentTimeMillis()
         try {
             val config = WebViewStartUpConfig.Builder(startupExecutor).build()
@@ -121,7 +257,8 @@ object BrowserEngineManager {
                             "Kazview async startup finished in ${elapsed}ms (uiBlocking=$uiBlocking)"
                         )
                         applyProfileOptimizations()
-                        val current = buildStatus(appContext)
+                        dispatchReadyCallbacks()
+                        val current = buildStatus(appContext, allowProfileQuery = true)
                         _engineStatus.value = current.copy(
                             asyncStartupState = if (uiBlocking == 0) {
                                 "Async Warm (${elapsed}ms)"
@@ -135,7 +272,8 @@ object BrowserEngineManager {
 
                     override fun onError(error: WebViewStartupException) {
                         Log.w(TAG, "Async Kazview startup notice: ${error.message}")
-                        val current = buildStatus(appContext)
+                        dispatchReadyCallbacks()
+                        val current = buildStatus(appContext, allowProfileQuery = true)
                         _engineStatus.value = current.copy(
                             asyncStartupState = "Standard Init"
                         )
@@ -144,7 +282,8 @@ object BrowserEngineManager {
             )
         } catch (t: Throwable) {
             Log.d(TAG, "startUpWebView fallback to lazy init: ${t.message}")
-            val current = buildStatus(appContext)
+            dispatchReadyCallbacks()
+            val current = buildStatus(appContext, allowProfileQuery = true)
             _engineStatus.value = current.copy(asyncStartupState = "Standard Init")
         }
     }
@@ -153,6 +292,10 @@ object BrowserEngineManager {
      * Applies Chromium Profile-level QUIC hints & renderer process warmup when supported,
      * keeping all calls safely gated behind WebViewFeature checks.
      */
+    @androidx.annotation.OptIn(
+        Profile.ExperimentalWarmUpRendererProcess::class,
+        Profile.ExperimentalAddQuicHints::class
+    )
     fun applyProfileOptimizations() {
         if (!profileTuned.compareAndSet(false, true)) return
         try {
@@ -166,6 +309,7 @@ object BrowserEngineManager {
             var appliedHints = 0
             if (WebViewFeature.isFeatureSupported(WebViewFeature.ADD_QUIC_HINTS_V1)) {
                 runCatching {
+                    @Suppress("DEPRECATION")
                     profile.addQuicHints(KAZVIEW_QUIC_HINTS)
                     appliedHints = KAZVIEW_QUIC_HINTS.size
                 }
@@ -221,6 +365,8 @@ object BrowserEngineManager {
      * Strictly skipped whenever Tor or KRP relay privacy routing is active so traffic
      * never bypasses the active privacy circuit, and skips challenge/non-HTTPS URLs.
      */
+    @SuppressLint("WrongConstant")
+    @androidx.annotation.OptIn(Profile.ExperimentalPreconnect::class)
     fun preconnectOrigin(rawUrl: String?, isPrivacyRelayActive: Boolean): Boolean {
         if (isPrivacyRelayActive || rawUrl.isNullOrBlank()) return false
         val parsed = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return false
@@ -283,8 +429,11 @@ object BrowserEngineManager {
         )
     }
 
-    fun refreshEngineStatus(context: Context): BrowserEngineStatus {
-        val updated = buildStatus(context.applicationContext)
+    fun refreshEngineStatus(
+        context: Context,
+        allowProfileQuery: Boolean = webViewStartupCompleted.get()
+    ): BrowserEngineStatus {
+        val updated = buildStatus(context.applicationContext ?: context, allowProfileQuery)
         _engineStatus.value = updated
         return updated
     }
@@ -299,14 +448,14 @@ object BrowserEngineManager {
         }
         val downgraded = requestedEnabled &&
             WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION) &&
-            actualSupport != WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
         _engineStatus.value = _engineStatus.value.copy(
             passkeySupportMode = modeLabel,
             passkeyDowngradedBySystem = downgraded
         )
     }
 
-    private fun buildStatus(context: Context): BrowserEngineStatus {
+    private fun buildStatus(context: Context, allowProfileQuery: Boolean = webViewStartupCompleted.get()): BrowserEngineStatus {
         val prev = _engineStatus.value
         val pkgInfo = try {
             WebViewCompat.getCurrentWebViewPackage(context)
@@ -347,14 +496,14 @@ object BrowserEngineManager {
         } catch (_: Throwable) {
             false
         }
-        val stealthActive = if (supportsMultiProfile) {
+        val stealthActive = if (supportsMultiProfile && allowProfileQuery) {
             try {
                 ProfileStore.getInstance().getAllProfileNames().contains(STEALTH_PROFILE_NAME)
             } catch (_: Throwable) {
                 prev.stealthProfileActive
             }
         } else {
-            false
+            prev.stealthProfileActive
         }
         val customTabsPkg = try {
             CustomTabsClient.getPackageName(context, null)
@@ -374,14 +523,19 @@ object BrowserEngineManager {
             supportsProxyOverride = supportsProxy,
             multiProfileSupported = supportsMultiProfile,
             stealthProfileActive = stealthActive,
-            quicHintsCount = prev.quicHintsCount.takeIf { it > 0 }
-                ?: if (supportsMultiProfile && runCatching { WebViewFeature.isFeatureSupported(WebViewFeature.ADD_QUIC_HINTS_V1) }.getOrDefault(false)) {
-                    KAZVIEW_QUIC_HINTS.size
-                } else {
-                    0
-                },
+            quicHintsCount = updateQuicHintStatus(prev, supportsMultiProfile),
             customTabsProvider = customTabsPkg
         )
+    }
+
+    @androidx.annotation.OptIn(Profile.ExperimentalAddQuicHints::class)
+    private fun updateQuicHintStatus(prev: BrowserEngineStatus, supportsMultiProfile: Boolean): Int {
+        return prev.quicHintsCount.takeIf { it > 0 }
+            ?: if (supportsMultiProfile && runCatching { WebViewFeature.isFeatureSupported(WebViewFeature.ADD_QUIC_HINTS_V1) }.getOrDefault(false)) {
+                KAZVIEW_QUIC_HINTS.size
+            } else {
+                0
+            }
     }
 
     /**
