@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.R
 import com.example.ui.theme.AmberCentral
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldMesh
