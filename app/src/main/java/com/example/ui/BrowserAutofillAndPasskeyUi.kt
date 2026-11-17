@@ -3,6 +3,7 @@ package com.example.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -436,78 +437,222 @@ private fun DiagnosticRow(label: String, value: String) {
  * Confirmation prompt shown before sign-in (when Auto sign-in is disabled) or before
  * creating/upgrading a passkey (when Auto-create passkey is disabled).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PasskeyConfirmationDialog(
     request: PasskeyConfirmationRequest,
     onApprove: () -> Unit,
     onDecline: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isAuthenticating by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
+
     val isSignIn = request.kind == PasskeyPromptKind.SIGN_IN
     val title = when {
-        isSignIn -> "Confirm Passkey Sign-In"
-        request.isUpgrade -> "Upgrade Account to Passkey?"
-        else -> "Create Passkey for ${request.host}?"
-    }
-    val body = when {
-        isSignIn ->
-            "Auto sign-in is off. Confirm that you want to sign in to ${request.host} (RP: ${request.rpId}) using a passkey."
-        request.isUpgrade ->
-            "Allow ${request.host}${request.username.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""} to upgrade your existing account to sign in faster with a passkey?"
-        else ->
-            "Create and save a passkey for ${request.host}${request.username.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""}?"
-    }
-    val confirmLabel = when {
-        isSignIn -> "Sign In"
-        request.isUpgrade -> "Upgrade"
-        else -> "Create Passkey"
+        isSignIn -> "Use Passkey to Sign In"
+        request.isUpgrade -> "Upgrade Account Passkey"
+        else -> "Create New Passkey"
     }
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDecline,
-        containerColor = SurfaceCard,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.Fingerprint,
-                contentDescription = null,
-                tint = ElectricCyan,
-                modifier = Modifier.size(28.dp)
+        containerColor = SurfaceDark,
+        scrimColor = Color.Black.copy(alpha = 0.7f),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .size(width = 40.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceCardBorder)
             )
         },
-        title = {
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 8.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(bottom = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Passkey Credential Manager Header Icon
+            Box(
+                modifier = Modifier
+                    .size(60.dp)
+                    .clip(CircleShape)
+                    .background(ElectricCyan.copy(alpha = 0.15f))
+                    .border(1.5.dp, ElectricCyan.copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Key,
+                    contentDescription = "Passkey Credential",
+                    tint = ElectricCyan,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 text = title,
-                color = TextPrimary,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
+                color = TextPrimary,
+                textAlign = TextAlign.Center
             )
-        },
-        text = {
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = EmeraldMesh,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "FIDO2 Hardware Cryptographic Credential",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = EmeraldMesh
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Relying Party (RP) Domain Card
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = SurfaceCard,
+                border = BorderStroke(1.dp, SurfaceCardBorder)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "RELYING PARTY ORIGIN",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = request.host,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ElectricCyan,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (request.username.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Account: ${request.username}",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
-                text = body,
-                color = TextSecondary,
+                text = if (isSignIn) 
+                    "Confirm passkey authentication with device biometrics to securely verify your identity with ${request.host}." 
+                else 
+                    "Create a hardware-backed passkey for ${request.host} stored securely in your device vault.",
                 fontSize = 13.sp,
+                color = TextSecondary,
+                textAlign = TextAlign.Center,
                 lineHeight = 18.sp
             )
-        },
-        confirmButton = {
-            Button(
-                onClick = onApprove,
-                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.testTag("passkey_confirm_approve_button")
-            ) {
-                Text(confirmLabel, fontWeight = FontWeight.Bold)
+
+            if (authError != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = authError!!,
+                    color = RedTamper,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
+                )
             }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDecline,
-                modifier = Modifier.testTag("passkey_confirm_decline_button")
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(if (isSignIn) "Cancel" else "Not now", color = TextSecondary)
+                OutlinedButton(
+                    onClick = onDecline,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("passkey_confirm_decline_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary)
+                ) {
+                    Text("Cancel", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                }
+
+                Button(
+                    onClick = {
+                        if (isAuthenticating) return@Button
+                        isAuthenticating = true
+                        authError = null
+                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
+                            context = context,
+                            title = "System Passkey Manager",
+                            subtitle = "Verify identity for ${request.host}",
+                            onSuccess = {
+                                isAuthenticating = false
+                                onApprove()
+                            },
+                            onError = { errString ->
+                                isAuthenticating = false
+                                authError = errString.ifBlank { "Biometric verification failed" }
+                            }
+                        )
+                    },
+                    enabled = !isAuthenticating,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("passkey_confirm_approve_button")
+                ) {
+                    if (isAuthenticating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = ObsidianBg,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = if (isSignIn) "Sign In" else "Create Passkey",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
             }
         }
-    )
+    }
 }
 
 /**

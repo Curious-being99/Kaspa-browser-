@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -86,18 +87,23 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -324,30 +330,13 @@ fun BrowserHomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Live Tab Switcher pill
-                        Surface(
+                        // Original Browser Tab Number Button
+                        BrowserTabSwitcherButton(
+                            tabCount = tabCount,
                             onClick = onOpenTabSwitcher,
-                            shape = RoundedCornerShape(10.dp),
-                            color = ObsidianBg.copy(alpha = 0.44f),
-                            border = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.16f)),
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(18.dp)
-                                        .border(1.4.dp, Color.White.copy(alpha = 0.9f), RoundedCornerShape(5.dp)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = if (tabCount > 99) "99+" else tabCount.coerceAtLeast(1).toString(),
-                                        fontSize = if (tabCount >= 10) 8.5.sp else 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
+                            tint = Color.White,
+                            testTag = "home_tab_switcher_square_button"
+                        )
 
                         // Settings trigger
                         Surface(
@@ -1222,5 +1211,60 @@ private fun HomeBottomNavItem(
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (isSelected) ElectricCyan else TextMuted
         )
+    }
+}
+
+@Composable
+fun BrowserTabSwitcherButton(
+    tabCount: Int,
+    onClick: () -> Unit,
+    tint: Color = TextPrimary,
+    modifier: Modifier = Modifier,
+    testTag: String = "tab_switcher_square_button"
+) {
+    val haptic = LocalHapticFeedback.current
+    Box(
+        modifier = modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .border(1.5.dp, tint, RoundedCornerShape(5.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            val effectiveTabCount = tabCount.coerceAtLeast(1)
+            val countText = if (effectiveTabCount > 99) "99+" else effectiveTabCount.toString()
+            val textSize = when {
+                countText.length >= 3 -> 7.5.sp
+                countText.length == 2 -> 9.sp
+                else -> 10.5.sp
+            }
+            Text(
+                text = countText,
+                fontSize = textSize,
+                fontWeight = FontWeight.Bold,
+                color = tint,
+                textAlign = TextAlign.Center,
+                style = TextStyle(
+                    platformStyle = PlatformTextStyle(
+                        includeFontPadding = false
+                    ),
+                    lineHeight = textSize,
+                    lineHeightStyle = LineHeightStyle(
+                        alignment = LineHeightStyle.Alignment.Center,
+                        trim = LineHeightStyle.Trim.Both
+                    )
+                ),
+                modifier = Modifier.wrapContentSize(Alignment.Center)
+            )
+        }
     }
 }

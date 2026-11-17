@@ -112,7 +112,11 @@ object WebViewAssetLruCache {
             KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url) ||
             lowerUrl.contains("/cdn-cgi/") || lowerUrl.contains("cloudflare") ||
             lowerUrl.contains("hcaptcha") || lowerUrl.contains("recaptcha") ||
-            lowerUrl.contains("arkose") ||
+            lowerUrl.contains("arkose") || lowerUrl.contains("geetest") ||
+            lowerUrl.contains("friendlycaptcha") || lowerUrl.contains("funcaptcha") ||
+            lowerUrl.contains("datadome") || lowerUrl.contains("captcha-delivery") ||
+            lowerUrl.contains("px-cdn") || lowerUrl.contains("turnstile") ||
+            lowerUrl.contains("challenge") || lowerUrl.contains("__cf_chl_") ||
             lowerUrl.contains("/login") || lowerUrl.contains("/auth") ||
             lowerUrl.contains("/oauth") || lowerUrl.contains("/token")
         ) {

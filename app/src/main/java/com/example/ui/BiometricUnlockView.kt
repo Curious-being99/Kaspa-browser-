@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -229,314 +231,294 @@ fun BiometricUnlockView(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 24.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.weight(1f, fill = false))
+            Spacer(modifier = Modifier.weight(1f, fill = true))
 
-            Box(
+            Column(
                 modifier = Modifier
                     .widthIn(max = 420.dp)
                     .fillMaxWidth(),
-                contentAlignment = Alignment.TopCenter
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Surface(
+                // Clean standalone Kazium Browser logo (no surrounding circle card or border)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
+                    contentDescription = "Kazium Browser logo",
                     modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    text = "Kazium Locked",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Verify your identity to access open tabs, bookmarks, and saved sessions.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.widthIn(max = 320.dp)
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Explicit separation policy badge
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = KaspaTea.copy(alpha = 0.09f),
+                    border = BorderStroke(0.75.dp, KaspaTea.copy(alpha = 0.30f)),
+                    modifier = Modifier
+                        .widthIn(max = 360.dp)
                         .fillMaxWidth()
-                        .padding(top = 34.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    color = SurfaceCard.copy(alpha = 0.92f),
-                    border = BorderStroke(1.dp, SurfaceCardBorder)
+                        .testTag("biometric_unlock_separation_notice")
                 ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = "Wallet signing stays separate",
+                            tint = KaspaTea,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = "Browser unlock never approves payments. Wallet transactions still ask for authentication every time.",
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            color = TextPrimary.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+
+                if (errorMessage != null || infoMessage != null) {
                     Column(
                         modifier = Modifier
+                            .widthIn(max = 360.dp)
                             .fillMaxWidth()
-                            .padding(start = 22.dp, end = 22.dp, top = 50.dp, bottom = 22.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(top = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = "Kazium Locked",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = "Verify your identity to access open tabs, bookmarks, and saved sessions.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 19.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        // Explicit separation policy badge
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = KaspaTea.copy(alpha = 0.10f),
-                            border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.35f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("biometric_unlock_separation_notice")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Shield,
-                                    contentDescription = "Wallet signing stays separate",
-                                    tint = KaspaTea,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = "Browser unlock never approves payments. Wallet transactions still ask for authentication every time.",
-                                    fontSize = 11.sp,
-                                    lineHeight = 15.sp,
-                                    color = TextPrimary
-                                )
-                            }
-                        }
-
-                        if (errorMessage != null || infoMessage != null) {
-                            Column(
+                        errorMessage?.let { err ->
+                            Surface(
+                                color = RedTamper.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.45f)),
+                                shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                errorMessage?.let { err ->
-                                    Surface(
-                                        color = RedTamper.copy(alpha = 0.12f),
-                                        border = BorderStroke(1.dp, RedTamper.copy(alpha = 0.45f)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .testTag("browser_lock_error_banner")
-                                    ) {
-                                        Text(
-                                            text = err,
-                                            color = RedTamper,
-                                            fontSize = 12.sp,
-                                            lineHeight = 16.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(8.dp)
-                                        )
-                                    }
-                                }
-                                infoMessage?.let { info ->
-                                    Surface(
-                                        color = AmberCentral.copy(alpha = 0.12f),
-                                        border = BorderStroke(1.dp, AmberCentral.copy(alpha = 0.45f)),
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = info,
-                                            color = TextPrimary,
-                                            fontSize = 11.5.sp,
-                                            lineHeight = 16.sp,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(8.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (hasCustomPassword && onVerifyPassword != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            OutlinedTextField(
-                                value = passwordInput,
-                                onValueChange = {
-                                    passwordInput = it
-                                    errorMessage = null
-                                },
-                                label = { Text("Browser lock password") },
-                                singleLine = true,
-                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Password,
-                                    imeAction = ImeAction.Done
-                                ),
-                                keyboardActions = KeyboardActions(
-                                    onDone = {
-                                        if (onVerifyPassword(passwordInput)) {
-                                            errorMessage = null
-                                            onUnlockSucceeded()
-                                        } else {
-                                            errorMessage = "Incorrect browser lock password."
-                                        }
-                                    }
-                                ),
-                                trailingIcon = {
-                                    IconButton(
-                                        onClick = { passwordVisible = !passwordVisible },
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                            contentDescription = if (passwordVisible) "Hide password" else "Show password",
-                                            tint = TextSecondary
-                                        )
-                                    }
-                                },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = ElectricCyan,
-                                    unfocusedBorderColor = SurfaceCardBorder,
-                                    focusedTextColor = TextPrimary,
-                                    unfocusedTextColor = TextPrimary,
-                                    focusedLabelColor = ElectricCyan,
-                                    unfocusedLabelColor = TextMuted
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("browser_lock_password_input")
-                            )
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Button(
-                                onClick = {
-                                    if (onVerifyPassword(passwordInput)) {
-                                        errorMessage = null
-                                        onUnlockSucceeded()
-                                    } else {
-                                        errorMessage = "Incorrect browser lock password."
-                                    }
-                                },
-                                enabled = passwordInput.isNotBlank(),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ElectricCyan,
-                                    contentColor = ObsidianBg
-                                ),
-                                contentPadding = PaddingValues(vertical = 12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 48.dp)
-                                    .testTag("browser_lock_password_submit")
+                                    .testTag("browser_lock_error_banner")
                             ) {
                                 Text(
-                                    text = "Unlock with Password",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-                        } else {
-                            Spacer(modifier = Modifier.height(16.dp))
-                        }
-
-                        // Primary Biometric / Device Credential Unlock Button
-                        val biometricModifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .testTag("browser_lock_biometric_button")
-
-                        if (hasCustomPassword && onVerifyPassword != null) {
-                            OutlinedButton(
-                                onClick = { launchSystemBiometricPrompt(isRecoveryMode = false) },
-                                enabled = !isPromptActive,
-                                shape = RoundedCornerShape(14.dp),
-                                border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.7f)),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldMesh),
-                                contentPadding = PaddingValues(vertical = 12.dp, horizontal = 16.dp),
-                                modifier = biometricModifier
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fingerprint,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (isPromptActive) "Waiting for Biometrics…" else "Use Biometrics or Phone PIN",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = { launchSystemBiometricPrompt(isRecoveryMode = false) },
-                                enabled = !isPromptActive,
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = ElectricCyan,
-                                    contentColor = ObsidianBg
-                                ),
-                                contentPadding = PaddingValues(vertical = 12.dp, horizontal = 16.dp),
-                                modifier = biometricModifier
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fingerprint,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (isPromptActive) "Authenticating…" else "Unlock with Biometrics / Phone PIN",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
+                                    text = err,
+                                    color = RedTamper,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(10.dp)
                                 )
                             }
                         }
-
-                        if (hasCustomPassword) {
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            TextButton(
-                                onClick = {
-                                    showForgotNotice = true
-                                    infoMessage = "Recovering via your phone's lock keeps your wallet and recovery phrase intact."
-                                    launchSystemBiometricPrompt(isRecoveryMode = true)
-                                },
-                                modifier = Modifier
-                                    .heightIn(min = 48.dp)
-                                    .testTag("browser_lock_forgot_password_button")
+                        infoMessage?.let { info ->
+                            Surface(
+                                color = AmberCentral.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, AmberCentral.copy(alpha = 0.45f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "Forgot lock password? Use phone lock",
-                                    color = ElectricCyan,
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Medium
+                                    text = info,
+                                    color = TextPrimary,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(10.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                // Overlapping badge breaking top border edge for visual depth
-                Box(
-                    modifier = Modifier
-                        .size(68.dp)
-                        .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(ElectricCyan.copy(alpha = 0.25f), KaspaTea.copy(alpha = 0.25f))
-                            ),
-                            shape = CircleShape
-                        )
-                        .border(1.5.dp, ElectricCyan.copy(alpha = 0.65f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_kaspa_launch_square),
-                        contentDescription = "Kazium Browser logo",
-                        modifier = Modifier.size(42.dp),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                if (hasCustomPassword && onVerifyPassword != null) {
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = {
+                            passwordInput = it
+                            errorMessage = null
+                        },
+                        label = { Text("Browser lock password") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (onVerifyPassword(passwordInput)) {
+                                    errorMessage = null
+                                    onUnlockSucceeded()
+                                } else {
+                                    errorMessage = "Incorrect browser lock password."
+                                }
+                            }
+                        ),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = { passwordVisible = !passwordVisible },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                                    tint = TextSecondary
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ElectricCyan,
+                            unfocusedBorderColor = SurfaceCardBorder,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = ElectricCyan,
+                            unfocusedLabelColor = TextMuted
+                        ),
+                        modifier = Modifier
+                            .widthIn(max = 360.dp)
+                            .fillMaxWidth()
+                            .testTag("browser_lock_password_input")
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = {
+                            if (onVerifyPassword(passwordInput)) {
+                                errorMessage = null
+                                onUnlockSucceeded()
+                            } else {
+                                errorMessage = "Incorrect browser lock password."
+                            }
+                        },
+                        enabled = passwordInput.isNotBlank(),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElectricCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        contentPadding = PaddingValues(horizontal = 26.dp, vertical = 11.dp),
+                        modifier = Modifier
+                            .wrapContentWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("browser_lock_password_submit")
+                    ) {
+                        Text(
+                            text = "Unlock with Password",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(28.dp))
+                }
+
+                // Compact, curved pill Biometric / Device Credential Unlock Button
+                val biometricModifier = Modifier
+                    .wrapContentWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("browser_lock_biometric_button")
+
+                if (hasCustomPassword && onVerifyPassword != null) {
+                    OutlinedButton(
+                        onClick = { launchSystemBiometricPrompt(isRecoveryMode = false) },
+                        enabled = !isPromptActive,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.7f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = EmeraldMesh),
+                        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp),
+                        modifier = biometricModifier
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isPromptActive) "Waiting for Biometrics…" else "Use Biometrics or PIN",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = { launchSystemBiometricPrompt(isRecoveryMode = false) },
+                        enabled = !isPromptActive,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElectricCyan,
+                            contentColor = ObsidianBg
+                        ),
+                        contentPadding = PaddingValues(horizontal = 26.dp, vertical = 11.dp),
+                        modifier = biometricModifier
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isPromptActive) "Authenticating…" else "Tap to Unlock",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                if (hasCustomPassword) {
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = {
+                            showForgotNotice = true
+                            infoMessage = "Recovering via your phone's lock keeps your wallet and recovery phrase intact."
+                            launchSystemBiometricPrompt(isRecoveryMode = true)
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("browser_lock_forgot_password_button")
+                    ) {
+                        Text(
+                            text = "Forgot lock password? Use phone lock",
+                            color = ElectricCyan,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.weight(1f, fill = false))
+            Spacer(modifier = Modifier.weight(1f, fill = true))
         }
     }
 }

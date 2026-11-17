@@ -155,7 +155,10 @@ object KaspaWebViewConfigurator {
                             path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".webp") ||
                             path.endsWith(".gif") || path.endsWith(".svg") || path.endsWith(".mp3") ||
                             path.endsWith(".ogg") || path.endsWith(".wav") || path.endsWith(".mp4") ||
-                            path.endsWith(".webm")
+                            path.endsWith(".webm") || path.endsWith(".ktx") || path.endsWith(".ktx2") ||
+                            path.endsWith(".basis") || path.endsWith(".dds") || path.endsWith(".hdr") ||
+                            path.endsWith(".exr") || path.endsWith(".tga") || path.endsWith(".pvr") ||
+                            path.endsWith(".astc") || path.endsWith(".bin")
                         if (isAsset) {
                             return null
                         }
@@ -253,6 +256,11 @@ object KaspaWebViewConfigurator {
                 WebViewCompat.addDocumentStartJavaScript(
                     webView,
                     KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION,
+                    setOf("*")
+                )
+                WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    KaspaPrivacyEngine.getWebGlTextureStabilityScript(),
                     setOf("*")
                 )
                 WebViewCompat.addDocumentStartJavaScript(

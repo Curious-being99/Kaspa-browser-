@@ -647,5 +647,22 @@ class SecurityFixesVerificationTest {
         }
     }
 
+    @Test
+    fun webGlTextureStabilityGuardBindsHighUnitsAndExemptsChallenges() {
+        val privacy = com.example.network.KaspaPrivacyEngine
+        val webglScript = privacy.getWebGlTextureStabilityScript(safeGpuMode = true)
+        assertTrue("WebGL stability guard must initialize texture units 16..limit-1",
+            webglScript.contains("for (var u = 16; u < limit; u++)"))
+        assertTrue("WebGL stability guard must bind complete 1x1 2D and CubeMap placeholder textures",
+            webglScript.contains("TEXTURE_2D") && webglScript.contains("TEXTURE_CUBE_MAP") && webglScript.contains("texImage2D"))
+        assertTrue("WebGL stability guard must restore original ACTIVE_TEXTURE",
+            webglScript.contains("ctx.activeTexture(prevActive)"))
+        assertTrue("WebGL stability guard must exempt CAPTCHA/auth domains",
+            webglScript.contains("cloudflare.com") && webglScript.contains("/turnstile") && webglScript.contains("/recaptcha"))
+
+        val fullShield = privacy.getPrivacyShieldScript(safeGpuMode = true, isDesktop = false, baseUa = null)
+        assertTrue("getPrivacyShieldScript must include WebGL texture stability guard",
+            fullShield.contains("__kaspa_webgl_tex_guard"))
+    }
 }
 

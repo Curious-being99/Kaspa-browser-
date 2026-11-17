@@ -471,34 +471,39 @@ suspend fun fetchLatestKaspaFeeds(): List<KaspaNewsItem> = withContext(Dispatche
     )
 
     val list: MutableList<KaspaNewsItem> = coroutineScope {
-        val rssResults = feeds.map { (url, cat) ->
-            async(Dispatchers.IO) {
-                val feedItems = mutableListOf<KaspaNewsItem>()
-                try {
-                    val request = okhttp3.Request.Builder()
-                        .url(url)
-                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        val bodyStr = response.body?.string().orEmpty()
-                        if (response.isSuccessful && bodyStr.isNotBlank()) {
-                            feedItems.addAll(parseRssXml(bodyStr, cat))
-                        }
-                        val feedHost = request.url.host
-                        android.util.Log.d(
-                            "KaspaNews",
-                            "Feed result category=$cat host=$feedHost status=${response.code} bytes=${bodyStr.length} parsed=${feedItems.size}"
-                        )
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w(
-                        "KaspaNews",
-                        "Feed failure category=$cat url=$url type=${e.javaClass.simpleName} message=${e.message}"
-                    )
-                }
-                feedItems
+        val cookieJar = object : okhttp3.CookieJar {
+            private val cookieStore = java.util.concurrent.ConcurrentHashMap<String, List<okhttp3.Cookie>>()
+            override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                cookieStore[url.host] = cookies
             }
-        }.awaitAll().flatten().toMutableList()
+            override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                return cookieStore[url.host] ?: emptyList()
+            }
+        }
+        val resilientClient = client.newBuilder().cookieJar(cookieJar).build()
+
+        val rssResults = mutableListOf<KaspaNewsItem>()
+        for ((url, cat) in feeds) {
+            try {
+                val request = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; K) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Mobile Safari/537.36 KaziumFeedReader/1.0")
+                    .header("Accept", "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .build()
+                resilientClient.newCall(request).execute().use { response ->
+                    val bodyStr = response.body?.string().orEmpty()
+                    if (response.isSuccessful && bodyStr.isNotBlank() && (bodyStr.contains("<rss") || bodyStr.contains("<feed") || bodyStr.contains("<item") || bodyStr.contains("<entry>"))) {
+                        rssResults.addAll(parseRssXml(bodyStr, cat))
+                    } else {
+                        android.util.Log.w("KaspaNews", "Skipped feed response category=$cat status=${response.code} size=${bodyStr.length}")
+                    }
+                }
+                kotlinx.coroutines.delay(220L) // Stagger sequential feed hits to prevent Google bot-rate-limit
+            } catch (e: Exception) {
+                android.util.Log.w("KaspaNews", "Feed failure category=$cat url=$url message=${e.message}")
+            }
+        }
 
         val filtered = rssResults.filter { item ->
             val isUnavailable = item.title.contains("private video", ignoreCase = true) ||

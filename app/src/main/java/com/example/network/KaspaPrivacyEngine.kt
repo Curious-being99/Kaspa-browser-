@@ -866,9 +866,160 @@ object KaspaPrivacyEngine {
         }
     }
 
-    fun getPrivacyShieldScript(@Suppress("UNUSED_PARAMETER") safeGpuMode: Boolean = !isDrmRendernodeAvailable, isDesktop: Boolean = false, baseUa: String? = null): String {
+    /**
+     * Prevents Chromium gles2_cmd_decoder.cc "RENDER WARNING: there is no texture bound to the unit 16..31"
+     * errors when WebGL shaders declare sampler arrays beyond unit 15 or run texture-reset loops,
+     * while preserving native prototypes on CAPTCHA, auth, and anti-bot challenge domains.
+     */
+    fun getWebGlTextureStabilityScript(@Suppress("UNUSED_PARAMETER") safeGpuMode: Boolean = !isDrmRendernodeAvailable): String {
+        return """
+        (function() {
+            if (window.__kaspa_webgl_tex_guard) return;
+            window.__kaspa_webgl_tex_guard = true;
+            try {
+                var h = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+                var p = (window.location && window.location.pathname) ? window.location.pathname.toLowerCase() : '';
+                var q = (window.location && window.location.search) ? window.location.search.toLowerCase() : '';
+                if (h.indexOf('google.com') !== -1 || h.indexOf('gstatic.com') !== -1 ||
+                    h.indexOf('googleapis.com') !== -1 || h.indexOf('recaptcha.net') !== -1 ||
+                    h.indexOf('hcaptcha.com') !== -1 || h.indexOf('cloudflare.com') !== -1 ||
+                    h.indexOf('turnstile') !== -1 || h.indexOf('arkoselabs.com') !== -1 ||
+                    h.indexOf('octocaptcha.com') !== -1 || h.indexOf('geetest.com') !== -1 ||
+                    h.indexOf('friendlycaptcha.com') !== -1 || h.indexOf('funcaptcha.com') !== -1 ||
+                    h.indexOf('captcha-delivery.com') !== -1 || h.indexOf('stripe.com') !== -1 ||
+                    h.indexOf('paypal.com') !== -1 || h.indexOf('datadome') !== -1 ||
+                    h.indexOf('perimeterx') !== -1 || h.indexOf('auth0.com') !== -1 ||
+                    h.indexOf('okta.com') !== -1 || h.indexOf('appleid.apple.com') !== -1 ||
+                    h.indexOf('login.microsoftonline.com') !== -1 ||
+                    p.indexOf('/cdn-cgi/') !== -1 || p.indexOf('/recaptcha') !== -1 ||
+                    p.indexOf('/hcaptcha') !== -1 || p.indexOf('/turnstile') !== -1 ||
+                    q.indexOf('__cf_chl_') !== -1) {
+                    return;
+                }
+                if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
+                    document.getElementById('challenge-running') ||
+                    document.getElementById('challenge-form') ||
+                    document.querySelector('script[src*="/cdn-cgi/challenge-platform"], div.cf-turnstile')) {
+                    return;
+                }
+            } catch (_) {}
+
+            try {
+                var initializedContexts = typeof WeakSet === 'function' ? new WeakSet() : null;
+                function ensureHighTextureUnitsBound(ctx) {
+                    if (!ctx || typeof ctx.createTexture !== 'function') return ctx;
+                    if (initializedContexts && initializedContexts.has(ctx)) return ctx;
+                    if (ctx.__kaspaTexUnitsReady) return ctx;
+                    if (typeof ctx.isContextLost === 'function' && ctx.isContextLost()) return ctx;
+                    if (initializedContexts) {
+                        initializedContexts.add(ctx);
+                    } else {
+                        try { ctx.__kaspaTexUnitsReady = true; } catch (_) {}
+                    }
+                    var prevActive = null;
+                    try {
+                        var maxCombined = ctx.getParameter(ctx.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 16;
+                        var limit = Math.min(maxCombined, 32);
+                        if (limit <= 16) return ctx;
+
+                        prevActive = ctx.getParameter(ctx.ACTIVE_TEXTURE) || ctx.TEXTURE0;
+                        ctx.activeTexture(ctx.TEXTURE0 + (limit - 1));
+
+                        var px = new Uint8Array([0, 0, 0, 0]);
+                        var dummy2d = ctx.createTexture();
+                        if (dummy2d) {
+                            ctx.bindTexture(ctx.TEXTURE_2D, dummy2d);
+                            ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.NEAREST);
+                            ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.NEAREST);
+                            ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+                            ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+                            ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, 1, 1, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+                        }
+
+                        var dummyCube = ctx.createTexture();
+                        if (dummyCube) {
+                            ctx.bindTexture(ctx.TEXTURE_CUBE_MAP, dummyCube);
+                            ctx.texParameteri(ctx.TEXTURE_CUBE_MAP, ctx.TEXTURE_MIN_FILTER, ctx.NEAREST);
+                            ctx.texParameteri(ctx.TEXTURE_CUBE_MAP, ctx.TEXTURE_MAG_FILTER, ctx.NEAREST);
+                            ctx.texParameteri(ctx.TEXTURE_CUBE_MAP, ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE);
+                            ctx.texParameteri(ctx.TEXTURE_CUBE_MAP, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+                            for (var f = 0; f < 6; f++) {
+                                ctx.texImage2D(ctx.TEXTURE_CUBE_MAP_POSITIVE_X + f, 0, ctx.RGBA, 1, 1, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, px);
+                            }
+                        }
+
+                        for (var u = 16; u < limit; u++) {
+                            ctx.activeTexture(ctx.TEXTURE0 + u);
+                            if (dummy2d && !ctx.getParameter(ctx.TEXTURE_BINDING_2D)) {
+                                ctx.bindTexture(ctx.TEXTURE_2D, dummy2d);
+                            }
+                            if (dummyCube && !ctx.getParameter(ctx.TEXTURE_BINDING_CUBE_MAP)) {
+                                ctx.bindTexture(ctx.TEXTURE_CUBE_MAP, dummyCube);
+                            }
+                        }
+
+                        if (typeof ctx.bindTexture === 'function' && (dummy2d || dummyCube)) {
+                            var origBindTexture = ctx.bindTexture;
+                            ctx.bindTexture = function(target, texture) {
+                                if (texture == null) {
+                                    try {
+                                        var active = ctx.getParameter(ctx.ACTIVE_TEXTURE) - ctx.TEXTURE0;
+                                        if (active >= 16) {
+                                            if (target === ctx.TEXTURE_2D && dummy2d) {
+                                                return origBindTexture.call(this, target, dummy2d);
+                                            }
+                                            if (target === ctx.TEXTURE_CUBE_MAP && dummyCube) {
+                                                return origBindTexture.call(this, target, dummyCube);
+                                            }
+                                        }
+                                    } catch (_) {}
+                                }
+                                return origBindTexture.call(this, target, texture);
+                            };
+                        }
+                    } catch (_) {
+                    } finally {
+                        try {
+                            if (prevActive !== null) ctx.activeTexture(prevActive);
+                        } catch (_) {}
+                        try {
+                            if (typeof ctx.getError === 'function') ctx.getError();
+                        } catch (_) {}
+                    }
+                    return ctx;
+                }
+
+                function wrapProtoGetContext(proto) {
+                    if (!proto || typeof proto.getContext !== 'function' || proto.getContext.__kaspaWrapped) return;
+                    var origGetContext = proto.getContext;
+                    var wrapped = function(type) {
+                        var ctx = origGetContext.apply(this, arguments);
+                        try {
+                            if (ctx && typeof type === 'string' && type.toLowerCase().indexOf('webgl') !== -1) {
+                                ensureHighTextureUnitsBound(ctx);
+                            }
+                        } catch (_) {}
+                        return ctx;
+                    };
+                    try { wrapped.__kaspaWrapped = true; } catch (_) {}
+                    proto.getContext = wrapped;
+                }
+
+                if (typeof HTMLCanvasElement !== 'undefined') {
+                    wrapProtoGetContext(HTMLCanvasElement.prototype);
+                }
+                if (typeof OffscreenCanvas !== 'undefined') {
+                    wrapProtoGetContext(OffscreenCanvas.prototype);
+                }
+            } catch (_) {}
+        })();
+        """.trimIndent()
+    }
+
+    fun getPrivacyShieldScript(safeGpuMode: Boolean = !isDrmRendernodeAvailable, isDesktop: Boolean = false, baseUa: String? = null): String {
         val viewportScript = getDesktopViewportScript(isDesktop, baseUa)
-        return "$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript"
+        val webglScript = getWebGlTextureStabilityScript(safeGpuMode)
+        return "$JS_PRIVACY_SHIELD_INJECTION\n$viewportScript\n$webglScript"
     }
 
     /**

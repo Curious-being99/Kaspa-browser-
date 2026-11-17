@@ -504,6 +504,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var selectedTargetLanguage by remember { mutableStateOf("en") }
     var isPageTranslated by remember { mutableStateOf(false) }
     var isTranslating by remember { mutableStateOf(false) }
+    var preGatewayOriginalUrl by remember { mutableStateOf<String?>(null) }
+    var activeTranslationJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val translatorScope = rememberCoroutineScope()
 
     var jsAlertMessage by remember { mutableStateOf<String?>(null) }
     var jsAlertResult by remember { mutableStateOf<android.webkit.JsResult?>(null) }
@@ -840,57 +843,21 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         }
     }
 
-    fun revertPageTranslation() {
-        val targetWebView = webViewInstance
-        if (targetWebView == null) {
-            isPageTranslated = false
-            isTranslating = false
-            viewModel.setStatusMessage("Cannot restore translation: no active webpage")
-            return
-        }
-
-        isTranslating = true
-        targetWebView.evaluateJavascript(
-            """
-            (function() {
-                try {
-                    var combo = document.querySelector('.goog-te-combo');
-                    if (combo) {
-                        combo.value = '';
-                        combo.dispatchEvent(new Event('change', { bubbles: true }));
-                        return 'restore-requested';
-                    }
-                    return 'not-translated';
-                } catch (e) {
-                    return 'restore-failed';
-                }
-            })();
-            """.trimIndent()
-        ) { result ->
-            isTranslating = false
-            when (result?.trim('"')) {
-                "restore-requested", "not-translated" -> {
-                    isPageTranslated = false
-                    viewModel.setStatusMessage("Original language restore requested")
-                }
-                else -> {
-                    viewModel.setStatusMessage("Could not restore the original language; the page was not redirected")
-                }
-            }
-        }
-    }
-
-    fun executeInPageTranslation(targetLang: String) {
+    fun executeGatewayTranslation(targetLang: String) {
+        activeTranslationJob?.cancel()
+        activeTranslationJob = null
         val targetWebView = webViewInstance
         if (targetWebView == null) {
             isTranslating = false
-            viewModel.setStatusMessage("Translation unavailable: no active webpage")
+            viewModel.setStatusMessage("Open a website first to translate it")
             return
         }
 
-        val pageUrl = targetWebView.url.orEmpty()
-        if (!pageUrl.startsWith("https://", ignoreCase = true) &&
-            !pageUrl.startsWith("http://", ignoreCase = true)
+        val currentUrl = targetWebView.url?.takeIf {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        } ?: urlInput
+        if (!currentUrl.startsWith("https://", ignoreCase = true) &&
+            !currentUrl.startsWith("http://", ignoreCase = true)
         ) {
             isTranslating = false
             viewModel.setStatusMessage("Translate Page works only on HTTP or HTTPS websites")
@@ -906,8 +873,102 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             return
         }
 
-        val safeLang = language.code.filter { it.isLetter() || it == '-' }
-        if (safeLang.isBlank()) {
+        val originalUrl = preGatewayOriginalUrl
+            ?: com.example.util.WebPageTranslator.extractOriginalFromGatewayUrl(currentUrl)
+            ?: currentUrl
+        val gatewayUrl = com.example.util.WebPageTranslator.buildGatewayTranslateUrl(originalUrl, language.code)
+        if (gatewayUrl == null) {
+            isTranslating = false
+            viewModel.setStatusMessage("Gateway translation unavailable for this URL")
+            return
+        }
+
+        preGatewayOriginalUrl = originalUrl
+        selectedTargetLanguage = language.code
+        isTranslating = false
+        isPageTranslated = true
+        viewModel.setStatusMessage("Loading Gateway translation (${language.name})...")
+        targetWebView.loadUrl(gatewayUrl)
+    }
+
+    fun revertPageTranslation() {
+        activeTranslationJob?.cancel()
+        activeTranslationJob = null
+        val targetWebView = webViewInstance
+        if (targetWebView == null) {
+            isPageTranslated = false
+            isTranslating = false
+            preGatewayOriginalUrl = null
+            viewModel.setStatusMessage("Cannot restore translation: no active webpage")
+            return
+        }
+
+        val currentUrl = targetWebView.url.orEmpty()
+        val gatewayOrig = preGatewayOriginalUrl
+            ?: com.example.util.WebPageTranslator.extractOriginalFromGatewayUrl(currentUrl)
+        if (com.example.util.WebPageTranslator.isGatewayTranslateUrl(currentUrl) && !gatewayOrig.isNullOrBlank()) {
+            preGatewayOriginalUrl = null
+            isPageTranslated = false
+            isTranslating = false
+            viewModel.setStatusMessage("Restoring original webpage...")
+            targetWebView.loadUrl(gatewayOrig)
+            return
+        }
+
+        isTranslating = true
+        targetWebView.evaluateJavascript(com.example.util.WebPageTranslator.JS_RESTORE_ORIGINALS) { result ->
+            isTranslating = false
+            preGatewayOriginalUrl = null
+            when (result?.trim('"')) {
+                "restore-requested", "not-translated" -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage("Original page language restored")
+                }
+                else -> {
+                    isPageTranslated = false
+                    viewModel.setStatusMessage("Could not restore original text; try refreshing the page")
+                }
+            }
+        }
+    }
+
+    fun executeInPageTranslation(targetLang: String) {
+        activeTranslationJob?.cancel()
+        activeTranslationJob = null
+        val targetWebView = webViewInstance
+        if (targetWebView == null) {
+            isTranslating = false
+            viewModel.setStatusMessage("Open a website first to translate it")
+            return
+        }
+
+        val effectiveUrl = targetWebView.url?.takeIf {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+        } ?: urlInput
+        if (!effectiveUrl.startsWith("https://", ignoreCase = true) &&
+            !effectiveUrl.startsWith("http://", ignoreCase = true)
+        ) {
+            isTranslating = false
+            viewModel.setStatusMessage("Translate Page works only on HTTP or HTTPS websites")
+            return
+        }
+
+        if (com.example.util.WebPageTranslator.isGatewayTranslateUrl(effectiveUrl)) {
+            executeGatewayTranslation(targetLang)
+            return
+        }
+
+        val language = SupportedLanguage.ALL.firstOrNull {
+            it.code.equals(targetLang, ignoreCase = true)
+        }
+        if (language == null) {
+            isTranslating = false
+            viewModel.setStatusMessage("Unsupported translation language")
+            return
+        }
+
+        val safeLang = com.example.util.WebPageTranslator.normalizeLanguageCode(language.code)
+        if (safeLang == null) {
             isTranslating = false
             viewModel.setStatusMessage("Unsupported translation language")
             return
@@ -915,111 +976,62 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
         isTranslating = true
         selectedTargetLanguage = language.code
-        viewModel.setStatusMessage("Requesting in-page translation to ${language.name}...")
+        viewModel.setStatusMessage("Translating page to ${language.name}...")
 
-        val script = """
-            (function() {
+        targetWebView.evaluateJavascript(com.example.util.WebPageTranslator.JS_EXTRACT_TEXT_NODES) { rawResult ->
+            val extracted = com.example.util.WebPageTranslator.parseExtractedPageText(rawResult)
+            if (!extracted.ok || extracted.texts.isEmpty()) {
+                isTranslating = false
+                isPageTranslated = false
+                viewModel.setStatusMessage("No translatable text detected on this page")
+                return@evaluateJavascript
+            }
+
+            activeTranslationJob = translatorScope.launch {
                 try {
-                    if (!document.body) return 'no-document';
-                    var target = '$safeLang';
-                    var applyTarget = function() {
-                        var combo = document.querySelector('.goog-te-combo');
-                        if (!combo) return false;
-                        combo.value = target;
-                        combo.dispatchEvent(new Event('change', { bubbles: true }));
-                        return true;
-                    };
-                    if (applyTarget()) return 'requested';
-                    if (window.__kaspaTranslateLoading) {
-                        window.__kaspaTranslateTarget = target;
-                        return 'loading';
-                    }
-                    if (document.getElementById('kaspa-translate-script')) {
-                        return 'unavailable';
-                    }
-                    window.__kaspaTranslateTarget = target;
-                    window.__kaspaTranslateLoading = true;
-                    window.kaspaTranslateInitCallback = function() {
-                        try {
-                            new google.translate.TranslateElement({
-                                pageLanguage: 'auto',
-                                layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                                autoDisplay: false
-                            }, 'kaspa_translate_element');
-                            var attempts = 0;
-                            var applyWhenReady = function() {
-                                var combo = document.querySelector('.goog-te-combo');
-                                if (combo) {
-                                    combo.value = window.__kaspaTranslateTarget || target;
-                                    combo.dispatchEvent(new Event('change', { bubbles: true }));
-                                    window.__kaspaTranslateLoading = false;
-                                    return;
-                                }
-                                if (++attempts < 20) {
-                                    window.setTimeout(applyWhenReady, 250);
-                                } else {
-                                    window.__kaspaTranslateLoading = false;
-                                    window.__kaspaTranslateFailed = true;
-                                }
-                            };
-                            applyWhenReady();
-                        } catch (e) {
-                            window.__kaspaTranslateLoading = false;
-                            window.__kaspaTranslateFailed = true;
-                        }
-                    };
-                    var holder = document.createElement('div');
-                    holder.id = 'kaspa_translate_element';
-                    holder.style.position = 'fixed';
-                    holder.style.left = '-10000px';
-                    holder.style.top = '0';
-                    holder.style.width = '1px';
-                    holder.style.height = '1px';
-                    holder.style.overflow = 'hidden';
-                    holder.setAttribute('aria-hidden', 'true');
-                    document.body.appendChild(holder);
-                    var script = document.createElement('script');
-                    script.id = 'kaspa-translate-script';
-                    script.type = 'text/javascript';
-                    script.src = 'https://translate.google.com/translate_a/element.js?cb=kaspaTranslateInitCallback';
-                    script.onerror = function() {
-                        window.__kaspaTranslateLoading = false;
-                        window.__kaspaTranslateFailed = true;
-                    };
-                    document.body.appendChild(script);
-                    return 'loading';
-                } catch (e) {
-                    return 'error';
-                }
-            })();
-        """.trimIndent()
+                    val translationResult = com.example.util.WebPageTranslator.translateStrings(
+                        strings = extracted.texts,
+                        targetLang = safeLang
+                    )
+                    if (!isActive) return@launch
 
-        targetWebView.evaluateJavascript(script) { rawResult ->
-            isTranslating = false
-            when (rawResult?.trim('"')) {
-                "requested" -> {
-                    isPageTranslated = false
-                    viewModel.setStatusMessage(
-                        "Translation request sent for ${language.name}. The page may take time to update; success is not confirmed yet."
+                    if (translationResult.translations.isEmpty()) {
+                        isTranslating = false
+                        isPageTranslated = false
+                        val errorMsg = if (translationResult.unsupportedLanguage) {
+                            "${language.name} is not supported by the translation server"
+                        } else {
+                            "Translation service unreachable — check your connection"
+                        }
+                        viewModel.setStatusMessage(errorMsg)
+                        return@launch
+                    }
+
+                    if (webViewInstance !== targetWebView) {
+                        isTranslating = false
+                        return@launch
+                    }
+
+                    val applyScript = com.example.util.WebPageTranslator.buildApplyTranslationsScript(
+                        translationResult.translations
                     )
-                }
-                "loading" -> {
+                    targetWebView.evaluateJavascript(applyScript) { appliedRaw ->
+                        isTranslating = false
+                        val appliedCount = appliedRaw?.trim()?.toIntOrNull() ?: 0
+                        if (appliedCount > 0) {
+                            isPageTranslated = true
+                            viewModel.setStatusMessage("Page translated to ${language.name}")
+                        } else {
+                            isPageTranslated = false
+                            viewModel.setStatusMessage("Could not apply translation on this page")
+                        }
+                    }
+                } catch (ce: kotlinx.coroutines.CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    isTranslating = false
                     isPageTranslated = false
-                    viewModel.setStatusMessage(
-                        "Loading the translation service. The original page remains open; translation is not confirmed yet."
-                    )
-                }
-                "no-document" -> {
-                    isPageTranslated = false
-                    viewModel.setStatusMessage("Translation unavailable: page is not ready")
-                }
-                "unavailable", "error", "null" -> {
-                    isPageTranslated = false
-                    viewModel.setStatusMessage("Translation could not start. The page was not redirected.")
-                }
-                else -> {
-                    isPageTranslated = false
-                    viewModel.setStatusMessage("Translation status could not be confirmed. The page was not redirected.")
+                    viewModel.setStatusMessage("Unable to translate this page")
                 }
             }
         }
@@ -1027,6 +1039,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     LaunchedEffect(currentResource) {
         if (currentResource == null) {
+            activeTranslationJob?.cancel()
+            activeTranslationJob = null
+            isTranslating = false
+            isPageTranslated = false
+            preGatewayOriginalUrl = null
             try {
                 webViewInstance?.stopLoading()
             } catch (_: Exception) {}
@@ -1903,50 +1920,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
                         Spacer(modifier = Modifier.width(4.dp))
 
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    showTabSwitcher = true
-                                }
-                                .testTag("tab_switcher_square_button"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .border(1.5.dp, TextPrimary, RoundedCornerShape(5.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                val effectiveTabCount = if (tabs.isEmpty()) 1 else tabs.size
-                                val countText = if (effectiveTabCount > 99) "99+" else effectiveTabCount.toString()
-                                val textSize = when {
-                                    countText.length >= 3 -> 7.5.sp
-                                    countText.length == 2 -> 9.sp
-                                    else -> 10.5.sp
-                                }
-                                Text(
-                                    text = countText,
-                                    fontSize = textSize,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimary,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    style = androidx.compose.ui.text.TextStyle(
-                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
-                                            includeFontPadding = false
-                                        ),
-                                        lineHeight = textSize,
-                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
-                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
-                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both
-                                        )
-                                    ),
-                                    modifier = Modifier.wrapContentSize(Alignment.Center)
-                                )
-                            }
-                        }
+                        BrowserTabSwitcherButton(
+                            tabCount = if (tabs.isEmpty()) 1 else tabs.size,
+                            onClick = { showTabSwitcher = true },
+                            tint = TextPrimary,
+                            testTag = "tab_switcher_square_button"
+                        )
 
                         Spacer(modifier = Modifier.width(4.dp))
 
@@ -2286,22 +2265,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         }
                     )
                 }
-
-                // Page Translator Bar
-                PageTranslatorBar(
-                    isVisible = showTranslateBar,
-                    selectedTargetLanguage = selectedTargetLanguage,
-                    isTranslated = isPageTranslated,
-                    isTranslating = isTranslating,
-                    onSelectLanguage = { selectedTargetLanguage = it },
-                    onTranslate = { lang -> executeInPageTranslation(lang) },
-                    onRevert = { revertPageTranslation() },
-                    onWebGatewayTranslate = { lang -> executeInPageTranslation(lang) },
-                    onClose = {
-                        showTranslateBar = false
-                        isTranslating = false
-                    }
-                )
 
                 // Reader Mode Active Header Controls
                 AnimatedVisibility(
@@ -3221,6 +3184,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     hasMainPageFinished = false
                                     isWebLoading = true
                                     webProgress = 0.15f
+                                    if (url != null && !url.startsWith("data:") && !com.example.util.WebPageTranslator.isGatewayTranslateUrl(url)) {
+                                        activeTranslationJob?.cancel()
+                                        activeTranslationJob = null
+                                        isTranslating = false
+                                        isPageTranslated = false
+                                        preGatewayOriginalUrl = null
+                                    }
                                     canGoBack = view?.canGoBack() == true
                                     canGoForward = view?.canGoForward() == true
                                     url?.let {
@@ -3507,8 +3477,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     lastCrashTimestamp = now
 
-                                    if (!previousUrl.isNullOrBlank() && previousUrl != "about:blank") {
+                                    if (rendererCrashCount < 3 && !previousUrl.isNullOrBlank() && previousUrl != "about:blank") {
                                         viewModel.resolveUrl(previousUrl)
+                                    } else if (rendererCrashCount >= 3) {
+                                        viewModel.setStatusMessage("Page renderer restarted after repeated crashes — tap Reload to retry")
                                     }
                                     webViewRecreateKey++
                                     return true
@@ -3577,7 +3549,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         path.endsWith(".mem") || path.endsWith(".atlas") || path.endsWith(".fnt") ||
                                         path.endsWith(".glb") || path.endsWith(".gltf") || path.endsWith(".obj") ||
                                         path.endsWith(".mtl") || path.endsWith(".glsl") || path.endsWith(".vert") ||
-                                        path.endsWith(".frag")
+                                        path.endsWith(".frag") || path.endsWith(".ktx") || path.endsWith(".ktx2") ||
+                                        path.endsWith(".basis") || path.endsWith(".dds") || path.endsWith(".hdr") ||
+                                        path.endsWith(".exr") || path.endsWith(".tga") || path.endsWith(".pvr") ||
+                                        path.endsWith(".astc") || path.endsWith(".bin")
 
                                     val acceptHeader = request.requestHeaders?.get("Accept")?.lowercase()
                                         ?: request.requestHeaders?.get("accept")?.lowercase()
@@ -4206,6 +4181,25 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     trackColor = Color.Transparent
                 )
             }
+
+            // Compact Floating Page Translator Bar (overlays top of viewport without pushing webpage down)
+            val isTopBarShown = !isStandalonePwaMode && (currentResource != null || isInputFocused)
+            PageTranslatorBar(
+                isVisible = showTranslateBar && !isOfflineArcade,
+                selectedTargetLanguage = selectedTargetLanguage,
+                isTranslated = isPageTranslated,
+                isTranslating = isTranslating,
+                onSelectLanguage = { selectedTargetLanguage = it },
+                onTranslate = { lang -> executeInPageTranslation(lang) },
+                onRevert = { revertPageTranslation() },
+                onClose = {
+                    showTranslateBar = false
+                    isTranslating = false
+                },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .then(if (!isTopBarShown) Modifier.statusBarsPadding() else Modifier)
+            )
 
             val recoveryEvent = pendingPasskeyRecovery
             if (recoveryEvent != null && !isInputFocused && !isReaderMode) {

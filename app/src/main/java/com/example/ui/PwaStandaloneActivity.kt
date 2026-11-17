@@ -837,7 +837,7 @@ fun PwaStandaloneScreen(
                                     Log.d("PWA", "[PWA] navigation started: $it")
                                 }
                                 val shieldScript = KaspaPrivacyEngine.getPrivacyShieldScript(
-                                    safeGpuMode = false,
+                                    safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable,
                                     isDesktop = isDesktopMode,
                                     baseUa = WebSettings.getDefaultUserAgent(ctx)
                                 )
@@ -929,7 +929,10 @@ fun PwaStandaloneScreen(
                                     path.endsWith(".data") || path.endsWith(".unityweb") || path.endsWith(".glb") ||
                                     path.endsWith(".gltf") || path.endsWith(".mp3") || path.endsWith(".ogg") ||
                                     path.endsWith(".opus") || path.endsWith(".wav") || path.endsWith(".mp4") ||
-                                    path.endsWith(".webm")
+                                    path.endsWith(".webm") || path.endsWith(".ktx") || path.endsWith(".ktx2") ||
+                                    path.endsWith(".basis") || path.endsWith(".dds") || path.endsWith(".hdr") ||
+                                    path.endsWith(".exr") || path.endsWith(".tga") || path.endsWith(".pvr") ||
+                                    path.endsWith(".astc") || path.endsWith(".bin")
                                 if (isAsset) {
                                     return null
                                 }

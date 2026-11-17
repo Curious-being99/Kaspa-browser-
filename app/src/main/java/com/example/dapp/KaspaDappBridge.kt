@@ -770,12 +770,12 @@ object KaspaDappBridge {
                                     val address = runCatching { scriptToAddress(out.scriptPublicKey, prefix) }.getOrNull()
                                     buildString {
                                         append("Output ${index + 1} — ${if (isChange) "Wallet change" else "External / contract output"} — $amount KAS")
-                                        if (!address.isNullOrBlank()) append("\\nrecipient=$address")
-                                        else append("\\nrecipient=unresolved locking script")
-                                        append("\\nscriptVersion=${out.scriptPublicKey.version}")
-                                        append("\\nscript=$script")
+                                        if (!address.isNullOrBlank()) append("\nrecipient=$address")
+                                        else append("\nrecipient=unresolved locking script")
+                                        append("\nscriptVersion=${out.scriptPublicKey.version}")
+                                        append("\nscript=$script")
                                     }
-                                }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
+                                }.joinToString("\n\n").ifBlank { "No transaction outputs found" }
                             } else {
                                 if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
                             }
