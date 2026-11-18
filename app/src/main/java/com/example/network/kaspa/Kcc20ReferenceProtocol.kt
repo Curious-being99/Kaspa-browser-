@@ -20,6 +20,7 @@ object Kcc20ReferenceProtocol {
     const val MAX_COMPUTE_MASS = 500_000L
     const val MAX_STORAGE_MASS = 500_000L
     const val MAX_TRANSIENT_MASS = 1_000_000L
+    const val SIGHASH_ALL = 0x01
 
     private val suffix = hexToBytes(Kcc20ArgentArtifact.SUFFIX_HEX)
     private val templatePrefix = byteArrayOf(0x6b)
@@ -118,6 +119,21 @@ object Kcc20ReferenceProtocol {
         digest.update(program, 0, program.size)
         digest.doFinal(hash, 0)
         return com.example.network.CryptoUtils.encodeKaspaAddress(hash, version = 0x08, prefix = networkPrefix)
+    }
+
+    private fun encodeSignedMagnitude(value: BigInteger): ByteArray {
+        val negative = value.signum() < 0
+        val magnitude = value.abs()
+        require(magnitude.bitLength() <= 63) { "KCC20 int8 signed-magnitude value exceeds 63 magnitude bits" }
+        val encoded = ByteArray(8)
+        val bigEndian = magnitude.toByteArray().let {
+            if (it.size > 1 && it[0] == 0.toByte()) it.copyOfRange(1, it.size) else it
+        }
+        for (index in bigEndian.indices) {
+            encoded[index] = bigEndian[bigEndian.lastIndex - index]
+        }
+        if (negative) encoded[7] = (encoded[7].toInt() or 0x80).toByte()
+        return encoded
     }
 
     private fun decodeSignedMagnitude(raw: ByteArray): BigInteger {
