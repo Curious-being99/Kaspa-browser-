@@ -3032,7 +3032,7 @@ class DecentralViewModel(
             )
 
             val walletUtxos = nodeUtxos
-                .filter { it.covenantId == null && it.scriptPublicKeyVersion == 0 && it.scriptPublicKeyHex.equals(
+                .filter { !it.isCoinbase && it.covenantId == null && it.scriptPublicKeyVersion == 0 && it.scriptPublicKeyHex.equals(
                     KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress).script,
                     ignoreCase = true
                 ) }
