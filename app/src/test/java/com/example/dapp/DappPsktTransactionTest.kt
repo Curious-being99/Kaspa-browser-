@@ -21,6 +21,18 @@ class DappPsktTransactionTest {
     private val publicKeyHex = CryptoUtils.to32ByteArray(CryptoUtils.pointMultiply(privateKey).x)
         .joinToString("") { "%02x".format(it) }
 
+    private fun referenceKcc20Program(amount: Long): String =
+        com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(
+            com.example.network.kaspa.Kcc20ReferenceProtocol.State(
+                amount = BigInteger.valueOf(amount),
+                owner = CryptoUtils.hexToBytes(publicKeyHex),
+                ownerScheme = 0x00,
+                borrowScheme = 0x00,
+                borrowGuard = ByteArray(32),
+                extensionCommitment = ByteArray(32)
+            )
+        ).joinToString("") { "%02x".format(it) }
+
     private fun transactionJson(nested: Boolean = false, covenantSigScript: String = "51"): String {
         val userScript = "20" + publicKeyHex + "ac"
         val covenantScript = "aa20" + "11".repeat(32) + "87"
@@ -537,13 +549,8 @@ class DappPsktTransactionTest {
 
     @Test
     fun braidSwapKcc20SwapAutoResolvesRedeemScriptFromCacheAndSignsSuccessfully() {
-        // Construct a realistic KCC-20 covenant note redeem script containing the user's public key
-        // Format: <covenant header/state> + 20<publicKeyHex> + <covenant validator tail>
-        val covenantPrefix = "6b20" + "ee".repeat(32)
-        val userPubkeyPush = "20" + publicKeyHex
-        val covenantTail = "8876a914" + "aa".repeat(20) + "88ac"
-        val covenantRedeemScript = (covenantPrefix + userPubkeyPush + covenantTail).lowercase()
-        assertTrue(covenantRedeemScript.length >= 68)
+        val covenantRedeemScript = referenceKcc20Program(100L)
+        assertEquals(com.example.network.kaspa.Kcc20ReferenceProtocol.PROGRAM_SIZE * 2, covenantRedeemScript.length)
 
         // Calculate P2SH hash for the covenant note UTXO
         val p2shHash = CryptoUtils.blake2b256(
@@ -620,7 +627,7 @@ class DappPsktTransactionTest {
 
     @Test
     fun signsKcc20CovenantNoteWithExplicitRedeemScriptProvidedByDapp() {
-        val covenantRedeemScript = ("6b20" + "ff".repeat(32) + "20" + publicKeyHex + "5152ac").lowercase()
+        val covenantRedeemScript = referenceKcc20Program(100L)
         val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(covenantRedeemScript))
             .joinToString("") { "%02x".format(it) }
 
