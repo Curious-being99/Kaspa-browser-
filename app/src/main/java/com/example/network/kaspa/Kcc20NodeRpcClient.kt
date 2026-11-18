@@ -73,9 +73,12 @@ class Kcc20NodeRpcClient(
                 ?: throw IllegalStateException("Node getUtxosByAddresses response has no entries array")
             (0 until entries.length()).map { index ->
                 val wrapper = entries.getJSONObject(index)
-                val entry = wrapper.optJSONObject("utxoEntry")
-                    ?: wrapper.optJSONObject("entry")
-                    ?: wrapper
+                val nestedEntry = wrapper.optJSONObject("utxoEntry") ?: wrapper.optJSONObject("entry")
+                val entry = nestedEntry ?: if (wrapper.has("utxoEntry") || wrapper.has("entry")) {
+                    continue
+                } else {
+                    wrapper
+                }
                 val outpoint = wrapper.optJSONObject("outpoint")
                     ?: entry.optJSONObject("outpoint")
                     ?: throw IllegalStateException("Node UTXO is missing its outpoint")
