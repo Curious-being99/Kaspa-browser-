@@ -60,10 +60,6 @@ object Kcc20RustyKaspaEngine {
         )
     }
 
-    private fun legacyAssemblerPlaceholder(): Unit {
-        error("Unreachable")
-    }
-
     fun planReferenceTransfer(
         cells: List<Kcc20ReferenceCellVerifier.VerifiedCell>,
         covenantId: String,
