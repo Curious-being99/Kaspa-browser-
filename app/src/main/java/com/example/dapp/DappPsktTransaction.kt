@@ -352,28 +352,35 @@ internal object DappPsktTransaction {
         data class Totals(var inputs: BigInteger = BigInteger.ZERO, var outputs: BigInteger = BigInteger.ZERO)
         val totals = sortedMapOf<String, Totals>()
         prepared.utxoEntries.forEachIndexed { index, utxo ->
+            val script = utxo.scriptPublicKey.script.replace(" ", "").lowercase()
+            if (utxo.scriptPublicKey.version != 0 || !script.matches(Regex("aa20[0-9a-f]{64}87"))) return@forEachIndexed
             val covenantId = utxo.covenantId?.trim()?.lowercase()
-                ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: return@forEachIndexed
+                ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                ?: throw IllegalArgumentException("KCC20 approval input $index has no verified covenant ID")
             val programHex = prepared.inputRedeemScripts.getOrNull(index).orEmpty()
-            if (programHex.isBlank()) return@forEachIndexed
-            val state = runCatching {
-                Kcc20ReferenceProtocol.verifyProgram(Kcc20ReferenceProtocol.decodeHex(programHex))
-            }.getOrNull() ?: return@forEachIndexed
+            require(programHex.isNotBlank()) { "KCC20 approval input $index has no verified state program" }
+            val state = Kcc20ReferenceProtocol.verifyProgram(Kcc20ReferenceProtocol.decodeHex(programHex))
+            require(Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(Kcc20ReferenceProtocol.decodeHex(programHex))).equals(script, ignoreCase = true)) {
+                "KCC20 approval input $index state program does not match its P2SH locking script"
+            }
             val amounts = totals.getOrPut(covenantId) { Totals() }
             amounts.inputs = amounts.inputs.add(state.amount)
         }
         prepared.transaction.outputs.forEachIndexed { index, output ->
             val binding = output.covenant ?: return@forEachIndexed
             val covenantId = binding.covenantId.trim().lowercase()
-                .takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: return@forEachIndexed
+            require(covenantId.matches(Regex("[0-9a-f]{64}"))) { "KCC20 approval output $index has a malformed covenant ID" }
             val programHex = prepared.outputRedeemScripts.getOrNull(index).orEmpty()
-            if (programHex.isBlank()) return@forEachIndexed
-            val state = runCatching {
-                Kcc20ReferenceProtocol.verifyProgram(Kcc20ReferenceProtocol.decodeHex(programHex))
-            }.getOrNull() ?: return@forEachIndexed
+            require(programHex.isNotBlank()) { "KCC20 approval output $index has no verified state program" }
+            val program = Kcc20ReferenceProtocol.decodeHex(programHex)
+            val state = Kcc20ReferenceProtocol.verifyProgram(program)
+            require(Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program)).equals(output.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)) {
+                "KCC20 approval output $index state program does not match its P2SH locking script"
+            }
             val amounts = totals.getOrPut(covenantId) { Totals() }
             amounts.outputs = amounts.outputs.add(state.amount)
         }
+        require(totals.isNotEmpty()) { "KCC20 approval has no verifiable token covenant states" }
         return totals.entries.joinToString("\\n\\n") { (covenantId, amounts) ->
             val metadata = Kcc20NoteScanner.KNOWN_TOKENS[covenantId]
             val trustedMetadata = metadata?.let {
