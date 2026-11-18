@@ -222,7 +222,7 @@ class Kcc20NodeRpcClient(
             }
         )
         try {
-            if (!latch.await(20, TimeUnit.SECONDS)) {
+            if (!latch.await(45, TimeUnit.SECONDS)) {
                 socket.cancel()
                 throw java.net.SocketTimeoutException("Kaspa node RPC $method timed out")
             }
