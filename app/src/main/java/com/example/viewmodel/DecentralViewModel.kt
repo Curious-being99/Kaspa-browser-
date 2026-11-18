@@ -2975,6 +2975,8 @@ class DecentralViewModel(
         }
 
         try {
+            val expectedNodeNetwork = if (isMainnet) "mainnet" else "testnet-10"
+            kcc20NodeRpcClient.requireNetwork(endpoint, expectedNodeNetwork)
             val candidateResult = kcc20Service.fetchReferenceCellCandidates(
                 contractId = family,
                 publicKeyHex = keyPair.publicKeyHex,
