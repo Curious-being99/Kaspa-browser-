@@ -175,7 +175,6 @@ tasks.register<Exec>("cargoBuildKcc20Engine") {
   commandLine(
     "cargo", "ndk",
     "-t", "arm64-v8a",
-    "-t", "x86_64",
     "-o", file("$buildDir/rustJniLibs").absolutePath,
     "build",
     "--release"
