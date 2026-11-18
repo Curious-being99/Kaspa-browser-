@@ -671,7 +671,11 @@ object KaspaDappBridge {
                                                         provisional,
                                                         keyPair.privateKey
                                                     )
-                                                    val signedPrepared = DappPsktTransaction.inspectForSubmission(provisionalSigned)
+                                                    val assembledSigned = DappPsktTransaction.assembleReferenceCovenantWitnesses(
+                                                        provisionalSigned,
+                                                        prepared
+                                                    )
+                                                    val signedPrepared = DappPsktTransaction.inspectForSubmission(assembledSigned)
                                                     val measured = kotlinx.coroutines.runBlocking {
                                                         viewModel.measureDappCovenantPsktComputeBudgets(
                                                             transaction = signedPrepared.transaction,
@@ -680,7 +684,7 @@ object KaspaDappBridge {
                                                         )
                                                     }
                                                     val signedWithBudgets = DappPsktTransaction.applyMeasuredComputeBudgets(
-                                                        provisionalSigned,
+                                                        assembledSigned,
                                                         measured.inputs.map { it.computeBudget }
                                                     )
                                                     val finalPrepared = DappPsktTransaction.inspectForSubmission(signedWithBudgets)
