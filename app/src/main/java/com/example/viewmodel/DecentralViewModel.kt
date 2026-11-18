@@ -3053,6 +3053,35 @@ class DecentralViewModel(
         require(validation.computeMass >= 0L && validation.transientMass >= 0L && validation.storageMass != null) {
             "Rusty-Kaspa did not return complete contextual mass results"
         }
+        require(
+            validation.computeMass <= Kcc20ReferenceProtocol.MAX_COMPUTE_MASS &&
+                validation.transientMass <= Kcc20ReferenceProtocol.MAX_TRANSIENT_MASS &&
+                validation.storageMass!! <= Kcc20ReferenceProtocol.MAX_STORAGE_MASS
+        ) { "Rusty-Kaspa v1 mass exceeds the KCC20 guide's standard transaction limits" }
+        require(transaction.mass == validation.storageMass) {
+            "PSKT mass does not match the Rusty-Kaspa contextual storage mass"
+        }
+        val totalInputSompi = spentUtxos.fold(0L) { total, utxo ->
+            Math.addExact(total, utxo.amount)
+        }
+        val totalOutputSompi = transaction.outputs.fold(0L) { total, output ->
+            Math.addExact(total, output.amount)
+        }
+        require(totalInputSompi >= totalOutputSompi) { "PSKT outputs exceed its node-confirmed inputs" }
+        val actualFeeSompi = totalInputSompi - totalOutputSompi
+        val isTestnet = _selectedNetwork.value.contains("Testnet", ignoreCase = true)
+        val feeRate = maxOf(
+            walletService.fetchNetworkFeeEstimate(isTestnet = isTestnet).normalFeerate,
+            KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM
+        )
+        val feeMass = maxOf(validation.computeMass, (validation.transientMass + 1L) / 2L)
+        val requiredFeeSompi = maxOf(
+            KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS,
+            Math.multiplyExact(feeMass, feeRate)
+        )
+        require(actualFeeSompi >= requiredFeeSompi) {
+            "PSKT fee is below the Rusty-Kaspa v2.1.0 mass-based minimum"
+        }
         validation
     }
 
