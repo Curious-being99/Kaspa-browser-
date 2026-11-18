@@ -79,6 +79,37 @@ fun DappsScreen(
             modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, SurfaceCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("KCC20 verification node", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        "Connect your own Rusty-Kaspa v2.1.0 node over WebSocket RPC. KCC20 spends require node UTXOs with covenant IDs; public REST UTXO endpoints do not provide this proof.",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                    OutlinedTextField(
+                        value = rpcEndpointInput,
+                        onValueChange = { rpcEndpointInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("wss://node.example/rpc") }
+                    )
+                    Button(
+                        onClick = { viewModel.setKcc20NodeRpcEndpoint(rpcEndpointInput) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save node endpoint")
+                    }
+                }
+            }
             if (loading && tokens.isEmpty()) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
             } else if (tokens.isEmpty()) {
