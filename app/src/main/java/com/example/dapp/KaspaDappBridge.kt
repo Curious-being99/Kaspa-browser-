@@ -840,7 +840,7 @@ object KaspaDappBridge {
                                     destination = if (isKcc20Method) toAddr else resolvedDestination,
                                     inputsCount = if (isKcc20Method) 0 else prePrepared?.transaction?.inputs?.size ?: 1,
                                     feeKas = if (isKcc20Method) "Exact node fee shown in the final broadcast confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
-                                    totalAmountKas = actualOutgoingKas ?: amtStr,
+                                    totalAmountKas = if (isKcc20Method) "" else actualOutgoingKas ?: amtStr,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
                                     val contractId = paramsObj.optString("contractId",
