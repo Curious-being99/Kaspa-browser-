@@ -183,14 +183,6 @@ internal object DappPsktTransaction {
         require(inputArray.length() == prepared.transaction.inputs.size) {
             "PSKT input count changed before signing"
         }
-        prepared.transaction.inputs.forEachIndexed { index, input ->
-            val originalInput = inputArray.optJSONObject(index)
-                ?: throw IllegalArgumentException("Transaction input is malformed")
-            originalInput.put("sigOpCount", input.sigOpCount)
-            originalInput.put("sig_op_count", input.sigOpCount)
-            originalInput.put("computeBudget", input.computeBudget)
-            originalInput.put("compute_budget", input.computeBudget)
-        }
         for (request in prepared.signInputs) {
             val input = prepared.transaction.inputs[request.index]
             val utxoEntry = prepared.utxoEntries[request.index]
