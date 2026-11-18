@@ -740,11 +740,12 @@ class Kcc20KasivoService(
                             Kcc20ReferenceProtocol.bytesToHex(state.owner) != owner ||
                             state.borrowScheme != 0x00 ||
                             state.extensionCommitment.any { it != 0.toByte() }) continue
-                        candidates += Kcc20ReferenceTransferBuilder.SpendCell(
+                        candidates += Kcc20ReferenceCellVerifier.CandidateCell(
                             transactionId = txid,
                             outputIndex = outputIndex,
                             valueSompi = valueSompi,
                             covenantId = covenantId,
+                            address = cellAddress,
                             program = program
                         )
                     }
