@@ -168,6 +168,25 @@ tasks.register("cargoBuildRustSearchEngine") {
   }
 }
 
+tasks.register<Exec>("cargoBuildKcc20Engine") {
+  group = "build"
+  description = "Builds the Rusty-Kaspa v2.1.0 KCC20 script engine for Android"
+  workingDir = rootDir
+  commandLine(
+    "cargo", "ndk",
+    "-t", "arm64-v8a",
+    "-t", "x86_64",
+    "-o", file("$buildDir/rustJniLibs").absolutePath,
+    "build",
+    "--manifest-path", file("$rootDir/kcc20-engine/Cargo.toml").absolutePath,
+    "--release"
+  )
+}
+
+tasks.named("preBuild").configure {
+  dependsOn("cargoBuildKcc20Engine")
+}
+
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
 // to match the convention used in Web projects.
 secrets {
