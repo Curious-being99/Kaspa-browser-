@@ -17,9 +17,6 @@ object Kcc20ReferenceProtocol {
     const val PROGRAM_SIZE = 4031
     const val MAX_TOKEN_INPUTS = 3
     const val MAX_TOKEN_OUTPUTS = 3
-    const val TRANSFER_TAG = "79c71c23"
-    const val DELEGATOR_TAG = "fd3ef14a"
-    const val SIGHASH_ALL = 0x01
     const val MAX_COMPUTE_MASS = 500_000L
     const val MAX_STORAGE_MASS = 500_000L
     const val MAX_TRANSIENT_MASS = 1_000_000L
@@ -123,84 +120,6 @@ object Kcc20ReferenceProtocol {
         return com.example.network.CryptoUtils.encodeKaspaAddress(hash, version = 0x08, prefix = networkPrefix)
     }
 
-    fun transferArguments(
-        states: List<State>,
-        leaderExtensionCommitment: ByteArray = ByteArray(32)
-    ): ByteArray {
-        require(states.size in 1..MAX_TOKEN_OUTPUTS) { "Reference KCC20 transfer requires 1 to 3 continuations" }
-        require(leaderExtensionCommitment.size == 32 && leaderExtensionCommitment.all { it == 0.toByte() }) {
-            "Non-zero KCC20 extension commitments are not established by the guide"
-        }
-        require(states.all { it.extensionCommitment.contentEquals(leaderExtensionCommitment) }) {
-            "Every KCC20 continuation must match the leader extension commitment"
-        }
-        fun column(value: (State) -> ByteArray) = pushMinimal(concat(*states.map(value).toTypedArray()))
-        return concat(
-            column { encodeSignedMagnitude(it.amount) },
-            column { it.owner },
-            column { byteArrayOf(it.ownerScheme.toByte()) },
-            column { byteArrayOf(it.borrowScheme.toByte()) },
-            column { it.borrowGuard },
-            column { it.extensionCommitment }
-        )
-    }
-
-    fun leaderSignatureScript(states: List<State>, signature65: ByteArray?, program: ByteArray): ByteArray {
-        val current = verifyProgram(program)
-        require(current.borrowScheme == 0x00) {
-            "Borrow-path spends are not established by the guide"
-        }
-        require(current.extensionCommitment.all { it == 0.toByte() }) {
-            "Non-zero KCC20 extension commitments are not established by the guide"
-        }
-        val ownerWitness = when (current.ownerScheme) {
-            0x00 -> {
-                require(signature65?.size == 65 && (signature65.last().toInt() and 0xff) == SIGHASH_ALL) {
-                    "Scheme-0 KCC20 leader requires a 65-byte SIGHASH_ALL signature"
-                }
-                concat(byteArrayOf(0x00), signature65)
-            }
-            0x04 -> {
-                require(signature65 == null || signature65.isEmpty()) {
-                    "Scheme-4 covenant-owned KCC20 leader must not carry a wallet signature"
-                }
-                byteArrayOf(0x00)
-            }
-            else -> throw IllegalArgumentException("Only guide-established scheme-0 and scheme-4 leaders are supported")
-        }
-        return concat(
-            transferArguments(states, current.extensionCommitment),
-            pushMinimal(ownerWitness),
-            hexToBytes("04$TRANSFER_TAG"),
-            pushMinimal(program)
-        )
-    }
-
-    fun delegatorSignatureScript(signature65: ByteArray, program: ByteArray): ByteArray {
-        require(signature65.size == 65 && (signature65.last().toInt() and 0xff) == SIGHASH_ALL)
-        val current = verifyProgram(program)
-        require(current.ownerScheme == 0x00 && current.borrowScheme == 0x00) {
-            "Only guide-verified scheme-0 delegator cells are supported"
-        }
-        require(current.extensionCommitment.all { it == 0.toByte() }) {
-            "Non-zero KCC20 extension commitments are not established by the guide"
-        }
-        return concat(
-            pushMinimal(signature65),
-            hexToBytes("04$DELEGATOR_TAG"),
-            pushMinimal(program)
-        )
-    }
-
-    fun encodeSignedMagnitude(value: BigInteger): ByteArray {
-        val max = BigInteger("7fffffffffffffff", 16)
-        require(value.signum() >= 0 && value <= max) { "Amount is outside reference int64 range" }
-        val raw = value.toByteArray()
-        val out = ByteArray(8)
-        for (i in 0 until minOf(8, raw.size)) out[i] = raw[raw.size - 1 - i]
-        return out
-    }
-
     private fun decodeSignedMagnitude(raw: ByteArray): BigInteger {
         require(raw.size == 8)
         val bytes = raw.copyOf()
@@ -233,14 +152,6 @@ object Kcc20ReferenceProtocol {
         }
         return concat(prefix, value)
     }
-
-    private fun pushMinimal(value: ByteArray): ByteArray {
-        if (value.isEmpty() || (value.size == 1 && value[0].toInt() == 0)) return byteArrayOf(0)
-        if (value.size == 1 && value[0].toInt() in 1..16) return byteArrayOf((0x50 + value[0].toInt()).toByte())
-        if (value.size == 1 && (value[0].toInt() and 0xff) == 0x81) return byteArrayOf(0x4f)
-        return pushExplicit(value)
-    }
-
 
     private fun concat(vararg arrays: ByteArray): ByteArray {
         val total = arrays.sumOf { it.size }
