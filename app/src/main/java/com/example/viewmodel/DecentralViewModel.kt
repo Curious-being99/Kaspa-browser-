@@ -3425,7 +3425,10 @@ class DecentralViewModel(
                                 byteArrayOf(Kcc20ReferenceProtocol.SIGHASH_ALL.toByte())
                             Kcc20ReferenceProtocol.bytesToHex(
                                 Kcc20RustyKaspaEngine.assembleReferenceWitness(
-                                    transferPlan, index, signature65
+                                    selectedCells[index].program,
+                                    isLeader = index == 0,
+                                    signature65 = signature65,
+                                    successorPrograms = if (index == 0) transferPlan.successorPrograms else emptyList()
                                 )
                             )
                         } else {
