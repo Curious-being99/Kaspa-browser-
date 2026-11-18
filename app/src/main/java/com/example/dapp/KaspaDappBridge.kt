@@ -610,6 +610,10 @@ object KaspaDappBridge {
                                 }
                                 return@execute
                             }
+                            val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
+                                Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
+                            }
+                            val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
                             val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
                             val resolvedDest = prepared.transaction.outputs.mapIndexed { index, out ->
                                 val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
@@ -636,11 +640,11 @@ object KaspaDappBridge {
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = "Sign Kaspa Transaction",
-                                    action = "PSKT Transaction Signing",
-                                    tick = "KAS",
+                                    title = if (hasCovenantInputs || hasCovenantOutputs) "Sign KCC20 Covenant Transaction" else "Sign Kaspa Transaction",
+                                    action = if (hasCovenantInputs || hasCovenantOutputs) "SIGHASH_ALL covenant PSKT signing" else "PSKT Transaction Signing",
+                                    tick = if (hasCovenantInputs || hasCovenantOutputs) "KCC20" else "KAS",
                                     amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
-                                    amountLabel = "Total outputs (includes wallet change)",
+                                    amountLabel = if (hasCovenantInputs || hasCovenantOutputs) "KAS output total; token state is encoded in covenant scripts" else "Total outputs (includes wallet change)",
                                     destination = resolvedDest,
                                     inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
@@ -654,10 +658,6 @@ object KaspaDappBridge {
                                                     viewModel.activeAccount.value?.handle == account?.handle &&
                                                     viewModel.selectedNetwork.value == network
                                                 ) { "Active wallet or network changed while the transaction was awaiting approval. Reconnect and rebuild the PSKT." }
-                                                val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
-                                                    Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
-                                                }
-                                                val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
                                                 if (hasCovenantInputs || hasCovenantOutputs) {
                                                     require(prepared.transaction.version == 1) {
                                                         "KCC20 covenant PSKTs must use transaction version 1"
