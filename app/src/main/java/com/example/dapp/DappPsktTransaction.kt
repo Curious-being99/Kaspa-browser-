@@ -349,8 +349,9 @@ internal object DappPsktTransaction {
             inputs += KaspaTransactionEngine.KaspaTransactionInput(
                 previousOutpoint = KaspaTransactionEngine.KaspaOutpoint(txId.lowercase(), outIndex),
                 signatureScript = item.optString("signatureScript", item.optString("signature_script", "")),
-                sequence = item.optLong("sequence", 0L),
-                sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", 1))
+                sequence = item.optLong("sequence", item.optLong("sequence_number", 0L)),
+                sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", 1)),
+                computeBudget = item.optInt("computeBudget", item.optInt("compute_budget", 0))
             )
         }
 
