@@ -4,20 +4,9 @@ import java.math.BigInteger
 
 /** Builds reference KCC20 leader/delegator signature-script seats from verified reference cells. */
 object Kcc20ReferenceTransferBuilder {
-    data class SignatureSeat(
-        val inputIndex: Int,
-        val program: ByteArray,
-        val isLeader: Boolean
-    )
-
     data class TransferPlan(
         val covenantId: String,
-        val consumed: List<Kcc20ReferenceProtocol.State>,
-        val nextStates: List<Kcc20ReferenceProtocol.State>,
-        val successorPrograms: List<ByteArray>,
-        val seats: List<SignatureSeat>,
-        val inputAmount: BigInteger,
-        val outputAmount: BigInteger
+        val successorPrograms: List<ByteArray>
     )
 
     fun selectMinimalSpendCells(
