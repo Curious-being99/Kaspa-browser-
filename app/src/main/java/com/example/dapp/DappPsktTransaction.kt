@@ -288,8 +288,12 @@ internal object DappPsktTransaction {
             }
             val leaderProgram = hexToBytes(leaderProgramHex)
             val leaderState = Kcc20ReferenceProtocol.verifyProgram(leaderProgram)
-            require(leaderState.borrowScheme == 0 && leaderState.extensionCommitment.all { it == 0.toByte() }) {
-                "KCC20 borrow paths and non-zero extension commitments are not established by the guide"
+            require(
+                leaderState.borrowScheme == 0 &&
+                    leaderState.borrowGuard.all { it == 0.toByte() } &&
+                    leaderState.extensionCommitment.all { it == 0.toByte() }
+            ) {
+                "KCC20 borrow paths, non-zero borrow guards and non-zero extension commitments are not established by the guide"
             }
 
             val familyOutputIndices = covenantOutputs.filter { (_, binding) ->
@@ -323,8 +327,10 @@ internal object DappPsktTransaction {
                     "KCC20 continuation output $outputIndex redeem program does not match its P2SH"
                 }
                 Kcc20ReferenceProtocol.verifyProgram(program).also { state ->
-                    require(state.borrowScheme == 0 &&
-                        state.extensionCommitment.contentEquals(leaderState.extensionCommitment)
+                    require(
+                        state.borrowScheme == 0 &&
+                            state.borrowGuard.all { it == 0.toByte() } &&
+                            state.extensionCommitment.contentEquals(leaderState.extensionCommitment)
                     ) { "KCC20 continuation output $outputIndex has an unsupported or changed state policy" }
                 }
             }
@@ -335,8 +341,10 @@ internal object DappPsktTransaction {
                     "KCC20 input $inputIndex is missing its redeem program"
                 }
                 val state = Kcc20ReferenceProtocol.verifyProgram(hexToBytes(programHex))
-                require(state.borrowScheme == 0 &&
-                    state.extensionCommitment.contentEquals(leaderState.extensionCommitment)
+                require(
+                    state.borrowScheme == 0 &&
+                        state.borrowGuard.all { it == 0.toByte() } &&
+                        state.extensionCommitment.contentEquals(leaderState.extensionCommitment)
                 ) { "KCC20 input $inputIndex has an unsupported or incompatible state policy" }
                 total.add(state.amount)
             }
