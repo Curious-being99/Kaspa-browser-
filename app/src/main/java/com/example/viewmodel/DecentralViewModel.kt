@@ -3057,7 +3057,7 @@ class DecentralViewModel(
         }
         val exactInputs = provisional.inputs.mapIndexed { index, input ->
             val used = measured.inputResults[index].usedScriptUnits
-            val budget = maxOf(1L, (used + 9_999L) / 10_000L)
+            val budget = maxOf(1L, ((used - 9_999L).coerceAtLeast(0L) + 9_999L) / 10_000L)
             require(budget <= 0xffffL) { "Measured compute budget exceeds the version-1 u16 limit for input $index" }
             input.copy(sigOpCount = 0, computeBudget = budget.toInt())
         }
@@ -3067,7 +3067,7 @@ class DecentralViewModel(
             verified.inputResults.indices.all { index ->
                 verified.inputResults[index].valid &&
                     exact.inputs[index].computeBudget.toLong() ==
-                    maxOf(1L, (verified.inputResults[index].usedScriptUnits + 9_999L) / 10_000L)
+                    maxOf(1L, ((verified.inputResults[index].usedScriptUnits - 9_999L).coerceAtLeast(0L) + 9_999L) / 10_000L)
             }
         ) {
             "Rusty-Kaspa rejected the exact measured per-input compute budgets"
