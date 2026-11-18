@@ -2957,6 +2957,10 @@ class DecentralViewModel(
             return@withContext Result.failure(IllegalStateException("Configure your own Rusty-Kaspa v2.1.0 WebSocket RPC endpoint in the KCC-20 Tokens screen before spending"))
         }
 
+        if (!Kcc20RustyKaspaEngine.isAvailable()) {
+            return@withContext Result.failure(IllegalStateException("The Rusty-Kaspa v2.1.0 script engine is not available for this Android ABI"))
+        }
+
         val recipientPublicKey = try {
             val script = KaspaTransactionEngine.decodeAddressToScriptPublicKey(recipient)
             require(script.version == 0 && script.script.matches(Regex("20[0-9a-fA-F]{64}ac"))) {
