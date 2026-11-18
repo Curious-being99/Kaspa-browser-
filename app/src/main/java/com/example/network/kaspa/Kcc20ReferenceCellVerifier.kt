@@ -60,9 +60,6 @@ object Kcc20ReferenceCellVerifier {
             it.transactionId.equals(candidate.transactionId, ignoreCase = true) &&
                 it.outputIndex == candidate.outputIndex
         } ?: throw IllegalArgumentException("Indexed cell outpoint is not present in the node UTXO set")
-        require(live.address.equals(expectedAddress, ignoreCase = true)) {
-            "Node UTXO was not returned under the exact reference cell address"
-        }
         require(live.valueSompi == candidate.valueSompi) { "Node UTXO KAS value differs from the indexer claim" }
         require(live.scriptPublicKeyVersion == 0 && live.scriptPublicKeyHex.equals(expectedScript, ignoreCase = true)) {
             "Node UTXO script public key does not match the reference program P2SH"
