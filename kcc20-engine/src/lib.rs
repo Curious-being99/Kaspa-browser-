@@ -14,6 +14,8 @@ use kaspa_txscript::{EngineCtx, TxScriptEngine};
 use serde_json::{json, Value};
 use std::str::FromStr;
 
+const KCC20_ARTIFACT_FIXTURE: &str = include_str!("../../app/src/test/resources/kcc20-reference/artifact-template.json");
+
 fn bytes(value: &Value) -> Result<Vec<u8>, String> {
     let hex = value.as_str().ok_or_else(|| "Expected hex string".to_string())?;
     if hex.len() % 2 != 0 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -308,6 +310,10 @@ fn plan_reference_transfer(request_text: &str) -> Result<Value, String> {
     let recipient=decode_hex(req["recipientPublicKey"].as_str().ok_or("Missing recipient key")?)?;
     let template=decode_hex(req["templateHash"].as_str().ok_or("Missing template hash")?)?;
     let suffix=decode_hex(req["templateSuffix"].as_str().ok_or("Missing template suffix")?)?;
+    let pinned: Value=serde_json::from_str(KCC20_ARTIFACT_FIXTURE).map_err(|e|format!("Invalid embedded Argent artifact fixture: {e}"))?;
+    let pinned_template=decode_hex(pinned["template_hash"].as_str().ok_or("Pinned artifact has no template hash")?)?;
+    let pinned_suffix=decode_hex(pinned["suffix_hex"].as_str().ok_or("Pinned artifact has no template suffix")?)?;
+    if template!=pinned_template || suffix!=pinned_suffix { return Err("Planner template bytes do not match the embedded, pinned Argent artifact".into()); }
     if sender.len()!=32 || recipient.len()!=32 || template.len()!=32 { return Err("Invalid KCC20 public key or template length".into()); }
     let requested=number(&req["amount"],"amount")?;
     if requested==0 || requested>i64::MAX as u64 { return Err("Transfer amount must be positive and within Argent signed-int64 range".into()); }
