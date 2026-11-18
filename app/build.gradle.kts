@@ -232,7 +232,7 @@ tasks.register("verifyKcc20ArgentArtifact") {
     require(bytesHex(template["suffix"]) == expected["suffix_hex"]) {
       "Regenerated Argent KCC20 bytecode differs from the pinned artifact"
     }
-    val templateHash = bytesHex(handle["hash"])
+    val templateHash = bytesHex(template["hash"])
     require(templateHash == expected["template_hash"]) {
       "Regenerated Argent KCC20 template hash differs from the pinned artifact"
     }
