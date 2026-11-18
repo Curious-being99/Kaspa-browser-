@@ -629,6 +629,7 @@ object KaspaDappBridge {
                                     inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
+                                    tokenDetails = if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else "",
                                     isBroadcast = false,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
@@ -1305,6 +1306,7 @@ object KaspaDappBridge {
                                     inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = outKas,
+                                    tokenDetails = if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else "",
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
                                         if (viewModel.activeAccount.value?.did != account?.did ||
