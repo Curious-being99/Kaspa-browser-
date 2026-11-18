@@ -222,7 +222,7 @@ class Kcc20ReferenceProtocolTest {
         val next = state.copy(amount = BigInteger.valueOf(4_000_000))
         val witness = Kcc20ReferenceProtocol.leaderSignatureScript(listOf(next), null, program)
         val hex = Kcc20ReferenceProtocol.bytesToHex(witness)
-        assertTrue(hex.contains("0079c71c23"))
+        assertTrue(hex.contains("000479c71c23"))
         assertTrue(hex.endsWith("4dbf0f" + Kcc20ReferenceProtocol.bytesToHex(program)))
         assertTrue(!hex.contains("414444444444"))
     }
