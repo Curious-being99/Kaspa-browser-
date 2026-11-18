@@ -3002,15 +3002,22 @@ class DecentralViewModel(
             require(live.scriptPublicKeyVersion == expected.scriptPublicKey.version &&
                 live.scriptPublicKeyHex.equals(expected.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
             ) { "PSKT input $index locking script differs from the configured node UTXO" }
-            require(
-                expected.covenantId == null ||
-                    live.covenantId.equals(expected.covenantId, ignoreCase = true)
-            ) { "PSKT input $index covenant ID differs from the configured node UTXO" }
-            if (expected.scriptPublicKey.version == 0 &&
+            val isCovenantCell = expected.scriptPublicKey.version == 0 &&
                 Regex("aa20[0-9a-fA-F]{64}87").matches(expected.scriptPublicKey.script.replace(" ", ""))
-            ) {
-                require(!live.covenantId.isNullOrBlank()) {
-                    "PSKT covenant input $index is missing its node-confirmed covenant ID"
+            if (isCovenantCell) {
+                val expectedFamily = expected.covenantId?.trim()?.lowercase()
+                    ?: throw IllegalArgumentException(
+                        "PSKT covenant input $index is missing its declared 32-byte covenant ID"
+                    )
+                require(expectedFamily.matches(Regex("[0-9a-f]{64}"))) {
+                    "PSKT covenant input $index has a malformed covenant ID"
+                }
+                require(live.covenantId?.equals(expectedFamily, ignoreCase = true) == true) {
+                    "PSKT input $index covenant ID differs from the configured node UTXO"
+                }
+            } else if (expected.covenantId != null) {
+                require(live.covenantId?.equals(expected.covenantId, ignoreCase = true) == true) {
+                    "PSKT input $index covenant ID differs from the configured node UTXO"
                 }
             }
             val requestedAddress = inputAddresses[index]
