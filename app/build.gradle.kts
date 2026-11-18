@@ -232,6 +232,10 @@ tasks.register("verifyKcc20ArgentArtifact") {
     require(bytesHex(template["suffix"]) == expected["suffix_hex"]) {
       "Regenerated Argent KCC20 bytecode differs from the pinned artifact"
     }
+    val templateHash = bytesHex(handle["hash"])
+    require(templateHash == expected["template_hash"]) {
+      "Regenerated Argent KCC20 template hash differs from the pinned artifact"
+    }
     val generatedSil = fileTree(outputDir).matching { include("**/KCC20.sil") }.singleFile
     require(generatedSil.readBytes().contentEquals(pinnedSil.readBytes())) {
       "Regenerated KCC20 Silverscript differs from the pinned reference source"
@@ -251,7 +255,15 @@ internal object Kcc20ArgentArtifact {
 }
 """
     )
-    println("Verified argentc regeneration and generated Android KCC20 artifact bindings.")
+    file("$outputDir/kcc20-runtime.json").writeText(
+      groovy.json.JsonOutput.toJson(mapOf(
+        "artifact_id" to generated["id"],
+        "template_hash" to templateHash,
+        "prefix_hex" to prefixHex,
+        "suffix_hex" to suffixHex
+      ))
+    )
+    println("Verified argentc regeneration and generated Android/Rust KCC20 artifact bindings.")
   }
 }
 
