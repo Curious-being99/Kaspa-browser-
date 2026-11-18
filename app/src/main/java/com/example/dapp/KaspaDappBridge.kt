@@ -645,10 +645,8 @@ object KaspaDappBridge {
                                                     require(prepared.transaction.version == 1) {
                                                         "KCC20 covenant PSKTs must use transaction version 1"
                                                     }
-                                                    require(prepared.transaction.inputs.all {
-                                                        it.sigOpCount == 0 && it.computeBudget in 1..0xffff
-                                                    }) {
-                                                        "Every KCC20 version-1 input must set sigOpCount=0 and a measured computeBudget before signing"
+                                                    require(prepared.transaction.inputs.isNotEmpty()) {
+                                                        "KCC20 version-1 transaction has no inputs"
                                                     }
                                                     val inputAddresses = prepared.utxoEntries.map { utxo ->
                                                         scriptToAddress(utxo.scriptPublicKey, prefix)
