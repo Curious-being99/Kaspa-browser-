@@ -38,10 +38,20 @@ class Kcc20NodeRpcClient(
         require(expectedNetwork == "mainnet" || expectedNetwork == "testnet-10") {
             "Reference KCC20 supports only mainnet and testnet-10"
         }
-        val info = request(endpoint, "getInfo", JSONObject())
+        val info = request(endpoint, "getServerInfo", JSONObject())
         val actual = info.optString("networkId", info.optString("network_id", "")).trim().lowercase()
         require(actual == expectedNetwork) {
             "Configured Kaspa node is on ${actual.ifBlank { "an unknown network" }}, expected $expectedNetwork"
+        }
+        val version = info.optString("serverVersion", "").trim()
+        require(version.contains("2.1.0")) {
+            "Configured node must run Rusty-Kaspa v2.1.0; node reported ${version.ifBlank { "no server version" }}"
+        }
+        require(info.optBoolean("hasUtxoIndex", false)) {
+            "Configured Rusty-Kaspa node does not have the UTXO index enabled"
+        }
+        require(info.optBoolean("isSynced", false)) {
+            "Configured Rusty-Kaspa node is not synced"
         }
     }
 
@@ -63,7 +73,9 @@ class Kcc20NodeRpcClient(
                 ?: throw IllegalStateException("Node getUtxosByAddresses response has no entries array")
             (0 until entries.length()).map { index ->
                 val wrapper = entries.getJSONObject(index)
-                val entry = wrapper.optJSONObject("entry") ?: wrapper
+                val entry = wrapper.optJSONObject("utxoEntry")
+                    ?: wrapper.optJSONObject("entry")
+                    ?: wrapper
                 val outpoint = wrapper.optJSONObject("outpoint")
                     ?: entry.optJSONObject("outpoint")
                     ?: throw IllegalStateException("Node UTXO is missing its outpoint")
