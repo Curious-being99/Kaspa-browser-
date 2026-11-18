@@ -2918,7 +2918,7 @@ class DecentralViewModel(
     /**
      * Executes authentic KCC-20 covenant transfer on the selected network:
      * 1. Fetches live cells from KasCov BlockDAG indexer (kascov.io).
-     * 2. Assembles Argent KCC-1 standard seat/successor plan via [KbKcc20StandardAssembler].
+     * 2. Builds the pinned reference KCC20 leader/delegator transfer plan.
      * 3. Selects native KAS UTXOs for network fees.
      * 4. Signs KCC-20 seats with wallet Schnorr private key.
      * 5. Broadcasts transaction directly to Kaspa network nodes.
@@ -3163,10 +3163,8 @@ class DecentralViewModel(
                         )
                         val signature = CryptoUtils.signSchnorr(keyPair.privateKey, sighash)
                         input.signatureScript = if (index < selectedCells.size) {
-                            val signature65 = KbKcc20ScriptCodec.concat(
-                                KbKcc20ScriptCodec.hexToBytes(signature),
+                            val signature65 = Kcc20ReferenceProtocol.decodeHex(signature) +
                                 byteArrayOf(Kcc20ReferenceProtocol.SIGHASH_ALL.toByte())
-                            )
                             Kcc20ReferenceProtocol.bytesToHex(
                                 com.example.network.kaspa.Kcc20ReferenceTransferBuilder.assembleSignatureScript(
                                     transferPlan, index, signature65
