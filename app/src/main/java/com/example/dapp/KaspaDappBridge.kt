@@ -641,15 +641,19 @@ object KaspaDappBridge {
                                                     viewModel.activeAccount.value?.handle == account?.handle &&
                                                     viewModel.selectedNetwork.value == network
                                                 ) { "Active wallet or network changed while the transaction was awaiting approval. Reconnect and rebuild the PSKT." }
+                                                val inputAddresses = if (hasCovenantInputs || hasCovenantOutputs) {
+                                                    prepared.utxoEntries.map { utxo ->
+                                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                                    }
+                                                } else {
+                                                    emptyList()
+                                                }
                                                 if (hasCovenantInputs || hasCovenantOutputs) {
                                                     require(prepared.transaction.version == 1) {
                                                         "KCC20 covenant PSKTs must use transaction version 1"
                                                     }
                                                     require(prepared.transaction.inputs.isNotEmpty()) {
                                                         "KCC20 version-1 transaction has no inputs"
-                                                    }
-                                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
-                                                        scriptToAddress(utxo.scriptPublicKey, prefix)
                                                     }
                                                     require(inputAddresses.all { it.startsWith("$prefix:") }) {
                                                         "A PSKT input locking script could not be resolved to the active Kaspa network"
