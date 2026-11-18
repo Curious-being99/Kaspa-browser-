@@ -2990,7 +2990,7 @@ class DecentralViewModel(
                 }
             } else if (expected.covenantId != null) {
                 require(live.covenantId?.equals(expected.covenantId, ignoreCase = true) == true) {
-                    "PSKT input $index covenant ID differs from the configured node UTXO"
+                    "PSKT input $index covenant ID differs from the public-node UTXO"
                 }
             }
             val requestedAddress = inputAddresses[index]
@@ -3125,7 +3125,6 @@ class DecentralViewModel(
             else -> throw IllegalArgumentException("KCC20 covenant PSKTs are supported only on Kaspa Mainnet and Testnet-10")
         }
         val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
-        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val submittedTxId = kcc20NodeRpcClient.submitTransaction(endpoint, transaction)
         require(submittedTxId.equals(validation.txId, ignoreCase = true)) {
             "Resolved public Kaspa node accepted a different transaction ID than the Rusty-Kaspa validated PSKT"
