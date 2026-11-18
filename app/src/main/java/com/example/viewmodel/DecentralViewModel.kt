@@ -3553,6 +3553,7 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
                     amount = amountBaseUnits.toString(),
                     amountLabel = "Exact token base units",
                     destination = recipient,
+                    tokenDetails = "Covenant ID: $family\\nExact base units: $amountBaseUnits",
                     inputsCount = tx.inputs.size,
                     feeKas = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(actualFeeSompi)),
                     totalAmountKas = KaspaTransactionEngine.formatKas(
