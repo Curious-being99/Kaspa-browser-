@@ -33,6 +33,48 @@ class Kcc20NodeRpcClient(
     )
 
     private val requestIds = AtomicLong(1L)
+    private val publicResolverUrls = listOf(
+        "https://eric.kaspa.stream", "https://maxim.kaspa.stream",
+        "https://sean.kaspa.stream", "https://troy.kaspa.stream",
+        "https://john.kaspa.red", "https://mike.kaspa.red",
+        "https://paul.kaspa.red", "https://alex.kaspa.red",
+        "https://jake.kaspa.green", "https://mark.kaspa.green",
+        "https://adam.kaspa.green", "https://liam.kaspa.green",
+        "https://noah.kaspa.blue", "https://ryan.kaspa.blue",
+        "https://jack.kaspa.blue", "https://luke.kaspa.blue"
+    )
+
+    suspend fun resolveEndpoint(expectedNetwork: String): String = withContext(Dispatchers.IO) {
+        require(expectedNetwork == "mainnet" || expectedNetwork == "testnet-10") {
+            "Reference KCC20 supports only mainnet and testnet-10"
+        }
+        val failures = mutableListOf<String>()
+        for (resolver in publicResolverUrls) {
+            val url = "$resolver/v2/kaspa/$expectedNetwork/tls/wrpc/json"
+            try {
+                val request = Request.Builder().url(url).get().header("Accept", "application/json").build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        failures += "$resolver returned HTTP ${response.code}"
+                        return@use
+                    }
+                    val descriptor = JSONObject(response.body?.string().orEmpty())
+                    val endpoint = descriptor.optString("url").trim()
+                    val parsed = runCatching { java.net.URI(endpoint) }.getOrNull()
+                    if (parsed?.scheme == "wss" && !parsed.host.isNullOrBlank()) {
+                        return@withContext endpoint
+                    }
+                    failures += "$resolver returned no secure wRPC URL"
+                }
+            } catch (error: Throwable) {
+                failures += "$resolver: ${error.message ?: error.javaClass.simpleName}"
+            }
+        }
+        throw java.io.IOException(
+            "Kaspa public node resolver could not find a TLS wRPC node for $expectedNetwork" +
+                failures.take(3).joinToString(prefix = ": ", separator = "; ")
+        )
+    }
 
     suspend fun requireNetwork(endpoint: String, expectedNetwork: String) = withContext(Dispatchers.IO) {
         require(expectedNetwork == "mainnet" || expectedNetwork == "testnet-10") {
@@ -41,25 +83,27 @@ class Kcc20NodeRpcClient(
         val info = request(endpoint, "getServerInfo", JSONObject())
         val actual = info.optString("networkId", info.optString("network_id", "")).trim().lowercase()
         require(actual == expectedNetwork) {
-            "Configured Kaspa node is on ${actual.ifBlank { "an unknown network" }}, expected $expectedNetwork"
-        }
-        val serverVersion = info.optString("serverVersion", "").trim()
-        require(serverVersion.matches(Regex("(?i).*\\b2\\.1\\.0\\b.*"))) {
-            "Configured node must report Rusty-Kaspa v2.1.0; reported version was ${serverVersion.ifBlank { "missing" }}"
+            "Resolved public Kaspa node is on ${actual.ifBlank { "an unknown network" }}, expected $expectedNetwork"
         }
         require(info.optInt("rpcApiVersion", 0) > 0) {
-            "Configured Kaspa node did not report a supported RPC API version"
+            "Resolved public Kaspa node did not report a supported RPC API version"
         }
         require(info.optBoolean("hasUtxoIndex", false)) {
-            "Configured Rusty-Kaspa node does not have the UTXO index enabled"
+            "Resolved public Kaspa node does not have the UTXO index enabled"
         }
         require(info.optBoolean("isSynced", false)) {
-            "Configured Rusty-Kaspa node is not synced"
+            "Resolved public Kaspa node is not synced"
         }
     }
 
     suspend fun getUtxosByAddress(endpoint: String, address: String): List<NodeUtxo> =
         getUtxosByAddresses(endpoint, listOf(address))
+
+    suspend fun getUtxosByAddress(expectedNetwork: String, address: String): List<NodeUtxo> =
+        getUtxosByAddress(resolveEndpoint(expectedNetwork), address)
+
+    suspend fun getUtxosByAddresses(expectedNetwork: String, addresses: List<String>): List<NodeUtxo> =
+        getUtxosByAddresses(resolveEndpoint(expectedNetwork), addresses)
 
     suspend fun getUtxosByAddresses(endpoint: String, addresses: List<String>): List<NodeUtxo> =
         withContext(Dispatchers.IO) {
@@ -179,8 +223,8 @@ class Kcc20NodeRpcClient(
         val parsed = java.net.URI(url)
         require(parsed.scheme == "wss" || (
             parsed.scheme == "ws" && (parsed.host == "localhost" || parsed.host == "127.0.0.1")
-        )) { "Configure a wss:// Kaspa node RPC endpoint (ws:// is allowed only for localhost)" }
-        require(!parsed.host.isNullOrBlank()) { "Kaspa node RPC endpoint has no host" }
+        )) { "Kaspa wRPC endpoint must use wss://" }
+        require(!parsed.host.isNullOrBlank()) { "Kaspa wRPC endpoint has no host" }
 
         val id = requestIds.getAndIncrement()
         val response = AtomicReference<JSONObject?>()
