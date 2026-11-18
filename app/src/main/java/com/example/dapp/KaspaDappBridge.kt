@@ -685,7 +685,8 @@ object KaspaDappBridge {
                                                     }
                                                     val signedWithBudgets = DappPsktTransaction.applyMeasuredComputeBudgets(
                                                         assembledSigned,
-                                                        measured.inputs.map { it.computeBudget }
+                                                        measured.inputs.map { it.computeBudget },
+                                                        measured.mass
                                                     )
                                                     val finalPrepared = DappPsktTransaction.inspectForSubmission(signedWithBudgets)
                                                     kotlinx.coroutines.runBlocking {
