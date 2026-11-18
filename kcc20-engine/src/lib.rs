@@ -84,7 +84,6 @@ fn validate(json_text: &str) -> Result<Value, String> {
             return Err("Duplicate transaction input outpoint".to_string());
         }
         let sequence = number(&input["sequence"], "input sequence")?;
-        let budget = number(&input["computeBudget"], "input computeBudget")?;
         let budget = bounded_number(&input["computeBudget"], "computeBudget", u16::MAX as u64)?;
         inputs.push(TransactionInput::new_with_compute_budget(
             TransactionOutpoint::new(txid, index),
