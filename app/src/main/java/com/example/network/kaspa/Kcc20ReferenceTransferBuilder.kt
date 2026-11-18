@@ -6,7 +6,6 @@ import java.math.BigInteger
 object Kcc20ReferenceTransferBuilder {
     data class SignatureSeat(
         val inputIndex: Int,
-        val scriptPrefix: ByteArray,
         val program: ByteArray,
         val isLeader: Boolean
     )
@@ -110,15 +109,8 @@ object Kcc20ReferenceTransferBuilder {
         }
 
         val seats = cells.mapIndexed { index, cell ->
-            val state = states[index]
-            val scriptPrefix = if (index == 0) {
-                Kcc20ReferenceProtocol.transferArguments(next)
-            } else {
-                ByteArray(0)
-            }
             SignatureSeat(
                 inputIndex = index,
-                scriptPrefix = scriptPrefix,
                 program = cell.program.copyOf(),
                 isLeader = index == 0
             )
