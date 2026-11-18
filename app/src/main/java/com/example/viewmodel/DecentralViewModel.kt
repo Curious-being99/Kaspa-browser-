@@ -3108,12 +3108,17 @@ class DecentralViewModel(
         covenantId: String,
         recipientAddress: String,
         amountBaseUnits: java.math.BigInteger,
-        origin: String
+        origin: String,
+        expectedSenderAddress: String? = null,
+        expectedNetwork: String? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
         val network = _selectedNetwork.value
         val endpoint = _kcc20NodeRpcEndpoint.value
+        if (!expectedNetwork.isNullOrBlank() && network != expectedNetwork) {
+            return@withContext Result.failure(IllegalStateException("Selected network changed before KCC20 transaction construction"))
+        }
         val isMainnet = network.contains("Mainnet", ignoreCase = true)
         val networkPrefix = if (isMainnet) "kaspa" else "kaspatest"
         val recipient = recipientAddress.trim()
@@ -3154,6 +3159,11 @@ class DecentralViewModel(
             CryptoUtils.deriveKaspaKeyPair(seed, prefix = networkPrefix)
         } catch (error: Exception) {
             return@withContext Result.failure(IllegalStateException(error.message ?: "Unable to unlock the active wallet for KCC20 signing", error))
+        }
+        if (!expectedSenderAddress.isNullOrBlank() &&
+            !keyPair.kaspaAddress.equals(expectedSenderAddress, ignoreCase = true)
+        ) {
+            return@withContext Result.failure(IllegalStateException("Active wallet changed before KCC20 transaction construction"))
         }
 
         try {
