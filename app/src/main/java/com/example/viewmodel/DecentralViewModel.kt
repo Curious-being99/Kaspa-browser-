@@ -2925,6 +2925,81 @@ class DecentralViewModel(
      * 4. Signs KCC-20 seats with wallet Schnorr private key.
      * 5. Broadcasts transaction directly to Kaspa network nodes.
      */
+    suspend fun validateDappCovenantPskt(
+        transaction: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        inputAddresses: List<String>
+    ): com.example.network.kaspa.Kcc20RustyKaspaEngine.ValidationResult = withContext(Dispatchers.IO) {
+        val network = _selectedNetwork.value
+        val expectedNetwork = when {
+            network.contains("Mainnet", ignoreCase = true) -> "mainnet"
+            network.contains("Testnet 10", ignoreCase = true) ||
+                network.contains("Testnet-10", ignoreCase = true) -> "testnet-10"
+            else -> throw IllegalArgumentException("KCC20 covenant PSKTs are supported only on Kaspa Mainnet and Testnet-10")
+        }
+        require(transaction.version == 1) { "KCC20 covenant PSKTs must use transaction version 1" }
+        require(transaction.inputs.size == utxoEntries.size && inputAddresses.size == transaction.inputs.size) {
+            "Every PSKT input must have one matching UTXO entry and node address"
+        }
+        require(inputAddresses.all { it.isNotBlank() }) { "Every PSKT input must resolve to a Kaspa address" }
+        require(Kcc20RustyKaspaEngine.isAvailable()) {
+            "Rusty-Kaspa v2.1.0 script engine is unavailable for this Android ABI"
+        }
+        val endpoint = _kcc20NodeRpcEndpoint.value.trim()
+        require(endpoint.isNotBlank()) {
+            "Configure the Rusty-Kaspa v2.1.0 node RPC endpoint before signing or broadcasting a covenant PSKT"
+        }
+        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
+        val liveUtxos = kcc20NodeRpcClient.getUtxosByAddresses(endpoint, inputAddresses.distinct())
+        val liveByOutpoint = liveUtxos.groupBy { "${it.transactionId.lowercase()}:${it.outputIndex}" }
+        val spentUtxos = transaction.inputs.mapIndexed { index, input ->
+            val outpoint = "${input.previousOutpoint.transactionId.lowercase()}:${input.previousOutpoint.index}"
+            val live = liveByOutpoint[outpoint]?.singleOrNull()
+                ?: throw IllegalStateException("PSKT input $index is not uniquely present in the configured node UTXO set")
+            val expected = utxoEntries[index]
+            require(live.amount == expected.amount) {
+                "PSKT input $index amount differs from the configured node UTXO"
+            }
+            require(live.scriptPublicKeyVersion == expected.scriptPublicKey.version &&
+                live.scriptPublicKeyHex.equals(expected.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
+            ) { "PSKT input $index locking script differs from the configured node UTXO" }
+            require(!live.isCoinbase) { "Coinbase UTXO inputs are not accepted for covenant PSKT validation" }
+            if (expected.scriptPublicKey.version == 0 &&
+                Regex("aa20[0-9a-fA-F]{64}87").matches(expected.scriptPublicKey.script.replace(" ", ""))
+            ) {
+                require(!live.covenantId.isNullOrBlank()) {
+                    "PSKT covenant input $index is missing its node-confirmed covenant ID"
+                }
+            }
+            val requestedAddress = inputAddresses[index]
+            require(live.address.isBlank() || live.address.equals(requestedAddress, ignoreCase = true)) {
+                "PSKT input $index node address does not match its locking script address"
+            }
+            Kcc20RustyKaspaEngine.SpentUtxo(
+                amount = live.amount,
+                scriptPublicKeyVersion = live.scriptPublicKeyVersion,
+                scriptPublicKeyHex = live.scriptPublicKeyHex,
+                daaScore = live.daaScore,
+                isCoinbase = live.isCoinbase,
+                covenantId = live.covenantId
+            )
+        }
+        val validation = Kcc20RustyKaspaEngine.validate(transaction, spentUtxos)
+        require(validation.valid) {
+            "Rusty-Kaspa v2.1.0 rejected the signed covenant PSKT: " +
+                (validation.error ?: validation.inputResults.filterNot { it.valid }
+                    .joinToString { "input ${it.index}: ${it.error}" })
+        }
+        val expectedTxId = KaspaTransactionEngine.calcTransactionId(transaction)
+        require(validation.txId.equals(expectedTxId, ignoreCase = true)) {
+            "Rusty-Kaspa transaction ID differs from the wallet transaction ID"
+        }
+        require(validation.computeMass >= 0L && validation.transientMass >= 0L && validation.storageMass != null) {
+            "Rusty-Kaspa did not return complete contextual mass results"
+        }
+        validation
+    }
+
     class Kcc20UserRejectedException : IllegalStateException("User rejected KCC20 broadcast")
 
     suspend fun executeKcc20Transfer(
