@@ -903,7 +903,7 @@ class DappPsktTransactionTest {
 
     @Test
     fun resolvesFlatScriptPublicKeyP2shAndTopLevelRedeemScriptViaDappBridge() {
-        val covenantRedeemScript = ("6b20" + "cd".repeat(32) + "20" + publicKeyHex + "5152ac").lowercase()
+        val covenantRedeemScript = referenceKcc20Program(2_500_000_000L)
         val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(covenantRedeemScript))
             .joinToString("") { "%02x".format(it) }
         val flatLockingScript = "0000aa20" + p2shHash + "87"
