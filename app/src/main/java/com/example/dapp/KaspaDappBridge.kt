@@ -913,13 +913,13 @@ object KaspaDappBridge {
                                             network = network,
                                             accountAddress = keyPair.kaspaAddress,
                                             title = "KCC20 Token Transfer",
-                                            action = "Reference KCC20 covenant transfer",
+                                            action = "Authorize signing and script validation",
                                             tick = tick.ifBlank { requestedCovenantId.take(10) },
                                             amount = amountBaseUnits.toString(),
                                             amountLabel = "Exact token base units",
                                             destination = toAddr,
                                             inputsCount = 0,
-                                            feeKas = "Calculated and checked by your connected node before broadcast",
+                                            feeKas = "No broadcast yet. The exact node fee is shown in a second confirmation.",
                                             totalAmountKas = "",
                                             isBroadcast = true,
                                             onApprove = {
@@ -930,7 +930,8 @@ object KaspaDappBridge {
                                                             viewModel.executeKcc20Transfer(
                                                                 covenantId = requestedCovenantId,
                                                                 recipientAddress = toAddr,
-                                                                amountBaseUnits = amountBaseUnits
+                                                                amountBaseUnits = amountBaseUnits,
+                                                                origin = origin
                                                             )
                                                         }
                                                     } catch (error: Throwable) {
@@ -950,10 +951,14 @@ object KaspaDappBridge {
                                                                 )
                                                             },
                                                             onFailure = { err ->
-                                                                respond(
-                                                                    errorCode = -32000,
-                                                                    errorMessage = err.message ?: "KCC20 transfer failed"
-                                                                )
+                                                                if (err is com.example.viewmodel.DecentralViewModel.Kcc20UserRejectedException) {
+                                                                    respond(errorCode = 4001, errorMessage = err.message ?: "User rejected KCC20 broadcast")
+                                                                } else {
+                                                                    respond(
+                                                                        errorCode = -32000,
+                                                                        errorMessage = err.message ?: "KCC20 transfer failed"
+                                                                    )
+                                                                }
                                                             }
                                                         )
                                                     }
