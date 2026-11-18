@@ -23,6 +23,7 @@ class Kcc20NodeRpcClient(
     data class NodeUtxo(
         val transactionId: String,
         val outputIndex: Int,
+        val address: String,
         val amount: Long,
         val scriptPublicKeyVersion: Int,
         val scriptPublicKeyHex: String,
@@ -93,6 +94,7 @@ class Kcc20NodeRpcClient(
                 NodeUtxo(
                     transactionId = txid,
                     outputIndex = outputIndex,
+                    address = wrapper.optString("address", entry.optString("address", "")),
                     amount = amount,
                     scriptPublicKeyVersion = script.version,
                     scriptPublicKeyHex = script.script,
