@@ -660,7 +660,8 @@ class Kcc20KasivoService(
     suspend fun fetchReferenceCellCandidates(
         contractId: String,
         publicKeyHex: String,
-        walletAddress: String
+        walletAddress: String,
+        networkName: String
     ): Result<List<Kcc20ReferenceCellVerifier.CandidateCell>> = withContext(Dispatchers.IO) {
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
@@ -672,9 +673,11 @@ class Kcc20KasivoService(
             return@withContext Result.failure(IllegalArgumentException("KCC20 covenant ID must be 32-byte hex"))
         }
         val network = when {
-            normalizedAddress.startsWith("kaspa:") -> "mainnet"
-            normalizedAddress.startsWith("kaspatest:") -> "testnet-10"
-            else -> return@withContext Result.failure(IllegalArgumentException("Wallet address does not identify a supported Kaspa network"))
+            networkName.contains("Mainnet", ignoreCase = true) && normalizedAddress.startsWith("kaspa:") -> "mainnet"
+            networkName.contains("Testnet 10", ignoreCase = true) && normalizedAddress.startsWith("kaspatest:") -> "testnet-10"
+            else -> return@withContext Result.failure(
+                IllegalArgumentException("The guide-based reference transfer supports only matching Mainnet or Testnet-10 wallet/network selections")
+            )
         }
         try {
             val endpoints = listOf(
