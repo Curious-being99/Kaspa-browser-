@@ -624,6 +624,10 @@ object KaspaDappBridge {
                                     else append("\\nrecipient=unresolved locking script")
                                     append("\\nscriptVersion=${out.scriptPublicKey.version}")
                                     append("\\nscript=$script")
+                                    out.covenant?.let { binding ->
+                                        append("\\ncovenantId=\${binding.covenantId}")
+                                        append("\\nauthorizingInput=\${binding.authorizingInput}")
+                                    }
                                 }
                             }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
 
@@ -1245,19 +1249,35 @@ object KaspaDappBridge {
                                 }
                             } else emptyList()
                             mainHandler.post {
-                                val firstOutput = prepared.transaction.outputs.firstOrNull()
                                 val outKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
                                     com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)
                                 )
+                                val reviewedOutputs = prepared.transaction.outputs.mapIndexed { index, output ->
+                                    val address = runCatching { scriptToAddress(output.scriptPublicKey, prefix) }.getOrNull()
+                                    val amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                        com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(output.amount)
+                                    )
+                                    buildString {
+                                        append("Output \${index + 1} — $amount KAS")
+                                        if (!address.isNullOrBlank()) append("\nrecipient=$address")
+                                        append("\nscriptVersion=\${output.scriptPublicKey.version}")
+                                        append("\nscript=\${output.scriptPublicKey.script}")
+                                        output.covenant?.let { binding ->
+                                            append("\ncovenantId=\${binding.covenantId}")
+                                            append("\nauthorizingInput=\${binding.authorizingInput}")
+                                        }
+                                    }
+                                }.joinToString("\n\n")
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = "Submit Kaspa Transaction",
-                                    action = "Broadcast Raw Transaction",
-                                    tick = "KAS",
+                                    title = if (hasCovenantInputs || hasCovenantOutputs) "Submit KCC20 Covenant Transaction" else "Submit Kaspa Transaction",
+                                    action = if (hasCovenantInputs || hasCovenantOutputs) "Broadcast Rusty-Kaspa v2.1.0 validated transaction" else "Broadcast Kaspa Transaction",
+                                    tick = if (hasCovenantInputs || hasCovenantOutputs) "KCC20" else "KAS",
                                     amount = outKas,
-                                    destination = firstOutput?.scriptPublicKey?.script?.take(22).orEmpty(),
+                                    amountLabel = if (hasCovenantInputs || hasCovenantOutputs) "KAS output total; token state is enforced by the covenant script engine" else "Total outputs",
+                                    destination = reviewedOutputs,
                                     inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = outKas,
