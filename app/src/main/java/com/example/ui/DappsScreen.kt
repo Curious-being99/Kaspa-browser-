@@ -113,6 +113,9 @@ fun DappsScreen(
                     ) {
                         Text("Save node endpoint")
                     }
+                    if (!statusMessage.isNullOrBlank()) {
+                        Text(statusMessage.orEmpty(), color = TextSecondary, fontSize = 11.sp)
+                    }
                 }
             }
             if (loading && tokens.isEmpty()) {
