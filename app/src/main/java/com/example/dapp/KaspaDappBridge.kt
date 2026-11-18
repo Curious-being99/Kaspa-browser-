@@ -625,8 +625,8 @@ object KaspaDappBridge {
                                     append("\\nscriptVersion=${out.scriptPublicKey.version}")
                                     append("\\nscript=$script")
                                     out.covenant?.let { binding ->
-                                        append("\\ncovenantId=\${binding.covenantId}")
-                                        append("\\nauthorizingInput=\${binding.authorizingInput}")
+                                        append("\\ncovenantId=${binding.covenantId}")
+                                        append("\\nauthorizingInput=${binding.authorizingInput}")
                                     }
                                 }
                             }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
@@ -1258,13 +1258,13 @@ object KaspaDappBridge {
                                         com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(output.amount)
                                     )
                                     buildString {
-                                        append("Output \${index + 1} — $amount KAS")
+                                        append("Output ${index + 1} — $amount KAS")
                                         if (!address.isNullOrBlank()) append("\nrecipient=$address")
-                                        append("\nscriptVersion=\${output.scriptPublicKey.version}")
-                                        append("\nscript=\${output.scriptPublicKey.script}")
+                                        append("\nscriptVersion=${output.scriptPublicKey.version}")
+                                        append("\nscript=${output.scriptPublicKey.script}")
                                         output.covenant?.let { binding ->
-                                            append("\ncovenantId=\${binding.covenantId}")
-                                            append("\nauthorizingInput=\${binding.authorizingInput}")
+                                            append("\ncovenantId=${binding.covenantId}")
+                                            append("\nauthorizingInput=${binding.authorizingInput}")
                                         }
                                     }
                                 }.joinToString("\n\n")
