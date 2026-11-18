@@ -79,6 +79,7 @@ fn validate(json_text: &str) -> Result<Value, String> {
     }
 
     let mut inputs = Vec::with_capacity(input_values.len());
+    let mut tx_inputs_outpoints = Vec::with_capacity(input_values.len());
     let mut seen_outpoints = std::collections::HashSet::with_capacity(input_values.len());
     for input in input_values {
         let txid = required_hash(&input["txid"], "input txid")?;
@@ -92,12 +93,16 @@ fn validate(json_text: &str) -> Result<Value, String> {
             return Err("Input signature script exceeds 100 KiB".to_string());
         }
         let budget = bounded_number(&input["computeBudget"], "computeBudget", u16::MAX as u64)?;
+        if budget == 0 {
+            return Err("Version-1 input computeBudget must be non-zero".to_string());
+        }
         inputs.push(TransactionInput::new_with_compute_budget(
             TransactionOutpoint::new(txid, index),
             signature_script,
             sequence,
             budget as u16,
         ));
+        tx_inputs_outpoints.push((txid, index));
     }
 
     let mut outputs = Vec::with_capacity(output_values.len());
@@ -138,7 +143,13 @@ fn validate(json_text: &str) -> Result<Value, String> {
 
     let mut utxos = Vec::with_capacity(utxo_values.len());
     let mut total_input_value = 0u128;
-    for utxo in utxo_values {
+    for (index, utxo) in utxo_values.iter().enumerate() {
+        let utxo_txid = required_hash(&utxo["txid"], "UTXO outpoint txid")?;
+        let utxo_index = bounded_number(&utxo["index"], "UTXO outpoint index", u32::MAX as u64)? as u32;
+        let input = &tx_inputs_outpoints[index];
+        if utxo_txid != input.0 || utxo_index != input.1 {
+            return Err(format!("Node UTXO entry {index} does not match its transaction input outpoint"));
+        }
         let script_bytes = bytes(&utxo["script"])?;
         if script_bytes.len() > 10_000 {
             return Err("Spent UTXO script public key exceeds 10 KiB".to_string());
