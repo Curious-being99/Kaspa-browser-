@@ -1,6 +1,7 @@
 package com.example.network.kaspa
 
 import com.example.network.CryptoUtils
+import com.example.network.Blake3
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -574,6 +575,7 @@ object KaspaTransactionEngine {
      * Note: Signature scripts and sigOpCounts are excluded for version 0 transactions.
      */
     fun calcTransactionId(tx: KaspaTransaction): String {
+        if (tx.version >= 1) return calcVersionOneTransactionId(tx)
         val bos = ByteArrayOutputStream()
         writeUInt16LE(bos, tx.version)
         writeUInt64LE(bos, tx.inputs.size.toLong())
@@ -624,6 +626,54 @@ object KaspaTransactionEngine {
 
         val digest = CryptoUtils.blake2b256(bos.toByteArray(), KEY_TRANSACTION_ID)
         return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun calcVersionOneTransactionId(tx: KaspaTransaction): String {
+        val payloadBytes = hexToBytes(tx.payload)
+        val payloadDigest = Blake3.keyedHash("PayloadDigest", payloadBytes)
+        val rest = ByteArrayOutputStream()
+
+        writeUInt16LE(rest, tx.version)
+        writeUInt64LE(rest, tx.inputs.size.toLong())
+        for (input in tx.inputs) {
+            val txIdBytes = hexToBytes(input.previousOutpoint.transactionId)
+            require(txIdBytes.size == 32) { "Version-1 transaction input txid must be 32 bytes" }
+            rest.write(txIdBytes)
+            writeUInt32LE(rest, input.previousOutpoint.index)
+            writeUInt64LE(rest, 0L)
+            writeUInt64LE(rest, input.sequence)
+        }
+
+        writeUInt64LE(rest, tx.outputs.size.toLong())
+        for (output in tx.outputs) {
+            writeUInt64LE(rest, output.amount)
+            writeUInt16LE(rest, output.scriptPublicKey.version)
+            val script = hexToBytes(output.scriptPublicKey.script)
+            writeUInt64LE(rest, script.size.toLong())
+            rest.write(script)
+            val covenant = output.covenant
+            writeByte(rest, (if (covenant == null) 0 else 1).toByte())
+            if (covenant != null) {
+                require(covenant.authorizingInput in 0..0xffff)
+                writeUInt16LE(rest, covenant.authorizingInput)
+                rest.write(decodeCovenantId(covenant.covenantId))
+            }
+        }
+
+        writeUInt64LE(rest, tx.lockTime)
+        val subnetwork = hexToBytes(tx.subnetworkId)
+        require(subnetwork.size == 20) { "Version-1 transaction subnetwork ID must be 20 bytes" }
+        rest.write(subnetwork)
+        writeUInt64LE(rest, tx.gas)
+        writeUInt64LE(rest, 0L)
+
+        val restDigest = Blake3.keyedHash("TransactionRest", rest.toByteArray())
+        val finalPreimage = ByteArray(payloadDigest.size + restDigest.size).also {
+            System.arraycopy(payloadDigest, 0, it, 0, payloadDigest.size)
+            System.arraycopy(restDigest, 0, it, payloadDigest.size, restDigest.size)
+        }
+        return Blake3.keyedHash("TransactionV1Id", finalPreimage)
+            .joinToString("") { "%02x".format(it) }
     }
 
     /**
