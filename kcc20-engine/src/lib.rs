@@ -475,6 +475,34 @@ mod tests {
     }
 
     #[test]
+    fn rust_witness_assembler_builds_leader_and_delegator_paths() {
+        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
+        let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
+        let sender = vec![0x33; 32];
+        let recipient = vec![0x44; 32];
+        let program = encode_reference_program(100, &sender, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+        let successor = encode_reference_program(100, &recipient, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+        let mut signature = vec![0x55; 65];
+        signature[64] = 1;
+        let leader = json!({
+            "templateHash":hex_string(&template),"templateSuffix":hex_string(&suffix),
+            "program":hex_string(&program),"leader":true,"signature65":hex_string(&signature),
+            "nextStates":[hex_string(&successor)]
+        });
+        let script = decode_hex(&assemble_reference_witness(&leader.to_string()).unwrap()).unwrap();
+        assert!(script.windows(5).any(|w|w==[4,0x79,0xc7,0x1c,0x23]));
+
+        let delegator = json!({
+            "templateHash":hex_string(&template),"templateSuffix":hex_string(&suffix),
+            "program":hex_string(&program),"leader":false,"signature65":hex_string(&signature),
+            "nextStates":[]
+        });
+        let script = decode_hex(&assemble_reference_witness(&delegator.to_string()).unwrap()).unwrap();
+        assert!(script.windows(5).any(|w|w==[4,0xfd,0x3e,0xf1,0x4a]));
+    }
+
+    #[test]
     fn rust_planner_rejects_program_with_unpinned_suffix() {
         let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
         let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
