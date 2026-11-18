@@ -917,6 +917,12 @@ object KaspaDappBridge {
                                     amount = resolvedAmount,
                                     amountLabel = if (isKcc20Method) "Exact token base units" else "Amount",
                                     destination = if (isKcc20Method) toAddr else resolvedDestination,
+                                    tokenDetails = if (isKcc20Method) buildString {
+                                        com.example.network.kaspa.Kcc20NoteScanner.KNOWN_TOKENS[requestedCovenantId]?.let { metadata ->
+                                            append("Name: ${metadata.name}\\nTicker: ${metadata.ticker}\\nDecimals: ${metadata.decimals}\\nMetadata source: pinned token list\\n")
+                                        }
+                                        append("Covenant ID: $requestedCovenantId\\nExact base units: ${kcc20AmountBaseUnits?.toString().orEmpty()}")
+                                    } else "",
                                     inputsCount = if (isKcc20Method) 0 else prePrepared?.transaction?.inputs?.size ?: 1,
                                     feeKas = if (isKcc20Method) "Not yet calculated; exact fee appears in the required second confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
                                     totalAmountKas = if (isKcc20Method) "" else actualOutgoingKas ?: amtStr,
