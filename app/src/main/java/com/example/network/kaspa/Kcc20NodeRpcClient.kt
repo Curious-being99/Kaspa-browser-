@@ -66,9 +66,15 @@ class Kcc20NodeRpcClient(
                     val endpoint = descriptor.optString("url").trim()
                     val parsed = runCatching { java.net.URI(endpoint) }.getOrNull()
                     if (parsed?.scheme == "wss" && !parsed.host.isNullOrBlank()) {
-                        return@withContext endpoint
+                        try {
+                            requireNetwork(endpoint, expectedNetwork)
+                            return@withContext endpoint
+                        } catch (error: Throwable) {
+                            failures += "$resolver returned an unsuitable node: ${error.message ?: error.javaClass.simpleName}"
+                        }
+                    } else {
+                        failures += "$resolver returned no secure wRPC URL"
                     }
-                    failures += "$resolver returned no secure wRPC URL"
                 }
             } catch (error: Throwable) {
                 failures += "$resolver: ${error.message ?: error.javaClass.simpleName}"
