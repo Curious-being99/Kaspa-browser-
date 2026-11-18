@@ -231,6 +231,154 @@ internal object DappPsktTransaction {
     fun signForDapp(prepared: Prepared, privateKey: BigInteger): String =
         sign(prepared, privateKey, isDappSigning = true)
 
+    fun assembleReferenceCovenantWitnesses(signedJson: String, prepared: Prepared): String {
+        val root = JSONObject(signedJson)
+        val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
+        val inputs = txRoot.optJSONArray("inputs")
+            ?: throw IllegalArgumentException("Signed PSKT inputs are missing")
+        require(inputs.length() == prepared.transaction.inputs.size) {
+            "Signed PSKT input count changed before KCC20 witness assembly"
+        }
+
+        val families = linkedMapOf<String, MutableList<Int>>()
+        prepared.utxoEntries.forEachIndexed { index, utxo ->
+            val script = utxo.scriptPublicKey.script.replace(" ", "").lowercase()
+            if (utxo.scriptPublicKey.version == 0 && Regex("aa20[0-9a-f]{64}87").matches(script)) {
+                val family = utxo.covenantId?.trim()?.lowercase()
+                    ?: throw IllegalArgumentException("P2SH input $index has no node-declared covenant ID")
+                require(family.matches(Regex("[0-9a-f]{64}"))) {
+                    "P2SH input $index has a malformed covenant ID"
+                }
+                families.getOrPut(family) { mutableListOf() }.add(index)
+            }
+        }
+        require(families.isNotEmpty()) { "No reference KCC20 covenant inputs were supplied" }
+
+        val covenantOutputs = prepared.transaction.outputs.mapIndexedNotNull { index, output ->
+            output.covenant?.let { binding -> index to binding }
+        }
+        for ((family, familyInputs) in families) {
+            require(familyInputs.size in 1..Kcc20ReferenceProtocol.MAX_TOKEN_INPUTS) {
+                "KCC20 family $family exceeds the reference three-cell input limit"
+            }
+            val leaderIndex = familyInputs.first()
+            val leaderProgramHex = prepared.inputRedeemScripts.getOrNull(leaderIndex).orEmpty()
+            require(leaderProgramHex.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                "KCC20 leader input $leaderIndex is missing its redeem program"
+            }
+            val leaderProgram = hexToBytes(leaderProgramHex)
+            val leaderState = Kcc20ReferenceProtocol.verifyProgram(leaderProgram)
+            require(leaderState.borrowScheme == 0 && leaderState.extensionCommitment.all { it == 0.toByte() }) {
+                "KCC20 borrow paths and non-zero extension commitments are not established by the guide"
+            }
+
+            val familyOutputIndices = covenantOutputs.filter { (_, binding) ->
+                binding.covenantId.equals(family, ignoreCase = true)
+            }.map { (index, binding) ->
+                require(binding.authorizingInput == leaderIndex) {
+                    "KCC20 continuation output $index is not authorized by family leader input $leaderIndex"
+                }
+                index
+            }
+            require(familyOutputIndices.size in 1..Kcc20ReferenceProtocol.MAX_TOKEN_OUTPUTS) {
+                "KCC20 family $family must have one to three leader-authorized continuations"
+            }
+
+            val nextStates = familyOutputIndices.map { outputIndex ->
+                val output = prepared.transaction.outputs[outputIndex]
+                require(output.scriptPublicKey.version == 0) {
+                    "KCC20 continuation output $outputIndex must be a version-0 P2SH output"
+                }
+                val outputScript = output.scriptPublicKey.script.replace(" ", "").lowercase()
+                require(Regex("aa20[0-9a-f]{64}87").matches(outputScript)) {
+                    "KCC20 continuation output $outputIndex is not P2SH"
+                }
+                val programHex = prepared.outputRedeemScripts.getOrNull(outputIndex).orEmpty()
+                require(programHex.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                    "KCC20 continuation output $outputIndex is missing its redeem program"
+                }
+                val program = hexToBytes(programHex)
+                val expectedP2sh = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                require(expectedP2sh.equals(outputScript, ignoreCase = true)) {
+                    "KCC20 continuation output $outputIndex redeem program does not match its P2SH"
+                }
+                Kcc20ReferenceProtocol.verifyProgram(program).also { state ->
+                    require(state.borrowScheme == 0 &&
+                        state.extensionCommitment.contentEquals(leaderState.extensionCommitment)
+                    ) { "KCC20 continuation output $outputIndex has an unsupported or changed state policy" }
+                }
+            }
+
+            val allCellAmounts = familyInputs.fold(java.math.BigInteger.ZERO) { total, inputIndex ->
+                val programHex = prepared.inputRedeemScripts.getOrNull(inputIndex).orEmpty()
+                require(programHex.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                    "KCC20 input $inputIndex is missing its redeem program"
+                }
+                val state = Kcc20ReferenceProtocol.verifyProgram(hexToBytes(programHex))
+                require(state.borrowScheme == 0 &&
+                    state.extensionCommitment.contentEquals(leaderState.extensionCommitment)
+                ) { "KCC20 input $inputIndex has an unsupported or incompatible state policy" }
+                total.add(state.amount)
+            }
+            val nextTotal = nextStates.fold(java.math.BigInteger.ZERO) { total, state -> total.add(state.amount) }
+            require(allCellAmounts == nextTotal) {
+                "KCC20 family $family continuation amounts do not conserve the consumed token amount"
+            }
+
+            familyInputs.forEachIndexed { position, inputIndex ->
+                val state = Kcc20ReferenceProtocol.verifyProgram(
+                    hexToBytes(prepared.inputRedeemScripts[inputIndex])
+                )
+                val inputJson = inputs.optJSONObject(inputIndex)
+                    ?: throw IllegalArgumentException("Signed PSKT input $inputIndex is malformed")
+                val signatureScript = inputJson.optString(
+                    "signatureScript",
+                    inputJson.optString("signature_script", "")
+                ).lowercase()
+                val assembled = if (position == 0) {
+                    val signature = when (state.ownerScheme) {
+                        0x00 -> {
+                            require(signatureScript.matches(Regex("41[0-9a-f]{128}01"))) {
+                                "KCC20 leader input $inputIndex requires its owner's 65-byte SIGHASH_ALL signature"
+                            }
+                            hexToBytes(signatureScript.substring(2))
+                        }
+                        0x04 -> {
+                            require(signatureScript.isBlank()) {
+                                "Covenant-owned KCC20 leader input $inputIndex must not carry a wallet signature"
+                            }
+                            null
+                        }
+                        else -> throw IllegalArgumentException(
+                            "KCC20 leader owner scheme 0x%02x is not established by the guide".format(state.ownerScheme)
+                        )
+                    }
+                    Kcc20ReferenceProtocol.leaderSignatureScript(nextStates, signature, leaderProgram)
+                } else {
+                    require(state.ownerScheme == 0x00) {
+                        "KCC20 delegator input $inputIndex must use guide-established P2PK owner scheme 0x00"
+                    }
+                    require(signatureScript.matches(Regex("41[0-9a-f]{128}01"))) {
+                        "KCC20 delegator input $inputIndex requires its owner's 65-byte SIGHASH_ALL signature"
+                    }
+                    Kcc20ReferenceProtocol.delegatorSignatureScript(
+                        hexToBytes(signatureScript.substring(2)),
+                        hexToBytes(prepared.inputRedeemScripts[inputIndex])
+                    )
+                }
+                val assembledHex = Kcc20ReferenceProtocol.bytesToHex(assembled)
+                inputJson.put("signatureScript", assembledHex)
+                inputJson.remove("signature_script")
+            }
+        }
+
+        val boundFamilyIds = covenantOutputs.map { it.second.covenantId.lowercase() }.toSet()
+        require(boundFamilyIds.all { it in families }) {
+            "PSKT contains a covenant-bound output without a matching reference KCC20 leader input"
+        }
+        return root.toString()
+    }
+
     fun applyMeasuredComputeBudgets(signedJson: String, budgets: List<Int>): String {
         val root = JSONObject(signedJson)
         val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
