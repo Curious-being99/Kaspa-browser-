@@ -722,15 +722,11 @@ object KaspaDappBridge {
                         val kcc20AmountBaseUnits = if (isKcc20Method) {
                             try {
                                 val explicitBaseUnits = paramsObj.optString("amountBaseUnits", "").trim()
-                                if (explicitBaseUnits.isNotBlank()) {
-                                    java.math.BigInteger(explicitBaseUnits)
-                                } else {
-                                    val decimals = paramsObj.optInt("decimals", -1)
-                                    require(decimals in 0..18) {
-                                        "KCC-20 transfer must supply amountBaseUnits or an explicit decimals value"
-                                    }
-                                    java.math.BigDecimal(amtStr).movePointRight(decimals).toBigIntegerExact()
+                                val rawAmount = explicitBaseUnits.ifBlank { amtStr.trim() }
+                                require(rawAmount.matches(Regex("[0-9]+"))) {
+                                    "KCC-20 amount must be an integer number of base units"
                                 }
+                                java.math.BigInteger(rawAmount)
                             } catch (_: Exception) {
                                 null
                             }
@@ -757,7 +753,15 @@ object KaspaDappBridge {
                             ?: paramsObj.optJSONObject("params")
                         val rawSignInputs = options?.optJSONArray("signInputs")
                             ?: paramsObj.optJSONArray("signInputs")
-                            ?: JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL))
+                            ?: JSONArray()
+
+                        if (isStructuredTx && rawSignInputs.length() == 0) {
+                            respond(
+                                errorCode = -32602,
+                                errorMessage = "Structured Kaspa/KCC20 PSKT signing requires explicit options.signInputs. The wallet never guesses which transaction input belongs to you."
+                            )
+                            return@addWebMessageListener
+                        }
 
                         cryptoExecutor.execute {
                             val prePrepared = if (isStructuredTx) {
@@ -924,68 +928,44 @@ object KaspaDappBridge {
 
                                     if (isKcc20Method) {
                                         val amountBaseUnits = kcc20AmountBaseUnits
-                                            ?: throw IllegalArgumentException("KCC20 amount is missing or invalid")
-                                        viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
-                                            origin = origin,
-                                            network = network,
-                                            accountAddress = keyPair.kaspaAddress,
-                                            title = "KCC20 Token Transfer",
-                                            action = "Authorize signing and script validation",
-                                            tick = tick.ifBlank { requestedCovenantId.take(10) },
-                                            amount = amountBaseUnits.toString(),
-                                            amountLabel = "Exact token base units",
-                                            destination = toAddr,
-                                            inputsCount = 0,
-                                            feeKas = "No broadcast yet. The exact node fee is shown in a second confirmation.",
-                                            totalAmountKas = "",
-                                            isBroadcast = false,
-                                            onApprove = {
-                                                viewModel.dappPromptState.value = null
-                                                cryptoExecutor.execute {
-                                                    val outcome = try {
-                                                        kotlinx.coroutines.runBlocking {
-                                                            viewModel.executeKcc20Transfer(
-                                                                covenantId = requestedCovenantId,
-                                                                recipientAddress = toAddr,
-                                                                amountBaseUnits = amountBaseUnits,
-                                                                origin = origin
-                                                            )
-                                                        }
-                                                    } catch (error: Throwable) {
-                                                        Result.failure(error)
-                                                    }
-                                                    mainHandler.post {
-                                                        outcome.fold(
-                                                            onSuccess = { txId ->
-                                                                respond(
-                                                                    JSONObject()
-                                                                        .put("transactionId", txId)
-                                                                        .put("status", "accepted")
-                                                                        .put("covenantId", requestedCovenantId)
-                                                                        .put("op", "transfer")
-                                                                        .put("amountBaseUnits", amountBaseUnits.toString())
-                                                                        .put("to", toAddr)
-                                                                )
-                                                            },
-                                                            onFailure = { err ->
-                                                                if (err is com.example.viewmodel.DecentralViewModel.Kcc20UserRejectedException) {
-                                                                    respond(errorCode = 4001, errorMessage = err.message ?: "User rejected KCC20 broadcast")
-                                                                } else {
-                                                                    respond(
-                                                                        errorCode = -32000,
-                                                                        errorMessage = err.message ?: "KCC20 transfer failed"
-                                                                    )
-                                                                }
-                                                            }
+                                            ?: throw IllegalArgumentException("KCC20 amount must be supplied as an integer base-unit value")
+                                        val outcome = try {
+                                            kotlinx.coroutines.runBlocking {
+                                                viewModel.executeKcc20Transfer(
+                                                    covenantId = requestedCovenantId,
+                                                    recipientAddress = toAddr,
+                                                    amountBaseUnits = amountBaseUnits,
+                                                    origin = origin
+                                                )
+                                            }
+                                        } catch (error: Throwable) {
+                                            Result.failure(error)
+                                        }
+                                        mainHandler.post {
+                                            outcome.fold(
+                                                onSuccess = { txId ->
+                                                    respond(
+                                                        JSONObject()
+                                                            .put("transactionId", txId)
+                                                            .put("status", "accepted")
+                                                            .put("covenantId", requestedCovenantId)
+                                                            .put("op", "transfer")
+                                                            .put("amountBaseUnits", amountBaseUnits.toString())
+                                                            .put("to", toAddr)
+                                                    )
+                                                },
+                                                onFailure = { err ->
+                                                    if (err is com.example.viewmodel.DecentralViewModel.Kcc20UserRejectedException) {
+                                                        respond(errorCode = 4001, errorMessage = err.message ?: "User rejected KCC20 broadcast")
+                                                    } else {
+                                                        respond(
+                                                            errorCode = -32000,
+                                                            errorMessage = err.message ?: "KCC20 transfer failed"
                                                         )
                                                     }
                                                 }
-                                            },
-                                            onReject = {
-                                                viewModel.dappPromptState.value = null
-                                                respond(errorCode = 4001, errorMessage = "User rejected KCC20 transfer")
-                                            }
-                                        )
+                                            )
+                                        }
                                         return@execute
                                     }
 
@@ -1714,12 +1694,9 @@ object KaspaDappBridge {
                     name: 'Kazium',
                     isKaspabrowser: true,
                     isKaspaBrowser: true,
-                    isKasware: true,
-                    isKastle: true,
-                    isKaspire: true,
                     isKaspa: true,
                     isInstalled: true,
-                    type: 'extension',
+                    type: 'in-app',
                     version: '1.2.0',
                     request: requestCompat,
                     requestAccounts: () => requestCompat({ method: 'requestAccounts' }),
@@ -1734,65 +1711,6 @@ object KaspaDappBridge {
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload }),
                     disconnect: () => requestCompat({ method: 'disconnect' })
                   });
-                  installAlias('kastle', Object.freeze({
-                    ...requestProvider,
-                    isKastle: true,
-                    isInstalled: true,
-                    isKaspa: true,
-                    version: '1.2.0',
-                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
-                    signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
-                    signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
-                    sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
-                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
-                  }));
-                  installAlias('kasware', Object.freeze({
-                    ...requestProvider,
-                    isKasware: true,
-                    isInstalled: true,
-                    isKaspa: true,
-                    version: '1.2.0',
-                    getNetwork: () => requestCompat({ method: 'kaspa:getNetwork' }),
-                    getAccounts: () => requestCompat({ method: 'kaspa:getAccounts' }),
-                    requestAccounts: () => requestCompat({ method: 'kaspa:requestAccounts' }),
-                    getBalance: () => requestCompat({ method: 'kaspa:getBalance' }),
-                    getPublicKey: () => requestCompat({ method: 'kaspa:getPublicKey' }),
-                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
-                    signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
-                    signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
-                    sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
-                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
-                  }));
-                  const kasperiaProvider = {
-                    ...requestProvider,
-                    isKasperia: true,
-                    isInstalled: true,
-                    isKaspa: true
-                  };
-                  Object.defineProperty(kasperiaProvider, 'ethereum', {
-                    configurable: false,
-                    enumerable: true,
-                    get: () => window.ethereum
-                  });
-                  Object.freeze(kasperiaProvider);
-                  installAlias('kasperia', kasperiaProvider);
-                  const kaspireProvider = Object.freeze({
-                    ...kaspaBrowserProvider,
-                    id: 'kaspire',
-                    name: 'Kaspire',
-                    provider: 'kaspire',
-                    isKaspire: true,
-                    isKaspabrowser: true,
-                    isKaspaBrowser: true,
-                    isInstalled: true,
-                    isKaspa: true,
-                    type: 'extension',
-                    version: '1.2.5'
-                  });
-                  window.kaspire = kaspireProvider;
-                  window.isKaspire = true;
-                  installAlias('kaspire', kaspireProvider);
-
                   window.kaspabrowser = kaspaBrowserProvider;
                   window.kaspabrowserProvider = kaspaBrowserProvider;
                   try {
@@ -1810,7 +1728,6 @@ object KaspaDappBridge {
                     });
                   } catch (_) {}
 
-                  window.isKasware = true;
                   window.isKaspa = true;
 
                   const walletNamespace = window.wallet && typeof window.wallet === 'object' ? window.wallet : {};
@@ -1837,18 +1754,14 @@ object KaspaDappBridge {
                   const announce = () => {
                     const detail = Object.freeze({ info, provider: kaspaBrowserProvider });
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
-                    window.dispatchEvent(new CustomEvent('kaspire:provider', { detail: Object.freeze({ info: { ...info, id: 'kaspire', name: 'Kaspire', rdns: 'io.kaspire' }, provider: kaspireProvider }) }));
-                    window.dispatchEvent(new CustomEvent('kasware:provider', { detail: Object.freeze({ info: { ...info, id: 'kasware', name: 'Kasware', rdns: 'com.kasware.wallet' }, provider: window.kasware }) }));
+
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   window.addEventListener('kaspabrowser#requestProvider', announce);
-                  window.addEventListener('kaspire:requestProvider', announce);
-                  window.addEventListener('kasware:requestProvider', announce);
+
                   announce();
                   window.dispatchEvent(new Event('kaspabrowser#initialized'));
-                  window.dispatchEvent(new Event('kasperia#initialized'));
-                  window.dispatchEvent(new Event('kaspire#initialized'));
-                  window.dispatchEvent(new Event('kasware#initialized'));
+
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 
