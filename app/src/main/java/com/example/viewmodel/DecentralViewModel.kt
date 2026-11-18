@@ -126,14 +126,14 @@ typealias DappPromptState = DecentralViewModel.DappPromptState
 fun extractFilenameFromDisposition(disposition: String?): String? {
     if (disposition.isNullOrBlank()) return null
     try {
-        val utf8Match = Regex("filename\\*=(?:UTF-8|utf-8)''([^;\\r\n]+)").find(disposition)
+        val utf8Match = Regex("filename\\*=(?:UTF-8|utf-8)''([^;\\r\\n]+)").find(disposition)
         if (utf8Match != null) {
             val encoded = utf8Match.groupValues[1].trim('"', '\'')
             return try {
                 java.net.URLDecoder.decode(encoded, "UTF-8")
             } catch (_: Exception) { encoded }
         }
-        val standardMatch = Regex("filename=\"?([^\";\\r\n]+)\"?").find(disposition)
+        val standardMatch = Regex("filename=\"?([^\";\\r\\n]+)\"?").find(disposition)
         if (standardMatch != null) {
             return standardMatch.groupValues[1].trim('"', '\'')
         }
