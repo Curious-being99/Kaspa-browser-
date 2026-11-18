@@ -255,6 +255,10 @@ internal object Kcc20ArgentArtifact {
   }
 }
 
+tasks.named("cargoBuildKcc20Engine").configure {
+  dependsOn("verifyKcc20ArgentArtifact")
+}
+
 tasks.named("preBuild").configure {
   dependsOn("cargoBuildKcc20Engine", "verifyKcc20ArgentArtifact")
 }
