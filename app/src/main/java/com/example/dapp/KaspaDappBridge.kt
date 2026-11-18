@@ -604,16 +604,16 @@ object KaspaDappBridge {
                                 val address = runCatching { scriptToAddress(out.scriptPublicKey, prefix) }.getOrNull()
                                 buildString {
                                     append("Output ${index + 1} — ${if (isChange) "Wallet change" else "External / contract output"} — $amount KAS")
-                                    if (!address.isNullOrBlank()) append("\\nrecipient=$address")
-                                    else append("\\nrecipient=unresolved locking script")
-                                    append("\\nscriptVersion=${out.scriptPublicKey.version}")
-                                    append("\\nscript=$script")
+                                    if (!address.isNullOrBlank()) append("\nrecipient=$address")
+                                    else append("\nrecipient=unresolved locking script")
+                                    append("\nscriptVersion=${out.scriptPublicKey.version}")
+                                    append("\nscript=$script")
                                     out.covenant?.let { binding ->
-                                        append("\\ncovenantId=${binding.covenantId}")
-                                        append("\\nauthorizingInput=${binding.authorizingInput}")
+                                        append("\ncovenantId=${binding.covenantId}")
+                                        append("\nauthorizingInput=${binding.authorizingInput}")
                                     }
                                 }
-                            }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
+                            }.joinToString("\n\n").ifBlank { "No transaction outputs found" }
 
                             mainHandler.post {
                                 val tokenDetails = try {
@@ -919,9 +919,9 @@ object KaspaDappBridge {
                                     destination = if (isKcc20Method) toAddr else resolvedDestination,
                                     tokenDetails = if (isKcc20Method) buildString {
                                         com.example.network.kaspa.Kcc20NoteScanner.KNOWN_TOKENS[requestedCovenantId]?.let { metadata ->
-                                            append("Name: ${metadata.name}\\nTicker: ${metadata.ticker}\\nDecimals: ${metadata.decimals}\\nMetadata source: pinned token list\\n")
+                                            append("Name: ${metadata.name}\nTicker: ${metadata.ticker}\nDecimals: ${metadata.decimals}\nMetadata source: pinned token list\n")
                                         }
-                                        append("Covenant ID: $requestedCovenantId\\nExact base units: ${kcc20AmountBaseUnits?.toString().orEmpty()}")
+                                        append("Covenant ID: $requestedCovenantId\nExact base units: ${kcc20AmountBaseUnits?.toString().orEmpty()}")
                                     } else "",
                                     inputsCount = if (isKcc20Method) 0 else prePrepared?.transaction?.inputs?.size ?: 1,
                                     feeKas = if (isKcc20Method) "Not yet calculated; exact fee appears in the required second confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
