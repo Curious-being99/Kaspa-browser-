@@ -172,12 +172,8 @@ tasks.register<Exec>("cargoBuildKcc20Engine") {
   group = "build"
   description = "Builds the Rusty-Kaspa v2.1.0 KCC20 script engine for Android"
   workingDir = file("$rootDir/kcc20-engine")
-  val cargoNdk = file("${System.getProperty("user.home")}/.cargo/bin/cargo-ndk")
-  require(cargoNdk.isFile) {
-    "cargo-ndk executable is missing at ${cargoNdk.absolutePath}; install cargo-ndk before building the KCC20 engine."
-  }
   commandLine(
-    cargoNdk.absolutePath,
+    "cargo-ndk",
     "-t", "arm64-v8a",
     "-o", file("$buildDir/rustJniLibs").absolutePath,
     "build",
