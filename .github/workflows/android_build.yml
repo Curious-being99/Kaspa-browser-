@@ -68,7 +68,14 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Install cargo-ndk
-        run: cargo install cargo-ndk --version 3.5.4 --locked
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          cargo install cargo-ndk --version 3.5.4 --locked
+          export PATH="$HOME/.cargo/bin:$PATH"
+          command -v cargo-ndk
+          cargo ndk --version
 
       - name: Checkout pinned Argent compiler
         shell: bash
