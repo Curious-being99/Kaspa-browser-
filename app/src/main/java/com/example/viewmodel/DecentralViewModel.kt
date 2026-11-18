@@ -3216,6 +3216,9 @@ class DecentralViewModel(
                         throw IllegalStateException("Rusty-Kaspa rejected the exact per-input compute budgets")
                     }
 
+                    require(validation.computeMass >= 0L && validation.transientMass >= 0L && validation.storageMass != null) {
+                        "Rusty-Kaspa did not return complete contextual mass results"
+                    }
                     val compute = validation.computeMass
                     val transientFeeMass = (validation.transientMass + 1L) / 2L
                     val feeMass = maxOf(compute, transientFeeMass)
@@ -3227,7 +3230,10 @@ class DecentralViewModel(
                         Math.addExact(total, output.amount)
                     }
                     if (actualFee >= requiredFee) {
-                        tx.mass = maxOf(compute, validation.storageMass ?: 0L)
+                        tx.mass = maxOf(compute, validation.storageMass!!)
+                        require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                            "Rusty-Kaspa transaction mass ${tx.mass} exceeds the standard relay limit"
+                        }
                         finalTransaction = tx
                         finalValidation = validation
                         acceptedThisSet = true
@@ -3252,7 +3258,13 @@ class DecentralViewModel(
                             signInputs()
                             val noChangeValidation = Kcc20RustyKaspaEngine.validate(tx, allEngineUtxos)
                             if (!noChangeValidation.valid) throw IllegalStateException("Rusty-Kaspa rejected the no-change KCC20 transaction")
-                            tx.mass = maxOf(noChangeValidation.computeMass, noChangeValidation.storageMass ?: 0L)
+                            require(noChangeValidation.computeMass >= 0L && noChangeValidation.storageMass != null) {
+                                "Rusty-Kaspa did not return contextual mass for the no-change transaction"
+                            }
+                            tx.mass = maxOf(noChangeValidation.computeMass, noChangeValidation.storageMass!!)
+                            require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                                "Rusty-Kaspa transaction mass ${tx.mass} exceeds the standard relay limit"
+                            }
                             finalTransaction = tx
                             finalValidation = noChangeValidation
                             acceptedThisSet = true
