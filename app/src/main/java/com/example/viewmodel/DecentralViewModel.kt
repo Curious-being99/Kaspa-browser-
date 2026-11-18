@@ -3051,9 +3051,12 @@ class DecentralViewModel(
     ): KaspaTransactionEngine.KaspaTransaction = withContext(Dispatchers.IO) {
         require(transaction.version == 1) { "KCC20 covenant PSKTs must use transaction version 1" }
         val (_, spentUtxos) = fetchVerifiedDappPsktUtxos(transaction, utxoEntries, inputAddresses)
-        val provisional = transaction.copy(inputs = transaction.inputs.map { input ->
-            input.copy(sigOpCount = 0, computeBudget = 0xffff)
-        })
+        val provisional = transaction.copy(
+            mass = 0L,
+            inputs = transaction.inputs.map { input ->
+                input.copy(sigOpCount = 0, computeBudget = 0xffff)
+            }
+        )
         val measured = Kcc20RustyKaspaEngine.validate(provisional, spentUtxos)
         require(measured.inputResults.size == provisional.inputs.size &&
             measured.inputResults.all { it.valid && it.usedScriptUnits >= 0L }
