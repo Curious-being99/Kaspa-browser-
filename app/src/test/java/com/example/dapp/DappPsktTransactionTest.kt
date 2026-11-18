@@ -123,6 +123,25 @@ class DappPsktTransactionTest {
     }
 
     @Test
+    fun preservesVersionOneComputeBudgetsAndZeroSigOpCounts() {
+        val json = JSONObject(transactionJson())
+        json.put("version", 1)
+        val inputs = json.getJSONArray("inputs")
+        inputs.getJSONObject(0).put("sigOpCount", 0).put("computeBudget", 2)
+        inputs.getJSONObject(1).put("sigOpCount", 0).put("computeBudget", 3)
+        val prepared = DappPsktTransaction.prepareForSigning(
+            json.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)),
+            publicKeyHex
+        )
+        assertEquals(1, prepared.transaction.version)
+        assertEquals(0, prepared.transaction.inputs[0].sigOpCount)
+        assertEquals(2, prepared.transaction.inputs[0].computeBudget)
+        assertEquals(0, prepared.transaction.inputs[1].sigOpCount)
+        assertEquals(3, prepared.transaction.inputs[1].computeBudget)
+    }
+
+    @Test
     fun enforcesExistingWalletMinimumFeePolicy() {
         val prepared = DappPsktTransaction.prepareForSigning(
             transactionJson(),
