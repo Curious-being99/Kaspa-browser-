@@ -3,6 +3,7 @@ package com.example.network.kaspa
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import com.example.network.Blake3
 import org.junit.Test
 import java.math.BigInteger
 
@@ -186,6 +187,45 @@ class Kcc20ReferenceProtocolTest {
         assertTrue(
             KaspaTransactionEngine.calculateReferenceV1ComputeMass(boundTx) >
                 KaspaTransactionEngine.calculateSerializedByteSize(boundTx)
+        )
+    }
+
+    @Test
+    fun keyedBlake3MatchesRustyKaspaPayloadDigestVector() {
+        assertEquals(
+            "9c0ca2acb45e92ffe6ceb4ae29188b35c82d9676cdd3ce067fd6ccc30a9c4a38",
+            Kcc20ReferenceProtocol.bytesToHex(Blake3.keyedHash("PayloadDigest", ByteArray(0)))
+        )
+    }
+
+    @Test
+    fun versionOneTransactionIdMatchesRustyKaspaV210Vector() {
+        val transaction = KaspaTransactionEngine.KaspaTransaction(
+            version = 1,
+            inputs = listOf(
+                KaspaTransactionEngine.KaspaTransactionInput(
+                    previousOutpoint = KaspaTransactionEngine.KaspaOutpoint("00".repeat(32), 0),
+                    signatureScript = "",
+                    sequence = 0,
+                    sigOpCount = 0,
+                    computeBudget = 111
+                )
+            ),
+            outputs = emptyList(),
+            lockTime = 0,
+            subnetworkId = "00".repeat(20),
+            gas = 0,
+            payload = ""
+        )
+        assertEquals(
+            "5978e7aa1a9ba8fdf12dae6aa39aa198a91985e91192b291e207d4d6246349e6",
+            KaspaTransactionEngine.calcTransactionId(transaction)
+        )
+        assertEquals(
+            KaspaTransactionEngine.calcTransactionId(transaction),
+            KaspaTransactionEngine.calcTransactionId(
+                transaction.copy(inputs = listOf(transaction.inputs.single().copy(computeBudget = 222)))
+            )
         )
     }
 
