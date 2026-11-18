@@ -23,7 +23,9 @@ internal object DappPsktTransaction {
         val outputSumSompi: Long,
         val feeSompi: Long,
         val redeemScript: String = "",
-        val walletPublicKeyHex: String = ""
+        val walletPublicKeyHex: String = "",
+        val inputRedeemScripts: List<String> = emptyList(),
+        val outputRedeemScripts: List<String> = emptyList()
     ) {
         val feeKas: String
             get() = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(feeSompi))
@@ -385,6 +387,7 @@ internal object DappPsktTransaction {
         }
 
         val outputs = ArrayList<KaspaTransactionEngine.KaspaTransactionOutput>(outputArray.length())
+        val outputRedeemScripts = ArrayList<String>(outputArray.length())
         var outputSum = 0L
         for (index in 0 until outputArray.length()) {
             val item = outputArray.optJSONObject(index)
@@ -397,6 +400,21 @@ internal object DappPsktTransaction {
             require(script.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                 "Output $index has an invalid script"
             }
+            val outputRedeem = sequenceOf("redeemScript", "redeem_script", "redeemScriptHex", "redeem_script_hex")
+                .mapNotNull { key -> item.optString(key, "").takeIf { it.isNotBlank() } }
+                .firstOrNull().orEmpty().lowercase()
+            if (outputRedeem.isNotBlank()) {
+                require(outputRedeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                    "Output $index redeem script is malformed"
+                }
+                val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(script.script.replace(" ", "").lowercase())?.groupValues?.get(1)
+                    ?: throw IllegalArgumentException("Output $index supplies a redeem script for a non-P2SH output")
+                val actualHash = CryptoUtils.blake2b256(hexToBytes(outputRedeem)).joinToString("") { "%02x".format(it) }
+                require(actualHash.equals(p2shHash, ignoreCase = true)) {
+                    "Output $index redeem script does not match its P2SH locking script"
+                }
+            }
+            outputRedeemScripts += outputRedeem
             outputSum = Math.addExact(outputSum, amount)
             val covenantJson = item.optJSONObject("covenant")
             val covenant = covenantJson?.let {
@@ -440,7 +458,11 @@ internal object DappPsktTransaction {
                 )
             }
         }
-        return Prepared(root, tx, utxoEntries, resolvedSignInputs, inputSum, outputSum, fee, redeemScript)
+        return Prepared(
+            root, tx, utxoEntries, resolvedSignInputs, inputSum, outputSum, fee, redeemScript,
+            inputRedeemScripts = inputRedeemScripts.toList(),
+            outputRedeemScripts = outputRedeemScripts.toList()
+        )
     }
 
     private fun parseOutputScriptPublicKey(
