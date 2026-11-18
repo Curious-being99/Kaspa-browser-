@@ -3214,9 +3214,9 @@ class DecentralViewModel(
                 candidates = verified,
                 amountBaseUnits = amountBaseUnits
             )
-            val transferPlan = com.example.network.kaspa.Kcc20ReferenceTransferBuilder.plan(
+            val transferPlan = Kcc20RustyKaspaEngine.planReferenceTransfer(
                 cells = selectedCells,
-                expectedCovenantId = family,
+                covenantId = family,
                 senderPublicKey = keyPair.publicKeyBytes,
                 recipientPublicKey = recipientPublicKey,
                 amountBaseUnits = amountBaseUnits
