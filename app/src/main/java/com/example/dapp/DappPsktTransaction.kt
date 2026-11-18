@@ -264,6 +264,16 @@ internal object DappPsktTransaction {
         }
         require(families.isNotEmpty()) { "No reference KCC20 covenant inputs were supplied" }
 
+        prepared.outputRedeemScripts.forEachIndexed { index, programHex ->
+            if (programHex.isBlank()) return@forEachIndexed
+            val program = runCatching { hexToBytes(programHex) }.getOrNull() ?: return@forEachIndexed
+            if (runCatching { Kcc20ReferenceProtocol.verifyProgram(program) }.isSuccess) {
+                require(prepared.transaction.outputs.getOrNull(index)?.covenant != null) {
+                    "Reference KCC20 continuation output $index is missing its covenant binding"
+                }
+            }
+        }
+
         val covenantOutputs = prepared.transaction.outputs.mapIndexedNotNull { index, output ->
             output.covenant?.let { binding -> index to binding }
         }
@@ -585,10 +595,22 @@ internal object DappPsktTransaction {
             outputRedeemScripts += outputRedeem
             outputSum = Math.addExact(outputSum, amount)
             val covenantJson = item.optJSONObject("covenant")
-            val covenant = covenantJson?.let {
+            val covenant = covenantJson?.let { binding ->
+                val authorizingKey = sequenceOf("authorizingInput", "authorizing_input")
+                    .firstOrNull { key -> binding.has(key) && !binding.isNull(key) }
+                    ?: throw IllegalArgumentException("Output $index covenant binding is missing authorizingInput")
+                val authorizingInput = binding.optInt(authorizingKey, -1)
+                require(authorizingInput in inputs.indices) {
+                    "Output $index covenant authorizingInput is outside the transaction input range"
+                }
+                val covenantId = binding.optString("covenantId", binding.optString("covenant_id", ""))
+                    .trim().lowercase()
+                require(covenantId.matches(Regex("[0-9a-f]{64}"))) {
+                    "Output $index covenant ID must be exactly 32-byte hex"
+                }
                 KaspaTransactionEngine.KaspaCovenantBinding(
-                    authorizingInput = it.optInt("authorizingInput", it.optInt("authorizing_input", 0)),
-                    covenantId = it.optString("covenantId", it.optString("covenant_id", ""))
+                    authorizingInput = authorizingInput,
+                    covenantId = covenantId
                 )
             }
             outputs += KaspaTransactionEngine.KaspaTransactionOutput(amount, script, covenant)
