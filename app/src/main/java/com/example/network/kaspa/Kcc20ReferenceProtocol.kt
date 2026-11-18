@@ -10,6 +10,8 @@ import java.nio.ByteOrder
 object Kcc20ReferenceProtocol {
     const val TEMPLATE_HASH = "9703112ee6e3555107cd168858992b77d3b74f655205b2b463b1f9ec2ec73cf7"
     const val ARTIFACT_ID = "b48c90c8e287d227821ac40f0875a753e329e1ab3c8fdfa1477f55419cfa26ab"
+    const val REFERENCE_SOURCE_COMMIT = "c8a087117735a1f87c5c6d115fcddeaf2562c784"
+    const val ARGENT_COMPILER_REVISION = "9a9f4b107116d0b259fae629f200fa3b663e7e9d"
     const val STATE_START = 1
     const val STATE_SIZE = 145
     const val PROGRAM_SIZE = 4031
@@ -33,6 +35,17 @@ object Kcc20ReferenceProtocol {
         val borrowGuard: ByteArray,
         val extensionCommitment: ByteArray
     )
+
+    fun verifyCompilerArtifactTemplate(artifactId: String, prefixHex: String, suffixHex: String) {
+        require(artifactId == ARTIFACT_ID) { "Unknown Argent KCC20 artifact" }
+        val expectedPrefix = concat(templatePrefix, pushExplicit(hexToBytes(TEMPLATE_HASH)))
+        require(hexToBytes(prefixHex).contentEquals(expectedPrefix)) {
+            "Argent KCC20 artifact prefix differs from the pinned reference"
+        }
+        require(hexToBytes(suffixHex).contentEquals(suffix)) {
+            "Argent/Silverscript compiled KCC20 bytecode differs from the pinned reference"
+        }
+    }
 
     fun encodeState(state: State): ByteArray {
         require(state.amount.signum() >= 0) { "Reference KCC20 amount cannot be negative" }
