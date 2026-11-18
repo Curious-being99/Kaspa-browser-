@@ -25,6 +25,20 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
+      - name: Install Rust and Android NDK for KCC20 script engine
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.0
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 3.5.4 --locked
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
