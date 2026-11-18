@@ -308,6 +308,7 @@ class DecentralViewModel(
     private val kcc20NodeRpcClient = com.example.network.kaspa.Kcc20NodeRpcClient()
 
     init {
+        appPrefs.edit().remove("kcc20_node_rpc_endpoint").apply()
         com.example.util.BrowserBackgroundPlayback.onMediaStateChanged = { playing, title, url ->
             _isMediaPlaying.value = playing
             _mediaTitle.value = title
@@ -3547,7 +3548,7 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
                     accountAddress = keyPair.kaspaAddress,
                     title = "Confirm KCC20 Broadcast",
                     action = "Broadcast Rusty-Kaspa validated transaction",
-                    tick = family.take(12),
+                    tick = "KCC20",
                     amount = amountBaseUnits.toString(),
                     amountLabel = "Exact token base units",
                     destination = recipient,
