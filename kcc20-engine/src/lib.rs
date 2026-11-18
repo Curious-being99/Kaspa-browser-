@@ -388,8 +388,9 @@ mod tests {
 
     #[test]
     fn rust_planner_conserves_token_amount_and_builds_successors() {
-        let template = vec![0x11; 32];
-        let suffix = vec![0x22; 3885];
+        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
+        let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
         let sender = vec![0x33; 32];
         let recipient = vec![0x44; 32];
         let program = encode_reference_program(100, &sender, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
@@ -414,8 +415,9 @@ mod tests {
 
     #[test]
     fn rust_planner_rejects_program_with_unpinned_suffix() {
-        let template = vec![0x11; 32];
-        let suffix = vec![0x22; 3885];
+        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
+        let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
         let sender = vec![0x33; 32];
         let recipient = vec![0x44; 32];
         let program = encode_reference_program(100, &sender, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
