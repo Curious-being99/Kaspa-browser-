@@ -32,6 +32,10 @@ class Kcc20NodeRpcClient(
         val covenantId: String?
     )
 
+    private val resolverClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .build()
     private val requestIds = AtomicLong(1L)
     private val publicResolverUrls = listOf(
         "https://eric.kaspa.stream", "https://maxim.kaspa.stream",
@@ -53,7 +57,7 @@ class Kcc20NodeRpcClient(
             val url = "$resolver/v2/kaspa/$expectedNetwork/tls/wrpc/json"
             try {
                 val request = Request.Builder().url(url).get().header("Accept", "application/json").build()
-                client.newCall(request).execute().use { response ->
+                resolverClient.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         failures += "$resolver returned HTTP ${response.code}"
                         return@use
