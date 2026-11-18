@@ -33,6 +33,17 @@ class Kcc20NodeRpcClient(
 
     private val requestIds = AtomicLong(1L)
 
+    suspend fun requireNetwork(endpoint: String, expectedNetwork: String) = withContext(Dispatchers.IO) {
+        require(expectedNetwork == "mainnet" || expectedNetwork == "testnet-10") {
+            "Reference KCC20 supports only mainnet and testnet-10"
+        }
+        val info = request(endpoint, "getInfo", JSONObject())
+        val actual = info.optString("networkId", info.optString("network_id", "")).trim().lowercase()
+        require(actual == expectedNetwork) {
+            "Configured Kaspa node is on ${actual.ifBlank { "an unknown network" }}, expected $expectedNetwork"
+        }
+    }
+
     suspend fun getUtxosByAddress(endpoint: String, address: String): List<NodeUtxo> =
         withContext(Dispatchers.IO) {
             val result = request(
@@ -74,7 +85,7 @@ class Kcc20NodeRpcClient(
                     )
                 }
                 val covenantId = sequenceOf("covenantId", "covenant_id")
-                    .map { key -> entry.optString(key, "").trim().lowercase() }
+                    .map { key -> entry.optString(key, wrapper.optString(key, "")).trim().lowercase() }
                     .firstOrNull { it.isNotBlank() && it != "null" }
                 require(txid.matches(Regex("[0-9a-f]{64}")) && outputIndex >= 0 && amount > 0L) {
                     "Node returned a malformed UTXO outpoint or amount"
