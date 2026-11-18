@@ -133,6 +133,7 @@ android {
   sourceSets {
     getByName("main") {
       jniLibs.srcDirs("src/main/jniLibs", "build/rustJniLibs")
+      java.srcDir("$buildDir/generated/kcc20-argent/src")
     }
   }
   dependenciesInfo {
@@ -235,7 +236,22 @@ tasks.register("verifyKcc20ArgentArtifact") {
     require(generatedSil.readBytes().contentEquals(pinnedSil.readBytes())) {
       "Regenerated KCC20 Silverscript differs from the pinned reference source"
     }
-    println("Verified argentc regeneration: artifact ID, KCC20 prefix/suffix, and KCC20.sil match the pinned reference.")
+    val prefixHex = bytesHex(template["prefix"])
+    val suffixHex = bytesHex(template["suffix"])
+    val generatedSource = file("$buildDir/generated/kcc20-argent/src/com/example/network/kaspa/Kcc20ArgentArtifact.kt")
+    generatedSource.parentFile.mkdirs()
+    generatedSource.writeText(
+      """package com.example.network.kaspa
+
+internal object Kcc20ArgentArtifact {
+    const val ARTIFACT_ID = "${generated["id"]}"
+    const val TEMPLATE_HASH = "${prefixHex.substring(6)}"
+    const val PREFIX_HEX = "$prefixHex"
+    const val SUFFIX_HEX = "$suffixHex"
+}
+"""
+    )
+    println("Verified argentc regeneration and generated Android KCC20 artifact bindings.")
   }
 }
 
