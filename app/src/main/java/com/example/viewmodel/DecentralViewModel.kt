@@ -3354,6 +3354,14 @@ class DecentralViewModel(
                 )
 
                 fun signInputs() {
+                    require(
+                        activeAccount.value?.did == account.did &&
+                            activeAccount.value?.handle == account.handle &&
+                            _selectedNetwork.value == network &&
+                            _kcc20NodeRpcEndpoint.value.trim() == endpoint.trim()
+                    ) {
+                        "Active wallet, network, or verification node changed after approval. Refusing to sign the KCC20 transaction."
+                    }
                     tx.inputs.forEachIndexed { index, input ->
                         val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
                             tx, index, KaspaTransactionEngine.SIGHASH_ALL, allUtxoEntries[index]
@@ -3478,6 +3486,14 @@ class DecentralViewModel(
                 if (acceptedThisSet && finalTransaction != null && finalValidation != null) break
             }
 
+            require(
+                activeAccount.value?.did == account.did &&
+                    activeAccount.value?.handle == account.handle &&
+                    _selectedNetwork.value == network &&
+                    _kcc20NodeRpcEndpoint.value.trim() == endpoint.trim()
+            ) {
+                "Active wallet, network, or verification node changed during KCC20 signing. Refusing to request broadcast approval."
+            }
             val tx = finalTransaction
                 ?: throw IllegalStateException("Available wallet KAS UTXOs cannot cover the reference KCC20 successor deposits and the node-calculated v1 fee")
             val validation = finalValidation
