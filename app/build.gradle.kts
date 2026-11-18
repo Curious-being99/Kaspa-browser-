@@ -173,7 +173,7 @@ tasks.register<Exec>("cargoBuildKcc20Engine") {
   description = "Builds the Rusty-Kaspa v2.1.0 KCC20 script engine for Android"
   workingDir = file("$rootDir/kcc20-engine")
   commandLine(
-    "cargo-ndk",
+    "cargo", "ndk",
     "-t", "arm64-v8a",
     "-o", file("$buildDir/rustJniLibs").absolutePath,
     "build",
