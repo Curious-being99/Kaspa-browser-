@@ -94,7 +94,8 @@ object KaspaTransactionEngine {
         val amount: Long,
         val scriptPublicKey: KaspaScriptPublicKey,
         val blockDaaScore: Long = 0L,
-        val isCoinbase: Boolean = false
+        val isCoinbase: Boolean = false,
+        val covenantId: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount.toString())
@@ -104,6 +105,11 @@ object KaspaTransactionEngine {
             put("block_daa_score", blockDaaScore.toString())
             put("isCoinbase", isCoinbase)
             put("is_coinbase", isCoinbase)
+            covenantId?.let {
+                require(it.matches(Regex("(?i)[0-9a-f]{64}"))) { "Invalid node UTXO covenant ID" }
+                put("covenantId", it.lowercase())
+                put("covenant_id", it.lowercase())
+            }
         }
 
         companion object {
@@ -123,7 +129,13 @@ object KaspaTransactionEngine {
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))
-                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase)
+                val covenantId = sequenceOf("covenantId", "covenant_id")
+                    .firstOrNull { json.has(it) && !json.isNull(it) }
+                    ?.let { json.optString(it).lowercase() }
+                require(covenantId == null || covenantId.matches(Regex("[0-9a-f]{64}"))) {
+                    "Node returned a malformed covenant ID"
+                }
+                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase, covenantId)
             }
         }
     }
