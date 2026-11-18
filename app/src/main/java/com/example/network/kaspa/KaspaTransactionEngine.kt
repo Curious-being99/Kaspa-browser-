@@ -776,6 +776,7 @@ object KaspaTransactionEngine {
             val scriptBytes = output.scriptPublicKey.script.length / 2
             size += 8L // script length (uint64)
             size += scriptBytes
+            if (tx.version >= 1 && output.covenant != null) size += 34L
         }
 
         size += 8L  // lockTime (uint64)
