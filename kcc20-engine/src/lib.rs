@@ -242,6 +242,119 @@ fn validate(json_text: &str) -> Result<Value, String> {
     }))
 }
 
+
+fn decode_hex(value: &str) -> Result<Vec<u8>, String> {
+    bytes(&Value::String(value.to_string()))
+}
+
+fn hex_string(value: &[u8]) -> String {
+    value.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn explicit_push(value: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    match value.len() {
+        0 => out.push(0),
+        1..=75 => out.push(value.len() as u8),
+        76..=255 => { out.push(0x4c); out.push(value.len() as u8); },
+        256..=65535 => { out.push(0x4d); out.extend_from_slice(&(value.len() as u16).to_le_bytes()); },
+        _ => return Vec::new(),
+    }
+    out.extend_from_slice(value);
+    out
+}
+
+fn decode_reference_state(program: &[u8], template_hash: &[u8]) -> Result<(u64, Vec<u8>, u8, u8, Vec<u8>, Vec<u8>), String> {
+    if program.len() != 4031 || program[0] != 0x6b { return Err("Not a pinned-size reference KCC20 program".into()); }
+    let state = &program[1..146];
+    let mut p = 0usize;
+    let mut field = |n: usize| -> Result<Vec<u8>, String> {
+        if p >= state.len() || state[p] as usize != n { return Err("Malformed KCC20 state push".into()); }
+        p += 1;
+        if p + n > state.len() { return Err("Truncated KCC20 state".into()); }
+        let v = state[p..p+n].to_vec(); p += n; Ok(v)
+    };
+    if field(32)? != template_hash { return Err("Unknown KCC20 template hash".into()); }
+    let raw_amount = field(8)?;
+    let amount = u64::from_le_bytes(raw_amount.try_into().map_err(|_| "Invalid token amount")?);
+    let owner = field(32)?;
+    let owner_scheme = field(1)?[0];
+    let borrow_scheme = field(1)?[0];
+    let borrow_guard = field(32)?;
+    let extension = field(32)?;
+    if p != state.len() { return Err("Unexpected KCC20 state trailing bytes".into()); }
+    Ok((amount, owner, owner_scheme, borrow_scheme, borrow_guard, extension))
+}
+
+fn encode_reference_program(amount: u64, owner: &[u8], owner_scheme: u8, borrow_scheme: u8, borrow_guard: &[u8], extension: &[u8], template_hash: &[u8], suffix: &[u8]) -> Result<Vec<u8>, String> {
+    if owner.len()!=32 || borrow_guard.len()!=32 || extension.len()!=32 || template_hash.len()!=32 { return Err("Invalid KCC20 state field length".into()); }
+    let mut state = Vec::new();
+    for field in [template_hash.to_vec(), amount.to_le_bytes().to_vec(), owner.to_vec(), vec![owner_scheme], vec![borrow_scheme], borrow_guard.to_vec(), extension.to_vec()] {
+        state.extend(explicit_push(&field));
+    }
+    if state.len()!=145 { return Err("Generated KCC20 state has wrong length".into()); }
+    let mut program=vec![0x6b]; program.extend(state); program.extend_from_slice(suffix);
+    if program.len()!=4031 { return Err("Generated KCC20 program has wrong length".into()); }
+    Ok(program)
+}
+
+fn plan_reference_transfer(request_text: &str) -> Result<Value, String> {
+    if request_text.len()>1024*1024 { return Err("Transfer plan request too large".into()); }
+    let req: Value=serde_json::from_str(request_text).map_err(|e|e.to_string())?;
+    let family=req["covenantId"].as_str().ok_or("Missing covenant ID")?;
+    if family.len()!=64 || !family.bytes().all(|b|b.is_ascii_hexdigit()) { return Err("Invalid covenant ID".into()); }
+    let sender=decode_hex(req["senderPublicKey"].as_str().ok_or("Missing sender key")?)?;
+    let recipient=decode_hex(req["recipientPublicKey"].as_str().ok_or("Missing recipient key")?)?;
+    let template=decode_hex(req["templateHash"].as_str().ok_or("Missing template hash")?)?;
+    let suffix=decode_hex(req["templateSuffix"].as_str().ok_or("Missing template suffix")?)?;
+    if sender.len()!=32 || recipient.len()!=32 || template.len()!=32 { return Err("Invalid KCC20 public key or template length".into()); }
+    let requested=number(&req["amount"],"amount")?;
+    if requested==0 { return Err("Transfer amount must be positive".into()); }
+    let cells=req["cells"].as_array().ok_or("Missing verified cells")?;
+    if cells.is_empty() || cells.len()>3 { return Err("Reference transfer requires 1 to 3 verified cells".into()); }
+    let mut seen=std::collections::HashSet::new();
+    let mut consumed=Vec::new();
+    let mut total=0u64;
+    let mut first_guard=Vec::new(); let mut first_extension=Vec::new();
+    for (i,cell) in cells.iter().enumerate() {
+        if cell["covenantId"].as_str().unwrap_or("").to_lowercase()!=family.to_lowercase() { return Err("Cell covenant family mismatch".into()); }
+        let outpoint=format!("{}:{}",cell["txid"].as_str().unwrap_or(""),number(&cell["index"],"index")?);
+        if !seen.insert(outpoint) { return Err("Duplicate KCC20 cell outpoint".into()); }
+        let program=decode_hex(cell["program"].as_str().ok_or("Missing cell program")?)?;
+        let (amount,owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template)?;
+        if owner_scheme!=0 || owner!=sender { return Err("Cell is not owned by active wallet under supported P2PK scheme".into()); }
+        if borrow_scheme!=0 || guard.iter().any(|b|*b!=0) || extension.iter().any(|b|*b!=0) { return Err("Cell uses an unsupported borrow or extension policy".into()); }
+        if i==0 { first_guard=guard.clone(); first_extension=extension.clone(); }
+        else if guard!=first_guard || extension!=first_extension { return Err("KCC20 cells have incompatible state policy".into()); }
+        total=total.checked_add(amount).ok_or("KCC20 token amount overflow")?;
+        consumed.push(json!({"amount":amount.to_string(),"program":hex_string(&program)}));
+    }
+    if requested>total { return Err("Transfer amount exceeds verified token inputs".into()); }
+    let change=total-requested;
+    let mut next=vec![encode_reference_program(requested,&recipient,0,0,&vec![0;32],&first_extension,&template,&suffix)?];
+    if change>0 { next.push(encode_reference_program(change,&sender,0,0,&first_guard,&first_extension,&template,&suffix)?); }
+    if next.len()>3 { return Err("Too many KCC20 successor cells".into()); }
+    Ok(json!({
+      "valid":true,
+      "covenantId":family.to_lowercase(),
+      "inputAmount":total.to_string(),
+      "outputAmount":total.to_string(),
+      "consumed":consumed,
+      "successorPrograms":next.iter().map(|p|hex_string(p)).collect::<Vec<_>>()
+    }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_network_kaspa_Kcc20RustyKaspaEngine_planTransferNative(
+    mut env: JNIEnv, _object: JObject, input: JString
+) -> jstring {
+    let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let input:String=env.get_string(&input).map(|s|s.into()).unwrap_or_default();
+        match plan_reference_transfer(&input) { Ok(v)=>v, Err(e)=>json!({"valid":false,"error":e}) }
+    })).unwrap_or_else(|_|json!({"valid":false,"error":"Rust KCC20 planner panicked"}));
+    env.new_string(result.to_string()).map(|v|v.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_example_network_kaspa_Kcc20RustyKaspaEngine_validateNative(
     mut env: JNIEnv,
