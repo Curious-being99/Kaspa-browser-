@@ -742,6 +742,9 @@ class KaspaWalletService(
         }
         val txId = KaspaTransactionEngine.calcTransactionId(tx)
         val result = broadcastTransactionWithFailover(tx, txId, normalizedAddress, networkName)
+        require(!result.isConfirmed || result.txId.equals(txId, ignoreCase = true)) {
+            "Kaspa node returned a transaction ID that differs from the locally calculated transaction ID"
+        }
         return DappBroadcastReceipt(result.isConfirmed, result.txId, result.errorMessage)
     }
 
