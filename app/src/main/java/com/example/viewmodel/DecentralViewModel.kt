@@ -305,6 +305,29 @@ class DecentralViewModel(
     val webViewTabManager = BrowserTabWebViewManager()
     private val appPrefs = application.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
 
+    private val _kcc20NodeRpcEndpoint = MutableStateFlow(
+        appPrefs.getString("kcc20_node_rpc_endpoint", "").orEmpty()
+    )
+    val kcc20NodeRpcEndpoint: StateFlow<String> = _kcc20NodeRpcEndpoint.asStateFlow()
+    private val kcc20NodeRpcClient = com.example.network.kaspa.Kcc20NodeRpcClient()
+
+    fun setKcc20NodeRpcEndpoint(endpoint: String): Boolean {
+        val value = endpoint.trim()
+        val uri = runCatching { java.net.URI(value) }.getOrNull()
+        val valid = uri != null && !uri.host.isNullOrBlank() &&
+            (uri.scheme == "wss" || (
+                uri.scheme == "ws" && (uri.host == "localhost" || uri.host == "127.0.0.1")
+            ))
+        if (!valid) {
+            _statusMessage.value = "Use a secure wss:// Kaspa node RPC endpoint. Plain ws:// is allowed only for localhost."
+            return false
+        }
+        appPrefs.edit().putString("kcc20_node_rpc_endpoint", value).apply()
+        _kcc20NodeRpcEndpoint.value = value
+        _statusMessage.value = "KCC20 node RPC endpoint saved."
+        return true
+    }
+
     init {
         com.example.util.BrowserBackgroundPlayback.onMediaStateChanged = { playing, title, url ->
             _isMediaPlaying.value = playing
