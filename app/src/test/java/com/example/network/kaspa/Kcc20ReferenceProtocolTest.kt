@@ -57,7 +57,14 @@ class Kcc20ReferenceProtocolTest {
                 expectedCovenantId = family,
                 networkPrefix = "kaspa",
                 nodeUtxosAtAddress = listOf(
-                    Kcc20ReferenceCellVerifier.NodeUtxo(txid, index, 50_000_000, family)
+                    Kcc20ReferenceCellVerifier.NodeUtxo(
+                        transactionId = txid,
+                        outputIndex = index,
+                        valueSompi = 50_000_000,
+                        covenantId = family,
+                        scriptPublicKeyVersion = 0,
+                        scriptPublicKeyHex = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                    )
                 )
             )
         }
@@ -94,7 +101,16 @@ class Kcc20ReferenceProtocolTest {
         )
         val verified = Kcc20ReferenceCellVerifier.verify(
             candidate, "11".repeat(32), "kaspa",
-            listOf(Kcc20ReferenceCellVerifier.NodeUtxo(txid, 0, 50_000_000, family))
+            listOf(
+                Kcc20ReferenceCellVerifier.NodeUtxo(
+                    transactionId = txid,
+                    outputIndex = 0,
+                    valueSompi = 50_000_000,
+                    covenantId = family,
+                    scriptPublicKeyVersion = 0,
+                    scriptPublicKeyHex = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                )
+            )
         )
         Kcc20ReferenceTransferBuilder.plan(
             cells = listOf(verified),
