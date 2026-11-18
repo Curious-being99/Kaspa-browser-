@@ -244,10 +244,20 @@ internal object DappPsktTransaction {
         prepared.utxoEntries.forEachIndexed { index, utxo ->
             val script = utxo.scriptPublicKey.script.replace(" ", "").lowercase()
             if (utxo.scriptPublicKey.version == 0 && Regex("aa20[0-9a-f]{64}87").matches(script)) {
+                val programHex = prepared.inputRedeemScripts.getOrNull(index).orEmpty()
+                if (programHex.isBlank()) return@forEachIndexed
+                val program = runCatching { hexToBytes(programHex) }.getOrNull()
+                    ?: return@forEachIndexed
+                val state = runCatching { Kcc20ReferenceProtocol.verifyProgram(program) }.getOrNull()
+                    ?: return@forEachIndexed
+                val expectedScript = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                require(expectedScript.equals(script, ignoreCase = true)) {
+                    "KCC20 input $index redeem program does not match its P2SH locking script"
+                }
                 val family = utxo.covenantId?.trim()?.lowercase()
-                    ?: throw IllegalArgumentException("P2SH input $index has no node-declared covenant ID")
+                    ?: throw IllegalArgumentException("KCC20 input $index has no node-declared covenant ID")
                 require(family.matches(Regex("[0-9a-f]{64}"))) {
-                    "P2SH input $index has a malformed covenant ID"
+                    "KCC20 input $index has a malformed covenant ID"
                 }
                 families.getOrPut(family) { mutableListOf() }.add(index)
             }
@@ -372,9 +382,15 @@ internal object DappPsktTransaction {
             }
         }
 
-        val boundFamilyIds = covenantOutputs.map { it.second.covenantId.lowercase() }.toSet()
-        require(boundFamilyIds.all { it in families }) {
-            "PSKT contains a covenant-bound output without a matching reference KCC20 leader input"
+        covenantOutputs.forEach { (outputIndex, binding) ->
+            val programHex = prepared.outputRedeemScripts.getOrNull(outputIndex).orEmpty()
+            if (programHex.isBlank()) return@forEach
+            val program = runCatching { hexToBytes(programHex) }.getOrNull() ?: return@forEach
+            if (runCatching { Kcc20ReferenceProtocol.verifyProgram(program) }.isSuccess) {
+                require(binding.covenantId.lowercase() in families) {
+                    "Reference KCC20 continuation output $outputIndex has no matching node-identified family leader"
+                }
+            }
         }
         return root.toString()
     }
