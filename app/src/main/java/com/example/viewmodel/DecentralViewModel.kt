@@ -3058,9 +3058,12 @@ class DecentralViewModel(
                 validation.transientMass <= Kcc20ReferenceProtocol.MAX_TRANSIENT_MASS &&
                 validation.storageMass!! <= Kcc20ReferenceProtocol.MAX_STORAGE_MASS
         ) { "Rusty-Kaspa v1 mass exceeds the KCC20 guide's standard transaction limits" }
-        require(transaction.mass == validation.storageMass) {
-            "PSKT mass does not match the Rusty-Kaspa contextual storage mass"
+        if (transaction.mass > 0L) {
+            require(transaction.mass == validation.storageMass) {
+                "PSKT mass does not match the Rusty-Kaspa contextual storage mass"
+            }
         }
+        transaction.mass = validation.storageMass!!
         val totalInputSompi = spentUtxos.fold(0L) { total, utxo ->
             Math.addExact(total, utxo.amount)
         }
