@@ -657,120 +657,107 @@ class Kcc20KasivoService(
      * Fetch live KCC-20 covenant token cells (UTXOs with redeem bytecode) owned by a wallet pubkey.
      * Maps directly to [KbKcc20StandardAssembler.SpendPiece] for real on-chain covenant spending.
      */
-    suspend fun fetchLiveTokenCells(
+    suspend fun fetchReferenceCellCandidates(
         contractId: String,
         publicKeyHex: String,
-        walletAddress: String? = null
-    ): Result<List<KbKcc20StandardAssembler.SpendPiece>> = withContext(Dispatchers.IO) {
+        walletAddress: String
+    ): Result<List<Kcc20ReferenceTransferBuilder.SpendCell>> = withContext(Dispatchers.IO) {
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
-        val normalizedAddress = walletAddress?.trim()?.lowercase()
-        val network = if (normalizedAddress?.startsWith("kaspatest:") == true) "testnet-10" else "mainnet"
+        val normalizedAddress = walletAddress.trim().lowercase()
+        if (!owner.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("Wallet public key must be 32-byte x-only hex"))
+        }
+        if (!tokenId.matches(Regex("[0-9a-f]{64}"))) {
+            return@withContext Result.failure(IllegalArgumentException("KCC20 covenant ID must be 32-byte hex"))
+        }
+        val network = when {
+            normalizedAddress.startsWith("kaspa:") -> "mainnet"
+            normalizedAddress.startsWith("kaspatest:") -> "testnet-10"
+            else -> return@withContext Result.failure(IllegalArgumentException("Wallet address does not identify a supported Kaspa network"))
+        }
         try {
             val endpoints = listOf(
                 "https://kascov.io/data/$network/token/$tokenId/cells",
-                "https://kascov.io/data/$network/token/$tokenId",
-                if (!normalizedAddress.isNullOrBlank()) "https://kascov.io/data/$network/address/$normalizedAddress/cells" else null
-            ).filterNotNull()
-
-            val pieces = mutableListOf<KbKcc20StandardAssembler.SpendPiece>()
-
+                "https://kascov.io/data/$network/token/$tokenId"
+            )
+            var lastError: Exception? = null
             for (endpointUrl in endpoints) {
-                if (pieces.isNotEmpty()) break
                 try {
-                    val url = URL(endpointUrl)
-                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                    val connection = (URL(endpointUrl).openConnection() as HttpURLConnection).apply {
                         requestMethod = "GET"
-                        connectTimeout = 6000
-                        readTimeout = 8000
+                        connectTimeout = 8000
+                        readTimeout = 12000
                         setRequestProperty("Accept", "application/json")
-                        setRequestProperty("User-Agent", "KaspaBrowserWallet/1.0 (kascov.io)")
+                        setRequestProperty("User-Agent", "KaziumBrowserWallet/1.0")
                     }
-                    if (conn.responseCode != HttpURLConnection.HTTP_OK) continue
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    val root = JSONObject(text)
-                    val cellsArray = root.optJSONArray("cells")
-                        ?: root.optJSONArray("data")
-                        ?: root.optJSONArray("holders")
-                        ?: JSONArray()
-
-                    for (i in 0 until cellsArray.length()) {
-                        val c = cellsArray.optJSONObject(i) ?: continue
-                        val cellOwner = c.optString("owner").trim().lowercase().removePrefix("0x")
-                        val cellAddress = c.optString("owner_address", c.optString("address", c.optString("holder", ""))).trim().lowercase()
-                        val scheme = c.optString("owner_scheme").trim()
-                        val stripped = normalizedAddress?.removePrefix("kaspa:")
-
-                        val isMatch = (scheme == "00" && cellOwner.endsWith(owner)) ||
-                                      (cellOwner == owner) ||
-                                      (cellOwner.contains(owner)) ||
-                                      (normalizedAddress != null && (
-                                          cellAddress == normalizedAddress ||
-                                          (stripped != null && cellAddress.removePrefix("kaspa:") == stripped) ||
-                                          cellOwner == normalizedAddress ||
-                                          (stripped != null && cellOwner.removePrefix("kaspa:") == stripped) ||
-                                          (stripped != null && cellAddress.contains(stripped)) ||
-                                          (stripped != null && cellOwner.contains(stripped))
-                                      ))
-
-                        if (isMatch || cellsArray.length() == 1) {
-                            val outpoint = c.optString("outpoint", c.optString("cell_outpoint", ""))
-                            val parts = outpoint.split(":")
-                            val txid = if (parts.size == 2 && parts[0].isNotBlank()) parts[0] else c.optString("txid", c.optString("transaction_id", c.optString("tx_id", "")))
-                            val idx = if (parts.size == 2) parts[1].toIntOrNull() ?: 0 else c.optInt("index", c.optInt("output_index", c.optInt("vout", 0)))
-                            val valueSompi = c.optLong("value_sompi", c.optLong("sompi", c.optLong("value", 20000000L)))
-                            val programHex = c.optString("program", c.optString("program_hex", c.optString("state", c.optString("state_hex", c.optString("redeem", c.optString("script", ""))))))
-
-                            val redeemBytes = if (programHex.isNotBlank()) {
-                                try { KbKcc20ScriptCodec.hexToBytes(programHex) } catch (_: Exception) { null }
-                            } else null
-
-                            if (txid.isNotBlank()) {
-                                val finalRedeem = redeemBytes ?: buildDefaultArgentRedeemProgram(owner)
-                                pieces.add(
-                                    KbKcc20StandardAssembler.SpendPiece(
-                                        transactionId = txid,
-                                        index = idx,
-                                        valueSompi = valueSompi,
-                                        redeem = finalRedeem
-                                    )
-                                )
-                            }
+                    val root = try {
+                        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                            throw java.io.IOException("Kascov HTTP ${connection.responseCode}")
                         }
+                        JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    } finally {
+                        connection.disconnect()
                     }
-                } catch (_: Exception) {}
+                    val rows = root.optJSONArray("cells") ?: root.optJSONArray("data")
+                        ?: throw java.io.IOException("Indexer response has no cell list")
+                    val candidates = mutableListOf<Kcc20ReferenceTransferBuilder.SpendCell>()
+                    for (index in 0 until rows.length()) {
+                        val row = rows.optJSONObject(index) ?: continue
+                        val outpoint = row.optString("outpoint").trim()
+                        val txid = row.optString("txid", row.optString("transaction_id", ""))
+                            .trim().lowercase().ifBlank {
+                                outpoint.substringBefore(':').takeIf { outpoint.contains(':') }.orEmpty()
+                            }
+                        val outputIndex = row.optInt(
+                            "vout",
+                            row.optInt("output_index", outpoint.substringAfter(':', "").toIntOrNull() ?: -1)
+                        )
+                        val covenantId = row.optString("covenant_id", row.optString("covenantId", ""))
+                            .trim().lowercase()
+                        val valueText = sequenceOf("value_sompi", "sompi", "amount")
+                            .firstNotNullOfOrNull { key ->
+                                if (!row.has(key) || row.isNull(key)) null else row.opt(key)?.toString()
+                            }
+                        val valueSompi = valueText?.toLongOrNull()
+                        val programHex = sequenceOf("redeemScriptHex", "redeem_script_hex", "program", "program_hex", "redeem")
+                            .map { row.optString(it, "") }
+                            .firstOrNull { it.isNotBlank() }
+                        if (!txid.matches(Regex("[0-9a-f]{64}")) || outputIndex < 0 ||
+                            !covenantId.matches(Regex("[0-9a-f]{64}")) || covenantId != tokenId ||
+                            valueSompi == null || valueSompi <= 0L || programHex.isNullOrBlank()) continue
+                        val program = try {
+                            KbKcc20ScriptCodec.hexToBytes(programHex)
+                        } catch (_: Exception) {
+                            continue
+                        }
+                        val state = try {
+                            Kcc20ReferenceProtocol.verifyProgram(program)
+                        } catch (_: Exception) {
+                            continue
+                        }
+                        if (state.ownerScheme != 0x00 ||
+                            Kcc20ReferenceProtocol.bytesToHex(state.owner) != owner ||
+                            state.borrowScheme != 0x00 ||
+                            state.extensionCommitment.any { it != 0.toByte() }) continue
+                        candidates += Kcc20ReferenceTransferBuilder.SpendCell(
+                            transactionId = txid,
+                            outputIndex = outputIndex,
+                            valueSompi = valueSompi,
+                            covenantId = covenantId,
+                            program = program
+                        )
+                    }
+                    if (candidates.isNotEmpty()) return@withContext Result.success(candidates)
+                    lastError = java.io.IOException("Indexer returned no cells matching the exact reference template, covenant ID and wallet owner")
+                } catch (e: Exception) {
+                    lastError = e
+                }
             }
-
-            if (pieces.isEmpty()) {
-                return@withContext Result.failure(
-                    IllegalStateException(
-                        "No live KCC-20 $tokenId token UTXOs/cells found for address $normalizedAddress on Kaspa BlockDAG indexer."
-                    )
-                )
-            }
-
-            Result.success(pieces)
+            Result.failure(lastError ?: java.io.IOException("No KCC20 reference cell candidates were returned"))
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    private fun buildDefaultArgentRedeemProgram(ownerHex: String): ByteArray {
-        val cleanOwner = ownerHex.trim().lowercase().removePrefix("0x").padStart(64, '0').take(64)
-        val ownerBytes = try { KbKcc20ScriptCodec.hexToBytes(cleanOwner) } catch (_: Exception) { ByteArray(32) }
-        val amt = java.math.BigInteger.valueOf(1000000L)
-        val amtBytes = KbKcc20Protocol.encodeAmount(amt)
-        val state = KbKcc20State(
-            amountBaseUnits = amt,
-            amountEncoding = amtBytes,
-            owner = ownerBytes,
-            ownerScheme = 0,
-            borrowScheme = 0,
-            borrowGuard = ByteArray(32),
-            extensionCommitment = ByteArray(32)
-        )
-        val prefix = KbKcc20ScriptCodec.hexToBytes("00".repeat(34))
-        val suffix = KbKcc20ScriptCodec.hexToBytes("00")
-        return prefix + KbKcc20Protocol.encodeState(state) + suffix
-    }
 }
