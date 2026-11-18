@@ -54,6 +54,10 @@ fun DappsScreen(
     val tokens by viewModel.kcc20Tokens.collectAsState()
     val loading by viewModel.isLoadingKcc20.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
+    val savedRpcEndpoint by viewModel.kcc20NodeRpcEndpoint.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
+    var rpcEndpointInput by remember { mutableStateOf(savedRpcEndpoint) }
+    LaunchedEffect(savedRpcEndpoint) { rpcEndpointInput = savedRpcEndpoint }
 
     BackHandler { viewModel.setTab(AppTab.KASPA_WALLET) }
     LaunchedEffect(Unit) { viewModel.refreshKcc20Tokens() }
