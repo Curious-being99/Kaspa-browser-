@@ -130,10 +130,16 @@ internal object DappPsktTransaction {
                     "P2SH redeemScript does not match input ${request.index} locking script"
                 }
                 val isStandardP2pk = (redeemHex == expectedScript)
-                val isCovenantNote = (redeemHex.contains("20" + pubHex) || redeemHex.contains(pubHex)) &&
-                    (redeemHex.length >= 68)
-                require(isStandardP2pk || isCovenantNote) {
-                    "P2SH input ${request.index} is not a supported single-key P2PK deposit or KCC-20 covenant note for the active wallet key"
+                val covenantState = runCatching {
+                    com.example.network.kaspa.Kcc20ReferenceProtocol.verifyProgram(redeemBytes)
+                }.getOrNull()
+                val isSupportedKcc20Note = covenantState != null &&
+                    covenantState.ownerScheme == 0x00 &&
+                    covenantState.owner.contentEquals(hexToBytes(pubHex)) &&
+                    covenantState.borrowScheme == 0x00 &&
+                    covenantState.extensionCommitment.all { it == 0.toByte() }
+                require(isStandardP2pk || isSupportedKcc20Note) {
+                    "P2SH input ${request.index} is not an exact pinned KCC20 reference note owned by the active wallet, or a standard P2PK deposit"
                 }
                 resolvedRequests.add(request.copy(redeemScript = finalRedeem))
                 continue
