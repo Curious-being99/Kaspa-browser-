@@ -656,15 +656,34 @@ object KaspaDappBridge {
                                                     require(inputAddresses.all { it.startsWith("$prefix:") }) {
                                                         "A PSKT input locking script could not be resolved to the active Kaspa network"
                                                     }
-                                                    kotlinx.coroutines.runBlocking {
-                                                        viewModel.verifyDappCovenantPsktInputs(
-                                                            transaction = prepared.transaction,
-                                                            utxoEntries = prepared.utxoEntries,
+                                                }
+                                                val signed = if (hasCovenantInputs || hasCovenantOutputs) {
+                                                    val provisional = prepared.copy(
+                                                        transaction = prepared.transaction.copy(
+                                                            inputs = prepared.transaction.inputs.map {
+                                                                it.copy(sigOpCount = 0, computeBudget = 0xffff)
+                                                            }
+                                                        )
+                                                    )
+                                                    val provisionalSigned = DappPsktTransaction.signForDapp(
+                                                        provisional,
+                                                        keyPair.privateKey
+                                                    )
+                                                    val signedPrepared = DappPsktTransaction.inspectForSubmission(provisionalSigned)
+                                                    val measured = kotlinx.coroutines.runBlocking {
+                                                        viewModel.measureDappCovenantPsktComputeBudgets(
+                                                            transaction = signedPrepared.transaction,
+                                                            utxoEntries = signedPrepared.utxoEntries,
                                                             inputAddresses = inputAddresses
                                                         )
                                                     }
+                                                    DappPsktTransaction.applyMeasuredComputeBudgets(
+                                                        provisionalSigned,
+                                                        measured.inputs.map { it.computeBudget }
+                                                    )
+                                                } else {
+                                                    DappPsktTransaction.signForDapp(prepared, keyPair.privateKey)
                                                 }
-                                                val signed = DappPsktTransaction.signForDapp(prepared, keyPair.privateKey)
                                                 Result.success(signed)
                                             } catch (error: Throwable) {
                                                 Result.failure(error)
