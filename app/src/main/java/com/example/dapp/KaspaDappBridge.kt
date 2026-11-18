@@ -938,7 +938,7 @@ object KaspaDappBridge {
                                             inputsCount = 0,
                                             feeKas = "No broadcast yet. The exact node fee is shown in a second confirmation.",
                                             totalAmountKas = "",
-                                            isBroadcast = true,
+                                            isBroadcast = false,
                                             onApprove = {
                                                 viewModel.dappPromptState.value = null
                                                 cryptoExecutor.execute {
