@@ -71,11 +71,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          cargo install cargo-ndk --version 3.5.4 --locked
-          export PATH="$HOME/.cargo/bin:$PATH"
-          command -v cargo-ndk
-          cargo ndk --version
+          export CARGO_HOME="$HOME/.cargo"
+          mkdir -p "$CARGO_HOME/bin"
+          cargo install cargo-ndk --version 3.5.4 --locked --root "$CARGO_HOME" --force
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$CARGO_HOME/bin:$PATH"
+          test -x "$CARGO_HOME/bin/cargo-ndk"
+          "$CARGO_HOME/bin/cargo-ndk" --version
 
       - name: Checkout pinned Argent compiler
         shell: bash
