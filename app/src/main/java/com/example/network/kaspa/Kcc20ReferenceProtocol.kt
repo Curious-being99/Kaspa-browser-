@@ -125,6 +125,9 @@ object Kcc20ReferenceProtocol {
 
     fun transferArguments(states: List<State>): ByteArray {
         require(states.size in 1..MAX_TOKEN_OUTPUTS) { "Reference KCC20 transfer requires 1 to 3 continuations" }
+        require(states.all { it.borrowScheme == 0 && it.extensionCommitment.all { b -> b == 0.toByte() } }) {
+            "Only the guide-verified normal leader path is supported"
+        }
         fun column(value: (State) -> ByteArray) = pushMinimal(concat(*states.map(value).toTypedArray()))
         return concat(
             column { encodeSignedMagnitude(it.amount) },
@@ -139,7 +142,7 @@ object Kcc20ReferenceProtocol {
     fun leaderSignatureScript(states: List<State>, signature65: ByteArray, program: ByteArray): ByteArray {
         require(signature65.size == 65 && (signature65.last().toInt() and 0xff) == SIGHASH_ALL)
         val current = verifyProgram(program)
-        require(current.ownerScheme == 0x00)
+        require(current.ownerScheme == 0x00 && current.borrowScheme == 0x00)
         return concat(
             transferArguments(states),
             pushMinimal(concat(byteArrayOf(0x00), signature65)),
