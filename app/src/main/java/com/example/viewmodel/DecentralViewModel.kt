@@ -2914,7 +2914,7 @@ class DecentralViewModel(
             else -> throw IllegalArgumentException("Node-backed dApp UTXO lookup supports Kaspa Mainnet and Testnet-10")
         }
         val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
-val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:"
+        val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:"
         require(address.startsWith(expectedPrefix, ignoreCase = true)) {
             "Requested address does not match the selected Kaspa network"
         }
@@ -2975,7 +2975,7 @@ val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:
             }
             require(live.scriptPublicKeyVersion == expected.scriptPublicKey.version &&
                 live.scriptPublicKeyHex.equals(expected.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
-            ) { "PSKT input $index locking script differs from the configured node UTXO" }
+            ) { "PSKT input $index locking script differs from the public-node UTXO" }
             val isCovenantCell = expected.scriptPublicKey.version == 0 &&
                 Regex("aa20[0-9a-fA-F]{64}87").matches(expected.scriptPublicKey.script.replace(" ", ""))
             if (isCovenantCell) {
@@ -2987,7 +2987,7 @@ val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:
                     "PSKT covenant input $index has a malformed covenant ID"
                 }
                 require(live.covenantId?.equals(expectedFamily, ignoreCase = true) == true) {
-                    "PSKT input $index covenant ID differs from the configured node UTXO"
+                    "PSKT input $index covenant ID differs from the public-node UTXO"
                 }
             } else if (expected.covenantId != null) {
                 require(live.covenantId?.equals(expected.covenantId, ignoreCase = true) == true) {
@@ -3387,10 +3387,9 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
                     require(
                         activeAccount.value?.did == account.did &&
                             activeAccount.value?.handle == account.handle &&
-                            _selectedNetwork.value == network &&
-                            endpoint.isNotBlank()
+                            _selectedNetwork.value == network
                     ) {
-                        "Active wallet, network, or verification node changed after approval. Refusing to sign the KCC20 transaction."
+                        "Active wallet or network changed after approval. Refusing to sign the KCC20 transaction."
                     }
                     tx.inputs.forEachIndexed { index, input ->
                         val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
@@ -3522,10 +3521,9 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
             require(
                 activeAccount.value?.did == account.did &&
                     activeAccount.value?.handle == account.handle &&
-                    _selectedNetwork.value == network &&
-                    endpoint.isNotBlank()
+                    _selectedNetwork.value == network
             ) {
-                "Active wallet, network, or verification node changed during KCC20 signing. Refusing to request broadcast approval."
+                "Active wallet or network changed during KCC20 signing. Refusing to request broadcast approval."
             }
             val tx = finalTransaction
                 ?: throw IllegalStateException("Available wallet KAS UTXOs cannot cover the reference KCC20 successor deposits and the node-calculated v1 fee")
