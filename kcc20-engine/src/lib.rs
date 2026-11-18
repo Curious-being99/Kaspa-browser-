@@ -381,6 +381,55 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rust_planner_conserves_token_amount_and_builds_successors() {
+        let template = vec![0x11; 32];
+        let suffix = vec![0x22; 3885];
+        let sender = vec![0x33; 32];
+        let recipient = vec![0x44; 32];
+        let program = encode_reference_program(100, &sender, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+        let request = json!({
+            "covenantId": "aa".repeat(32),
+            "senderPublicKey": hex_string(&sender),
+            "recipientPublicKey": hex_string(&recipient),
+            "amount": "40",
+            "templateHash": hex_string(&template),
+            "templateSuffix": hex_string(&suffix),
+            "cells": [{
+                "txid": "bb".repeat(32), "index": 0,
+                "covenantId": "aa".repeat(32),
+                "program": hex_string(&program)
+            }]
+        });
+        let result = plan_reference_transfer(&request.to_string()).unwrap();
+        assert_eq!(result["inputAmount"], "100");
+        assert_eq!(result["outputAmount"], "100");
+        assert_eq!(result["successorPrograms"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn rust_planner_rejects_program_with_unpinned_suffix() {
+        let template = vec![0x11; 32];
+        let suffix = vec![0x22; 3885];
+        let sender = vec![0x33; 32];
+        let recipient = vec![0x44; 32];
+        let program = encode_reference_program(100, &sender, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+        let request = json!({
+            "covenantId": "aa".repeat(32),
+            "senderPublicKey": hex_string(&sender),
+            "recipientPublicKey": hex_string(&recipient),
+            "amount": "40",
+            "templateHash": hex_string(&template),
+            "templateSuffix": hex_string(&vec![0x23;3885]),
+            "cells": [{
+                "txid": "bb".repeat(32), "index": 0,
+                "covenantId": "aa".repeat(32),
+                "program": hex_string(&program)
+            }]
+        });
+        assert!(plan_reference_transfer(&request.to_string()).is_err());
+    }
+
+    #[test]
     fn bounded_number_rejects_consensus_width_overflow() {
         assert!(bounded_number(&json!(65_536u64), "version", u16::MAX as u64).is_err());
         assert_eq!(bounded_number(&json!("65535"), "version", u16::MAX as u64).unwrap(), 65_535);
