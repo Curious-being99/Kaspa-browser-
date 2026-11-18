@@ -1507,6 +1507,21 @@ object KaspaDappBridge {
                       try { listener(value); } catch (_) {}
                     }
                   };
+                  let lastKnownAccounts = null;
+                  let lastKnownNetwork = null;
+                  const publishAccounts = accounts => {
+                    const snapshot = JSON.stringify(accounts);
+                    if (snapshot !== lastKnownAccounts) {
+                      lastKnownAccounts = snapshot;
+                      emit('accountsChanged', accounts);
+                    }
+                  };
+                  const publishNetwork = network => {
+                    if (network !== lastKnownNetwork) {
+                      lastKnownNetwork = network;
+                      emit('chainChanged', network);
+                    }
+                  };
                   const on = (event, listener) => {
                     if (typeof listener !== 'function') return provider;
                     if (!listeners.has(event)) listeners.set(event, new Set());
@@ -1520,7 +1535,7 @@ object KaspaDappBridge {
                   const provider = {
                     requestAccounts: async () => {
                       const accounts = await request('requestAccounts');
-                      emit('accountsChanged', accounts);
+                      publishAccounts(accounts);
                       return accounts;
                     },
                     getAccounts: async () => {
@@ -1530,7 +1545,7 @@ object KaspaDappBridge {
                     },
                     getNetwork: async () => {
                       const network = await request('getNetwork');
-                      emit('chainChanged', network);
+                      publishNetwork(network);
                       return network;
                     },
                     getPublicKey: () => request('getPublicKey'),
@@ -1548,7 +1563,7 @@ object KaspaDappBridge {
                     signPolicyTransaction: payload => request('signPolicyTransaction', payload),
                     disconnect: async () => {
                       const result = await request('disconnect');
-                      emit('accountsChanged', []);
+                      publishAccounts([]);
                       emit('disconnect', result);
                       return result;
                     },
@@ -1563,6 +1578,22 @@ object KaspaDappBridge {
                     off: removeListener
                   };
                   Object.freeze(provider);
+                  const syncProviderState = async () => {
+                    try {
+                      const accounts = await request('getAccounts');
+                      publishAccounts(accounts);
+                    } catch (_) {}
+                    try {
+                      const network = await request('getNetwork');
+                      publishNetwork(network);
+                    } catch (_) {}
+                  };
+                  window.addEventListener('focus', syncProviderState);
+                  if (typeof document !== 'undefined') {
+                    document.addEventListener('visibilitychange', () => {
+                      if (!document.hidden) syncProviderState();
+                    });
+                  }
                   const browserProvider = Object.freeze({
                     ...provider,
                     connect: async () => {
@@ -1593,6 +1624,11 @@ object KaspaDappBridge {
                       'kaspa:signMessage': 'signMessage',
                       'kaspa:signPskt': 'signPskt',
                       'kaspa:submitTransaction': 'submitTransaction',
+                      'kaspa:pushTx': 'pushTx',
+                      'kaspa:sendKaspa': 'sendKaspa',
+                      'kaspa:sendTransaction': 'sendTransaction',
+                      'kaspa:signKcc20Transaction': 'signKcc20Transaction',
+                      'kaspa:signKrc20Transaction': 'signKrc20Transaction',
                       'kaspa:disconnect': 'disconnect',
                       connect: 'requestAccounts',
                       enable: 'requestAccounts',
