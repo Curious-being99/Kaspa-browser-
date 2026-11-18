@@ -41,7 +41,7 @@ jobs:
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
           export PATH="$CARGO_HOME/bin:$PATH"
           test -x "$CARGO_HOME/bin/cargo-ndk"
-          "$CARGO_HOME/bin/cargo-ndk" --version
+          cargo ndk --version
 
       - name: Install Android NDK
         run: |
