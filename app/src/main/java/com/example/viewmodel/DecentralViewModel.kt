@@ -3000,6 +3000,20 @@ class DecentralViewModel(
         validation
     }
 
+    suspend fun submitDappCovenantPskt(
+        transaction: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        inputAddresses: List<String>
+    ): String = withContext(Dispatchers.IO) {
+        val validation = validateDappCovenantPskt(transaction, utxoEntries, inputAddresses)
+        val endpoint = _kcc20NodeRpcEndpoint.value.trim()
+        val submittedTxId = kcc20NodeRpcClient.submitTransaction(endpoint, transaction)
+        require(submittedTxId.equals(validation.txId, ignoreCase = true)) {
+            "Configured Kaspa node accepted a different transaction ID than the Rusty-Kaspa validated PSKT"
+        }
+        submittedTxId
+    }
+
     class Kcc20UserRejectedException : IllegalStateException("User rejected KCC20 broadcast")
 
     suspend fun executeKcc20Transfer(
