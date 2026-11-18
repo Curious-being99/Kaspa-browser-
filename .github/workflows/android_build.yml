@@ -61,7 +61,7 @@ jobs:
           test -f "${ANDROID_SDK_ROOT}/platforms/android-37.0/android.jar"
           test -x "${ANDROID_SDK_ROOT}/build-tools/37.0.0/aapt"
 
-      - name: Install Rust and Android NDK for KCC20 script engine
+      - name: Install Rust and Android NDK for KCC20 arm64-v8a script engine
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.91.0
