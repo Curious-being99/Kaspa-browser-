@@ -101,9 +101,6 @@ internal object DappPsktTransaction {
 
             val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(utxoScript)?.groupValues?.get(1)
             if (utxo.scriptPublicKey.version == 0 && p2shHash != null) {
-                require(isPolicy) {
-                    "External dApp PSKT signing is limited to explicitly selected wallet P2PK funding inputs; covenant and P2SH inputs must remain untouched"
-                }
                 var redeem = request.redeemScript.takeIf { it.isNotBlank() }
                     ?: prepared.redeemScript.takeIf { it.isNotBlank() }
 
