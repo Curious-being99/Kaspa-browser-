@@ -2962,7 +2962,6 @@ class DecentralViewModel(
             "Rusty-Kaspa v2.1.0 script engine is unavailable for this Android ABI"
         }
         val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
-        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val liveUtxos = kcc20NodeRpcClient.getUtxosByAddresses(endpoint, inputAddresses.distinct())
         val liveByOutpoint = liveUtxos.groupBy { "${it.transactionId.lowercase()}:${it.outputIndex}" }
         val spentUtxos = transaction.inputs.mapIndexed { index, input ->
