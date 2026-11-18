@@ -181,8 +181,66 @@ tasks.register<Exec>("cargoBuildKcc20Engine") {
   )
 }
 
+tasks.register("verifyKcc20ArgentArtifact") {
+  group = "verification"
+  description = "Regenerates the KCC20 covenant with pinned argentc and verifies its compiled artifact"
+  val compilerManifest = providers.environmentVariable("ARGENT_COMPILER_MANIFEST")
+    .orElse("$rootDir/third_party/argent/Cargo.toml")
+  val source = file("src/test/resources/kcc20-reference/kcc20.ag")
+  val fixture = file("src/test/resources/kcc20-reference/artifact-template.json")
+  val pinnedSil = file("src/test/resources/kcc20-reference/KCC20.sil")
+  val outputDir = file("$buildDir/generated/kcc20-argent")
+
+  doLast {
+    val manifest = file(compilerManifest.get())
+    require(manifest.isFile) {
+      "Pinned Argent compiler checkout is required. Set ARGENT_COMPILER_MANIFEST to the Cargo.toml at revision 9a9f4b107116d0b259fae629f200fa3b663e7e9d."
+    }
+    require(source.isFile && fixture.isFile && pinnedSil.isFile) {
+      "KCC20 Argent source, artifact fixture, or pinned Silverscript is missing"
+    }
+    delete(outputDir)
+    exec {
+      workingDir = rootDir
+      commandLine(
+        "cargo", "run", "--locked", "--manifest-path", manifest.absolutePath,
+        "--", "build", source.absolutePath, "--out", outputDir.absolutePath
+      )
+    }
+
+    val generatedArtifactFile = file("$outputDir/artifact.json")
+    require(generatedArtifactFile.isFile) { "argentc did not generate artifact.json" }
+    val expected = groovy.json.JsonSlurper().parse(fixture) as Map<*, *>
+    val generated = groovy.json.JsonSlurper().parse(generatedArtifactFile) as Map<*, *>
+    require(generated["id"] == expected["artifact_id"]) {
+      "Regenerated Argent artifact ID differs from the pinned KCC20 reference"
+    }
+    val argent = generated["argent"] as Map<*, *>
+    val plan = argent["template_plan"] as Map<*, *>
+    val templates = plan["templates"] as List<*>
+    val tokenActor = templates.map { it as Map<*, *> }.single { it["actor"] == "KCC20" }
+    val handle = tokenActor["actor_type_handle"] as Map<*, *>
+    val template = handle["template"] as Map<*, *>
+    fun bytesHex(value: Any?): String {
+      val bytes = value as List<*>
+      return bytes.joinToString("") { (it as Number).toInt().toString(16).padStart(2, '0') }
+    }
+    require(bytesHex(template["prefix"]) == expected["prefix_hex"]) {
+      "Regenerated Argent KCC20 prefix differs from the pinned artifact"
+    }
+    require(bytesHex(template["suffix"]) == expected["suffix_hex"]) {
+      "Regenerated Argent KCC20 bytecode differs from the pinned artifact"
+    }
+    val generatedSil = fileTree(outputDir).matching { include("**/KCC20.sil") }.singleFile
+    require(generatedSil.readBytes().contentEquals(pinnedSil.readBytes())) {
+      "Regenerated KCC20 Silverscript differs from the pinned reference source"
+    }
+    println("Verified argentc regeneration: artifact ID, KCC20 prefix/suffix, and KCC20.sil match the pinned reference.")
+  }
+}
+
 tasks.named("preBuild").configure {
-  dependsOn("cargoBuildKcc20Engine")
+  dependsOn("cargoBuildKcc20Engine", "verifyKcc20ArgentArtifact")
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
