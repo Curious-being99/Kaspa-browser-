@@ -72,6 +72,16 @@ jobs:
           toolchain: 1.94.0
           targets: aarch64-linux-android
 
+      - name: Bootstrap KCC20 lockfile for one-time lockfile capture
+        run: cargo generate-lockfile --manifest-path kcc20-engine/Cargo.toml
+
+      - name: Capture generated KCC20 lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: kcc20-cargo-lock-bootstrap
+          path: kcc20-engine/Cargo.lock
+          if-no-files-found: error
+
       - name: Run KCC20 Rust planner and witness tests
         run: cargo test --locked --manifest-path kcc20-engine/Cargo.toml
 
