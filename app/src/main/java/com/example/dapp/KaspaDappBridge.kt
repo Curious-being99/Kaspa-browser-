@@ -616,6 +616,12 @@ object KaspaDappBridge {
                             }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
 
                             mainHandler.post {
+                                val tokenDetails = try {
+                                    if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else ""
+                                } catch (error: Throwable) {
+                                    respond(errorCode = -32602, errorMessage = error.message ?: "Cannot verify exact KCC20 token base units")
+                                    return@post
+                                }
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                     origin = origin,
                                     network = network,
@@ -629,7 +635,7 @@ object KaspaDappBridge {
                                     inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
-                                    tokenDetails = if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else "",
+                                    tokenDetails = tokenDetails,
                                     isBroadcast = false,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
@@ -1293,20 +1299,26 @@ object KaspaDappBridge {
                                         }
                                     }
                                 }.joinToString("\n\n")
+                                val tokenDetails = try {
+                                    if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else ""
+                                } catch (error: Throwable) {
+                                    respond(errorCode = -32602, errorMessage = error.message ?: "Cannot verify exact KCC20 token base units")
+                                    return@post
+                                }
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
                                     title = if (hasCovenantInputs || hasCovenantOutputs) "Submit KCC20 Covenant Transaction" else "Submit Kaspa Transaction",
                                     action = if (hasCovenantInputs || hasCovenantOutputs) "Broadcast Rusty-Kaspa v2.1.0 validated transaction" else "Broadcast Kaspa Transaction",
-                                    tick = if (hasCovenantInputs || hasCovenantOutputs) "KCC20" else "KAS",
+                                    tick = "KAS",
                                     amount = outKas,
                                     amountLabel = if (hasCovenantInputs || hasCovenantOutputs) "KAS output total; token state is enforced by the covenant script engine" else "Total outputs",
                                     destination = reviewedOutputs,
                                     inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = outKas,
-                                    tokenDetails = if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else "",
+                                    tokenDetails = tokenDetails,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
                                         if (viewModel.activeAccount.value?.did != account?.did ||
