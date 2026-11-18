@@ -80,9 +80,6 @@ internal object DappPsktTransaction {
                 "Input index is out of range"
             }
             val input = prepared.transaction.inputs[request.index]
-            require(input.signatureScript.isBlank()) {
-                "Refusing to overwrite an existing signature script"
-            }
             val utxoScript = prepared.utxoEntries[request.index].scriptPublicKey.script
                 .replace(" ", "").lowercase()
             val pubHex = walletPublicKeyHex.lowercase()
@@ -92,9 +89,11 @@ internal object DappPsktTransaction {
                 "Input ${request.index} has an invalid or missing UTXO amount"
             }
 
-            // Only sign standard version-0 P2PK outputs whose complete locking script
-            // exactly commits to this wallet key. Substring matches are not ownership proofs.
+            // Standard wallet funding inputs must be unsigned and match the active key exactly.
             if (utxo.scriptPublicKey.version == 0 && utxoScript == expectedScript) {
+                require(input.signatureScript.isBlank()) {
+                    "Refusing to overwrite an existing signature script"
+                }
                 resolvedRequests.add(request)
                 continue
             }
@@ -129,17 +128,31 @@ internal object DappPsktTransaction {
                 require(actualHash.equals(p2shHash, ignoreCase = true)) {
                     "P2SH redeemScript does not match input ${request.index} locking script"
                 }
-                val isStandardP2pk = (redeemHex == expectedScript)
+                val isStandardP2pk = redeemHex == expectedScript
                 val covenantState = runCatching {
                     com.example.network.kaspa.Kcc20ReferenceProtocol.verifyProgram(redeemBytes)
                 }.getOrNull()
-                val isSupportedKcc20Note = covenantState != null &&
-                    covenantState.ownerScheme == 0x00 &&
-                    covenantState.owner.contentEquals(hexToBytes(pubHex)) &&
+                val isNormalReferenceState = covenantState != null &&
                     covenantState.borrowScheme == 0x00 &&
                     covenantState.extensionCommitment.all { it == 0.toByte() }
-                require(isStandardP2pk || isSupportedKcc20Note) {
-                    "P2SH input ${request.index} is not an exact pinned KCC20 reference note owned by the active wallet, or a standard P2PK deposit"
+                val isWalletOwnedReferenceNote = isNormalReferenceState &&
+                    covenantState!!.ownerScheme == 0x00 &&
+                    covenantState.owner.contentEquals(hexToBytes(pubHex))
+                val isCovenantOwnedReferenceInput = isNormalReferenceState &&
+                    covenantState!!.ownerScheme == 0x04
+
+                if (isCovenantOwnedReferenceInput) {
+                    require(input.signatureScript.isNotBlank()) {
+                        "Covenant-owned KCC20 input ${request.index} must retain its coordinator-provided covenant witness and must not be wallet-signed"
+                    }
+                    continue
+                }
+
+                require(isStandardP2pk || isWalletOwnedReferenceNote) {
+                    "P2SH input ${request.index} is not an exact pinned wallet-owned KCC20 reference note, a covenant-owned KCC20 input, or a standard P2PK deposit"
+                }
+                require(input.signatureScript.isBlank()) {
+                    "Refusing to overwrite an existing signature script"
                 }
                 resolvedRequests.add(request.copy(redeemScript = finalRedeem))
                 continue
@@ -149,6 +162,9 @@ internal object DappPsktTransaction {
                 "Input ${request.index} is not an exact supported P2PK/P2SH-P2PK deposit for the active wallet key " +
                     "(scriptVersion=${utxo.scriptPublicKey.version}, amountSompi=${utxo.amount})"
             )
+        }
+        require(resolvedRequests.isNotEmpty()) {
+            "No unsigned input owned by the active wallet was selected for signing"
         }
         return prepared.copy(signInputs = resolvedRequests)
     }
