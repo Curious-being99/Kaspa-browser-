@@ -6,7 +6,6 @@ on:
       - main
       - master
       - draft/evm-kasplex-igra-provider-clean
-      - fix/general-kcc20-node-engine-ci
   pull_request:
     branches:
       - main
@@ -21,7 +20,7 @@ permissions:
   security-events: read
 
 concurrency:
-  group: security-audit-${{ github.workflow }}-${{ github.ref }}
+  group: security-audit-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

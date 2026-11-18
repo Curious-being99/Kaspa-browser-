@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - fix/kaspa-provider-after-page-finish
-      - fix/general-kcc20-node-engine-ci
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+
+concurrency:
+  group: android-unit-tests-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

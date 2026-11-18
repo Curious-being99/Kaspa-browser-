@@ -232,7 +232,11 @@ tasks.register("verifyKcc20ArgentArtifact") {
     require(bytesHex(template["suffix"]) == expected["suffix_hex"]) {
       "Regenerated Argent KCC20 bytecode differs from the pinned artifact"
     }
-    val templateHash = bytesHex(template["hash"])
+    val prefixHex = bytesHex(template["prefix"])
+    require(prefixHex.length == 68 && prefixHex.startsWith("6b20")) {
+      "Regenerated Argent KCC20 prefix has an invalid state-push header"
+    }
+    val templateHash = prefixHex.substring(4)
     require(templateHash == expected["template_hash"]) {
       "Regenerated Argent KCC20 template hash differs from the pinned artifact"
     }
@@ -240,7 +244,6 @@ tasks.register("verifyKcc20ArgentArtifact") {
     require(generatedSil.readBytes().contentEquals(pinnedSil.readBytes())) {
       "Regenerated KCC20 Silverscript differs from the pinned reference source"
     }
-    val prefixHex = bytesHex(template["prefix"])
     val suffixHex = bytesHex(template["suffix"])
     val generatedSource = file("$buildDir/generated/kcc20-argent/src/com/example/network/kaspa/Kcc20ArgentArtifact.kt")
     generatedSource.parentFile.mkdirs()
