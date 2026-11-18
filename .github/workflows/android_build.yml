@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - fix/general-kcc20-node-engine-ci
     tags:
       - 'v*'
   pull_request:
@@ -66,6 +67,9 @@ jobs:
         with:
           toolchain: 1.94.0
           targets: aarch64-linux-android
+
+      - name: Run KCC20 Rust planner and witness tests
+        run: cargo test --locked --manifest-path kcc20-engine/Cargo.toml
 
       - name: Install cargo-ndk
         shell: bash
