@@ -14,20 +14,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -54,10 +49,6 @@ fun DappsScreen(
     val tokens by viewModel.kcc20Tokens.collectAsState()
     val loading by viewModel.isLoadingKcc20.collectAsState()
     val selectedNetwork by viewModel.selectedNetwork.collectAsState()
-    val savedRpcEndpoint by viewModel.kcc20NodeRpcEndpoint.collectAsState()
-    val statusMessage by viewModel.statusMessage.collectAsState()
-    var rpcEndpointInput by remember { mutableStateOf(savedRpcEndpoint) }
-    LaunchedEffect(savedRpcEndpoint) { rpcEndpointInput = savedRpcEndpoint }
 
     BackHandler { viewModel.setTab(AppTab.KASPA_WALLET) }
     LaunchedEffect(Unit) { viewModel.refreshKcc20Tokens() }
@@ -88,40 +79,6 @@ fun DappsScreen(
             modifier = Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, SurfaceCardBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("KCC20 verification node", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Text(
-                        "Connect your own Rusty-Kaspa v2.1.0 node over WebSocket RPC. KCC20 spends require node UTXOs with covenant IDs; public REST UTXO endpoints do not provide this proof.",
-                        color = TextSecondary,
-                        fontSize = 11.sp
-                    )
-                    OutlinedTextField(
-                        value = rpcEndpointInput,
-                        onValueChange = { rpcEndpointInput = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("wss://node.example/rpc") }
-                    )
-                    Button(
-                        onClick = { viewModel.setKcc20NodeRpcEndpoint(rpcEndpointInput) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Save node endpoint")
-                    }
-                    if (!statusMessage.isNullOrBlank()) {
-                        Text(statusMessage.orEmpty(), color = TextSecondary, fontSize = 11.sp)
-                    }
-                }
-            }
             if (loading && tokens.isEmpty()) {
                 CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
             } else if (tokens.isEmpty()) {
