@@ -123,10 +123,16 @@ object Kcc20ReferenceProtocol {
         return com.example.network.CryptoUtils.encodeKaspaAddress(hash, version = 0x08, prefix = networkPrefix)
     }
 
-    fun transferArguments(states: List<State>): ByteArray {
+    fun transferArguments(
+        states: List<State>,
+        leaderExtensionCommitment: ByteArray = ByteArray(32)
+    ): ByteArray {
         require(states.size in 1..MAX_TOKEN_OUTPUTS) { "Reference KCC20 transfer requires 1 to 3 continuations" }
-        require(states.all { it.extensionCommitment.all { b -> b == 0.toByte() } }) {
+        require(leaderExtensionCommitment.size == 32 && leaderExtensionCommitment.all { it == 0.toByte() }) {
             "Non-zero KCC20 extension commitments are not established by the guide"
+        }
+        require(states.all { it.extensionCommitment.contentEquals(leaderExtensionCommitment) }) {
+            "Every KCC20 continuation must match the leader extension commitment"
         }
         fun column(value: (State) -> ByteArray) = pushMinimal(concat(*states.map(value).toTypedArray()))
         return concat(
@@ -139,13 +145,32 @@ object Kcc20ReferenceProtocol {
         )
     }
 
-    fun leaderSignatureScript(states: List<State>, signature65: ByteArray, program: ByteArray): ByteArray {
-        require(signature65.size == 65 && (signature65.last().toInt() and 0xff) == SIGHASH_ALL)
+    fun leaderSignatureScript(states: List<State>, signature65: ByteArray?, program: ByteArray): ByteArray {
         val current = verifyProgram(program)
-        require(current.ownerScheme == 0x00 && current.borrowScheme == 0x00)
+        require(current.borrowScheme == 0x00) {
+            "Borrow-path spends are not established by the guide"
+        }
+        require(current.extensionCommitment.all { it == 0.toByte() }) {
+            "Non-zero KCC20 extension commitments are not established by the guide"
+        }
+        val ownerWitness = when (current.ownerScheme) {
+            0x00 -> {
+                require(signature65?.size == 65 && (signature65.last().toInt() and 0xff) == SIGHASH_ALL) {
+                    "Scheme-0 KCC20 leader requires a 65-byte SIGHASH_ALL signature"
+                }
+                concat(byteArrayOf(0x00), signature65)
+            }
+            0x04 -> {
+                require(signature65 == null || signature65.isEmpty()) {
+                    "Scheme-4 covenant-owned KCC20 leader must not carry a wallet signature"
+                }
+                byteArrayOf(0x00)
+            }
+            else -> throw IllegalArgumentException("Only guide-established scheme-0 and scheme-4 leaders are supported")
+        }
         return concat(
-            transferArguments(states),
-            pushMinimal(concat(byteArrayOf(0x00), signature65)),
+            transferArguments(states, current.extensionCommitment),
+            pushMinimal(ownerWitness),
             hexToBytes("04$TRANSFER_TAG"),
             pushMinimal(program)
         )
@@ -156,6 +181,9 @@ object Kcc20ReferenceProtocol {
         val current = verifyProgram(program)
         require(current.ownerScheme == 0x00 && current.borrowScheme == 0x00) {
             "Only guide-verified scheme-0 delegator cells are supported"
+        }
+        require(current.extensionCommitment.all { it == 0.toByte() }) {
+            "Non-zero KCC20 extension commitments are not established by the guide"
         }
         return concat(
             pushMinimal(signature65),
