@@ -2925,6 +2925,45 @@ class DecentralViewModel(
      * 4. Signs KCC-20 seats with wallet Schnorr private key.
      * 5. Broadcasts transaction directly to Kaspa network nodes.
      */
+    suspend fun fetchDappNodeUtxos(address: String): org.json.JSONArray = withContext(Dispatchers.IO) {
+        val network = _selectedNetwork.value
+        val expectedNetwork = when {
+            network.contains("Mainnet", ignoreCase = true) -> "mainnet"
+            network.contains("Testnet 10", ignoreCase = true) ||
+                network.contains("Testnet-10", ignoreCase = true) -> "testnet-10"
+            else -> throw IllegalArgumentException("Node-backed dApp UTXO lookup supports Kaspa Mainnet and Testnet-10")
+        }
+        val endpoint = _kcc20NodeRpcEndpoint.value.trim()
+        require(endpoint.isNotBlank()) {
+            "Configure the Rusty-Kaspa v2.1.0 node RPC endpoint to retrieve covenant-aware UTXOs"
+        }
+        val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:"
+        require(address.startsWith(expectedPrefix, ignoreCase = true)) {
+            "Requested address does not match the selected Kaspa network"
+        }
+        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
+        val entries = kcc20NodeRpcClient.getUtxosByAddress(endpoint, address)
+        org.json.JSONArray().apply {
+            entries.forEach { entry ->
+                val utxoEntry = org.json.JSONObject()
+                    .put("amount", entry.amount.toString())
+                    .put("scriptPublicKey", org.json.JSONObject()
+                        .put("version", entry.scriptPublicKeyVersion)
+                        .put("script", entry.scriptPublicKeyHex))
+                    .put("blockDaaScore", entry.daaScore.toString())
+                    .put("isCoinbase", entry.isCoinbase)
+                    .put("covenantId", entry.covenantId ?: org.json.JSONObject.NULL)
+                put(org.json.JSONObject()
+                    .put("address", entry.address.ifBlank { address })
+                    .put("outpoint", org.json.JSONObject()
+                        .put("transactionId", entry.transactionId)
+                        .put("index", entry.outputIndex))
+                    .put("utxoEntry", utxoEntry)
+                    .put("covenantId", entry.covenantId ?: org.json.JSONObject.NULL))
+            }
+        }
+    }
+
     suspend fun validateDappCovenantPskt(
         transaction: KaspaTransactionEngine.KaspaTransaction,
         utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
