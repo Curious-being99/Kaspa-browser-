@@ -71,11 +71,11 @@ class Kcc20NodeRpcClient(
             )
             val entries = result.optJSONArray("entries")
                 ?: throw IllegalStateException("Node getUtxosByAddresses response has no entries array")
-            (0 until entries.length()).map { index ->
+            (0 until entries.length()).mapNotNull { index ->
                 val wrapper = entries.getJSONObject(index)
                 val nestedEntry = wrapper.optJSONObject("utxoEntry") ?: wrapper.optJSONObject("entry")
                 val entry = nestedEntry ?: if (wrapper.has("utxoEntry") || wrapper.has("entry")) {
-                    continue
+                    return@mapNotNull null
                 } else {
                     wrapper
                 }
