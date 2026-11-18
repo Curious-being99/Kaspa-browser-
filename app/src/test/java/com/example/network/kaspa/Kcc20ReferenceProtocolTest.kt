@@ -209,6 +209,32 @@ class Kcc20ReferenceProtocolTest {
 
 
     @Test
+    fun covenantOwnedSchemeFourLeaderUsesNormalTransferPathWithoutOwnerSignature() {
+        val state = Kcc20ReferenceProtocol.State(
+            amount = BigInteger.valueOf(3_000_000),
+            owner = ByteArray(32) { 0x35 },
+            ownerScheme = 0x04,
+            borrowScheme = 0x00,
+            borrowGuard = ByteArray(32),
+            extensionCommitment = ByteArray(32)
+        )
+        val program = Kcc20ReferenceProtocol.programFor(state)
+        val next = state.copy(amount = BigInteger.valueOf(4_000_000))
+        val witness = Kcc20ReferenceProtocol.leaderSignatureScript(listOf(next), null, program)
+        val hex = Kcc20ReferenceProtocol.bytesToHex(witness)
+        assertTrue(hex.contains("0079c71c23"))
+        assertTrue(hex.endsWith("4dbf0f" + Kcc20ReferenceProtocol.bytesToHex(program)))
+        assertTrue(!hex.contains("414444444444"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun transferRejectsContinuationWithDifferentExtensionCommitment() {
+        val leader = state(1000, 0x11)
+        val changed = leader.copy(extensionCommitment = ByteArray(32) { 1 })
+        Kcc20ReferenceProtocol.transferArguments(listOf(changed), leader.extensionCommitment)
+    }
+
+    @Test
     fun reverseSwapDelegatorWitnessUsesReferenceTagWithoutLeaderPathByte() {
         val state = Kcc20ReferenceProtocol.State(
             amount = BigInteger.valueOf(1000),
@@ -216,7 +242,7 @@ class Kcc20ReferenceProtocolTest {
             ownerScheme = 0x00,
             borrowScheme = 0x00,
             borrowGuard = ByteArray(32) { 0x22 },
-            extensionCommitment = ByteArray(32) { 0x33 }
+            extensionCommitment = ByteArray(32)
         )
         val program = Kcc20ReferenceProtocol.programFor(state)
         val signature = ByteArray(65) { 0x44 }.also { it[64] = 0x01 }
