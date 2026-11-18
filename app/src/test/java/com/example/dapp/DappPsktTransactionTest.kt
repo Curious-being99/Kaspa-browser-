@@ -691,6 +691,32 @@ class DappPsktTransactionTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
+    fun rejectsArbitraryP2shScriptThatMerelyContainsWalletPublicKey() {
+        val counterfeitRedeemScript = ("6b20" + "ee".repeat(32) + "20" + publicKeyHex + "5152ac").lowercase()
+        val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(counterfeitRedeemScript))
+            .joinToString("") { "%02x".format(it) }
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "7c".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "aa20" + p2shHash + "87"))
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "9000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
+        )
+        val tx = JSONObject().put("version", 1).put("inputs", inputs).put("outputs", outputs)
+        DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("redeemScript", counterfeitRedeemScript)),
+            publicKeyHex
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
     fun rejectsP2shInputWhenRedeemScriptIsMissingAndNotCached() {
         val unknownP2shScript = "aa20" + "99".repeat(32) + "87"
         val inputs = JSONArray().put(JSONObject()
