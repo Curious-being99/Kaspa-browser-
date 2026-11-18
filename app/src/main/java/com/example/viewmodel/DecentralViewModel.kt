@@ -3033,6 +3033,45 @@ class DecentralViewModel(
         fetchVerifiedDappPsktUtxos(transaction, utxoEntries, inputAddresses)
     }
 
+    suspend fun measureDappCovenantPsktComputeBudgets(
+        transaction: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        inputAddresses: List<String>
+    ): KaspaTransactionEngine.KaspaTransaction = withContext(Dispatchers.IO) {
+        require(transaction.version == 1) { "KCC20 covenant PSKTs must use transaction version 1" }
+        val (_, spentUtxos) = fetchVerifiedDappPsktUtxos(transaction, utxoEntries, inputAddresses)
+        val provisional = transaction.copy(inputs = transaction.inputs.map { input ->
+            input.copy(sigOpCount = 0, computeBudget = 0xffff)
+        })
+        val measured = Kcc20RustyKaspaEngine.validate(provisional, spentUtxos)
+        require(measured.inputResults.size == provisional.inputs.size &&
+            measured.inputResults.all { it.valid && it.usedScriptUnits >= 0L }
+        ) {
+            "Rusty-Kaspa could not measure every KCC20 PSKT input: " +
+                (measured.error ?: measured.inputResults.filterNot { it.valid }
+                    .joinToString { "input ${it.index}: ${it.error}" })
+        }
+        val exactInputs = provisional.inputs.mapIndexed { index, input ->
+            val used = measured.inputResults[index].usedScriptUnits
+            val budget = maxOf(1L, (used + 9_999L) / 10_000L)
+            require(budget <= 0xffffL) { "Measured compute budget exceeds the version-1 u16 limit for input $index" }
+            input.copy(sigOpCount = 0, computeBudget = budget.toInt())
+        }
+        val exact = provisional.copy(inputs = exactInputs)
+        val verified = Kcc20RustyKaspaEngine.validate(exact, spentUtxos)
+        require(verified.valid && verified.inputResults.size == exact.inputs.size &&
+            verified.inputResults.indices.all { index ->
+                verified.inputResults[index].valid &&
+                    exact.inputs[index].computeBudget.toLong() ==
+                    maxOf(1L, (verified.inputResults[index].usedScriptUnits + 9_999L) / 10_000L)
+            }
+        ) {
+            "Rusty-Kaspa rejected the exact measured per-input compute budgets"
+        }
+        validateDappCovenantPskt(exact, utxoEntries, inputAddresses)
+        exact
+    }
+
     suspend fun validateDappCovenantPskt(
         transaction: KaspaTransactionEngine.KaspaTransaction,
         utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
