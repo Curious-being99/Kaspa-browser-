@@ -1,6 +1,7 @@
 package com.example.network.kaspa
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigInteger
@@ -120,4 +121,70 @@ class Kcc20ReferenceProtocolTest {
             amountBaseUnits = BigInteger.TEN
         )
     }
+    @Test
+    fun versionOneTransactionIdCommitsCovenantBindingButNotComputeBudget() {
+        val script = "aa20" + "11".repeat(32) + "87"
+        val input = KaspaTransactionEngine.KaspaTransactionInput(
+            previousOutpoint = KaspaTransactionEngine.KaspaOutpoint("22".repeat(32), 0),
+            sequence = 0,
+            sigOpCount = 0,
+            computeBudget = 14
+        )
+        val boundOutput = KaspaTransactionEngine.KaspaTransactionOutput(
+            amount = 50_000_000,
+            scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(0, script),
+            covenant = KaspaTransactionEngine.KaspaCovenantBinding(0, "33".repeat(32))
+        )
+        val transaction = KaspaTransactionEngine.KaspaTransaction(
+            version = 1,
+            inputs = listOf(input),
+            outputs = listOf(boundOutput)
+        )
+        val higherBudget = transaction.copy(
+            inputs = listOf(input.copy(computeBudget = 32))
+        )
+        val changedFamily = transaction.copy(
+            outputs = listOf(boundOutput.copy(
+                covenant = KaspaTransactionEngine.KaspaCovenantBinding(0, "44".repeat(32))
+            ))
+        )
+        assertEquals(
+            KaspaTransactionEngine.calcTransactionId(transaction),
+            KaspaTransactionEngine.calcTransactionId(higherBudget)
+        )
+        assertNotEquals(
+            KaspaTransactionEngine.calcTransactionId(transaction),
+            KaspaTransactionEngine.calcTransactionId(changedFamily)
+        )
+    }
+
+    @Test
+    fun versionOneMassIncludesComputeBudgetsAndCovenantBindings() {
+        val input = KaspaTransactionEngine.KaspaTransactionInput(
+            previousOutpoint = KaspaTransactionEngine.KaspaOutpoint("55".repeat(32), 0),
+            sequence = 0,
+            sigOpCount = 0,
+            computeBudget = 14
+        )
+        val script = "aa20" + "66".repeat(32) + "87"
+        val unbound = KaspaTransactionEngine.KaspaTransactionOutput(
+            50_000_000,
+            KaspaTransactionEngine.KaspaScriptPublicKey(0, script)
+        )
+        val bound = unbound.copy(
+            covenant = KaspaTransactionEngine.KaspaCovenantBinding(0, "77".repeat(32))
+        )
+        val unboundTx = KaspaTransactionEngine.KaspaTransaction(1, listOf(input), listOf(unbound))
+        val boundTx = unboundTx.copy(outputs = listOf(bound))
+        assertEquals(
+            34L,
+            KaspaTransactionEngine.calculateSerializedByteSize(boundTx) -
+                KaspaTransactionEngine.calculateSerializedByteSize(unboundTx)
+        )
+        assertTrue(
+            KaspaTransactionEngine.calculateReferenceV1ComputeMass(boundTx) >
+                KaspaTransactionEngine.calculateSerializedByteSize(boundTx)
+        )
+    }
+
 }
