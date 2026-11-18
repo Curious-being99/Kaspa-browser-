@@ -653,10 +653,7 @@ class Kcc20KasivoService(
         )
     }
 
-    /**
-     * Fetch live KCC-20 covenant token cells (UTXOs with redeem bytecode) owned by a wallet pubkey.
-     * Maps directly to [KbKcc20StandardAssembler.SpendPiece] for real on-chain covenant spending.
-     */
+    /** Fetches indexer candidates; node UTXO proof is required before a candidate is spendable. */
     suspend fun fetchReferenceCellCandidates(
         contractId: String,
         publicKeyHex: String,
@@ -730,7 +727,7 @@ class Kcc20KasivoService(
                             !covenantId.matches(Regex("[0-9a-f]{64}")) || covenantId != tokenId ||
                             valueSompi == null || valueSompi <= 0L || cellAddress.isBlank() || programHex.isNullOrBlank()) continue
                         val program = try {
-                            KbKcc20ScriptCodec.hexToBytes(programHex)
+                            decodeHex(programHex)
                         } catch (_: Exception) {
                             continue
                         }
@@ -764,15 +761,14 @@ class Kcc20KasivoService(
         }
     }
 
-    @Deprecated("Use fetchReferenceCellCandidates and Kcc20ReferenceCellVerifier for the guide-defined reference KCC20 layout")
-    suspend fun fetchLiveTokenCells(
-        contractId: String,
-        publicKeyHex: String,
-        walletAddress: String? = null
-    ): Result<List<KbKcc20StandardAssembler.SpendPiece>> = Result.failure(
-        IllegalStateException(
-            "The legacy KB-specific 112-byte cell path is retired. General KCC20 cells must use the pinned 145-byte reference template and node UTXO verification."
-        )
-    )
+    private fun decodeHex(value: String): ByteArray {
+        val clean = value.trim().removePrefix("0x")
+        require(clean.isNotEmpty() && clean.length % 2 == 0 && clean.matches(Regex("[0-9a-fA-F]+"))) {
+            "Malformed KCC20 program hex"
+        }
+        return ByteArray(clean.length / 2) { index ->
+            clean.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+        }
+    }
 
 }
