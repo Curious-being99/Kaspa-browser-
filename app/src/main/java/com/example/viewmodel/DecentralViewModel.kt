@@ -3470,7 +3470,18 @@ class DecentralViewModel(
                     isBroadcast = true,
                     onApprove = {
                         dappPromptState.value = null
-                        if (continuation.isActive) continuation.resume(true)
+                        if (continuation.isActive) {
+                            if (activeAccount.value?.did != account.did ||
+                                activeAccount.value?.handle != account.handle ||
+                                _selectedNetwork.value != network
+                            ) {
+                                continuation.resumeWith(Result.failure(
+                                    IllegalStateException("Active wallet or network changed while awaiting KCC20 broadcast approval")
+                                ))
+                            } else {
+                                continuation.resume(true)
+                            }
+                        }
                     },
                     onReject = {
                         dappPromptState.value = null
