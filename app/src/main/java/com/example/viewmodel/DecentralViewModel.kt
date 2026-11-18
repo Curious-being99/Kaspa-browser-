@@ -2984,24 +2984,24 @@ class DecentralViewModel(
                 throw IllegalStateException("The indexer returned no cells matching this wallet, covenant ID and pinned reference KCC20 template")
             }
 
-            val nodeByAddress = candidates.map { it.address }.distinct().associateWith { address ->
-                kcc20NodeRpcClient.getUtxosByAddress(endpoint, address)
+            val nodeUtxos = kcc20NodeRpcClient.getUtxosByAddresses(
+                endpoint,
+                candidates.map { it.address } + keyPair.kaspaAddress
+            )
+            val nodeProofs = nodeUtxos.map { entry ->
+                com.example.network.kaspa.Kcc20ReferenceCellVerifier.NodeUtxo(
+                    transactionId = entry.transactionId,
+                    outputIndex = entry.outputIndex,
+                    valueSompi = entry.amount,
+                    covenantId = entry.covenantId,
+                    address = entry.address,
+                    scriptPublicKeyVersion = entry.scriptPublicKeyVersion,
+                    scriptPublicKeyHex = entry.scriptPublicKeyHex,
+                    daaScore = entry.daaScore,
+                    isCoinbase = entry.isCoinbase
+                )
             }
             val verified = candidates.mapNotNull { candidate ->
-                val nodeEntries = nodeByAddress[candidate.address] ?: return@mapNotNull null
-                val nodeProofs = nodeEntries.map { entry ->
-                    com.example.network.kaspa.Kcc20ReferenceCellVerifier.NodeUtxo(
-                        transactionId = entry.transactionId,
-                        outputIndex = entry.outputIndex,
-                        valueSompi = entry.amount,
-                        address = entry.address,
-                        covenantId = entry.covenantId,
-                        scriptPublicKeyVersion = entry.scriptPublicKeyVersion,
-                        scriptPublicKeyHex = entry.scriptPublicKeyHex,
-                        daaScore = entry.daaScore,
-                        isCoinbase = entry.isCoinbase
-                    )
-                }
                 runCatching {
                     com.example.network.kaspa.Kcc20ReferenceCellVerifier.verify(
                         candidate = candidate,
@@ -3027,7 +3027,7 @@ class DecentralViewModel(
                 amountBaseUnits = amountBaseUnits
             )
 
-            val walletUtxos = kcc20NodeRpcClient.getUtxosByAddress(endpoint, keyPair.kaspaAddress)
+            val walletUtxos = nodeUtxos
                 .filter { it.covenantId == null && it.scriptPublicKeyVersion == 0 && it.scriptPublicKeyHex.equals(
                     KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress).script,
                     ignoreCase = true
@@ -3037,7 +3037,7 @@ class DecentralViewModel(
                 } }
                 .sortedByDescending { it.amount }
 
-            val verifiedByOutpoint = nodeByAddress.values.flatten().associateBy {
+            val verifiedByOutpoint = nodeUtxos.associateBy {
                 it.transactionId.lowercase() + ":" + it.outputIndex
             }
             val tokenNodeUtxos = selectedCells.map { cell ->
