@@ -107,7 +107,7 @@ class Kcc20NodeRpcClient(
         val txId = sequenceOf("transactionId", "transaction_id", "txid")
             .map { result.optString(it, "").trim() }
             .firstOrNull { it.isNotBlank() }
-            ?: result.optString("transactionId", "")
+            ?: result.optString("result", "")
         require(txId.matches(Regex("[0-9a-fA-F]{64}"))) {
             "Kaspa node did not return an accepted transaction ID: $result"
         }
