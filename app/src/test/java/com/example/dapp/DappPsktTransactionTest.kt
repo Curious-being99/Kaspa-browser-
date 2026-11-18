@@ -988,4 +988,36 @@ class DappPsktTransactionTest {
         assertTrue(sigScript.startsWith("41"))
         assertTrue(sigScript.endsWith(expectedP2pkRedeem))
     }
+    @Test
+    fun measuredVersionOneBudgetsAreAppliedToEveryInput() {
+        val signed = JSONObject().put("tx", JSONObject().put("version", 1).put("inputs", JSONArray()
+            .put(JSONObject().put("signatureScript", "41aa"))
+            .put(JSONObject().put("signatureScript", "41bb")))).toString()
+
+        val result = JSONObject(DappPsktTransaction.applyMeasuredComputeBudgets(signed, listOf(7, 19)))
+        val inputs = result.getJSONObject("tx").getJSONArray("inputs")
+        for (index in 0 until inputs.length()) {
+            val input = inputs.getJSONObject(index)
+            assertEquals(0, input.getInt("sigOpCount"))
+            assertEquals(0, input.getInt("sig_op_count"))
+            assertEquals(listOf(7, 19)[index], input.getInt("computeBudget"))
+            assertEquals(listOf(7, 19)[index], input.getInt("compute_budget"))
+        }
+    }
+
+    @Test
+    fun measuredVersionOneBudgetsRejectMissingOrOutOfRangeMeasurements() {
+        val signed = JSONObject().put("tx", JSONObject().put("version", 1).put("inputs", JSONArray()
+            .put(JSONObject().put("signatureScript", "41aa")))).toString()
+        assertThrows(IllegalArgumentException::class.java) {
+            DappPsktTransaction.applyMeasuredComputeBudgets(signed, emptyList())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DappPsktTransaction.applyMeasuredComputeBudgets(signed, listOf(0))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            DappPsktTransaction.applyMeasuredComputeBudgets(signed, listOf(65536))
+        }
+    }
+
 }
