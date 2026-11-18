@@ -2919,7 +2919,6 @@ class DecentralViewModel(
         require(address.startsWith(expectedPrefix, ignoreCase = true)) {
             "Requested address does not match the selected Kaspa network"
         }
-        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val entries = kcc20NodeRpcClient.getUtxosByAddress(endpoint, address)
         org.json.JSONArray().apply {
             entries.forEach { entry ->
@@ -3198,7 +3197,6 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
         try {
             val expectedNodeNetwork = if (isMainnet) "mainnet" else "testnet-10"
             endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNodeNetwork)
-            kcc20NodeRpcClient.requireNetwork(endpoint, expectedNodeNetwork)
             val candidateResult = kcc20Service.fetchReferenceCellCandidates(
                 contractId = family,
                 publicKeyHex = keyPair.publicKeyHex,
