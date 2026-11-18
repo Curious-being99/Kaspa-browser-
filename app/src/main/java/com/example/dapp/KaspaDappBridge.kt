@@ -1175,31 +1175,32 @@ object KaspaDappBridge {
                                 Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
                             }
                             val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
-                            if (hasCovenantInputs || hasCovenantOutputs) {
+                            val covenantInputAddresses = if (hasCovenantInputs || hasCovenantOutputs) {
                                 try {
                                     require(prepared.transaction.version == 1) {
                                         "KCC20 covenant PSKTs must use version 1"
                                     }
-                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
+                                    val addresses = prepared.utxoEntries.map { utxo ->
                                         scriptToAddress(utxo.scriptPublicKey, prefix)
                                     }
-                                    require(inputAddresses.all { it.startsWith("$prefix:") }) {
+                                    require(addresses.all { it.startsWith("$prefix:") }) {
                                         "A PSKT input locking script could not be resolved to the active Kaspa network"
                                     }
                                     kotlinx.coroutines.runBlocking {
                                         viewModel.validateDappCovenantPskt(
                                             transaction = prepared.transaction,
                                             utxoEntries = prepared.utxoEntries,
-                                            inputAddresses = inputAddresses
+                                            inputAddresses = addresses
                                         )
                                     }
+                                    addresses
                                 } catch (error: Throwable) {
                                     mainHandler.post {
                                         respond(errorCode = -32602, errorMessage = error.message ?: "Rusty-Kaspa covenant verification failed")
                                     }
                                     return@execute
                                 }
-                            }
+                            } else emptyList()
                             mainHandler.post {
                                 val firstOutput = prepared.transaction.outputs.firstOrNull()
                                 val outKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
@@ -1214,7 +1215,7 @@ object KaspaDappBridge {
                                     tick = "KAS",
                                     amount = outKas,
                                     destination = firstOutput?.scriptPublicKey?.script?.take(22).orEmpty(),
-                                    inputsCount = prepared.signInputs.size,
+                                    inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = outKas,
                                     onApprove = {
@@ -1226,28 +1227,49 @@ object KaspaDappBridge {
                                             respond(errorCode = 4100, errorMessage = "Active wallet or network changed while awaiting broadcast approval")
                                         } else {
                                             cryptoExecutor.execute {
-                                            val receipt = try {
-                                                kotlinx.coroutines.runBlocking {
-                                                    viewModel.walletService.submitDappTransaction(
-                                                        prepared.transaction,
-                                                        keyPair.kaspaAddress,
-                                                        network
+                                                val submission = try {
+                                                    val txId = kotlinx.coroutines.runBlocking {
+                                                        if (hasCovenantInputs || hasCovenantOutputs) {
+                                                            require(viewModel.selectedNetwork.value == network) {
+                                                                "Network changed while awaiting covenant broadcast approval"
+                                                            }
+                                                            viewModel.submitDappCovenantPskt(
+                                                                transaction = prepared.transaction,
+                                                                utxoEntries = prepared.utxoEntries,
+                                                                inputAddresses = covenantInputAddresses
+                                                            )
+                                                        } else {
+                                                            val receipt = viewModel.walletService.submitDappTransaction(
+                                                                prepared.transaction,
+                                                                keyPair.kaspaAddress,
+                                                                network
+                                                            )
+                                                            require(receipt.accepted) {
+                                                                receipt.error.ifBlank { "Kaspa node did not accept the transaction" }
+                                                            }
+                                                            receipt.transactionId
+                                                        }
+                                                    }
+                                                    require(txId.equals(
+                                                        KaspaTransactionEngine.calcTransactionId(prepared.transaction),
+                                                        ignoreCase = true
+                                                    )) { "Submitted transaction ID differs from the locally calculated transaction ID" }
+                                                    Result.success(txId)
+                                                } catch (error: Throwable) {
+                                                    Result.failure(error)
+                                                }
+                                                mainHandler.post {
+                                                    submission.fold(
+                                                        onSuccess = { txId ->
+                                                            viewModel.onSwapTransactionSigned(txJson)
+                                                            viewModel.triggerPostSwapRefresh()
+                                                            respond(txId)
+                                                        },
+                                                        onFailure = { error ->
+                                                            respond(errorCode = -32000, errorMessage = error.message ?: "Transaction submission failed")
+                                                        }
                                                     )
                                                 }
-                                            } catch (error: Throwable) {
-                                                null
-                                            }
-                                            mainHandler.post {
-                                                if (receipt == null) {
-                                                    respond(errorCode = -32603, errorMessage = "Transaction submission failed")
-                                                } else if (!receipt.accepted) {
-                                                    respond(errorCode = -32000, errorMessage = receipt.error)
-                                                } else {
-                                                    viewModel.onSwapTransactionSigned(txJson)
-                                                    viewModel.triggerPostSwapRefresh()
-                                                    respond(receipt.transactionId)
-                                                }
-                                            }
                                             }
                                         }
                                     },
