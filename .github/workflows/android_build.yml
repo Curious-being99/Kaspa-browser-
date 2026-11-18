@@ -61,6 +61,20 @@ jobs:
           test -f "${ANDROID_SDK_ROOT}/platforms/android-37.0/android.jar"
           test -x "${ANDROID_SDK_ROOT}/build-tools/37.0.0/aapt"
 
+      - name: Install Rust and Android NDK for KCC20 script engine
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.0
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --version 3.5.4 --locked
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
       - name: Verify Gradle installation
         run: gradle --version
 
