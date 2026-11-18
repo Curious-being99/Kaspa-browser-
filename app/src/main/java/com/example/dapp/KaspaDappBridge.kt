@@ -708,9 +708,48 @@ object KaspaDappBridge {
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
                         val rawTxJson = extractTxJsonString(paramsObj)
-                        val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KRC-20"
+                        val isKcc20Method = method.contains("kcc", ignoreCase = true)
+                        val protocolLabel = if (isKcc20Method) "KCC-20" else "KRC-20"
+                        val requestedCovenantId = if (isKcc20Method) {
+                            paramsObj.optString(
+                                "covenantId",
+                                paramsObj.optString("contractId", paramsObj.optString("tokenId", ""))
+                            ).trim()
+                        } else ""
+                        val kcc20AmountBaseUnits = if (isKcc20Method) {
+                            try {
+                                val explicitBaseUnits = paramsObj.optString("amountBaseUnits", "").trim()
+                                if (explicitBaseUnits.isNotBlank()) {
+                                    java.math.BigInteger(explicitBaseUnits)
+                                } else {
+                                    val decimals = paramsObj.optInt("decimals", -1)
+                                    require(decimals in 0..18) {
+                                        "KCC-20 transfer must supply amountBaseUnits or an explicit decimals value"
+                                    }
+                                    java.math.BigDecimal(amtStr).movePointRight(decimals).toBigIntegerExact()
+                                }
+                            } catch (_: Exception) {
+                                null
+                            }
+                        } else null
+                        if (isKcc20Method && (
+                            rawTxJson.isNotBlank() || op != "transfer" || requestedCovenantId.isBlank() ||
+                                toAddr.isBlank() || kcc20AmountBaseUnits == null || kcc20AmountBaseUnits.signum() <= 0
+                        )) {
+                            respond(
+                                errorCode = -32602,
+                                errorMessage = if (rawTxJson.isNotBlank()) {
+                                    "Pre-built KCC20 transactions are not accepted. Supply covenantId, recipient, and amountBaseUnits so the wallet can build and validate the covenant spend itself."
+                                } else {
+                                    "KCC20 transfer requires an exact covenantId, recipient, and amountBaseUnits (or amount plus explicit decimals)."
+                                }
+                            )
+                            return@addWebMessageListener
+                        }
 
-                        val isStructuredTx = rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("previous_outpoint") || rawTxJson.contains("version"))
+                        val isStructuredTx = !isKcc20Method && rawTxJson.isNotBlank() &&
+                            (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") ||
+                                rawTxJson.contains("previous_outpoint") || rawTxJson.contains("version"))
                         val options = paramsObj.optJSONObject("options")
                             ?: paramsObj.optJSONObject("params")
                         val rawSignInputs = options?.optJSONArray("signInputs")
@@ -780,7 +819,9 @@ object KaspaDappBridge {
                                 if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
                             }
 
-                            val resolvedAmount = if (actualOutgoingKas != null) {
+                            val resolvedAmount = if (isKcc20Method) {
+                                kcc20AmountBaseUnits.toString()
+                            } else if (actualOutgoingKas != null) {
                                 if (amtStr.isNotBlank() && amtStr != "0") "$amtStr $tick ($actualOutgoingKas KAS)" else "$actualOutgoingKas KAS"
                             } else {
                                 amtStr
@@ -791,13 +832,14 @@ object KaspaDappBridge {
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
-                                    action = "${op.uppercase()} $tick ($protocolLabel)",
+                                    title = if (isKcc20Method) "Review KCC20 Transfer" else if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
+                                    action = if (isKcc20Method) "Authorize KCC20 signing and validation" else "${op.uppercase()} $tick ($protocolLabel)",
                                     tick = tick,
                                     amount = resolvedAmount,
-                                    destination = resolvedDestination,
-                                    inputsCount = prePrepared?.transaction?.inputs?.size ?: 1,
-                                    feeKas = prePrepared?.feeKas ?: "0.0001 KAS",
+                                    amountLabel = if (isKcc20Method) "Exact token base units" else "Amount",
+                                    destination = if (isKcc20Method) toAddr else resolvedDestination,
+                                    inputsCount = if (isKcc20Method) 0 else prePrepared?.transaction?.inputs?.size ?: 1,
+                                    feeKas = if (isKcc20Method) "Exact node fee shown in the final broadcast confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
                                     totalAmountKas = actualOutgoingKas ?: amtStr,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
@@ -877,37 +919,9 @@ object KaspaDappBridge {
                                         }
                                     }
 
-                                    if (method.contains("kcc", ignoreCase = true)) {
-                                        val requestedCovenantId = paramsObj.optString(
-                                            "covenantId",
-                                            paramsObj.optString("contractId", paramsObj.optString("tokenId", ""))
-                                        ).trim()
-                                        val amountBaseUnits = try {
-                                            val explicitBaseUnits = paramsObj.optString("amountBaseUnits", "").trim()
-                                            if (explicitBaseUnits.isNotBlank()) {
-                                                java.math.BigInteger(explicitBaseUnits)
-                                            } else {
-                                                val decimals = paramsObj.optInt("decimals", -1)
-                                                require(decimals in 0..18) {
-                                                    "KCC-20 transfer must supply amountBaseUnits or an explicit decimals value"
-                                                }
-                                                java.math.BigDecimal(amtStr)
-                                                    .movePointRight(decimals)
-                                                    .toBigIntegerExact()
-                                            }
-                                        } catch (error: Exception) {
-                                            null
-                                        }
-                                        if (op != "transfer" || requestedCovenantId.isBlank() ||
-                                            toAddr.isBlank() || amountBaseUnits == null || amountBaseUnits.signum() <= 0) {
-                                            mainHandler.post {
-                                                respond(
-                                                    errorCode = -32602,
-                                                    errorMessage = "KCC-20 transfer requires an exact covenantId, valid recipient, and amountBaseUnits (or amount plus explicit decimals)."
-                                                )
-                                            }
-                                            return@execute
-                                        }
+                                    if (isKcc20Method) {
+                                        val amountBaseUnits = kcc20AmountBaseUnits
+                                            ?: throw IllegalArgumentException("KCC20 amount is missing or invalid")
                                         viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                             origin = origin,
                                             network = network,
