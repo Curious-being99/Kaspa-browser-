@@ -746,6 +746,13 @@ object KaspaDappBridge {
                         val op = paramsObj.optString("op", paramsObj.optString("type", "transfer")).lowercase()
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
+                        val requestedSender = paramsObj.optString("sender", "").trim()
+                        if (requestedSender.isNotBlank() &&
+                            !requestedSender.equals(keyPair.kaspaAddress, ignoreCase = true)
+                        ) {
+                            respond(errorCode = 4100, errorMessage = "Requested sender does not match the active wallet")
+                            return@addWebMessageListener
+                        }
                         val rawTxJson = extractTxJsonString(paramsObj)
                         val isKcc20Method = method.contains("kcc", ignoreCase = true)
                         val protocolLabel = if (isKcc20Method) "KCC-20" else "KRC-20"
@@ -974,7 +981,9 @@ object KaspaDappBridge {
                                                     covenantId = requestedCovenantId,
                                                     recipientAddress = toAddr,
                                                     amountBaseUnits = amountBaseUnits,
-                                                    origin = origin
+                                                    origin = origin,
+                                                    expectedSenderAddress = keyPair.kaspaAddress,
+                                                    expectedNetwork = network
                                                 )
                                             }
                                         } catch (error: Throwable) {
