@@ -374,7 +374,10 @@ internal object DappPsktTransaction {
             require(programHex.isNotBlank()) { "KCC20 approval output $index has no verified state program" }
             val program = Kcc20ReferenceProtocol.decodeHex(programHex)
             val state = Kcc20ReferenceProtocol.verifyProgram(program)
-            require(Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program)).equals(output.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)) {
+            require(output.scriptPublicKey.version == 0 &&
+                Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                    .equals(output.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
+            ) {
                 "KCC20 approval output $index state program does not match its P2SH locking script"
             }
             val amounts = totals.getOrPut(covenantId) { Totals() }
