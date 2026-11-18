@@ -97,6 +97,16 @@ object Kcc20ReferenceProtocol {
         return concat(byteArrayOf(0xaa.toByte(), 0x20), hash, byteArrayOf(0x87.toByte()))
     }
 
+    fun p2shAddress(program: ByteArray, networkPrefix: String): String {
+        require(networkPrefix == "kaspa" || networkPrefix == "kaspatest") { "Unsupported Kaspa address prefix" }
+        verifyProgram(program)
+        val digest = Blake2bDigest(256)
+        val hash = ByteArray(32)
+        digest.update(program, 0, program.size)
+        digest.doFinal(hash, 0)
+        return com.example.network.CryptoUtils.encodeKaspaAddress(hash, version = 0x08, prefix = networkPrefix)
+    }
+
     fun transferArguments(states: List<State>): ByteArray {
         require(states.size in 1..MAX_TOKEN_OUTPUTS) { "Reference KCC20 transfer requires 1 to 3 continuations" }
         require(states.all { it.borrowScheme == 0 && it.extensionCommitment.all { b -> b == 0.toByte() } }) {
