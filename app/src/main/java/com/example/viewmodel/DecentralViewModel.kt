@@ -2964,11 +2964,11 @@ class DecentralViewModel(
         }
     }
 
-    suspend fun validateDappCovenantPskt(
+    private suspend fun fetchVerifiedDappPsktUtxos(
         transaction: KaspaTransactionEngine.KaspaTransaction,
         utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
         inputAddresses: List<String>
-    ): com.example.network.kaspa.Kcc20RustyKaspaEngine.ValidationResult = withContext(Dispatchers.IO) {
+    ): Pair<String, List<Kcc20RustyKaspaEngine.SpentUtxo>> = withContext(Dispatchers.IO) {
         val network = _selectedNetwork.value
         val expectedNetwork = when {
             network.contains("Mainnet", ignoreCase = true) -> "mainnet"
@@ -3023,6 +3023,23 @@ class DecentralViewModel(
                 covenantId = live.covenantId
             )
         }
+        endpoint to spentUtxos
+    }
+
+    suspend fun verifyDappCovenantPsktInputs(
+        transaction: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        inputAddresses: List<String>
+    ) {
+        fetchVerifiedDappPsktUtxos(transaction, utxoEntries, inputAddresses)
+    }
+
+    suspend fun validateDappCovenantPskt(
+        transaction: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        inputAddresses: List<String>
+    ): Kcc20RustyKaspaEngine.ValidationResult = withContext(Dispatchers.IO) {
+        val (_, spentUtxos) = fetchVerifiedDappPsktUtxos(transaction, utxoEntries, inputAddresses)
         val validation = Kcc20RustyKaspaEngine.validate(transaction, spentUtxos)
         require(validation.valid) {
             "Rusty-Kaspa v2.1.0 rejected the signed covenant PSKT: " +
