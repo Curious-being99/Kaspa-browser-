@@ -154,7 +154,7 @@ object Kcc20ReferenceProtocol {
     fun delegatorSignatureScript(signature65: ByteArray, program: ByteArray): ByteArray {
         require(signature65.size == 65 && (signature65.last().toInt() and 0xff) == SIGHASH_ALL)
         val current = verifyProgram(program)
-        require(current.ownerScheme == 0x00 && current.borrowScheme == 0x00)
+        require(current.ownerScheme == 0x00)
         return concat(
             pushMinimal(signature65),
             hexToBytes("04$DELEGATOR_TAG"),
