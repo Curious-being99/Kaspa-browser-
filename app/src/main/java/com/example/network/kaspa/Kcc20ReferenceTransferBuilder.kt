@@ -45,21 +45,4 @@ object Kcc20ReferenceTransferBuilder {
         )
     }
 
-    fun assembleSignatureScript(
-        plan: TransferPlan,
-        inputIndex: Int,
-        signature65: ByteArray
-    ): ByteArray {
-        require(inputIndex in plan.seats.indices) { "Unknown KCC20 input index" }
-        val seat = plan.seats[inputIndex]
-        return if (seat.isLeader) {
-            Kcc20ReferenceProtocol.leaderSignatureScript(
-                plan.nextStates,
-                signature65,
-                seat.program
-            )
-        } else {
-            Kcc20ReferenceProtocol.delegatorSignatureScript(signature65, seat.program)
-        }
-    }
 }
