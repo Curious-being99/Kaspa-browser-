@@ -3391,7 +3391,7 @@ class DecentralViewModel(
                         }
                         tx = tx.copy(inputs = tx.inputs.mapIndexed { index, input ->
                             val used = validation.inputResults.getOrNull(index)?.usedScriptUnits ?: 0L
-                            val needed = if (used <= 9_999L) 0 else ((used - 9_999L + 9_999L) / 10_000L + 1L).toInt()
+                            val needed = maxOf(1, ((used + 9_999L) / 10_000L).toInt())
                             input.copy(computeBudget = maxOf(input.computeBudget, needed))
                         })
                         signInputs()
@@ -3403,10 +3403,11 @@ class DecentralViewModel(
 
                     val exactInputs = tx.inputs.mapIndexed { index, input ->
                         val used = validation.inputResults[index].usedScriptUnits
-                        val exactBudget = if (used <= 9_999L) 0 else ((used - 9_999L + 9_999L) / 10_000L).toInt()
+                        val exactBudget = maxOf(1, ((used + 9_999L) / 10_000L).toInt())
                         input.copy(computeBudget = exactBudget)
                     }
                     tx = tx.copy(inputs = exactInputs)
+                    signInputs()
                     validation = com.example.network.kaspa.Kcc20RustyKaspaEngine.validate(tx, allEngineUtxos)
                     if (!validation.valid) {
                         throw IllegalStateException("Rusty-Kaspa rejected the exact per-input compute budgets")
