@@ -186,7 +186,7 @@ tasks.register("verifyKcc20ArgentArtifact") {
   description = "Regenerates the KCC20 covenant with pinned argentc and verifies its compiled artifact"
   val compilerManifest = providers.environmentVariable("ARGENT_COMPILER_MANIFEST")
     .orElse("$rootDir/third_party/argent/Cargo.toml")
-  val source = file("src/test/resources/kcc20-reference/kcc20.ag")
+  val source = file("src/test/resources/kcc20-reference/contracts/public_mint.ag")
   val fixture = file("src/test/resources/kcc20-reference/artifact-template.json")
   val pinnedSil = file("src/test/resources/kcc20-reference/KCC20.sil")
   val outputDir = file("$buildDir/generated/kcc20-argent")
@@ -204,7 +204,7 @@ tasks.register("verifyKcc20ArgentArtifact") {
       workingDir = rootDir
       commandLine(
         "cargo", "run", "--locked", "--manifest-path", manifest.absolutePath,
-        "--", "build", source.absolutePath, "--out", outputDir.absolutePath
+        "--", "build", source.absolutePath, "--app", "KCC20PublicMint", "--out", outputDir.absolutePath
       )
     }
 
