@@ -65,9 +65,12 @@ class Kcc20NodeRpcClient(
                     outpoint.optString("transaction_id", "")
                 ).lowercase()
                 val outputIndex = outpoint.optInt("index", outpoint.optInt("outputIndex", -1))
-                val amount = parseLong(entry, "amount")
+                val amount = runCatching { parseLong(entry, "amount") }
+                    .getOrElse { parseLong(wrapper, "amount") }
                 val scriptValue = entry.opt("scriptPublicKey")
                     ?: entry.opt("script_public_key")
+                    ?: wrapper.opt("scriptPublicKey")
+                    ?: wrapper.opt("script_public_key")
                     ?: throw IllegalStateException("Node UTXO is missing its script public key")
                 val scriptObject = scriptValue as? JSONObject
                 val script = if (scriptObject != null) {
@@ -98,8 +101,12 @@ class Kcc20NodeRpcClient(
                     amount = amount,
                     scriptPublicKeyVersion = script.version,
                     scriptPublicKeyHex = script.script,
-                    daaScore = parseLong(entry, "blockDaaScore", "block_daa_score"),
-                    isCoinbase = entry.optBoolean("isCoinbase", entry.optBoolean("is_coinbase", false)),
+                    daaScore = runCatching { parseLong(entry, "blockDaaScore", "block_daa_score", "daaScore") }
+                        .getOrElse { parseLong(wrapper, "blockDaaScore", "block_daa_score", "daaScore") },
+                    isCoinbase = entry.optBoolean(
+                        "isCoinbase",
+                        entry.optBoolean("is_coinbase", wrapper.optBoolean("isCoinbase", wrapper.optBoolean("is_coinbase", false)))
+                    ),
                     covenantId = covenantId
                 )
             }
