@@ -679,10 +679,19 @@ object KaspaDappBridge {
                                                             inputAddresses = inputAddresses
                                                         )
                                                     }
-                                                    DappPsktTransaction.applyMeasuredComputeBudgets(
+                                                    val signedWithBudgets = DappPsktTransaction.applyMeasuredComputeBudgets(
                                                         provisionalSigned,
                                                         measured.inputs.map { it.computeBudget }
                                                     )
+                                                    val finalPrepared = DappPsktTransaction.inspectForSubmission(signedWithBudgets)
+                                                    kotlinx.coroutines.runBlocking {
+                                                        viewModel.validateDappCovenantPskt(
+                                                            transaction = finalPrepared.transaction,
+                                                            utxoEntries = finalPrepared.utxoEntries,
+                                                            inputAddresses = inputAddresses
+                                                        )
+                                                    }
+                                                    signedWithBudgets
                                                 } else {
                                                     DappPsktTransaction.signForDapp(prepared, keyPair.privateKey)
                                                 }
