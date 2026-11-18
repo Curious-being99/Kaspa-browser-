@@ -889,17 +889,26 @@ object KaspaDappBridge {
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = if (isKcc20Method) "Review KCC20 Transfer" else if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
-                                    action = if (isKcc20Method) "Authorize KCC20 ${requestedCovenantId.take(12)} signing and validation" else "${op.uppercase()} $tick ($protocolLabel)",
+                                    title = if (isKcc20Method) "Authorize KCC20 Transfer Preparation" else if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
+                                    action = if (isKcc20Method) "Approve construction and signing for covenant ${requestedCovenantId.take(12)}. A separate confirmation of the exact validated transaction is required before broadcast." else "${op.uppercase()} $tick ($protocolLabel)",
                                     tick = if (isKcc20Method) requestedCovenantId.take(12) else tick,
                                     amount = resolvedAmount,
                                     amountLabel = if (isKcc20Method) "Exact token base units" else "Amount",
                                     destination = if (isKcc20Method) toAddr else resolvedDestination,
                                     inputsCount = if (isKcc20Method) 0 else prePrepared?.transaction?.inputs?.size ?: 1,
-                                    feeKas = if (isKcc20Method) "Exact node fee shown in the final broadcast confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
+                                    feeKas = if (isKcc20Method) "Not yet calculated; exact fee appears in the required second confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
                                     totalAmountKas = if (isKcc20Method) "" else actualOutgoingKas ?: amtStr,
+                                    isBroadcast = !isKcc20Method,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
+                                    if (isKcc20Method && (
+                                        viewModel.activeAccount.value?.did != active.did ||
+                                            viewModel.activeAccount.value?.handle != active.handle ||
+                                            viewModel.selectedNetwork.value != network
+                                    )) {
+                                        respond(errorCode = 4100, errorMessage = "Active wallet or network changed before KCC20 signing approval. Reconnect and retry.")
+                                        return@SignTransaction
+                                    }
                                     val contractId = paramsObj.optString("contractId",
                                         paramsObj.optString("contract",
                                         paramsObj.optString("tokenId",
