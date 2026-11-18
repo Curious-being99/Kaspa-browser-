@@ -441,9 +441,15 @@ internal object DappPsktTransaction {
             payload = txRoot.optString("payload", ""),
             mass = txRoot.optLong("mass", 0L)
         )
-        val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
-        require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-            "Transaction mass exceeds the standard mempool limit"
+        val hasCovenantTransaction = tx.version == 1 && (
+            utxoEntries.any { !it.covenantId.isNullOrBlank() } ||
+                outputs.any { it.covenant != null }
+            )
+        if (!hasCovenantTransaction) {
+            val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+            require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                "Transaction mass exceeds the standard mempool limit"
+            }
         }
         val resolvedSignInputs = signInputs.map { request ->
             if (request.redeemScript.isNotBlank()) request
