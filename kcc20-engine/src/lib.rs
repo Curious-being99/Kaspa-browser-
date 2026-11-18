@@ -32,6 +32,14 @@ fn number(value: &Value, name: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("Invalid numeric field: {name}"))
 }
 
+fn bounded_number(value: &Value, name: &str, max: u64) -> Result<u64, String> {
+    let parsed = number(value, name)?;
+    if parsed > max {
+        return Err(format!("{name} exceeds its consensus integer width"));
+    }
+    Ok(parsed)
+}
+
 fn optional_hash(value: &Value) -> Result<Option<Hash>, String> {
     if value.is_null() {
         return Ok(None);
@@ -52,7 +60,7 @@ fn required_hash(value: &Value, name: &str) -> Result<Hash, String> {
 
 fn validate(json_text: &str) -> Result<Value, String> {
     let request: Value = serde_json::from_str(json_text).map_err(|e| e.to_string())?;
-    let version = number(&request["version"], "version")? as u16;
+    let version = bounded_number(&request["version"], "version", u16::MAX as u64)? as u16;
     if version != 1 {
         return Err("KCC20 script-engine validation requires transaction version 1".to_string());
     }
@@ -60,19 +68,24 @@ fn validate(json_text: &str) -> Result<Value, String> {
     let input_values = request["inputs"].as_array().ok_or("Missing transaction inputs")?;
     let output_values = request["outputs"].as_array().ok_or("Missing transaction outputs")?;
     let utxo_values = request["utxos"].as_array().ok_or("Missing spent UTXO entries")?;
-    if input_values.is_empty() || input_values.len() != utxo_values.len() {
+    if input_values.is_empty() || input_values.len() > 256 || output_values.is_empty() || output_values.len() > 256 {
+        return Err("Transaction must contain 1..=256 inputs and outputs".to_string());
+    }
+    if input_values.len() != utxo_values.len() {
         return Err("Every transaction input must have exactly one corresponding node UTXO entry".to_string());
     }
 
     let mut inputs = Vec::with_capacity(input_values.len());
+    let mut seen_outpoints = std::collections::HashSet::with_capacity(input_values.len());
     for input in input_values {
         let txid = required_hash(&input["txid"], "input txid")?;
-        let index = number(&input["index"], "input index")? as u32;
+        let index = bounded_number(&input["index"], "input index", u32::MAX as u64)? as u32;
+        if !seen_outpoints.insert((txid, index)) {
+            return Err("Duplicate transaction input outpoint".to_string());
+        }
         let sequence = number(&input["sequence"], "input sequence")?;
         let budget = number(&input["computeBudget"], "input computeBudget")?;
-        if budget > u16::MAX as u64 {
-            return Err("computeBudget exceeds u16".to_string());
-        }
+        let budget = bounded_number(&input["computeBudget"], "computeBudget", u16::MAX as u64)?;
         inputs.push(TransactionInput::new_with_compute_budget(
             TransactionOutpoint::new(txid, index),
             bytes(&input["sigScript"] )?,
@@ -84,7 +97,7 @@ fn validate(json_text: &str) -> Result<Value, String> {
     let mut outputs = Vec::with_capacity(output_values.len());
     for output in output_values {
         let script = ScriptPublicKey::from_vec(
-            number(&output["spkVersion"], "output spkVersion")? as u16,
+            bounded_number(&output["spkVersion"], "output spkVersion", u16::MAX as u64)? as u16,
             bytes(&output["script"] )?,
         );
         let covenant = if output["covenant"].is_null() {
@@ -92,7 +105,7 @@ fn validate(json_text: &str) -> Result<Value, String> {
         } else {
             let binding = &output["covenant"];
             Some(CovenantBinding::new(
-                number(&binding["authorizingInput"], "authorizingInput")? as u16,
+                bounded_number(&binding["authorizingInput"], "authorizingInput", u16::MAX as u64)? as u16,
                 required_hash(&binding["covenantId"], "covenantId")?,
             ))
         };
@@ -106,7 +119,7 @@ fn validate(json_text: &str) -> Result<Value, String> {
     let mut utxos = Vec::with_capacity(utxo_values.len());
     for utxo in utxo_values {
         let script = ScriptPublicKey::from_vec(
-            number(&utxo["spkVersion"], "UTXO spkVersion")? as u16,
+            bounded_number(&utxo["spkVersion"], "UTXO spkVersion", u16::MAX as u64)? as u16,
             bytes(&utxo["script"] )?,
         );
         utxos.push(UtxoEntry::new(
