@@ -49,6 +49,7 @@ import com.example.network.kaspa.Kcc20KasivoService
 import com.example.network.kaspa.Kcc20WalletToken
 import com.example.network.kaspa.Kcc20TransactionHistoryItem
 import com.example.network.kaspa.Kcc20ReferenceProtocol
+import com.example.network.kaspa.Kcc20RustyKaspaEngine
 import com.example.network.kaspa.Kcc20NoteScanner
 import java.math.BigDecimal
 import com.example.model.UpdateStatus
