@@ -321,7 +321,7 @@ fn assemble_reference_witness(request_text: &str) -> Result<String, String> {
     let signature=decode_hex(req["signature65"].as_str().ok_or("Missing 65-byte signature")?)?;
     if signature.len()!=65 || signature[64]!=1 { return Err("KCC20 witness requires 65-byte SIGHASH_ALL signature".into()); }
     let program=decode_hex(req["program"].as_str().ok_or("Missing consumed program")?)?;
-    let (amount,owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template,&suffix)?;
+    let (amount,_owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template,&suffix)?;
     if owner_scheme!=0 || borrow_scheme!=0 || guard.iter().any(|b|*b!=0) || extension.iter().any(|b|*b!=0) {
         return Err("Witness assembly only supports the guide-verified normal P2PK path".into());
     }
