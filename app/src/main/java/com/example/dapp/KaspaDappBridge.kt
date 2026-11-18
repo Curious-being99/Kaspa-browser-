@@ -644,28 +644,6 @@ object KaspaDappBridge {
                                                     viewModel.selectedNetwork.value == network
                                                 ) { "Active wallet or network changed while the transaction was awaiting approval. Reconnect and rebuild the PSKT." }
                                                 val signed = DappPsktTransaction.signForDapp(prepared, keyPair.privateKey)
-                                                val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
-                                                    Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
-                                                }
-                                                val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
-                                                if (hasCovenantInputs || hasCovenantOutputs) {
-                                                    require(prepared.transaction.version == 1) {
-                                                        "KCC20 covenant PSKTs must use version 1"
-                                                    }
-                                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
-                                                        scriptToAddress(utxo.scriptPublicKey, prefix)
-                                                    }
-                                                    require(inputAddresses.all { it.startsWith("$prefix:") }) {
-                                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
-                                                    }
-                                                    kotlinx.coroutines.runBlocking {
-                                                        viewModel.validateDappCovenantPskt(
-                                                            transaction = prepared.transaction,
-                                                            utxoEntries = prepared.utxoEntries,
-                                                            inputAddresses = inputAddresses
-                                                        )
-                                                    }
-                                                }
                                                 Result.success(signed)
                                             } catch (error: Throwable) {
                                                 Result.failure(error)
