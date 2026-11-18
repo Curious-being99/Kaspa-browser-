@@ -878,39 +878,63 @@ object KaspaDappBridge {
                                     }
 
                                     if (method.contains("kcc", ignoreCase = true)) {
-                                        val amtDouble = amtStr.toDoubleOrNull() ?: 0.0
-                                        if (toAddr.isNotBlank() && amtDouble > 0.0) {
-                                            val res = kotlinx.coroutines.runBlocking {
-                                                viewModel.executeKbKcc20Transfer(toAddr, amtDouble)
+                                        val requestedCovenantId = paramsObj.optString(
+                                            "covenantId",
+                                            paramsObj.optString("contractId", paramsObj.optString("tokenId", ""))
+                                        ).trim()
+                                        val amountBaseUnits = try {
+                                            val explicitBaseUnits = paramsObj.optString("amountBaseUnits", "").trim()
+                                            if (explicitBaseUnits.isNotBlank()) {
+                                                java.math.BigInteger(explicitBaseUnits)
+                                            } else {
+                                                val decimals = paramsObj.optInt("decimals", -1)
+                                                require(decimals in 0..18) {
+                                                    "KCC-20 transfer must supply amountBaseUnits or an explicit decimals value"
+                                                }
+                                                java.math.BigDecimal(amtStr)
+                                                    .movePointRight(decimals)
+                                                    .toBigIntegerExact()
                                             }
-                                            mainHandler.post {
-                                                res.fold(
-                                                    onSuccess = { txId ->
-                                                        respond(
-                                                            JSONObject()
-                                                                .put("transactionId", txId)
-                                                                .put("status", "accepted")
-                                                                .put("tick", "KB")
-                                                                .put("op", "transfer")
-                                                                .put("amt", amtStr)
-                                                                .put("to", toAddr)
-                                                        )
-                                                    },
-                                                    onFailure = { err ->
-                                                        respond(
-                                                            errorCode = -32000,
-                                                            errorMessage = err.message ?: "KCC-20 transfer failed"
-                                                        )
-                                                    }
-                                                )
-                                            }
-                                        } else {
+                                        } catch (error: Exception) {
+                                            null
+                                        }
+                                        if (op != "transfer" || requestedCovenantId.isBlank() ||
+                                            toAddr.isBlank() || amountBaseUnits == null || amountBaseUnits.signum() <= 0) {
                                             mainHandler.post {
                                                 respond(
                                                     errorCode = -32602,
-                                                    errorMessage = "KCC-20 transfer requires recipient address and amount > 0."
+                                                    errorMessage = "KCC-20 transfer requires an exact covenantId, valid recipient, and amountBaseUnits (or amount plus explicit decimals)."
                                                 )
                                             }
+                                            return@execute
+                                        }
+                                        val res = kotlinx.coroutines.runBlocking {
+                                            viewModel.executeKcc20Transfer(
+                                                covenantId = requestedCovenantId,
+                                                recipientAddress = toAddr,
+                                                amountBaseUnits = amountBaseUnits
+                                            )
+                                        }
+                                        mainHandler.post {
+                                            res.fold(
+                                                onSuccess = { txId ->
+                                                    respond(
+                                                        JSONObject()
+                                                            .put("transactionId", txId)
+                                                            .put("status", "accepted")
+                                                            .put("covenantId", requestedCovenantId)
+                                                            .put("op", "transfer")
+                                                            .put("amountBaseUnits", amountBaseUnits.toString())
+                                                            .put("to", toAddr)
+                                                    )
+                                                },
+                                                onFailure = { err ->
+                                                    respond(
+                                                        errorCode = -32000,
+                                                        errorMessage = err.message ?: "KCC-20 transfer failed"
+                                                    )
+                                                }
+                                            )
                                         }
                                         return@execute
                                     }
