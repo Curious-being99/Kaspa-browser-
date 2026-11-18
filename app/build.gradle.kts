@@ -171,14 +171,13 @@ tasks.register("cargoBuildRustSearchEngine") {
 tasks.register<Exec>("cargoBuildKcc20Engine") {
   group = "build"
   description = "Builds the Rusty-Kaspa v2.1.0 KCC20 script engine for Android"
-  workingDir = rootDir
+  workingDir = file("$rootDir/kcc20-engine")
   commandLine(
     "cargo", "ndk",
     "-t", "arm64-v8a",
     "-t", "x86_64",
     "-o", file("$buildDir/rustJniLibs").absolutePath,
     "build",
-    "--manifest-path", file("$rootDir/kcc20-engine/Cargo.toml").absolutePath,
     "--release"
   )
 }
