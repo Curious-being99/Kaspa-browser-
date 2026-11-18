@@ -71,9 +71,6 @@ jobs:
           toolchain: 1.94.0
           targets: aarch64-linux-android
 
-      - name: Resolve KCC20 dependency lock for locked Rust tests
-        run: cargo generate-lockfile --manifest-path kcc20-engine/Cargo.toml
-
       - name: Install cargo-ndk
         shell: bash
         run: |
