@@ -46,11 +46,18 @@ class Kcc20NodeRpcClient(
     }
 
     suspend fun getUtxosByAddress(endpoint: String, address: String): List<NodeUtxo> =
+        getUtxosByAddresses(endpoint, listOf(address))
+
+    suspend fun getUtxosByAddresses(endpoint: String, addresses: List<String>): List<NodeUtxo> =
         withContext(Dispatchers.IO) {
+            require(addresses.isNotEmpty() && addresses.all { it.isNotBlank() }) {
+                "At least one valid Kaspa address is required for node UTXO lookup"
+            }
+            val addressArray = JSONArray().apply { addresses.distinct().forEach { put(it) } }
             val result = request(
                 endpoint,
                 "getUtxosByAddresses",
-                JSONObject().put("addresses", JSONArray().put(address))
+                JSONObject().put("addresses", addressArray)
             )
             val entries = result.optJSONArray("entries")
                 ?: throw IllegalStateException("Node getUtxosByAddresses response has no entries array")
