@@ -28,7 +28,7 @@ jobs:
       - name: Install Rust and Android NDK for KCC20 script engine
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.91.0
+          toolchain: 1.94.0
           targets: aarch64-linux-android
 
       - name: Install cargo-ndk
