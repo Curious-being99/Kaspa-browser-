@@ -631,7 +631,7 @@ object KaspaDappBridge {
                                     amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
                                     amountLabel = "Total outputs (includes wallet change)",
                                     destination = resolvedDest,
-                                    inputsCount = prepared.signInputs.size,
+                                    inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
                                     isBroadcast = false,
@@ -767,7 +767,7 @@ object KaspaDappBridge {
                                 errorMessage = if (rawTxJson.isNotBlank()) {
                                     "Pre-built KCC20 transactions are not accepted. Supply covenantId, recipient, and amountBaseUnits so the wallet can build and validate the covenant spend itself."
                                 } else {
-                                    "KCC20 transfer requires an exact covenantId, recipient, and amountBaseUnits (or amount plus explicit decimals)."
+                                    "KCC20 transfer requires an exact covenantId, recipient, and integer amountBaseUnits."
                                 }
                             )
                             return@addWebMessageListener
@@ -1246,9 +1246,8 @@ object KaspaDappBridge {
                                             viewModel.selectedNetwork.value != network
                                         ) {
                                             respond(errorCode = 4100, errorMessage = "Active wallet or network changed while awaiting broadcast approval")
-                                            return@SignTransaction
-                                        }
-                                        cryptoExecutor.execute {
+                                        } else {
+                                            cryptoExecutor.execute {
                                             val receipt = try {
                                                 kotlinx.coroutines.runBlocking {
                                                     viewModel.walletService.submitDappTransaction(
@@ -1270,6 +1269,7 @@ object KaspaDappBridge {
                                                     viewModel.triggerPostSwapRefresh()
                                                     respond(receipt.transactionId)
                                                 }
+                                            }
                                             }
                                         }
                                     },
