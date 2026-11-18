@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -2923,10 +2924,13 @@ class DecentralViewModel(
      * 4. Signs KCC-20 seats with wallet Schnorr private key.
      * 5. Broadcasts transaction directly to Kaspa network nodes.
      */
+    class Kcc20UserRejectedException : IllegalStateException("User rejected KCC20 broadcast")
+
     suspend fun executeKcc20Transfer(
         covenantId: String,
         recipientAddress: String,
-        amountBaseUnits: java.math.BigInteger
+        amountBaseUnits: java.math.BigInteger,
+        origin: String
     ): Result<String> = withContext(Dispatchers.IO) {
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
@@ -3087,6 +3091,7 @@ class DecentralViewModel(
             val dust = KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS
             var finalTransaction: KaspaTransactionEngine.KaspaTransaction? = null
             var finalValidation: com.example.network.kaspa.Kcc20RustyKaspaEngine.ValidationResult? = null
+            var finalFeeInputs = emptyList<com.example.network.kaspa.Kcc20NodeRpcClient.NodeUtxo>()
 
             for (feeInputCount in 0..walletNodeUtxos.size) {
                 val feeNodes = walletNodeUtxos.take(feeInputCount)
@@ -3236,6 +3241,7 @@ class DecentralViewModel(
                         }
                         finalTransaction = tx
                         finalValidation = validation
+                        finalFeeInputs = feeNodes
                         acceptedThisSet = true
                         break
                     }
@@ -3267,6 +3273,7 @@ class DecentralViewModel(
                             }
                             finalTransaction = tx
                             finalValidation = noChangeValidation
+                            finalFeeInputs = feeNodes
                             acceptedThisSet = true
                         }
                         break
@@ -3284,6 +3291,46 @@ class DecentralViewModel(
                 "Android transaction ID differs from Rusty-Kaspa v2.1.0: Kotlin=$kotlinTxId, Rusty-Kaspa=${validation.txId}"
             }
             require(validation.inputResults.all { it.valid }) { "Final Rusty-Kaspa input validation failed" }
+            val totalInputSompi = (tokenNodeUtxos + finalFeeInputs).fold(0L) { total, node ->
+                Math.addExact(total, node.amount)
+            }
+            val actualFeeSompi = totalInputSompi - tx.outputs.fold(0L) { total, output ->
+                Math.addExact(total, output.amount)
+            }
+            val feeApproved = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
+                val prompt = DappPromptState.SignTransaction(
+                    origin = origin,
+                    network = network,
+                    accountAddress = keyPair.kaspaAddress,
+                    title = "Confirm KCC20 Broadcast",
+                    action = "Broadcast Rusty-Kaspa validated transaction",
+                    tick = family.take(12),
+                    amount = amountBaseUnits.toString(),
+                    amountLabel = "Exact token base units",
+                    destination = recipient,
+                    inputsCount = tx.inputs.size,
+                    feeKas = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(actualFeeSompi)),
+                    totalAmountKas = KaspaTransactionEngine.formatKas(
+                        KaspaTransactionEngine.sompiToKas(Math.addExact(successorDepositTotal, actualFeeSompi))
+                    ),
+                    isBroadcast = true,
+                    onApprove = {
+                        dappPromptState.value = null
+                        if (continuation.isActive) continuation.resume(true)
+                    },
+                    onReject = {
+                        dappPromptState.value = null
+                        if (continuation.isActive) continuation.resume(false)
+                    }
+                )
+                dappPromptState.value = prompt
+                continuation.invokeOnCancellation {
+                    if (dappPromptState.value === prompt) dappPromptState.value = null
+                }
+            }
+            if (!feeApproved) {
+                return@withContext Result.failure(Kcc20UserRejectedException())
+            }
             val submittedTxId = kcc20NodeRpcClient.submitTransaction(endpoint, tx)
             require(submittedTxId.equals(kotlinTxId, ignoreCase = true)) {
                 "Node accepted a different transaction ID than the locally validated transaction"
