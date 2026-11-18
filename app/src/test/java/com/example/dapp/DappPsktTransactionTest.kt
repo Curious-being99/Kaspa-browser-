@@ -660,6 +660,42 @@ class DappPsktTransactionTest {
         assertTrue(sigScript.contains(covenantRedeemScript))
     }
 
+    @Test
+    fun signsWalletOwnedReferenceNoteWithoutRestrictingItsBorrowOrExtensionState() {
+        val program = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(
+            com.example.network.kaspa.Kcc20ReferenceProtocol.State(
+                amount = BigInteger.valueOf(100L),
+                owner = CryptoUtils.hexToBytes(publicKeyHex),
+                ownerScheme = 0x00,
+                borrowScheme = 0x01,
+                borrowGuard = ByteArray(32) { 1 },
+                extensionCommitment = ByteArray(32) { 2 }
+            )
+        ).joinToString("") { "%02x".format(it) }
+        val p2shHash = CryptoUtils.blake2b256(CryptoUtils.hexToBytes(program))
+            .joinToString("") { "%02x".format(it) }
+        val inputs = JSONArray().put(JSONObject()
+            .put("previousOutpoint", JSONObject().put("transactionId", "5c".repeat(32)).put("index", 0))
+            .put("signatureScript", "")
+            .put("sequence", 0)
+            .put("utxoEntry", JSONObject()
+                .put("amount", "10000000")
+                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "aa20" + p2shHash + "87"))
+            )
+        )
+        val outputs = JSONArray().put(JSONObject()
+            .put("amount", "9000000")
+            .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
+        )
+        val tx = JSONObject().put("version", 1).put("inputs", inputs).put("outputs", outputs)
+        val prepared = DappPsktTransaction.prepareForSigning(
+            tx.toString(),
+            JSONArray().put(JSONObject().put("index", 0).put("redeemScript", program)),
+            publicKeyHex
+        )
+        assertEquals(program, prepared.signInputs[0].redeemScript)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsCovenantNoteBelongingToAnotherWalletPublicKey() {
         val otherKey = "33".repeat(32)
