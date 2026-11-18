@@ -1214,6 +1214,29 @@ object Kcc20NoteScanner {
                             if (tokenAmt > 0L) candidateAmounts.add(tokenAmt)
                         }
 
+                        if (cleanPub.matches(Regex("[0-9a-f]{64}"))) {
+                            for (amt in candidateAmounts) {
+                                if (amt <= 0L) continue
+                                val state = Kcc20ReferenceProtocol.State(
+                                    amount = java.math.BigInteger.valueOf(amt),
+                                    owner = hexToBytes(cleanPub),
+                                    ownerScheme = 0x00,
+                                    borrowScheme = 0x00,
+                                    borrowGuard = ByteArray(32),
+                                    extensionCommitment = ByteArray(32)
+                                )
+                                val candidate = Kcc20ReferenceProtocol.bytesToHex(
+                                    Kcc20ReferenceProtocol.programFor(state)
+                                )
+                                val hash = CryptoUtils.blake2b256(hexToBytes(candidate))
+                                    .joinToString("") { "%02x".format(it) }
+                                if (hash.equals(cleanHash, ignoreCase = true)) {
+                                    registerRedeemScript(txId, outputIndex, cleanHash, candidate)
+                                    return@withContext candidate
+                                }
+                            }
+                        }
+
                         for ((lineage, template) in TEMPLATES) {
                             val code = codeCache[lineage] ?: extractCodeFromInputs(inputs, template) ?: continue
                             val forms = listOf("p2pk", "p2sh")
