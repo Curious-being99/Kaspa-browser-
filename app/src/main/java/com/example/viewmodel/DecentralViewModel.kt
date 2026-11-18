@@ -3266,7 +3266,7 @@ class DecentralViewModel(
                             signInputs()
                             val noChangeValidation = Kcc20RustyKaspaEngine.validate(tx, allEngineUtxos)
                             if (!noChangeValidation.valid) throw IllegalStateException("Rusty-Kaspa rejected the no-change KCC20 transaction")
-                            require(noChangeValidation.computeMass >= 0L && noChangeValidation.storageMass != null) {
+                            require(noChangeValidation.computeMass >= 0L && noChangeValidation.transientMass >= 0L && noChangeValidation.storageMass != null) {
                                 "Rusty-Kaspa did not return contextual mass for the no-change transaction"
                             }
                             require(
