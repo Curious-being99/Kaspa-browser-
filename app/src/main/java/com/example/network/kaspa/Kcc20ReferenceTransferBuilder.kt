@@ -4,14 +4,6 @@ import java.math.BigInteger
 
 /** Builds reference KCC20 leader/delegator signature-script seats from verified reference cells. */
 object Kcc20ReferenceTransferBuilder {
-    data class SpendCell(
-        val transactionId: String,
-        val outputIndex: Int,
-        val valueSompi: Long,
-        val covenantId: String,
-        val program: ByteArray
-    )
-
     data class SignatureSeat(
         val inputIndex: Int,
         val scriptPrefix: ByteArray,
@@ -30,7 +22,7 @@ object Kcc20ReferenceTransferBuilder {
     )
 
     fun plan(
-        cells: List<SpendCell>,
+        cells: List<Kcc20ReferenceCellVerifier.VerifiedCell>,
         expectedCovenantId: String,
         senderPublicKey: ByteArray,
         recipientPublicKey: ByteArray,
