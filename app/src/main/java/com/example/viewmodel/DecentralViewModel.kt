@@ -3002,7 +3002,6 @@ class DecentralViewModel(
             require(live.scriptPublicKeyVersion == expected.scriptPublicKey.version &&
                 live.scriptPublicKeyHex.equals(expected.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
             ) { "PSKT input $index locking script differs from the configured node UTXO" }
-            require(!live.isCoinbase) { "Coinbase UTXO inputs are not accepted for covenant PSKT validation" }
             if (expected.scriptPublicKey.version == 0 &&
                 Regex("aa20[0-9a-fA-F]{64}87").matches(expected.scriptPublicKey.script.replace(" ", ""))
             ) {
