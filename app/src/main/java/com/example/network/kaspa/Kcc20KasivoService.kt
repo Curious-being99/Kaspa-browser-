@@ -661,7 +661,7 @@ class Kcc20KasivoService(
         contractId: String,
         publicKeyHex: String,
         walletAddress: String
-    ): Result<List<Kcc20ReferenceTransferBuilder.SpendCell>> = withContext(Dispatchers.IO) {
+    ): Result<List<Kcc20ReferenceCellVerifier.CandidateCell>> = withContext(Dispatchers.IO) {
         val owner = publicKeyHex.trim().lowercase().removePrefix("0x")
         val tokenId = contractId.trim().lowercase()
         val normalizedAddress = walletAddress.trim().lowercase()
@@ -701,7 +701,7 @@ class Kcc20KasivoService(
                     }
                     val rows = root.optJSONArray("cells") ?: root.optJSONArray("data")
                         ?: throw java.io.IOException("Indexer response has no cell list")
-                    val candidates = mutableListOf<Kcc20ReferenceTransferBuilder.SpendCell>()
+                    val candidates = mutableListOf<Kcc20ReferenceCellVerifier.CandidateCell>()
                     for (index in 0 until rows.length()) {
                         val row = rows.optJSONObject(index) ?: continue
                         val outpoint = row.optString("outpoint").trim()
@@ -720,12 +720,13 @@ class Kcc20KasivoService(
                                 if (!row.has(key) || row.isNull(key)) null else row.opt(key)?.toString()
                             }
                         val valueSompi = valueText?.toLongOrNull()
+                        val cellAddress = row.optString("address", row.optString("cell_address", "")).trim()
                         val programHex = sequenceOf("redeemScriptHex", "redeem_script_hex", "program", "program_hex", "redeem")
                             .map { row.optString(it, "") }
                             .firstOrNull { it.isNotBlank() }
                         if (!txid.matches(Regex("[0-9a-f]{64}")) || outputIndex < 0 ||
                             !covenantId.matches(Regex("[0-9a-f]{64}")) || covenantId != tokenId ||
-                            valueSompi == null || valueSompi <= 0L || programHex.isNullOrBlank()) continue
+                            valueSompi == null || valueSompi <= 0L || cellAddress.isBlank() || programHex.isNullOrBlank()) continue
                         val program = try {
                             KbKcc20ScriptCodec.hexToBytes(programHex)
                         } catch (_: Exception) {
