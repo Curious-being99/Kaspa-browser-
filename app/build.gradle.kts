@@ -274,6 +274,10 @@ tasks.named("cargoBuildKcc20Engine").configure {
   dependsOn("verifyKcc20ArgentArtifact")
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  dependsOn("verifyKcc20ArgentArtifact")
+}
+
 tasks.named("preBuild").configure {
   dependsOn("cargoBuildKcc20Engine", "verifyKcc20ArgentArtifact")
 }
