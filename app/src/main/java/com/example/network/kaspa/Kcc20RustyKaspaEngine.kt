@@ -113,12 +113,18 @@ object Kcc20RustyKaspaEngine {
         val valid = response.optBoolean("valid", false) &&
             results.size == transaction.inputs.size &&
             results.all { it.valid }
+        val masses = response.optJSONObject("mass")
+        val storageMass = if (masses == null || masses.isNull("storage")) {
+            null
+        } else {
+            masses.optLong("storage", -1L).takeIf { it >= 0L }
+        }
         return ValidationResult(
             valid = valid,
             txId = response.optString("txid"),
-            computeMass = response.optJSONObject("mass")?.optLong("compute", -1L) ?: -1L,
-            transientMass = response.optJSONObject("mass")?.optLong("transient", -1L) ?: -1L,
-            storageMass = response.optJSONObject("mass")?.optLong("storage")?.takeIf { it >= 0L },
+            computeMass = masses?.optLong("compute", -1L) ?: -1L,
+            transientMass = masses?.optLong("transient", -1L) ?: -1L,
+            storageMass = storageMass,
             inputResults = results,
             error = response.optString("error").takeIf { it.isNotBlank() && it != "null" }
         )
