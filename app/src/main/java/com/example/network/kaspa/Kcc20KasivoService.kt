@@ -760,4 +760,15 @@ class Kcc20KasivoService(
         }
     }
 
+    @Deprecated("Use fetchReferenceCellCandidates and Kcc20ReferenceCellVerifier for the guide-defined reference KCC20 layout")
+    suspend fun fetchLiveTokenCells(
+        contractId: String,
+        publicKeyHex: String,
+        walletAddress: String? = null
+    ): Result<List<KbKcc20StandardAssembler.SpendPiece>> = Result.failure(
+        IllegalStateException(
+            "The legacy KB-specific 112-byte cell path is retired. General KCC20 cells must use the pinned 145-byte reference template and node UTXO verification."
+        )
+    )
+
 }
