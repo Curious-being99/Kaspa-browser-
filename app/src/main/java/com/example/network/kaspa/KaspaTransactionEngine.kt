@@ -565,14 +565,13 @@ object KaspaTransactionEngine {
     }
 
     // ==========================================
-    // Kaspa Non-Malleable Transaction ID (calc_tx_id)
-    // Strictly follows rusty-kaspa consensus rules (Blake2b-256 with key "TransactionID")
+    // Kaspa non-malleable transaction ID: v0 uses keyed BLAKE2b; v1 uses
+    // Rusty-Kaspa domain-separated keyed BLAKE3 payload/rest digests.
     // ==========================================
 
     /**
-     * Calculates the non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionID")
-     * following rusty-kaspa consensus rules.
-     * Note: Signature scripts and sigOpCounts are excluded for version 0 transactions.
+     * Calculates the non-malleable Kaspa transaction ID using the consensus algorithm
+     * for the transaction version. Version 1 excludes signatures and mass commitments.
      */
     fun calcTransactionId(tx: KaspaTransaction): String {
         if (tx.version >= 1) return calcVersionOneTransactionId(tx)
