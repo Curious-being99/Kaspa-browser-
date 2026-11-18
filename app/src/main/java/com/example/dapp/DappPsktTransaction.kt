@@ -395,7 +395,7 @@ internal object DappPsktTransaction {
         return root.toString()
     }
 
-    fun applyMeasuredComputeBudgets(signedJson: String, budgets: List<Int>): String {
+    fun applyMeasuredComputeBudgets(signedJson: String, budgets: List<Int>, storageMass: Long? = null): String {
         val root = JSONObject(signedJson)
         val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
         val inputs = txRoot.optJSONArray("inputs")
@@ -410,6 +410,10 @@ internal object DappPsktTransaction {
             input.put("sig_op_count", 0)
             input.put("computeBudget", budgets[index])
             input.put("compute_budget", budgets[index])
+        }
+        if (storageMass != null) {
+            require(storageMass >= 0L) { "Rusty-Kaspa returned a negative contextual storage mass" }
+            txRoot.put("mass", storageMass)
         }
         return root.toString()
     }
