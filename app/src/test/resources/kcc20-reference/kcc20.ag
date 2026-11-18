@@ -1,0 +1,196 @@
+// KCC2 owner schemes and KCC20 transfer configuration.
+
+const byte OWNER_P2PK_SCHNORR = 0x00;
+const byte OWNER_P2PKH_SCHNORR = 0x01;
+const byte OWNER_P2PKH_ECDSA = 0x02;
+const byte OWNER_P2SH = 0x03;
+const byte OWNER_COVENANT_ID = 0x04;
+
+const byte PATH_NORMAL = 0x00;
+const byte PATH_BORROW = 0x01;
+
+const byte BORROW_DISABLED = 0x00;
+const byte BORROW_AMOUNT_THRESHOLD = 0x01;
+const byte BORROW_SCHNORR_SIGNATURE = 0x02;
+const byte BORROW_HASH_CHAIN = 0x03;
+
+const int MAX_DELEGATES = 2; // MAX_TOKEN_INPUTS - 1.
+const int MAX_TOKEN_OUTPUTS = 3;
+
+// Owner schemes (0x00..0x04) and borrow schemes (0x00..0x03) are contiguous
+// from zero, so an unsigned upper-bound check accepts exactly the valid IDs.
+//
+// Keep both operands unsigned: signed(0xff) is -127 and signed(0x80) is negative
+// zero. Using signed() for the input admits invalid IDs; even adding >= 0 still
+// admits 0x80. The constant upper bounds (0x04 and 0x03) have the same value with
+// either cast, but unsigned() on both sides expresses the intended 0..255 domain
+// and also handles constant upper bounds >= 0x80.
+fn require_valid_owner_scheme(byte owner_scheme) {
+    require(unsigned(owner_scheme) <= unsigned(OWNER_COVENANT_ID));
+}
+
+fn require_valid_borrow_scheme(byte borrow_scheme) {
+    require(unsigned(borrow_scheme) <= unsigned(BORROW_HASH_CHAIN));
+}
+
+fn p2pkh_hash(byte[] public_key) -> byte[32] {
+    return blake3(public_key);
+}
+
+fn require_owner_authorized(
+    byte[32] owner,
+    byte owner_scheme,
+    byte[] witness
+) {
+    if (owner_scheme == OWNER_P2PK_SCHNORR) {
+        // The byte[65] conversion below implicitly validates the witness length.
+        require(checkSig(
+            sig(byte[65](witness)),
+            pubkey(owner)
+        ));
+    } else if (owner_scheme == OWNER_P2PKH_SCHNORR) {
+        require(witness.length == 97);
+
+        pubkey owner_public_key = pubkey(byte[32](witness.slice(0, 32)));
+        sig owner_signature = sig(byte[65](witness.slice(32, 97)));
+        require(p2pkh_hash(byte[](owner_public_key)) == owner);
+        require(checkSig(owner_signature, owner_public_key));
+    } else if (owner_scheme == OWNER_P2PKH_ECDSA) {
+        require(witness.length == 98);
+
+        byte[33] owner_public_key = byte[33](witness.slice(0, 33));
+        sig owner_signature = sig(byte[65](witness.slice(33, 98)));
+        require(p2pkh_hash(byte[](owner_public_key)) == owner);
+        require(checkSigEcdsa(owner_signature, owner_public_key));
+    } else if (owner_scheme == OWNER_P2SH) {
+        require(witness.length == 1);
+        int authority_input_index = unsigned(witness[0]);
+        require(
+            tx.inputs[authority_input_index].scriptPubKey
+                == byte[](new ScriptPubKeyP2SH(owner))
+        );
+    } else if (owner_scheme == OWNER_COVENANT_ID) {
+        require(witness.length == 0);
+        require(OpCovInputCount(owner) > 0);
+    } else {
+        require(false);
+    }
+}
+
+state KCC20State {
+    int amount;
+    byte[32] owner;
+    byte owner_scheme;
+    byte borrow_scheme;
+    byte[32] borrow_guard;
+    byte[32] extension_commitment;
+}
+
+actor KCC20 owns KCC20State {
+    entry transfer(
+        KCC20State[] next_states,
+        byte[] witness
+    ) consumes {
+        delegates: KCC20[0..=MAX_DELEGATES]
+    } emits {
+        next_outputs: KCC20[1..=MAX_TOKEN_OUTPUTS]
+    } {
+        require(next_states.length == next_outputs.length);
+        require(witness.length > 0);
+
+        // Sum the token amounts of all inputs, starting with the leader's.
+        int input_total = amount;
+        for (i, 0, delegates.length, MAX_DELEGATES) {
+            // Require all inputs to share the same extension commitment,
+            // using the leader's as the reference.
+            require(delegates[i].extension_commitment == extension_commitment);
+            input_total = input_total + delegates[i].amount;
+        }
+
+        // Preserve token amounts and the opaque extension commitment.
+        int output_total = 0;
+        for (i, 0, next_states.length, MAX_TOKEN_OUTPUTS) {
+            require(next_states[i].amount >= 0);
+            require_valid_owner_scheme(next_states[i].owner_scheme);
+            require_valid_borrow_scheme(next_states[i].borrow_scheme);
+            require(next_states[i].extension_commitment == extension_commitment);
+            output_total = output_total + next_states[i].amount;
+        }
+
+        require(output_total == input_total);
+
+        // Only the leader witness carries a path selector.
+        byte path = witness[0];
+        byte[] path_witness = witness.slice(1, witness.length);
+
+        if (path == PATH_NORMAL) {
+            require_owner_authorized(owner, owner_scheme, path_witness);
+        } else if (path == PATH_BORROW) {
+            int amount_threshold = 0;
+            byte[32] next_borrow_guard = borrow_guard;
+
+            if (borrow_scheme == BORROW_DISABLED) {
+                require(false);
+            } else if (borrow_scheme == BORROW_AMOUNT_THRESHOLD) {
+                require(path_witness.length == 0);
+                amount_threshold = int(byte[8](borrow_guard.slice(0, 8)));
+                // Negative thresholds behave as zero; borrowing still requires an increase.
+                if (amount_threshold < 0) {
+                    amount_threshold = 0;
+                }
+            } else if (borrow_scheme == BORROW_SCHNORR_SIGNATURE) {
+                // The byte[65] conversion below implicitly validates the
+                // witness length.
+                require(checkSig(
+                    sig(byte[65](path_witness)),
+                    pubkey(borrow_guard)
+                ));
+            } else if (borrow_scheme == BORROW_HASH_CHAIN) {
+                require(path_witness.length == 129);
+
+                next_borrow_guard = byte[32](path_witness.slice(0, 32));
+                pubkey one_time_public_key = pubkey(byte[32](
+                    path_witness.slice(32, 64)
+                ));
+                sig borrow_signature = sig(byte[65](
+                    path_witness.slice(64, 129)
+                ));
+
+                // The current guard commits to the next guard and its signing key.
+                require(
+                    blake3(byte[](
+                        next_borrow_guard + byte[](one_time_public_key)
+                    )) == borrow_guard
+                );
+                require(checkSig(borrow_signature, one_time_public_key));
+            } else {
+                require(false);
+            }
+
+            // Return the borrowed state to its owner with the expected guard.
+            require(next_states[0].owner == owner);
+            require(next_states[0].owner_scheme == owner_scheme);
+            require(next_states[0].borrow_scheme == borrow_scheme);
+            require(next_states[0].borrow_guard == next_borrow_guard);
+
+            // Increase tokens without reducing the borrowed input's sompi.
+            int amount_increase = next_states[0].amount - amount;
+            require(amount_increase > amount_threshold);
+            require(next_outputs[0].value >= self.value);
+        } else {
+            require(false);
+        }
+
+        // Bind the supplied states to the continuation outputs.
+        become next_outputs <- KCC20[](next_states);
+    }
+
+    // Each delegate authorizes its own input without a path selector.
+    delegate transfer_delegator(
+        byte[] witness
+    ) consumes {
+        leader: KCC20
+    } {
+        require_owner_authorized(owner, owner_scheme, witness);
+    }
+}
