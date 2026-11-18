@@ -64,11 +64,20 @@ jobs:
       - name: Install Rust and Android NDK for KCC20 arm64-v8a script engine
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.91.0
+          toolchain: 1.94.0
           targets: aarch64-linux-android
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --version 3.5.4 --locked
+
+      - name: Checkout pinned Argent compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/argent-lang/argent.git "$RUNNER_TEMP/argent"
+          git -C "$RUNNER_TEMP/argent" checkout 9a9f4b107116d0b259fae629f200fa3b663e7e9d
+          test "$(git -C "$RUNNER_TEMP/argent" rev-parse HEAD)" = "9a9f4b107116d0b259fae629f200fa3b663e7e9d"
+          echo "ARGENT_COMPILER_MANIFEST=$RUNNER_TEMP/argent/Cargo.toml" >> "$GITHUB_ENV"
 
       - name: Install Android NDK
         run: |
