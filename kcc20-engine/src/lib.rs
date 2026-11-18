@@ -517,6 +517,24 @@ mod tests {
     }
 
     #[test]
+    fn rust_witness_assembler_builds_scheme_four_leader_without_owner_signature() {
+        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
+        let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
+        let owner = vec![0x35; 32];
+        let program = encode_reference_program(3_000_000, &owner, 4, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+        let successor = encode_reference_program(4_000_000, &owner, 4, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+        let leader = json!({
+            "templateHash":hex_string(&template),"templateSuffix":hex_string(&suffix),
+            "program":hex_string(&program),"leader":true,"signature65":null,
+            "nextStates":[hex_string(&successor)]
+        });
+        let script = decode_hex(&assemble_reference_witness(&leader.to_string()).unwrap()).unwrap();
+        assert!(script.windows(5).any(|w|w==[4,0x79,0xc7,0x1c,0x23]));
+        assert!(script.windows(2).any(|w|w==[1,0]));
+    }
+
+    #[test]
     fn rust_planner_rejects_program_with_unpinned_suffix() {
         let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
         let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
