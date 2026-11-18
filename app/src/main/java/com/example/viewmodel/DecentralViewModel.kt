@@ -304,28 +304,7 @@ class DecentralViewModel(
     val webViewTabManager = BrowserTabWebViewManager()
     private val appPrefs = application.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
 
-    private val _kcc20NodeRpcEndpoint = MutableStateFlow(
-        appPrefs.getString("kcc20_node_rpc_endpoint", "").orEmpty()
-    )
-    val kcc20NodeRpcEndpoint: StateFlow<String> = _kcc20NodeRpcEndpoint.asStateFlow()
     private val kcc20NodeRpcClient = com.example.network.kaspa.Kcc20NodeRpcClient()
-
-    fun setKcc20NodeRpcEndpoint(endpoint: String): Boolean {
-        val value = endpoint.trim()
-        val uri = runCatching { java.net.URI(value) }.getOrNull()
-        val valid = uri != null && !uri.host.isNullOrBlank() &&
-            (uri.scheme == "wss" || (
-                uri.scheme == "ws" && (uri.host == "localhost" || uri.host == "127.0.0.1")
-            ))
-        if (!valid) {
-            _statusMessage.value = "Use a secure wss:// Kaspa node RPC endpoint. Plain ws:// is allowed only for localhost."
-            return false
-        }
-        appPrefs.edit().putString("kcc20_node_rpc_endpoint", value).apply()
-        _kcc20NodeRpcEndpoint.value = value
-        _statusMessage.value = "KCC20 node RPC endpoint saved."
-        return true
-    }
 
     init {
         com.example.util.BrowserBackgroundPlayback.onMediaStateChanged = { playing, title, url ->
@@ -2933,11 +2912,8 @@ class DecentralViewModel(
                 network.contains("Testnet-10", ignoreCase = true) -> "testnet-10"
             else -> throw IllegalArgumentException("Node-backed dApp UTXO lookup supports Kaspa Mainnet and Testnet-10")
         }
-        val endpoint = _kcc20NodeRpcEndpoint.value.trim()
-        require(endpoint.isNotBlank()) {
-            "Configure the Rusty-Kaspa v2.1.0 node RPC endpoint to retrieve covenant-aware UTXOs"
-        }
-        val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:"
+        val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
+val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:"
         require(address.startsWith(expectedPrefix, ignoreCase = true)) {
             "Requested address does not match the selected Kaspa network"
         }
@@ -2984,11 +2960,8 @@ class DecentralViewModel(
         require(Kcc20RustyKaspaEngine.isAvailable()) {
             "Rusty-Kaspa v2.1.0 script engine is unavailable for this Android ABI"
         }
-        val endpoint = _kcc20NodeRpcEndpoint.value.trim()
-        require(endpoint.isNotBlank()) {
-            "Configure the Rusty-Kaspa v2.1.0 node RPC endpoint before signing or broadcasting a covenant PSKT"
-        }
-        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
+        val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
+kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val liveUtxos = kcc20NodeRpcClient.getUtxosByAddresses(endpoint, inputAddresses.distinct())
         val liveByOutpoint = liveUtxos.groupBy { "${it.transactionId.lowercase()}:${it.outputIndex}" }
         val spentUtxos = transaction.inputs.mapIndexed { index, input ->
@@ -3146,7 +3119,13 @@ class DecentralViewModel(
         inputAddresses: List<String>
     ): String = withContext(Dispatchers.IO) {
         val validation = validateDappCovenantPskt(transaction, utxoEntries, inputAddresses)
-        val endpoint = _kcc20NodeRpcEndpoint.value.trim()
+        val expectedNetwork = when {
+            _selectedNetwork.value.contains("Mainnet", ignoreCase = true) -> "mainnet"
+            _selectedNetwork.value.contains("Testnet 10", ignoreCase = true) || _selectedNetwork.value.contains("Testnet-10", ignoreCase = true) -> "testnet-10"
+            else -> throw IllegalArgumentException("KCC20 covenant PSKTs are supported only on Kaspa Mainnet and Testnet-10")
+        }
+        val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
+        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val submittedTxId = kcc20NodeRpcClient.submitTransaction(endpoint, transaction)
         require(submittedTxId.equals(validation.txId, ignoreCase = true)) {
             "Configured Kaspa node accepted a different transaction ID than the Rusty-Kaspa validated PSKT"
@@ -3167,7 +3146,7 @@ class DecentralViewModel(
         val account = activeAccount.value
             ?: return@withContext Result.failure(IllegalStateException("No active wallet account found"))
         val network = _selectedNetwork.value
-        val endpoint = _kcc20NodeRpcEndpoint.value
+        var endpoint = ""
         if (!expectedNetwork.isNullOrBlank() && network != expectedNetwork) {
             return@withContext Result.failure(IllegalStateException("Selected network changed before KCC20 transaction construction"))
         }
@@ -3220,6 +3199,7 @@ class DecentralViewModel(
 
         try {
             val expectedNodeNetwork = if (isMainnet) "mainnet" else "testnet-10"
+            endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNodeNetwork)
             kcc20NodeRpcClient.requireNetwork(endpoint, expectedNodeNetwork)
             val candidateResult = kcc20Service.fetchReferenceCellCandidates(
                 contractId = family,
@@ -3411,7 +3391,7 @@ class DecentralViewModel(
                         activeAccount.value?.did == account.did &&
                             activeAccount.value?.handle == account.handle &&
                             _selectedNetwork.value == network &&
-                            _kcc20NodeRpcEndpoint.value.trim() == endpoint.trim()
+                            endpoint.isNotBlank()
                     ) {
                         "Active wallet, network, or verification node changed after approval. Refusing to sign the KCC20 transaction."
                     }
