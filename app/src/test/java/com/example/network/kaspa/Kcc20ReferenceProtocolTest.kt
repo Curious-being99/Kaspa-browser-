@@ -42,10 +42,29 @@ class Kcc20ReferenceProtocolTest {
         val family = "11".repeat(32)
         val leaderProgram = Kcc20ReferenceProtocol.programFor(state(600, 0x11))
         val delegatorProgram = Kcc20ReferenceProtocol.programFor(state(400, 0x11))
+        fun verified(txid: String, index: Int, program: ByteArray): Kcc20ReferenceCellVerifier.VerifiedCell {
+            val address = Kcc20ReferenceProtocol.p2shAddress(program, "kaspa")
+            val candidate = Kcc20ReferenceCellVerifier.CandidateCell(
+                transactionId = txid,
+                outputIndex = index,
+                valueSompi = 50_000_000,
+                covenantId = family,
+                address = address,
+                program = program
+            )
+            return Kcc20ReferenceCellVerifier.verify(
+                candidate = candidate,
+                expectedCovenantId = family,
+                networkPrefix = "kaspa",
+                nodeUtxosAtAddress = listOf(
+                    Kcc20ReferenceCellVerifier.NodeUtxo(txid, index, 50_000_000, family)
+                )
+            )
+        }
         val plan = Kcc20ReferenceTransferBuilder.plan(
             cells = listOf(
-                Kcc20ReferenceTransferBuilder.SpendCell("aa".repeat(32), 0, 50_000_000, family, leaderProgram),
-                Kcc20ReferenceTransferBuilder.SpendCell("bb".repeat(32), 1, 50_000_000, family, delegatorProgram)
+                verified("aa".repeat(32), 0, leaderProgram),
+                verified("bb".repeat(32), 1, delegatorProgram)
             ),
             expectedCovenantId = family,
             senderPublicKey = sender,
@@ -66,14 +85,20 @@ class Kcc20ReferenceProtocolTest {
     @Test(expected = IllegalArgumentException::class)
     fun transferRejectsCellFromAnotherCovenantFamily() {
         val owner = ByteArray(32) { 0x11 }
+        val program = Kcc20ReferenceProtocol.programFor(state(100, 0x11))
+        val family = "11".repeat(32)
+        val txid = "aa".repeat(32)
+        val candidate = Kcc20ReferenceCellVerifier.CandidateCell(
+            txid, 0, 50_000_000, "22".repeat(32),
+            Kcc20ReferenceProtocol.p2shAddress(program, "kaspa"), program
+        )
+        val verified = Kcc20ReferenceCellVerifier.verify(
+            candidate, "11".repeat(32), "kaspa",
+            listOf(Kcc20ReferenceCellVerifier.NodeUtxo(txid, 0, 50_000_000, family))
+        )
         Kcc20ReferenceTransferBuilder.plan(
-            cells = listOf(
-                Kcc20ReferenceTransferBuilder.SpendCell(
-                    "aa".repeat(32), 0, 50_000_000, "22".repeat(32),
-                    Kcc20ReferenceProtocol.programFor(state(100, 0x11))
-                )
-            ),
-            expectedCovenantId = "11".repeat(32),
+            cells = listOf(verified),
+            expectedCovenantId = family,
             senderPublicKey = owner,
             recipientPublicKey = ByteArray(32) { 0x22 },
             amountBaseUnits = BigInteger.TEN
