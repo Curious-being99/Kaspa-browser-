@@ -63,6 +63,7 @@ class Kcc20ReferenceProtocolTest {
                         outputIndex = index,
                         valueSompi = 50_000_000,
                         covenantId = family,
+                        address = address,
                         scriptPublicKeyVersion = 0,
                         scriptPublicKeyHex = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
                     )
@@ -108,6 +109,7 @@ class Kcc20ReferenceProtocolTest {
                     outputIndex = 0,
                     valueSompi = 50_000_000,
                     covenantId = family,
+                    address = Kcc20ReferenceProtocol.p2shAddress(program, "kaspa"),
                     scriptPublicKeyVersion = 0,
                     scriptPublicKeyHex = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
                 )
