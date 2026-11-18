@@ -3028,7 +3028,7 @@ class DecentralViewModel(
             )
 
             val walletUtxos = kcc20NodeRpcClient.getUtxosByAddress(endpoint, keyPair.kaspaAddress)
-                .filter { it.address.equals(keyPair.kaspaAddress, ignoreCase = true) && it.covenantId == null && it.scriptPublicKeyVersion == 0 && it.scriptPublicKeyHex.equals(
+                .filter { it.covenantId == null && it.scriptPublicKeyVersion == 0 && it.scriptPublicKeyHex.equals(
                     KaspaTransactionEngine.addressToScriptPublicKey(keyPair.kaspaAddress).script,
                     ignoreCase = true
                 ) }
