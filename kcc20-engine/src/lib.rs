@@ -261,3 +261,69 @@ pub extern "system" fn Java_com_example_network_kaspa_Kcc20RustyKaspaEngine_vali
         .map(|value| value.into_raw())
         .unwrap_or(std::ptr::null_mut())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_number_rejects_consensus_width_overflow() {
+        assert!(bounded_number(&json!(65_536u64), "version", u16::MAX as u64).is_err());
+        assert_eq!(bounded_number(&json!("65535"), "version", u16::MAX as u64).unwrap(), 65_535);
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_input_outpoints() {
+        let txid = "00".repeat(32);
+        let input = json!({
+            "txid": txid,
+            "index": 0,
+            "sequence": 0,
+            "computeBudget": 1,
+            "sigScript": ""
+        });
+        let request = json!({
+            "version": 1,
+            "inputs": [input.clone(), input],
+            "outputs": [{}],
+            "utxos": [{}, {}]
+        });
+        let error = validate(&request.to_string()).unwrap_err();
+        assert!(error.contains("Duplicate transaction input outpoint"));
+    }
+
+    #[test]
+    fn validate_rejects_node_utxo_for_another_outpoint() {
+        let request = json!({
+            "version": 1,
+            "lockTime": 0,
+            "gas": 0,
+            "payload": "",
+            "inputs": [{
+                "txid": "00".repeat(32),
+                "index": 0,
+                "sequence": 0,
+                "computeBudget": 1,
+                "sigScript": ""
+            }],
+            "outputs": [{
+                "value": 0,
+                "spkVersion": 0,
+                "script": "51",
+                "covenant": null
+            }],
+            "utxos": [{
+                "txid": "11".repeat(32),
+                "index": 0,
+                "amount": "1",
+                "spkVersion": 0,
+                "script": "51",
+                "daaScore": "0",
+                "isCoinbase": false,
+                "covenantId": null
+            }]
+        });
+        let error = validate(&request.to_string()).unwrap_err();
+        assert!(error.contains("does not match its transaction input outpoint"));
+    }
+}
