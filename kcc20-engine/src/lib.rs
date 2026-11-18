@@ -345,7 +345,7 @@ fn assemble_reference_witness(request_text: &str) -> Result<String, String> {
         match owner_scheme {
             0 => {
                 let mut sig=vec![0];
-                sig.extend(signature.as_ref().ok_or("Scheme-0 KCC20 leader requires its owner's signature")?);
+                sig.extend_from_slice(signature.as_ref().ok_or("Scheme-0 KCC20 leader requires its owner's signature")?);
                 script.extend(minimal_push(&sig));
             }
             4 => {
