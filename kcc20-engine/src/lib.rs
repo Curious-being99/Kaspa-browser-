@@ -301,6 +301,67 @@ fn encode_reference_program(amount: u64, owner: &[u8], owner_scheme: u8, borrow_
     Ok(program)
 }
 
+
+fn minimal_push(value: &[u8]) -> Vec<u8> {
+    if value.is_empty() || (value.len()==1 && value[0]==0) { return vec![0]; }
+    if value.len()==1 && (1..=16).contains(&value[0]) { return vec![0x50+value[0]]; }
+    if value.len()==1 && value[0]==0x81 { return vec![0x4f]; }
+    explicit_push(value)
+}
+
+fn assemble_reference_witness(request_text: &str) -> Result<String, String> {
+    let req: Value=serde_json::from_str(request_text).map_err(|e|e.to_string())?;
+    let template=decode_hex(req["templateHash"].as_str().ok_or("Missing template hash")?)?;
+    let suffix=decode_hex(req["templateSuffix"].as_str().ok_or("Missing template suffix")?)?;
+    let pinned: Value=serde_json::from_str(KCC20_ARTIFACT_FIXTURE).map_err(|e|e.to_string())?;
+    if template!=decode_hex(pinned["template_hash"].as_str().ok_or("Missing pinned template")?)? ||
+       suffix!=decode_hex(pinned["suffix_hex"].as_str().ok_or("Missing pinned suffix")?)? {
+        return Err("Witness template differs from pinned Argent artifact".into());
+    }
+    let signature=decode_hex(req["signature65"].as_str().ok_or("Missing 65-byte signature")?)?;
+    if signature.len()!=65 || signature[64]!=1 { return Err("KCC20 witness requires 65-byte SIGHASH_ALL signature".into()); }
+    let program=decode_hex(req["program"].as_str().ok_or("Missing consumed program")?)?;
+    let (amount,owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template,&suffix)?;
+    if owner_scheme!=0 || borrow_scheme!=0 || guard.iter().any(|b|*b!=0) || extension.iter().any(|b|*b!=0) {
+        return Err("Witness assembly only supports the guide-verified normal P2PK path".into());
+    }
+    let leader=req["leader"].as_bool().ok_or("Missing leader flag")?;
+    let mut script=Vec::new();
+    if leader {
+        let states=req["nextStates"].as_array().ok_or("Missing successor states")?;
+        if states.is_empty() || states.len()>3 { return Err("KCC20 leader witness requires 1 to 3 successor states".into()); }
+        let mut amounts=Vec::new(); let mut owners=Vec::new(); let mut owner_schemes=Vec::new();
+        let mut borrow_schemes=Vec::new(); let mut guards=Vec::new(); let mut extensions=Vec::new();
+        for item in states {
+            let successor=decode_hex(item.as_str().ok_or("Invalid successor program")?)?;
+            let (a,o,os,bs,g,e)=decode_reference_state(&successor,&template,&suffix)?;
+            if bs!=0 || g.iter().any(|b|*b!=0) || e.iter().any(|b|*b!=0) { return Err("Unsupported successor policy".into()); }
+            amounts.extend_from_slice(&a.to_le_bytes()); owners.extend(o); owner_schemes.push(os); borrow_schemes.push(bs); guards.extend(g); extensions.extend(e);
+        }
+        for column in [amounts,owners,owner_schemes,borrow_schemes,guards,extensions] { script.extend(minimal_push(&column)); }
+        let mut sig=vec![0]; sig.extend(signature);
+        script.extend(minimal_push(&sig));
+        script.extend_from_slice(&[4,0x79,0xc7,0x1c,0x23]);
+    } else {
+        script.extend(minimal_push(&signature));
+        script.extend_from_slice(&[4,0xfd,0x3e,0xf1,0x4a]);
+    }
+    script.extend(minimal_push(&program));
+    let _=amount;
+    Ok(hex_string(&script))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_example_network_kaspa_Kcc20RustyKaspaEngine_assembleWitnessNative(
+    mut env: JNIEnv, _object: JObject, input: JString
+) -> jstring {
+    let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let input:String=env.get_string(&input).map(|s|s.into()).unwrap_or_default();
+        match assemble_reference_witness(&input) { Ok(v)=>json!({"valid":true,"script":v}), Err(e)=>json!({"valid":false,"error":e}) }
+    })).unwrap_or_else(|_|json!({"valid":false,"error":"Rust KCC20 witness assembler panicked"}));
+    env.new_string(result.to_string()).map(|v|v.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
 fn plan_reference_transfer(request_text: &str) -> Result<Value, String> {
     if request_text.len()>1024*1024 { return Err("Transfer plan request too large".into()); }
     let req: Value=serde_json::from_str(request_text).map_err(|e|e.to_string())?;
