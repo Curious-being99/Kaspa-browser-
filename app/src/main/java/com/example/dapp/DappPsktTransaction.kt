@@ -1,5 +1,7 @@
 package com.example.dapp
 
+import com.example.network.kaspa.Kcc20ReferenceProtocol
+
 import com.example.network.CryptoUtils
 import com.example.network.kaspa.KaspaTransactionEngine
 import com.example.network.kaspa.Kcc20NoteScanner
