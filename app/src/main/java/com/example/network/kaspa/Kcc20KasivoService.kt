@@ -671,7 +671,10 @@ class Kcc20KasivoService(
         }
         val network = when {
             networkName.contains("Mainnet", ignoreCase = true) && normalizedAddress.startsWith("kaspa:") -> "mainnet"
-            networkName.contains("Testnet 10", ignoreCase = true) && normalizedAddress.startsWith("kaspatest:") -> "testnet-10"
+            (networkName.contains("Testnet 10", ignoreCase = true) ||
+                networkName.contains("Testnet-10", ignoreCase = true) ||
+                networkName.contains("TN10", ignoreCase = true)) &&
+                normalizedAddress.startsWith("kaspatest:") -> "testnet-10"
             else -> return@withContext Result.failure(
                 IllegalArgumentException("The guide-based reference transfer supports only matching Mainnet or Testnet-10 wallet/network selections")
             )
