@@ -222,42 +222,25 @@ object KaspaDappBridge {
                         .getBoolean(origin, false)
 
                     if (!isCurrentlyConnected) {
-                        cryptoExecutor.execute {
-                            val balance = try {
-                                kotlinx.coroutines.runBlocking {
-                                    viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
+                                origin = origin,
+                                network = network,
+                                accountAddress = keyPair.kaspaAddress,
+                                accountHandle = account?.handle.orEmpty(),
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
+                                    ensureUnlocked(onSuccess = {
+                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                            .edit().putBoolean(origin, true).apply()
+                                        onSuccess()
+                                    })
+                                },
+                                onReject = {
+                                    respond(errorCode = 4001, errorMessage = onRejectMsg)
+                                    viewModel.dappPromptState.value = null
                                 }
-                            } catch (_: Throwable) { null }
-                            val balanceSompi = balance?.optLong("balance", 0L) ?: 0L
-                            val balanceKasStr = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
-                                com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(balanceSompi)
-                            ) + " KAS"
-                            val activeKcc20 = viewModel.kcc20Tokens.value.filter {
-                                (it.balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > java.math.BigDecimal.ZERO
-                            }
-                            viewModel.refreshKcc20Tokens()
-                            mainHandler.post {
-                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
-                                    origin = origin,
-                                    network = network,
-                                    accountAddress = keyPair.kaspaAddress,
-                                    accountHandle = account?.handle.orEmpty(),
-                                    balanceKas = balanceKasStr,
-                                    kcc20Tokens = activeKcc20,
-                                    onApprove = {
-                                        viewModel.dappPromptState.value = null
-                                        ensureUnlocked(onSuccess = {
-                                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                                .edit().putBoolean(origin, true).apply()
-                                            onSuccess()
-                                        })
-                                    },
-                                    onReject = {
-                                        respond(errorCode = 4001, errorMessage = onRejectMsg)
-                                        viewModel.dappPromptState.value = null
-                                    }
-                                )
-                            }
+                            )
                         }
                     } else {
                         ensureUnlocked(onSuccess = onSuccess)
