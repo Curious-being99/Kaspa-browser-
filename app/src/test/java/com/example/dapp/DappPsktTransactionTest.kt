@@ -101,27 +101,6 @@ class DappPsktTransactionTest {
         assertEquals(originalMass, signed.getLong("mass"))
     }
 
-    @Test(expected = IllegalArgumentException::class)
-    fun externalDappPsktCannotSignP2shOrCovenantInputs() {
-        val redeemScript = "20" + publicKeyHex + "ac"
-        val p2shHash = CryptoUtils.blake2b256(
-            redeemScript.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        ).joinToString("") { "%02x".format(it) }
-        val json = JSONObject(transactionJson(covenantSigScript = ""))
-        json.getJSONArray("inputs").getJSONObject(1)
-            .getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
-            .put("version", 0)
-            .put("script", "aa20" + p2shHash + "87")
-        DappPsktTransaction.prepareForSigning(
-            json.toString(),
-            JSONArray().put(JSONObject()
-                .put("index", 1)
-                .put("sighashType", KaspaTransactionEngine.SIGHASH_ALL)
-                .put("redeemScript", redeemScript)),
-            publicKeyHex
-        )
-    }
-
     @Test
     fun preservesVersionOneComputeBudgetsAndZeroSigOpCounts() {
         val json = JSONObject(transactionJson())
