@@ -17,6 +17,34 @@ object Kcc20RustyKaspaEngine {
     @JvmStatic
     private external fun planTransferNative(requestJson: String): String
 
+    @JvmStatic
+    private external fun assembleWitnessNative(requestJson: String): String
+
+    fun assembleReferenceWitness(
+        plan: Kcc20ReferenceTransferBuilder.TransferPlan,
+        inputIndex: Int,
+        signature65: ByteArray
+    ): ByteArray {
+        check(nativeAvailable) { "Rust KCC20 witness assembler is unavailable for this Android ABI" }
+        require(inputIndex in plan.seats.indices && signature65.size == 65)
+        val seat = plan.seats[inputIndex]
+        val request = JSONObject().apply {
+            put("templateHash", Kcc20ReferenceProtocol.TEMPLATE_HASH)
+            put("templateSuffix", Kcc20ReferenceProtocol.templateSuffixHex())
+            put("program", Kcc20ReferenceProtocol.bytesToHex(seat.program))
+            put("leader", seat.isLeader)
+            put("signature65", Kcc20ReferenceProtocol.bytesToHex(signature65))
+            put("nextStates", JSONArray().apply {
+                plan.successorPrograms.forEach { put(Kcc20ReferenceProtocol.bytesToHex(it)) }
+            })
+        }
+        val response = JSONObject(assembleWitnessNative(request.toString()))
+        check(response.optBoolean("valid", false)) {
+            response.optString("error", "Rust KCC20 witness assembly failed")
+        }
+        return Kcc20ReferenceProtocol.decodeHex(response.getString("script"))
+    }
+
     fun planReferenceTransfer(
         cells: List<Kcc20ReferenceCellVerifier.VerifiedCell>,
         covenantId: String,
