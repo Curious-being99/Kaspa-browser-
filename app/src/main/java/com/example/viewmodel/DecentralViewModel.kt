@@ -271,6 +271,7 @@ class DecentralViewModel(
             val inputsCount: Int = 1,
             val feeKas: String = "",
             val totalAmountKas: String = "",
+            val tokenDetails: String = "",
             val isBroadcast: Boolean = true,
             val onApprove: () -> Unit,
             val onReject: () -> Unit
@@ -2961,16 +2962,16 @@ val expectedPrefix = if (expectedNetwork == "mainnet") "kaspa:" else "kaspatest:
             "Rusty-Kaspa v2.1.0 script engine is unavailable for this Android ABI"
         }
         val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
-kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
+        kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val liveUtxos = kcc20NodeRpcClient.getUtxosByAddresses(endpoint, inputAddresses.distinct())
         val liveByOutpoint = liveUtxos.groupBy { "${it.transactionId.lowercase()}:${it.outputIndex}" }
         val spentUtxos = transaction.inputs.mapIndexed { index, input ->
             val outpoint = "${input.previousOutpoint.transactionId.lowercase()}:${input.previousOutpoint.index}"
             val live = liveByOutpoint[outpoint]?.singleOrNull()
-                ?: throw IllegalStateException("PSKT input $index is not uniquely present in the configured node UTXO set")
+                ?: throw IllegalStateException("PSKT input $index is not uniquely present in the public-node UTXO set")
             val expected = utxoEntries[index]
             require(live.amount == expected.amount) {
-                "PSKT input $index amount differs from the configured node UTXO"
+                "PSKT input $index amount differs from the public-node UTXO"
             }
             require(live.scriptPublicKeyVersion == expected.scriptPublicKey.version &&
                 live.scriptPublicKeyHex.equals(expected.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
@@ -3128,7 +3129,7 @@ kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         val submittedTxId = kcc20NodeRpcClient.submitTransaction(endpoint, transaction)
         require(submittedTxId.equals(validation.txId, ignoreCase = true)) {
-            "Configured Kaspa node accepted a different transaction ID than the Rusty-Kaspa validated PSKT"
+            "Resolved public Kaspa node accepted a different transaction ID than the Rusty-Kaspa validated PSKT"
         }
         submittedTxId
     }
@@ -3167,11 +3168,7 @@ kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
         if (!recipient.startsWith("$networkPrefix:")) {
             return@withContext Result.failure(IllegalArgumentException("Recipient must use the selected $network network"))
         }
-        if (endpoint.isBlank()) {
-            return@withContext Result.failure(IllegalStateException("Configure your own Rusty-Kaspa v2.1.0 WebSocket RPC endpoint in the KCC-20 Tokens screen before spending"))
-        }
-
-        if (!Kcc20RustyKaspaEngine.isAvailable()) {
+if (!Kcc20RustyKaspaEngine.isAvailable()) {
             return@withContext Result.failure(IllegalStateException("The Rusty-Kaspa v2.1.0 script engine is not available for this Android ABI"))
         }
 
@@ -3526,7 +3523,7 @@ kcc20NodeRpcClient.requireNetwork(endpoint, expectedNetwork)
                 activeAccount.value?.did == account.did &&
                     activeAccount.value?.handle == account.handle &&
                     _selectedNetwork.value == network &&
-                    _kcc20NodeRpcEndpoint.value.trim() == endpoint.trim()
+                    endpoint.isNotBlank()
             ) {
                 "Active wallet, network, or verification node changed during KCC20 signing. Refusing to request broadcast approval."
             }
