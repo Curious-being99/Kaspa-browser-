@@ -185,7 +185,6 @@ object Kcc20ReferenceProtocol {
         return pushExplicit(value)
     }
 
-    private fun calculateUnusedMarker() = Unit
 
     private fun concat(vararg arrays: ByteArray): ByteArray {
         val total = arrays.sumOf { it.size }
