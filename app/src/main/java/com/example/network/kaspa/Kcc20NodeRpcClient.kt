@@ -109,11 +109,11 @@ class Kcc20NodeRpcClient(
     suspend fun getUtxosByAddress(endpoint: String, address: String): List<NodeUtxo> =
         getUtxosByAddressesAtEndpoint(endpoint, listOf(address))
 
-    suspend fun getUtxosByAddress(expectedNetwork: String, address: String): List<NodeUtxo> =
-        getUtxosByAddress(resolveEndpoint(expectedNetwork), address)
+    suspend fun getUtxosByAddressForNetwork(expectedNetwork: String, address: String): List<NodeUtxo> =
+        getUtxosByAddressAtEndpoint(resolveEndpoint(expectedNetwork), address)
 
-    suspend fun getUtxosByAddresses(expectedNetwork: String, addresses: List<String>): List<NodeUtxo> =
-        getUtxosByAddresses(resolveEndpoint(expectedNetwork), addresses)
+    suspend fun getUtxosByAddressesForNetwork(expectedNetwork: String, addresses: List<String>): List<NodeUtxo> =
+        getUtxosByAddressesAtEndpoint(resolveEndpoint(expectedNetwork), addresses)
 
     suspend fun getUtxosByAddressesAtEndpoint(endpoint: String, addresses: List<String>): List<NodeUtxo> =
         withContext(Dispatchers.IO) {
