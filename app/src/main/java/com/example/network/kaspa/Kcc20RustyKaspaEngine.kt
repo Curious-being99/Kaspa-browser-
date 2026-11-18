@@ -4,9 +4,12 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object Kcc20RustyKaspaEngine {
-    init {
+    private val nativeAvailable = runCatching {
         System.loadLibrary("kazium_kcc20_engine")
-    }
+        true
+    }.getOrDefault(false)
+
+    fun isAvailable(): Boolean = nativeAvailable
 
     @JvmStatic
     private external fun validateNative(requestJson: String): String
@@ -42,6 +45,7 @@ object Kcc20RustyKaspaEngine {
         transaction: KaspaTransactionEngine.KaspaTransaction,
         spentUtxos: List<SpentUtxo>
     ): ValidationResult {
+        check(nativeAvailable) { "Rusty-Kaspa v2.1.0 script engine is unavailable for this Android ABI" }
         require(transaction.version == 1) { "KCC20 reference transactions must use version 1" }
         require(transaction.inputs.size == spentUtxos.size) {
             "Every input must have one matching UTXO from the configured node"
