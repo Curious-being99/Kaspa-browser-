@@ -908,34 +908,62 @@ object KaspaDappBridge {
                                             }
                                             return@execute
                                         }
-                                        val res = kotlinx.coroutines.runBlocking {
-                                            viewModel.executeKcc20Transfer(
-                                                covenantId = requestedCovenantId,
-                                                recipientAddress = toAddr,
-                                                amountBaseUnits = amountBaseUnits
-                                            )
-                                        }
-                                        mainHandler.post {
-                                            res.fold(
-                                                onSuccess = { txId ->
-                                                    respond(
-                                                        JSONObject()
-                                                            .put("transactionId", txId)
-                                                            .put("status", "accepted")
-                                                            .put("covenantId", requestedCovenantId)
-                                                            .put("op", "transfer")
-                                                            .put("amountBaseUnits", amountBaseUnits.toString())
-                                                            .put("to", toAddr)
-                                                    )
-                                                },
-                                                onFailure = { err ->
-                                                    respond(
-                                                        errorCode = -32000,
-                                                        errorMessage = err.message ?: "KCC-20 transfer failed"
-                                                    )
+                                        viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
+                                            origin = origin,
+                                            network = network,
+                                            accountAddress = keyPair.kaspaAddress,
+                                            title = "KCC20 Token Transfer",
+                                            action = "Reference KCC20 covenant transfer",
+                                            tick = tick.ifBlank { requestedCovenantId.take(10) },
+                                            amount = amountBaseUnits.toString(),
+                                            amountLabel = "Exact token base units",
+                                            destination = toAddr,
+                                            inputsCount = 0,
+                                            feeKas = "Calculated and checked by your connected node before broadcast",
+                                            totalAmountKas = "",
+                                            isBroadcast = true,
+                                            onApprove = {
+                                                viewModel.dappPromptState.value = null
+                                                cryptoExecutor.execute {
+                                                    val outcome = try {
+                                                        kotlinx.coroutines.runBlocking {
+                                                            viewModel.executeKcc20Transfer(
+                                                                covenantId = requestedCovenantId,
+                                                                recipientAddress = toAddr,
+                                                                amountBaseUnits = amountBaseUnits
+                                                            )
+                                                        }
+                                                    } catch (error: Throwable) {
+                                                        Result.failure(error)
+                                                    }
+                                                    mainHandler.post {
+                                                        outcome.fold(
+                                                            onSuccess = { txId ->
+                                                                respond(
+                                                                    JSONObject()
+                                                                        .put("transactionId", txId)
+                                                                        .put("status", "accepted")
+                                                                        .put("covenantId", requestedCovenantId)
+                                                                        .put("op", "transfer")
+                                                                        .put("amountBaseUnits", amountBaseUnits.toString())
+                                                                        .put("to", toAddr)
+                                                                )
+                                                            },
+                                                            onFailure = { err ->
+                                                                respond(
+                                                                    errorCode = -32000,
+                                                                    errorMessage = err.message ?: "KCC20 transfer failed"
+                                                                )
+                                                            }
+                                                        )
+                                                    }
                                                 }
-                                            )
-                                        }
+                                            },
+                                            onReject = {
+                                                viewModel.dappPromptState.value = null
+                                                respond(errorCode = 4001, errorMessage = "User rejected KCC20 transfer")
+                                            }
+                                        )
                                         return@execute
                                     }
 
