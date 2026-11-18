@@ -713,7 +713,10 @@ object KaspaDappBridge {
                         val requestedCovenantId = if (isKcc20Method) {
                             paramsObj.optString(
                                 "covenantId",
-                                paramsObj.optString("contractId", paramsObj.optString("tokenId", ""))
+                                paramsObj.optString(
+                                    "covenant_id",
+                                    paramsObj.optString("contractId", paramsObj.optString("contract", paramsObj.optString("tokenId", "")))
+                                )
                             ).trim()
                         } else ""
                         val kcc20AmountBaseUnits = if (isKcc20Method) {
