@@ -227,5 +227,7 @@ object Kcc20ReferenceProtocol {
 
     fun bytesToHex(value: ByteArray): String = value.joinToString("") { "%02x".format(it) }
 
+    internal fun templateSuffixHex(): String = bytesToHex(suffix)
+
     fun decodeHex(value: String): ByteArray = hexToBytes(value)
 }
