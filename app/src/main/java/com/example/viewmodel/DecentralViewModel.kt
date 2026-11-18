@@ -3363,7 +3363,7 @@ class DecentralViewModel(
                             val signature65 = Kcc20ReferenceProtocol.decodeHex(signature) +
                                 byteArrayOf(Kcc20ReferenceProtocol.SIGHASH_ALL.toByte())
                             Kcc20ReferenceProtocol.bytesToHex(
-                                com.example.network.kaspa.Kcc20ReferenceTransferBuilder.assembleSignatureScript(
+                                Kcc20RustyKaspaEngine.assembleReferenceWitness(
                                     transferPlan, index, signature65
                                 )
                             )
