@@ -210,4 +210,6 @@ object Kcc20ReferenceProtocol {
     }
 
     fun bytesToHex(value: ByteArray): String = value.joinToString("") { "%02x".format(it) }
+
+    fun decodeHex(value: String): ByteArray = hexToBytes(value)
 }
