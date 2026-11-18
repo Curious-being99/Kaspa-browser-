@@ -214,7 +214,7 @@ class Kcc20ReferenceProtocolTest {
             amount = BigInteger.valueOf(1000),
             owner = ByteArray(32) { 0x11 },
             ownerScheme = 0x00,
-            borrowScheme = 0x01,
+            borrowScheme = 0x00,
             borrowGuard = ByteArray(32) { 0x22 },
             extensionCommitment = ByteArray(32) { 0x33 }
         )
