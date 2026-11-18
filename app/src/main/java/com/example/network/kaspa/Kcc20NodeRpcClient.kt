@@ -109,6 +109,13 @@ class Kcc20NodeRpcClient(
                             .takeIf { entry.has("scriptPublicKeyVersion") || entry.has("script_public_key_version") }
                     )
                 }
+                val isCoinbase = when {
+                    entry.has("isCoinbase") && !entry.isNull("isCoinbase") -> entry.optBoolean("isCoinbase")
+                    entry.has("is_coinbase") && !entry.isNull("is_coinbase") -> entry.optBoolean("is_coinbase")
+                    wrapper.has("isCoinbase") && !wrapper.isNull("isCoinbase") -> wrapper.optBoolean("isCoinbase")
+                    wrapper.has("is_coinbase") && !wrapper.isNull("is_coinbase") -> wrapper.optBoolean("is_coinbase")
+                    else -> throw IllegalStateException("Node UTXO is missing its coinbase flag")
+                }
                 val covenantId = sequenceOf("covenantId", "covenant_id")
                     .mapNotNull { key ->
                         sequenceOf(entry, wrapper).firstNotNullOfOrNull { source ->
@@ -129,10 +136,7 @@ class Kcc20NodeRpcClient(
                     scriptPublicKeyHex = script.script,
                     daaScore = runCatching { parseLong(entry, "blockDaaScore", "block_daa_score", "daaScore") }
                         .getOrElse { parseLong(wrapper, "blockDaaScore", "block_daa_score", "daaScore") },
-                    isCoinbase = entry.optBoolean(
-                        "isCoinbase",
-                        entry.optBoolean("is_coinbase", wrapper.optBoolean("isCoinbase", wrapper.optBoolean("is_coinbase", false)))
-                    ),
+                    isCoinbase = isCoinbase,
                     covenantId = covenantId
                 )
             }
