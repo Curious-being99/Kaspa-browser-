@@ -132,24 +132,12 @@ internal object DappPsktTransaction {
                 val covenantState = runCatching {
                     com.example.network.kaspa.Kcc20ReferenceProtocol.verifyProgram(redeemBytes)
                 }.getOrNull()
-                val isNormalReferenceState = covenantState != null &&
-                    covenantState.borrowScheme == 0x00 &&
-                    covenantState.extensionCommitment.all { it == 0.toByte() }
-                val isWalletOwnedReferenceNote = isNormalReferenceState &&
-                    covenantState!!.ownerScheme == 0x00 &&
+                val isWalletOwnedReferenceNote = covenantState != null &&
+                    covenantState.ownerScheme == 0x00 &&
                     covenantState.owner.contentEquals(hexToBytes(pubHex))
-                val isCovenantOwnedReferenceInput = isNormalReferenceState &&
-                    covenantState!!.ownerScheme == 0x04
-
-                if (isCovenantOwnedReferenceInput) {
-                    require(input.signatureScript.isNotBlank()) {
-                        "Covenant-owned KCC20 input ${request.index} must retain its coordinator-provided covenant witness and must not be wallet-signed"
-                    }
-                    continue
-                }
 
                 require(isStandardP2pk || isWalletOwnedReferenceNote) {
-                    "P2SH input ${request.index} is not an exact pinned wallet-owned KCC20 reference note, a covenant-owned KCC20 input, or a standard P2PK deposit"
+                    "P2SH input ${request.index} is not an exact pinned KCC20 reference note owned by the active wallet, or a standard P2PK deposit"
                 }
                 require(input.signatureScript.isBlank()) {
                     "Refusing to overwrite an existing signature script"
