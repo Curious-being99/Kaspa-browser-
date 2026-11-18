@@ -381,13 +381,13 @@ internal object DappPsktTransaction {
             amounts.outputs = amounts.outputs.add(state.amount)
         }
         require(totals.isNotEmpty()) { "KCC20 approval has no verifiable token covenant states" }
-        return totals.entries.joinToString("\\n\\n") { (covenantId, amounts) ->
+        return totals.entries.joinToString("\n\n") { (covenantId, amounts) ->
             val metadata = Kcc20NoteScanner.KNOWN_TOKENS[covenantId]
             val trustedMetadata = metadata?.let {
-                "Name: ${it.name}\\nTicker: ${it.ticker}\\nDecimals: ${it.decimals}\\nMetadata source: pinned token list\\n"
+                "Name: ${it.name}\nTicker: ${it.ticker}\nDecimals: ${it.decimals}\nMetadata source: pinned token list\n"
             }.orEmpty()
             trustedMetadata +
-                "Covenant ID: $covenantId\\nInput base units: ${amounts.inputs}\\nOutput base units: ${amounts.outputs}"
+                "Covenant ID: $covenantId\nInput base units: ${amounts.inputs}\nOutput base units: ${amounts.outputs}"
         }
     }
     fun applyMeasuredComputeBudgets(signedJson: String, budgets: List<Int>, storageMass: Long? = null): String {
