@@ -14,6 +14,71 @@ object Kcc20RustyKaspaEngine {
     @JvmStatic
     private external fun validateNative(requestJson: String): String
 
+    @JvmStatic
+    private external fun planTransferNative(requestJson: String): String
+
+    fun planReferenceTransfer(
+        cells: List<Kcc20ReferenceCellVerifier.VerifiedCell>,
+        covenantId: String,
+        senderPublicKey: ByteArray,
+        recipientPublicKey: ByteArray,
+        amountBaseUnits: java.math.BigInteger
+    ): Kcc20ReferenceTransferBuilder.TransferPlan {
+        check(nativeAvailable) { "Rust KCC20 planner is unavailable for this Android ABI" }
+        require(amountBaseUnits.signum() > 0 && amountBaseUnits.bitLength() <= 63)
+        require(cells.isNotEmpty() && cells.size <= Kcc20ReferenceProtocol.MAX_TOKEN_INPUTS)
+        val request = JSONObject().apply {
+            put("covenantId", covenantId)
+            put("senderPublicKey", Kcc20ReferenceProtocol.bytesToHex(senderPublicKey))
+            put("recipientPublicKey", Kcc20ReferenceProtocol.bytesToHex(recipientPublicKey))
+            put("amount", amountBaseUnits.toString())
+            put("templateHash", Kcc20ReferenceProtocol.TEMPLATE_HASH)
+            put("templateSuffix", Kcc20ReferenceProtocol.templateSuffixHex())
+            put("cells", JSONArray().apply {
+                cells.forEach { cell ->
+                    put(JSONObject().apply {
+                        put("txid", cell.transactionId)
+                        put("index", cell.outputIndex)
+                        put("covenantId", cell.covenantId)
+                        put("program", Kcc20ReferenceProtocol.bytesToHex(cell.program))
+                    })
+                }
+            })
+        }
+        val response = JSONObject(planTransferNative(request.toString()))
+        check(response.optBoolean("valid", false)) {
+            response.optString("error", "Rust KCC20 transfer planning failed")
+        }
+        val consumedJson = response.getJSONArray("consumed")
+        val consumed = (0 until consumedJson.length()).map { i ->
+            val program = Kcc20ReferenceProtocol.decodeHex(consumedJson.getJSONObject(i).getString("program"))
+            Kcc20ReferenceProtocol.verifyProgram(program)
+        }
+        val successorJson = response.getJSONArray("successorPrograms")
+        val successors = (0 until successorJson.length()).map { i ->
+            Kcc20ReferenceProtocol.decodeHex(successorJson.getString(i))
+        }
+        val nextStates = successors.map(Kcc20ReferenceProtocol::verifyProgram)
+        val inputAmount = java.math.BigInteger(response.getString("inputAmount"))
+        val outputAmount = java.math.BigInteger(response.getString("outputAmount"))
+        check(consumed.size == cells.size && successors.isNotEmpty())
+        check(consumed.fold(java.math.BigInteger.ZERO) { sum, state -> sum + state.amount } == inputAmount)
+        check(nextStates.fold(java.math.BigInteger.ZERO) { sum, state -> sum + state.amount } == outputAmount)
+        check(inputAmount == outputAmount)
+        val seats = cells.mapIndexed { index, cell ->
+            Kcc20ReferenceTransferBuilder.SignatureSeat(index, cell.program.copyOf(), index == 0)
+        }
+        return Kcc20ReferenceTransferBuilder.TransferPlan(
+            covenantId = covenantId.lowercase(),
+            consumed = consumed,
+            nextStates = nextStates,
+            successorPrograms = successors,
+            seats = seats,
+            inputAmount = inputAmount,
+            outputAmount = outputAmount
+        )
+    }
+
     data class SpentUtxo(
         val amount: Long,
         val scriptPublicKeyVersion: Int,
