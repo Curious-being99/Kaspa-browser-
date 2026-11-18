@@ -72,6 +72,44 @@ jobs:
         with:
           gradle-version: '9.7.0'
 
+      - name: Install Rust toolchain for KCC20 script engine
+        if: matrix.language == 'java-kotlin'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CARGO_HOME="$HOME/.cargo"
+          mkdir -p "$CARGO_HOME/bin"
+          cargo install cargo-ndk --version 3.5.4 --locked --root "$CARGO_HOME" --force
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$CARGO_HOME/bin:$PATH"
+          cargo ndk --version
+
+      - name: Install Android NDK for KCC20 engine
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Checkout pinned Argent compiler
+        if: matrix.language == 'java-kotlin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/argent-lang/argent.git "$RUNNER_TEMP/argent"
+          git -C "$RUNNER_TEMP/argent" checkout 9a9f4b107116d0b259fae629f200fa3b663e7e9d
+          test "$(git -C "$RUNNER_TEMP/argent" rev-parse HEAD)" = "9a9f4b107116d0b259fae629f200fa3b663e7e9d"
+          echo "ARGENT_COMPILER_MANIFEST=$RUNNER_TEMP/argent/Cargo.toml" >> "$GITHUB_ENV"
+
       - name: Generate CI debug keystore
         if: matrix.language == 'java-kotlin'
         run: |
