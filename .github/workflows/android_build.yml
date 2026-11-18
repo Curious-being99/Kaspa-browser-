@@ -36,6 +36,8 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -95,6 +97,30 @@ jobs:
       - name: Generate and verify KCC20 runtime artifact before Rust compilation
         run: gradle :app:verifyKcc20ArgentArtifact --no-daemon --stacktrace
 
+      - name: Bootstrap and commit the KCC20 Cargo.lock
+        if: github.event_name == 'pull_request' && hashFiles('kcc20-engine/Cargo.lock') == ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile --manifest-path kcc20-engine/Cargo.toml
+          cargo metadata --locked --manifest-path kcc20-engine/Cargo.toml --format-version 1 --no-deps >/dev/null
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/android_build.yml')
+          s = p.read_text()
+          start = s.index('      - name: Bootstrap and commit the KCC20 Cargo.lock\n')
+          end = s.index('      - name: Run KCC20 Rust planner and witness tests\n', start)
+          s = s[:start] + s[end:]
+          p.write_text(s)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add kcc20-engine/Cargo.lock .github/workflows/android_build.yml
+          git commit -m 'build(kcc20): commit validated Cargo lockfile'
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
       - name: Run KCC20 Rust planner and witness tests
         run: cargo test --locked --manifest-path kcc20-engine/Cargo.toml
 
