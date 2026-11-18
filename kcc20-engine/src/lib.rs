@@ -181,7 +181,7 @@ fn validate(json_text: &str) -> Result<Value, String> {
     }))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_example_network_kaspa_Kcc20RustyKaspaEngine_validateNative(
     mut env: JNIEnv,
     _object: JObject,
