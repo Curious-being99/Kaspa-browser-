@@ -1071,4 +1071,95 @@ class DappPsktTransactionTest {
         }.exceptionOrNull() is IllegalArgumentException)
     }
 
+    @Test
+    fun assemblesReferenceKcc20LeaderWitnessForExistingDappPsktOutputs() {
+        val protocol = com.example.network.kaspa.Kcc20ReferenceProtocol
+        val family = "ab".repeat(32)
+        val leaderProgram = protocol.programFor(
+            protocol.State(
+                amount = BigInteger.valueOf(100),
+                owner = CryptoUtils.hexToBytes(publicKeyHex),
+                ownerScheme = 0x00,
+                borrowScheme = 0x00,
+                borrowGuard = ByteArray(32),
+                extensionCommitment = ByteArray(32)
+            )
+        )
+        val successorProgram = protocol.programFor(
+            protocol.State(
+                amount = BigInteger.valueOf(100),
+                owner = ByteArray(32) { 0x22 },
+                ownerScheme = 0x00,
+                borrowScheme = 0x00,
+                borrowGuard = ByteArray(32),
+                extensionCommitment = ByteArray(32)
+            )
+        )
+        val leaderHex = protocol.bytesToHex(leaderProgram)
+        val successorHex = protocol.bytesToHex(successorProgram)
+        val cellScript = protocol.bytesToHex(protocol.p2shScript(leaderProgram))
+        val successorScript = protocol.bytesToHex(protocol.p2shScript(successorProgram))
+        val signature = "41" + "55".repeat(64) + "01"
+        val prepared = DappPsktTransaction.Prepared(
+            originalJson = JSONObject(),
+            transaction = KaspaTransactionEngine.KaspaTransaction(
+                version = 1,
+                inputs = listOf(
+                    KaspaTransactionEngine.KaspaTransactionInput(
+                        previousOutpoint = KaspaTransactionEngine.KaspaOutpoint("11".repeat(32), 0),
+                        sequence = 0,
+                        sigOpCount = 0,
+                        computeBudget = 1
+                    )
+                ),
+                outputs = listOf(
+                    KaspaTransactionEngine.KaspaTransactionOutput(
+                        amount = 50_000_000,
+                        scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(0, successorScript),
+                        covenant = KaspaTransactionEngine.KaspaCovenantBinding(0, family)
+                    )
+                )
+            ),
+            utxoEntries = listOf(
+                KaspaTransactionEngine.KaspaUtxoEntry(
+                    amount = 50_000_000,
+                    scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(0, cellScript),
+                    covenantId = family
+                )
+            ),
+            signInputs = listOf(DappPsktTransaction.SignInput(0, 1)),
+            inputSumSompi = 50_000_000,
+            outputSumSompi = 50_000_000,
+            feeSompi = 0,
+            inputRedeemScripts = listOf(leaderHex),
+            outputRedeemScripts = listOf(successorHex)
+        )
+        val signedJson = JSONObject().put(
+            "transaction",
+            JSONObject().put("inputs", JSONArray().put(JSONObject().put("signatureScript", signature)))
+        ).toString()
+
+        val assembled = JSONObject(
+            DappPsktTransaction.assembleReferenceCovenantWitnesses(signedJson, prepared)
+        )
+        val assembledScript = assembled.getJSONObject("transaction")
+            .getJSONArray("inputs").getJSONObject(0).getString("signatureScript")
+        assertTrue(assembledScript.contains("0479c71c23"))
+        assertTrue(assembledScript.endsWith("4dbf0f$leaderHex"))
+        assertFalse(assembledScript == signature)
+    }
+
+    @Test
+    fun measuredBudgetsAlsoWriteRustyKaspaContextualStorageMass() {
+        val signed = JSONObject().put(
+            "transaction",
+            JSONObject().put("inputs", JSONArray().put(JSONObject().put("signatureScript", "41aa")))
+        ).toString()
+        val updated = JSONObject(
+            DappPsktTransaction.applyMeasuredComputeBudgets(signed, listOf(7), 1234L)
+        ).getJSONObject("transaction")
+        assertEquals(1234L, updated.getLong("mass"))
+        assertEquals(7, updated.getJSONArray("inputs").getJSONObject(0).getInt("computeBudget"))
+    }
+
 }
