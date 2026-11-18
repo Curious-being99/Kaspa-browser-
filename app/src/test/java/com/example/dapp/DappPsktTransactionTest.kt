@@ -559,7 +559,8 @@ class DappPsktTransactionTest {
             .put("previousOutpoint", JSONObject().put("transactionId", txId).put("index", vout))
             .put("signatureScript", "")
             .put("sequence", 0)
-            .put("sigOpCount", 1)
+            .put("sigOpCount", 0)
+            .put("computeBudget", 1)
             .put("utxoEntry", JSONObject()
                 .put("amount", "2500000000") // 25 KAS
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", covenantLockingScript))
@@ -573,7 +574,7 @@ class DappPsktTransactionTest {
             .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
         )
         val tx = JSONObject()
-            .put("version", 0)
+            .put("version", 1)
             .put("inputs", inputs)
             .put("outputs", outputs)
             .put("lockTime", 0)
@@ -627,6 +628,8 @@ class DappPsktTransactionTest {
             .put("previousOutpoint", JSONObject().put("transactionId", "5b".repeat(32)).put("index", 0))
             .put("signatureScript", "")
             .put("sequence", 0)
+            .put("sigOpCount", 0)
+            .put("computeBudget", 1)
             .put("utxoEntry", JSONObject()
                 .put("amount", "10000000")
                 .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "aa20" + p2shHash + "87"))
@@ -636,7 +639,7 @@ class DappPsktTransactionTest {
             .put("amount", "9000000")
             .put("scriptPublicKey", JSONObject().put("version", 0).put("script", "20" + publicKeyHex + "ac"))
         )
-        val tx = JSONObject().put("inputs", inputs).put("outputs", outputs)
+        val tx = JSONObject().put("version", 1).put("inputs", inputs).put("outputs", outputs)
 
         val prepared = DappPsktTransaction.prepareForSigning(
             tx.toString(),
@@ -715,7 +718,8 @@ class DappPsktTransactionTest {
                 .put("previousOutpoint", JSONObject().put("transactionId", "c1".repeat(32)).put("index", 0))
                 .put("signatureScript", "")
                 .put("sequence", 0)
-                .put("sigOpCount", 1)
+                .put("sigOpCount", 0)
+                .put("computeBudget", 2)
                 .put("utxoEntry", JSONObject()
                     .put("amount", "10000000000")
                     .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
@@ -792,6 +796,7 @@ class DappPsktTransactionTest {
                 .put("signatureScript", "")
                 .put("sequence", 0)
                 .put("sigOpCount", 0)
+                .put("computeBudget", 2)
                 .put("utxoEntry", JSONObject()
                     .put("amount", "500000000000") // 5000 ICE note
                     .put("scriptPublicKey", JSONObject().put("version", 0).put("script", covenantScript))
@@ -801,7 +806,8 @@ class DappPsktTransactionTest {
                 .put("previousOutpoint", JSONObject().put("transactionId", "bb".repeat(32)).put("index", 1))
                 .put("signatureScript", "")
                 .put("sequence", 0)
-                .put("sigOpCount", 1)
+                .put("sigOpCount", 0)
+                .put("computeBudget", 1)
                 .put("utxoEntry", JSONObject()
                     .put("amount", "100000000") // 1 KAS fee UTXO
                     .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userScript))
@@ -877,6 +883,8 @@ class DappPsktTransactionTest {
             .put("outpoint", "$txId:$vout")
             .put("signatureScript", "")
             .put("sequence", 0)
+            .put("sigOpCount", 0)
+            .put("computeBudget", 1)
             .put("utxoEntry", JSONObject()
                 .put("amount", "2500000000")
                 .put("scriptPublicKey", flatLockingScript)
@@ -886,7 +894,7 @@ class DappPsktTransactionTest {
             .put("amount", "2400000000")
             .put("scriptPublicKey", "000020" + publicKeyHex + "ac")
         )
-        val txJson = JSONObject().put("tx", JSONObject().put("inputs", inputs).put("outputs", outputs)).toString()
+        val txJson = JSONObject().put("tx", JSONObject().put("version", 1).put("inputs", inputs).put("outputs", outputs)).toString()
         val rawSignInputs = JSONArray().put(JSONObject().put("index", 0))
 
         val (resolvedSignInputs, resolvedTopRedeem) = KaspaDappBridge.resolveSignInputsAndRedeemScripts(
