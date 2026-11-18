@@ -107,7 +107,7 @@ class Kcc20NodeRpcClient(
     }
 
     suspend fun getUtxosByAddress(endpoint: String, address: String): List<NodeUtxo> =
-        getUtxosByAddresses(endpoint, listOf(address))
+        getUtxosByAddressesAtEndpoint(endpoint, listOf(address))
 
     suspend fun getUtxosByAddress(expectedNetwork: String, address: String): List<NodeUtxo> =
         getUtxosByAddress(resolveEndpoint(expectedNetwork), address)
@@ -115,7 +115,7 @@ class Kcc20NodeRpcClient(
     suspend fun getUtxosByAddresses(expectedNetwork: String, addresses: List<String>): List<NodeUtxo> =
         getUtxosByAddresses(resolveEndpoint(expectedNetwork), addresses)
 
-    suspend fun getUtxosByAddresses(endpoint: String, addresses: List<String>): List<NodeUtxo> =
+    suspend fun getUtxosByAddressesAtEndpoint(endpoint: String, addresses: List<String>): List<NodeUtxo> =
         withContext(Dispatchers.IO) {
             require(addresses.isNotEmpty() && addresses.all { it.isNotBlank() }) {
                 "At least one valid Kaspa address is required for node UTXO lookup"
