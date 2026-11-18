@@ -191,6 +191,7 @@ tasks.register("verifyKcc20ArgentArtifact") {
   val fixture = file("src/test/resources/kcc20-reference/artifact-template.json")
   val pinnedSil = file("src/test/resources/kcc20-reference/KCC20.sil")
   val outputDir = file("$buildDir/generated/kcc20-argent")
+  outputs.dir(outputDir)
 
   doLast {
     val manifest = file(compilerManifest.get())
@@ -276,6 +277,7 @@ tasks.named("cargoBuildKcc20Engine").configure {
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
   dependsOn("verifyKcc20ArgentArtifact")
+  source(fileTree("$buildDir/generated/kcc20-argent/src") { include("**/*.kt") })
 }
 
 tasks.named("preBuild").configure {
