@@ -2962,7 +2962,7 @@ class DecentralViewModel(
             "Rusty-Kaspa v2.1.0 script engine is unavailable for this Android ABI"
         }
         val endpoint = kcc20NodeRpcClient.resolveEndpoint(expectedNetwork)
-        val liveUtxos = kcc20NodeRpcClient.getUtxosByAddresses(endpoint, inputAddresses.distinct())
+        val liveUtxos = kcc20NodeRpcClient.getUtxosByAddressesAtEndpoint(endpoint, inputAddresses.distinct())
         val liveByOutpoint = liveUtxos.groupBy { "${it.transactionId.lowercase()}:${it.outputIndex}" }
         val spentUtxos = transaction.inputs.mapIndexed { index, input ->
             val outpoint = "${input.previousOutpoint.transactionId.lowercase()}:${input.previousOutpoint.index}"
@@ -3208,7 +3208,7 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
 
             val requestedAddresses = (candidates.map { it.address } + keyPair.kaspaAddress).distinct()
             val nodeUtxos = requestedAddresses.chunked(100).flatMap { addressBatch ->
-                kcc20NodeRpcClient.getUtxosByAddresses(endpoint, addressBatch)
+                kcc20NodeRpcClient.getUtxosByAddressesAtEndpoint(endpoint, addressBatch)
             }
             val nodeProofs = nodeUtxos.map { entry ->
                 com.example.network.kaspa.Kcc20ReferenceCellVerifier.NodeUtxo(
