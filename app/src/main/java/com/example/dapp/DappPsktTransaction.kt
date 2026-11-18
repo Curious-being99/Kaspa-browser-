@@ -348,6 +348,36 @@ internal object DappPsktTransaction {
         return root.toString()
     }
 
+    fun kcc20TokenDetails(prepared: Prepared): String {
+        data class Totals(var inputs: BigInteger = BigInteger.ZERO, var outputs: BigInteger = BigInteger.ZERO)
+        val totals = sortedMapOf<String, Totals>()
+        prepared.utxoEntries.forEachIndexed { index, utxo ->
+            val covenantId = utxo.covenantId?.trim()?.lowercase()
+                ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: return@forEachIndexed
+            val programHex = prepared.inputRedeemScripts.getOrNull(index).orEmpty()
+            if (programHex.isBlank()) return@forEachIndexed
+            val state = runCatching {
+                Kcc20ReferenceProtocol.verifyProgram(Kcc20ReferenceProtocol.decodeHex(programHex))
+            }.getOrNull() ?: return@forEachIndexed
+            val amounts = totals.getOrPut(covenantId) { Totals() }
+            amounts.inputs = amounts.inputs.add(state.amount)
+        }
+        prepared.transaction.outputs.forEachIndexed { index, output ->
+            val binding = output.covenant ?: return@forEachIndexed
+            val covenantId = binding.covenantId.trim().lowercase()
+                .takeIf { it.matches(Regex("[0-9a-f]{64}")) } ?: return@forEachIndexed
+            val programHex = prepared.outputRedeemScripts.getOrNull(index).orEmpty()
+            if (programHex.isBlank()) return@forEachIndexed
+            val state = runCatching {
+                Kcc20ReferenceProtocol.verifyProgram(Kcc20ReferenceProtocol.decodeHex(programHex))
+            }.getOrNull() ?: return@forEachIndexed
+            val amounts = totals.getOrPut(covenantId) { Totals() }
+            amounts.outputs = amounts.outputs.add(state.amount)
+        }
+        return totals.entries.joinToString("\\n\\n") { (covenantId, amounts) ->
+            "Covenant ID: $covenantId\\nInput base units: ${amounts.inputs}\\nOutput base units: ${amounts.outputs}"
+        }
+    }
     fun applyMeasuredComputeBudgets(signedJson: String, budgets: List<Int>, storageMass: Long? = null): String {
         val root = JSONObject(signedJson)
         val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
