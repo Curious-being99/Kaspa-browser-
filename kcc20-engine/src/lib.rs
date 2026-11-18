@@ -59,6 +59,9 @@ fn required_hash(value: &Value, name: &str) -> Result<Hash, String> {
 }
 
 fn validate(json_text: &str) -> Result<Value, String> {
+    if json_text.is_empty() || json_text.len() > 4 * 1024 * 1024 {
+        return Err("Rust validation request is empty or exceeds 4 MiB".to_string());
+    }
     let request: Value = serde_json::from_str(json_text).map_err(|e| e.to_string())?;
     let version = bounded_number(&request["version"], "version", u16::MAX as u64)? as u16;
     if version != 1 {
@@ -84,50 +87,83 @@ fn validate(json_text: &str) -> Result<Value, String> {
             return Err("Duplicate transaction input outpoint".to_string());
         }
         let sequence = number(&input["sequence"], "input sequence")?;
+        let signature_script = bytes(&input["sigScript"])?;
+        if signature_script.len() > 100_000 {
+            return Err("Input signature script exceeds 100 KiB".to_string());
+        }
         let budget = bounded_number(&input["computeBudget"], "computeBudget", u16::MAX as u64)?;
         inputs.push(TransactionInput::new_with_compute_budget(
             TransactionOutpoint::new(txid, index),
-            bytes(&input["sigScript"] )?,
+            signature_script,
             sequence,
             budget as u16,
         ));
     }
 
     let mut outputs = Vec::with_capacity(output_values.len());
+    let mut total_output_value = 0u128;
     for output in output_values {
+        let script_bytes = bytes(&output["script"])?;
+        if script_bytes.len() > 10_000 {
+            return Err("Output script public key exceeds 10 KiB".to_string());
+        }
+        let value = number(&output["value"], "output value")?;
+        total_output_value = total_output_value
+            .checked_add(value as u128)
+            .ok_or_else(|| "Transaction output value sum overflowed".to_string())?;
         let script = ScriptPublicKey::from_vec(
             bounded_number(&output["spkVersion"], "output spkVersion", u16::MAX as u64)? as u16,
-            bytes(&output["script"] )?,
+            script_bytes,
         );
         let covenant = if output["covenant"].is_null() {
             None
         } else {
             let binding = &output["covenant"];
+            let authorizing_input = bounded_number(
+                &binding["authorizingInput"],
+                "authorizingInput",
+                (input_values.len() - 1) as u64,
+            )? as u16;
             Some(CovenantBinding::new(
-                bounded_number(&binding["authorizingInput"], "authorizingInput", u16::MAX as u64)? as u16,
+                authorizing_input,
                 required_hash(&binding["covenantId"], "covenantId")?,
             ))
         };
         outputs.push(TransactionOutput::with_covenant(
-            number(&output["value"], "output value")?,
+            value,
             script,
             covenant,
         ));
     }
 
     let mut utxos = Vec::with_capacity(utxo_values.len());
+    let mut total_input_value = 0u128;
     for utxo in utxo_values {
+        let script_bytes = bytes(&utxo["script"])?;
+        if script_bytes.len() > 10_000 {
+            return Err("Spent UTXO script public key exceeds 10 KiB".to_string());
+        }
+        let amount = number(&utxo["amount"], "UTXO amount")?;
+        total_input_value = total_input_value
+            .checked_add(amount as u128)
+            .ok_or_else(|| "Transaction input value sum overflowed".to_string())?;
+        let is_coinbase = utxo["isCoinbase"]
+            .as_bool()
+            .ok_or_else(|| "UTXO isCoinbase must be a boolean".to_string())?;
         let script = ScriptPublicKey::from_vec(
             bounded_number(&utxo["spkVersion"], "UTXO spkVersion", u16::MAX as u64)? as u16,
-            bytes(&utxo["script"] )?,
+            script_bytes,
         );
         utxos.push(UtxoEntry::new(
-            number(&utxo["amount"], "UTXO amount")?,
+            amount,
             script,
             number(&utxo["daaScore"], "UTXO daaScore")?,
-            utxo["isCoinbase"].as_bool().unwrap_or(false),
+            is_coinbase,
             optional_hash(&utxo["covenantId"] )?,
         ));
+    }
+    if total_input_value < total_output_value {
+        return Err("Transaction outputs exceed the node-confirmed input value".to_string());
     }
 
     let mut tx = Transaction::new(
@@ -178,17 +214,19 @@ fn validate(json_text: &str) -> Result<Value, String> {
         kaspa_consensus_core::constants::STORAGE_MASS_PARAMETER,
     );
     let non_contextual = mass_calculator.calc_non_contextual_masses(&tx);
-    let contextual = mass_calculator.calc_contextual_masses(&PopulatedTransaction::new(&tx, utxos));
-    let valid = input_results.iter().all(|entry| entry["valid"] == true);
+    let contextual = mass_calculator
+        .calc_contextual_masses(&PopulatedTransaction::new(&tx, utxos))
+        .ok_or_else(|| "Rusty-Kaspa could not calculate contextual storage mass".to_string())?;
+    let scripts_valid = input_results.iter().all(|entry| entry["valid"] == true);
 
     Ok(json!({
-        "valid": valid,
+        "valid": scripts_valid,
         "txid": tx.id().to_string(),
         "inputs": input_results,
         "mass": {
             "compute": non_contextual.compute_mass,
             "transient": non_contextual.transient_mass,
-            "storage": contextual.map(|mass| mass.storage_mass),
+            "storage": contextual.storage_mass,
         }
     }))
 }
