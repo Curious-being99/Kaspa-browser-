@@ -49,7 +49,7 @@ object Kcc20ReferenceCellVerifier {
         require(candidate.valueSompi > 0L) { "Indexed cell has invalid KAS value" }
 
         val state = Kcc20ReferenceProtocol.verifyProgram(candidate.program)
-        require(state.amount.signum() >= 0)
+        require(state.amount.signum() > 0) { "Zero-value KCC20 cells are not spendable token notes" }
         val expectedAddress = Kcc20ReferenceProtocol.p2shAddress(candidate.program, networkPrefix)
         val expectedScript = Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(candidate.program))
         require(candidate.address.equals(expectedAddress, ignoreCase = true)) {
