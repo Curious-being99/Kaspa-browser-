@@ -48,8 +48,6 @@ import com.example.network.kaspa.Krc20Service
 import com.example.network.kaspa.Kcc20KasivoService
 import com.example.network.kaspa.Kcc20WalletToken
 import com.example.network.kaspa.Kcc20TransactionHistoryItem
-import com.example.network.kaspa.KbKcc20StandardAssembler
-import com.example.network.kaspa.KbKcc20ScriptCodec
 import com.example.network.kaspa.Kcc20ReferenceProtocol
 import com.example.network.kaspa.Kcc20NoteScanner
 import java.math.BigDecimal
@@ -245,8 +243,6 @@ class DecentralViewModel(
     application: Application,
     private val savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
-
-    private val KB_TICK = "\$KB"
 
     sealed class DappPromptState {
         data class Connect(
@@ -2962,7 +2958,7 @@ class DecentralViewModel(
             require(script.version == 0 && script.script.matches(Regex("20[0-9a-fA-F]{64}ac"))) {
                 "Reference KCC20 normal transfer currently requires a P2PK Schnorr recipient address"
             }
-            KbKcc20ScriptCodec.hexToBytes(script.script.substring(2, 66))
+            Kcc20ReferenceProtocol.decodeHex(script.script.substring(2, 66))
         } catch (error: Exception) {
             return@withContext Result.failure(IllegalArgumentException("Invalid KCC20 recipient address: ${error.message}", error))
         }
@@ -3171,7 +3167,7 @@ class DecentralViewModel(
                                 KbKcc20ScriptCodec.hexToBytes(signature),
                                 byteArrayOf(Kcc20ReferenceProtocol.SIGHASH_ALL.toByte())
                             )
-                            KbKcc20ScriptCodec.bytesToHex(
+                            Kcc20ReferenceProtocol.bytesToHex(
                                 com.example.network.kaspa.Kcc20ReferenceTransferBuilder.assembleSignatureScript(
                                     transferPlan, index, signature65
                                 )
