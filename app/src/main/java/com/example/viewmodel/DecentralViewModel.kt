@@ -50,6 +50,7 @@ import com.example.network.kaspa.Kcc20WalletToken
 import com.example.network.kaspa.Kcc20TransactionHistoryItem
 import com.example.network.kaspa.KbKcc20StandardAssembler
 import com.example.network.kaspa.KbKcc20ScriptCodec
+import com.example.network.kaspa.Kcc20ReferenceProtocol
 import com.example.network.kaspa.Kcc20NoteScanner
 import java.math.BigDecimal
 import com.example.model.UpdateStatus
@@ -3079,7 +3080,6 @@ class DecentralViewModel(
             val leaderCellDeposit = tokenNodeUtxos.first().amount
             require(leaderCellDeposit > 0L) { "Leader cell has no KAS value to carry into its continuations" }
             val successorDepositTotal = Math.multiplyExact(leaderCellDeposit, transferPlan.successorPrograms.size.toLong())
-            val tokenKASInputTotal = tokenNodeUtxos.fold(0L) { total, node -> Math.addExact(total, node.amount) }
             val feeRate = maxOf(
                 walletService.fetchNetworkFeeEstimate(isTestnet = !isMainnet).normalFeerate,
                 KaspaTransactionEngine.TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM
@@ -3088,7 +3088,6 @@ class DecentralViewModel(
             val dust = KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS
             var finalTransaction: KaspaTransactionEngine.KaspaTransaction? = null
             var finalValidation: com.example.network.kaspa.Kcc20RustyKaspaEngine.ValidationResult? = null
-            var finalFeeInputs = emptyList<com.example.network.kaspa.Kcc20NodeRpcClient.NodeUtxo>()
 
             for (feeInputCount in 0..walletNodeUtxos.size) {
                 val feeNodes = walletNodeUtxos.take(feeInputCount)
@@ -3183,7 +3182,7 @@ class DecentralViewModel(
 
                 var acceptedThisSet = false
                 var lastValidation: com.example.network.kaspa.Kcc20RustyKaspaEngine.ValidationResult? = null
-                repeat(4) {
+                for (feePass in 0 until 4) {
                     signInputs()
                     var validation = com.example.network.kaspa.Kcc20RustyKaspaEngine.validate(tx, allEngineUtxos)
                     if (!validation.valid) {
@@ -3234,12 +3233,11 @@ class DecentralViewModel(
                         tx.mass = maxOf(compute, validation.storageMass ?: 0L)
                         finalTransaction = tx
                         finalValidation = validation
-                        finalFeeInputs = feeNodes
                         acceptedThisSet = true
-                        return@repeat
+                        break
                     }
 
-                    if (changeOutputIndex < 0 || changeOutputIndex >= tx.outputs.size) return@repeat
+                    if (changeOutputIndex < 0 || changeOutputIndex >= tx.outputs.size) break
                     val change = tx.outputs[changeOutputIndex]
                     val reduced = change.amount - (requiredFee - actualFee)
                     val mutableOutputs = tx.outputs.toMutableList()
@@ -3249,9 +3247,21 @@ class DecentralViewModel(
                         mutableOutputs.removeAt(changeOutputIndex)
                     }
                     tx = tx.copy(outputs = mutableOutputs)
-                    if (reduced < dust && allInputsSompi - tx.outputs.fold(0L) { total, output ->
-                        Math.addExact(total, output.amount)
-                    } < requiredFee) return@repeat
+                    if (reduced < dust) {
+                        val feeAfterRemovingChange = allInputsSompi - tx.outputs.fold(0L) { total, output ->
+                            Math.addExact(total, output.amount)
+                        }
+                        if (feeAfterRemovingChange >= requiredFee) {
+                            signInputs()
+                            val noChangeValidation = Kcc20RustyKaspaEngine.validate(tx, allEngineUtxos)
+                            if (!noChangeValidation.valid) throw IllegalStateException("Rusty-Kaspa rejected the no-change KCC20 transaction")
+                            tx.mass = maxOf(noChangeValidation.computeMass, noChangeValidation.storageMass ?: 0L)
+                            finalTransaction = tx
+                            finalValidation = noChangeValidation
+                            acceptedThisSet = true
+                        }
+                        break
+                    }
                 }
                 if (acceptedThisSet && finalTransaction != null && finalValidation != null) break
             }
