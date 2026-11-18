@@ -264,8 +264,8 @@ fn explicit_push(value: &[u8]) -> Vec<u8> {
     out
 }
 
-fn decode_reference_state(program: &[u8], template_hash: &[u8]) -> Result<(u64, Vec<u8>, u8, u8, Vec<u8>, Vec<u8>), String> {
-    if program.len() != 4031 || program[0] != 0x6b { return Err("Not a pinned-size reference KCC20 program".into()); }
+fn decode_reference_state(program: &[u8], template_hash: &[u8], suffix: &[u8]) -> Result<(u64, Vec<u8>, u8, u8, Vec<u8>, Vec<u8>), String> {
+    if program.len() != 4031 || program[0] != 0x6b || program.get(146..) != Some(suffix) { return Err("Not the exact pinned Argent KCC20 reference program".into()); }
     let state = &program[1..146];
     let mut p = 0usize;
     let mut field = |n: usize| -> Result<Vec<u8>, String> {
@@ -277,6 +277,7 @@ fn decode_reference_state(program: &[u8], template_hash: &[u8]) -> Result<(u64, 
     if field(32)? != template_hash { return Err("Unknown KCC20 template hash".into()); }
     let raw_amount = field(8)?;
     let amount = u64::from_le_bytes(raw_amount.try_into().map_err(|_| "Invalid token amount")?);
+    if amount > i64::MAX as u64 { return Err("KCC20 amount exceeds Argent signed-int64 range".into()); }
     let owner = field(32)?;
     let owner_scheme = field(1)?[0];
     let borrow_scheme = field(1)?[0];
@@ -309,7 +310,7 @@ fn plan_reference_transfer(request_text: &str) -> Result<Value, String> {
     let suffix=decode_hex(req["templateSuffix"].as_str().ok_or("Missing template suffix")?)?;
     if sender.len()!=32 || recipient.len()!=32 || template.len()!=32 { return Err("Invalid KCC20 public key or template length".into()); }
     let requested=number(&req["amount"],"amount")?;
-    if requested==0 { return Err("Transfer amount must be positive".into()); }
+    if requested==0 || requested>i64::MAX as u64 { return Err("Transfer amount must be positive and within Argent signed-int64 range".into()); }
     let cells=req["cells"].as_array().ok_or("Missing verified cells")?;
     if cells.is_empty() || cells.len()>3 { return Err("Reference transfer requires 1 to 3 verified cells".into()); }
     let mut seen=std::collections::HashSet::new();
@@ -321,7 +322,7 @@ fn plan_reference_transfer(request_text: &str) -> Result<Value, String> {
         let outpoint=format!("{}:{}",cell["txid"].as_str().unwrap_or(""),number(&cell["index"],"index")?);
         if !seen.insert(outpoint) { return Err("Duplicate KCC20 cell outpoint".into()); }
         let program=decode_hex(cell["program"].as_str().ok_or("Missing cell program")?)?;
-        let (amount,owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template)?;
+        let (amount,owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template,&suffix)?;
         if owner_scheme!=0 || owner!=sender { return Err("Cell is not owned by active wallet under supported P2PK scheme".into()); }
         if borrow_scheme!=0 || guard.iter().any(|b|*b!=0) || extension.iter().any(|b|*b!=0) { return Err("Cell uses an unsupported borrow or extension policy".into()); }
         if i==0 { first_guard=guard.clone(); first_extension=extension.clone(); }
