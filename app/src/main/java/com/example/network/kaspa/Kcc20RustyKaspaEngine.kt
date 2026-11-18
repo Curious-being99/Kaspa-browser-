@@ -45,21 +45,6 @@ object Kcc20RustyKaspaEngine {
         return Kcc20ReferenceProtocol.decodeHex(response.getString("script"))
     }
 
-    fun assembleReferenceWitness(
-        plan: Kcc20ReferenceTransferBuilder.TransferPlan,
-        inputIndex: Int,
-        signature65: ByteArray
-    ): ByteArray {
-        require(inputIndex in plan.seats.indices)
-        val seat = plan.seats[inputIndex]
-        return assembleReferenceWitness(
-            seat.program,
-            seat.isLeader,
-            signature65,
-            if (seat.isLeader) plan.successorPrograms else emptyList()
-        )
-    }
-
     fun planReferenceTransfer(
         cells: List<Kcc20ReferenceCellVerifier.VerifiedCell>,
         covenantId: String,
@@ -108,17 +93,9 @@ object Kcc20RustyKaspaEngine {
         check(consumed.fold(java.math.BigInteger.ZERO) { sum, state -> sum + state.amount } == inputAmount)
         check(nextStates.fold(java.math.BigInteger.ZERO) { sum, state -> sum + state.amount } == outputAmount)
         check(inputAmount == outputAmount)
-        val seats = cells.mapIndexed { index, cell ->
-            Kcc20ReferenceTransferBuilder.SignatureSeat(index, cell.program.copyOf(), index == 0)
-        }
         return Kcc20ReferenceTransferBuilder.TransferPlan(
             covenantId = covenantId.lowercase(),
-            consumed = consumed,
-            nextStates = nextStates,
-            successorPrograms = successors,
-            seats = seats,
-            inputAmount = inputAmount,
-            outputAmount = outputAmount
+            successorPrograms = successors
         )
     }
 
