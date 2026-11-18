@@ -44,8 +44,8 @@ class Kcc20NodeRpcClient(
             "Configured Kaspa node is on ${actual.ifBlank { "an unknown network" }}, expected $expectedNetwork"
         }
         val serverVersion = info.optString("serverVersion", "").trim()
-        require(serverVersion.isNotBlank()) {
-            "Configured Kaspa node did not report its server version"
+        require(serverVersion.matches(Regex("(?i).*\\b2\\.1\\.0\\b.*"))) {
+            "Configured node must report Rusty-Kaspa v2.1.0; reported version was ${serverVersion.ifBlank { "missing" }}"
         }
         require(info.optInt("rpcApiVersion", 0) > 0) {
             "Configured Kaspa node did not report a supported RPC API version"
