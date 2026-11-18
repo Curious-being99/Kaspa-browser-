@@ -2993,10 +2993,10 @@ class DecentralViewModel(
                 throw IllegalStateException("The indexer returned no cells matching this wallet, covenant ID and pinned reference KCC20 template")
             }
 
-            val nodeUtxos = kcc20NodeRpcClient.getUtxosByAddresses(
-                endpoint,
-                candidates.map { it.address } + keyPair.kaspaAddress
-            )
+            val requestedAddresses = (candidates.map { it.address } + keyPair.kaspaAddress).distinct()
+            val nodeUtxos = requestedAddresses.chunked(100).flatMap { addressBatch ->
+                kcc20NodeRpcClient.getUtxosByAddresses(endpoint, addressBatch)
+            }
             val nodeProofs = nodeUtxos.map { entry ->
                 com.example.network.kaspa.Kcc20ReferenceCellVerifier.NodeUtxo(
                     transactionId = entry.transactionId,
