@@ -3235,10 +3235,12 @@ class DecentralViewModel(
                         Math.addExact(total, output.amount)
                     }
                     if (actualFee >= requiredFee) {
-                        tx.mass = maxOf(compute, validation.storageMass!!)
-                        require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-                            "Rusty-Kaspa transaction mass ${tx.mass} exceeds the standard relay limit"
-                        }
+                        require(
+                            compute <= Kcc20ReferenceProtocol.MAX_COMPUTE_MASS &&
+                                validation.transientMass <= Kcc20ReferenceProtocol.MAX_TRANSIENT_MASS &&
+                                validation.storageMass!! <= Kcc20ReferenceProtocol.MAX_STORAGE_MASS
+                        ) { "Rusty-Kaspa v1 mass exceeds the guide's standard transaction limits" }
+                        tx.mass = validation.storageMass!!
                         finalTransaction = tx
                         finalValidation = validation
                         finalFeeInputs = feeNodes
@@ -3267,10 +3269,12 @@ class DecentralViewModel(
                             require(noChangeValidation.computeMass >= 0L && noChangeValidation.storageMass != null) {
                                 "Rusty-Kaspa did not return contextual mass for the no-change transaction"
                             }
-                            tx.mass = maxOf(noChangeValidation.computeMass, noChangeValidation.storageMass!!)
-                            require(tx.mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-                                "Rusty-Kaspa transaction mass ${tx.mass} exceeds the standard relay limit"
-                            }
+                            require(
+                                noChangeValidation.computeMass <= Kcc20ReferenceProtocol.MAX_COMPUTE_MASS &&
+                                    noChangeValidation.transientMass <= Kcc20ReferenceProtocol.MAX_TRANSIENT_MASS &&
+                                    noChangeValidation.storageMass!! <= Kcc20ReferenceProtocol.MAX_STORAGE_MASS
+                            ) { "Rusty-Kaspa v1 mass exceeds the guide's standard transaction limits" }
+                            tx.mass = noChangeValidation.storageMass!!
                             finalTransaction = tx
                             finalValidation = noChangeValidation
                             finalFeeInputs = feeNodes
