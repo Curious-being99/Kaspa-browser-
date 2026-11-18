@@ -3002,6 +3002,10 @@ class DecentralViewModel(
             require(live.scriptPublicKeyVersion == expected.scriptPublicKey.version &&
                 live.scriptPublicKeyHex.equals(expected.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
             ) { "PSKT input $index locking script differs from the configured node UTXO" }
+            require(
+                expected.covenantId == null ||
+                    live.covenantId.equals(expected.covenantId, ignoreCase = true)
+            ) { "PSKT input $index covenant ID differs from the configured node UTXO" }
             if (expected.scriptPublicKey.version == 0 &&
                 Regex("aa20[0-9a-fA-F]{64}87").matches(expected.scriptPublicKey.script.replace(" ", ""))
             ) {
