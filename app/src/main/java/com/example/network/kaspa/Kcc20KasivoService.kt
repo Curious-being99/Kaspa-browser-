@@ -715,11 +715,14 @@ class Kcc20KasivoService(
                         val covenantId = sequenceOf("covenant_id", "covenantId")
                             .map { row.optString(it, "").trim().lowercase() }
                             .firstOrNull { it.isNotBlank() }.orEmpty()
-                        val valueText = sequenceOf("value_sompi", "sompi")
+                        val valueText = sequenceOf("kasSompi", "kas_sompi", "value_sompi", "amountSompi", "sompi")
                             .map { row.optString(it, "") }
                             .firstOrNull { it.isNotBlank() }
                         val valueSompi = valueText?.toLongOrNull()
-                        val cellAddress = row.optString("address", row.optString("cell_address", "")).trim()
+                        val cellAddress = row.optString(
+                            "address",
+                            row.optString("p2shAddress", row.optString("cell_address", ""))
+                        ).trim()
                         val programHex = sequenceOf("redeemScriptHex", "redeem_script_hex", "program", "program_hex", "redeem")
                             .map { row.optString(it, "") }
                             .firstOrNull { it.isNotBlank() }
