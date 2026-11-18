@@ -397,10 +397,7 @@ object KaspaDappBridge {
                                 cryptoExecutor.execute {
                                     val utxos = try {
                                         kotlinx.coroutines.runBlocking {
-                                            val nodeEndpoint = viewModel.kcc20NodeRpcEndpoint.value
-                                            if (nodeEndpoint.isNotBlank() &&
-                                                networkId(network) in setOf("mainnet", "testnet-10")
-                                            ) {
+                                            if (networkId(network) in setOf("mainnet", "testnet-10")) {
                                                 viewModel.fetchDappNodeUtxos(keyPair.kaspaAddress)
                                             } else {
                                                 viewModel.walletService.fetchDappUtxos(keyPair.kaspaAddress, network)
