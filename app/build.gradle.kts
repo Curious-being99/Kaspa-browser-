@@ -245,7 +245,7 @@ tasks.register("verifyKcc20ArgentArtifact") {
 
 internal object Kcc20ArgentArtifact {
     const val ARTIFACT_ID = "${generated["id"]}"
-    const val TEMPLATE_HASH = "${prefixHex.substring(6)}"
+    const val TEMPLATE_HASH = "${prefixHex.substring(4)}"
     const val PREFIX_HEX = "$prefixHex"
     const val SUFFIX_HEX = "$suffixHex"
 }
