@@ -189,7 +189,7 @@ object Kcc20ReferenceProtocol {
     }
 
     private fun pushMinimal(value: ByteArray): ByteArray {
-        if (value.isEmpty()) return byteArrayOf(0)
+        if (value.isEmpty() || (value.size == 1 && value[0].toInt() == 0)) return byteArrayOf(0)
         if (value.size == 1 && value[0].toInt() in 1..16) return byteArrayOf((0x50 + value[0].toInt()).toByte())
         if (value.size == 1 && (value[0].toInt() and 0xff) == 0x81) return byteArrayOf(0x4f)
         return pushExplicit(value)
