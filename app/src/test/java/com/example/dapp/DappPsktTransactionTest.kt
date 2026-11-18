@@ -1009,15 +1009,15 @@ class DappPsktTransactionTest {
     fun measuredVersionOneBudgetsRejectMissingOrOutOfRangeMeasurements() {
         val signed = JSONObject().put("tx", JSONObject().put("version", 1).put("inputs", JSONArray()
             .put(JSONObject().put("signatureScript", "41aa")))).toString()
-        assertThrows(IllegalArgumentException::class.java) {
+        assertTrue(runCatching {
             DappPsktTransaction.applyMeasuredComputeBudgets(signed, emptyList())
-        }
-        assertThrows(IllegalArgumentException::class.java) {
+        }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching {
             DappPsktTransaction.applyMeasuredComputeBudgets(signed, listOf(0))
-        }
-        assertThrows(IllegalArgumentException::class.java) {
+        }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching {
             DappPsktTransaction.applyMeasuredComputeBudgets(signed, listOf(65536))
-        }
+        }.exceptionOrNull() is IllegalArgumentException)
     }
 
 }
