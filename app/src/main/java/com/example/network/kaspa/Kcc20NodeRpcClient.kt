@@ -43,9 +43,12 @@ class Kcc20NodeRpcClient(
         require(actual == expectedNetwork) {
             "Configured Kaspa node is on ${actual.ifBlank { "an unknown network" }}, expected $expectedNetwork"
         }
-        val version = info.optString("serverVersion", "").trim()
-        require(version.contains("2.1.0")) {
-            "Configured node must run Rusty-Kaspa v2.1.0; node reported ${version.ifBlank { "no server version" }}"
+        val serverVersion = info.optString("serverVersion", "").trim()
+        require(serverVersion.isNotBlank()) {
+            "Configured Kaspa node did not report its server version"
+        }
+        require(info.optInt("rpcApiVersion", 0) > 0) {
+            "Configured Kaspa node did not report a supported RPC API version"
         }
         require(info.optBoolean("hasUtxoIndex", false)) {
             "Configured Rusty-Kaspa node does not have the UTXO index enabled"
