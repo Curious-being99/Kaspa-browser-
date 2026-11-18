@@ -639,7 +639,34 @@ object KaspaDappBridge {
                                         viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
                                             val signingOutcome = try {
-                                                Result.success(DappPsktTransaction.signForDapp(prepared, keyPair.privateKey))
+                                                require(viewModel.activeAccount.value?.did == account?.did &&
+                                                    viewModel.activeAccount.value?.handle == account?.handle &&
+                                                    viewModel.selectedNetwork.value == network
+                                                ) { "Active wallet or network changed while the transaction was awaiting approval. Reconnect and rebuild the PSKT." }
+                                                val signed = DappPsktTransaction.signForDapp(prepared, keyPair.privateKey)
+                                                val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
+                                                    Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
+                                                }
+                                                val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
+                                                if (hasCovenantInputs || hasCovenantOutputs) {
+                                                    require(prepared.transaction.version == 1) {
+                                                        "KCC20 covenant PSKTs must use version 1"
+                                                    }
+                                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
+                                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                                    }
+                                                    require(inputAddresses.all { it.startsWith("$prefix:") }) {
+                                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
+                                                    }
+                                                    kotlinx.coroutines.runBlocking {
+                                                        viewModel.validateDappCovenantPskt(
+                                                            transaction = prepared.transaction,
+                                                            utxoEntries = prepared.utxoEntries,
+                                                            inputAddresses = inputAddresses
+                                                        )
+                                                    }
+                                                }
+                                                Result.success(signed)
                                             } catch (error: Throwable) {
                                                 Result.failure(error)
                                             }
@@ -1166,6 +1193,35 @@ object KaspaDappBridge {
                                 }
                                 return@execute
                             }
+                            val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
+                                Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
+                            }
+                            val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
+                            if (hasCovenantInputs || hasCovenantOutputs) {
+                                try {
+                                    require(prepared.transaction.version == 1) {
+                                        "KCC20 covenant PSKTs must use version 1"
+                                    }
+                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
+                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                    }
+                                    require(inputAddresses.all { it.startsWith("$prefix:") }) {
+                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
+                                    }
+                                    kotlinx.coroutines.runBlocking {
+                                        viewModel.validateDappCovenantPskt(
+                                            transaction = prepared.transaction,
+                                            utxoEntries = prepared.utxoEntries,
+                                            inputAddresses = inputAddresses
+                                        )
+                                    }
+                                } catch (error: Throwable) {
+                                    mainHandler.post {
+                                        respond(errorCode = -32602, errorMessage = error.message ?: "Rusty-Kaspa covenant verification failed")
+                                    }
+                                    return@execute
+                                }
+                            }
                             mainHandler.post {
                                 val firstOutput = prepared.transaction.outputs.firstOrNull()
                                 val outKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
@@ -1185,6 +1241,13 @@ object KaspaDappBridge {
                                     totalAmountKas = outKas,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
+                                        if (viewModel.activeAccount.value?.did != account?.did ||
+                                            viewModel.activeAccount.value?.handle != account?.handle ||
+                                            viewModel.selectedNetwork.value != network
+                                        ) {
+                                            respond(errorCode = 4100, errorMessage = "Active wallet or network changed while awaiting broadcast approval")
+                                            return@SignTransaction
+                                        }
                                         cryptoExecutor.execute {
                                             val receipt = try {
                                                 kotlinx.coroutines.runBlocking {
