@@ -200,13 +200,13 @@ tasks.register("verifyKcc20ArgentArtifact") {
       "KCC20 Argent source, artifact fixture, or pinned Silverscript is missing"
     }
     delete(outputDir)
-    exec {
-      workingDir = rootDir
+    providers.exec {
+      workingDir(rootDir)
       commandLine(
         "cargo", "run", "--locked", "--manifest-path", manifest.absolutePath,
         "--", "build", source.absolutePath, "--app", "KCC20PublicMint", "--out", outputDir.absolutePath
       )
-    }
+    }.result.get().assertNormalExitValue()
 
     val generatedArtifactFile = file("$outputDir/artifact.json")
     require(generatedArtifactFile.isFile) { "argentc did not generate artifact.json" }
