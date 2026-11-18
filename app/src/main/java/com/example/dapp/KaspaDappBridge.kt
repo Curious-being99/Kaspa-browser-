@@ -1886,7 +1886,7 @@ object KaspaDappBridge {
                       configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
                     });
                     Object.defineProperty(window, 'kaspaBrowser', {
-                      configurable: true, enumerable: true, writable: true, value: browserProvider
+                      configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
                     });
                   } catch (_) {}
 
@@ -1896,7 +1896,7 @@ object KaspaDappBridge {
                   if (!Object.prototype.hasOwnProperty.call(walletNamespace, 'kaspa')) {
                     try {
                       Object.defineProperty(walletNamespace, 'kaspa', {
-                        configurable: false, enumerable: true, writable: false, value: browserProvider
+                        configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
                       });
                       if (window.wallet !== walletNamespace) {
                         Object.defineProperty(window, 'wallet', {
