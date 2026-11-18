@@ -3551,7 +3551,12 @@ if (!Kcc20RustyKaspaEngine.isAvailable()) {
                     amount = amountBaseUnits.toString(),
                     amountLabel = "Exact token base units",
                     destination = recipient,
-                    tokenDetails = "Covenant ID: $family\\nExact base units: $amountBaseUnits",
+                    tokenDetails = buildString {
+                        Kcc20NoteScanner.KNOWN_TOKENS[family]?.let { metadata ->
+                            append("Name: ${metadata.name}\\nTicker: ${metadata.ticker}\\nDecimals: ${metadata.decimals}\\nMetadata source: pinned token list\\n")
+                        }
+                        append("Covenant ID: $family\\nExact base units: $amountBaseUnits")
+                    },
                     inputsCount = tx.inputs.size,
                     feeKas = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(actualFeeSompi)),
                     totalAmountKas = KaspaTransactionEngine.formatKas(
