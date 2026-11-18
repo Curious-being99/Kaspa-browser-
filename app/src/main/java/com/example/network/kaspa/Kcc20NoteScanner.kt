@@ -595,7 +595,7 @@ object Kcc20NoteScanner {
                 val spk = readScriptHex(out)
                 if (!Regex("^aa20([0-9a-fA-F]{64})87$").matches(spk)) continue
                 val targetHash = spk.substring(4, 68).lowercase()
-                val covenantId = resolveCovenantId(out, inputsArray) ?: continue
+                val covenantId = resolveCovenantId(out) ?: continue
                 val sompiAmount = readAmount(out)
 
                 // Match against rebuilt redeem scripts for all candidate amounts and templates
