@@ -207,4 +207,25 @@ class Kcc20ReferenceProtocolTest {
         )
     }
 
+
+    @Test
+    fun reverseSwapDelegatorWitnessUsesReferenceTagWithoutLeaderPathByte() {
+        val state = Kcc20ReferenceProtocol.State(
+            amount = BigInteger.valueOf(1000),
+            owner = ByteArray(32) { 0x11 },
+            ownerScheme = 0x00,
+            borrowScheme = 0x01,
+            borrowGuard = ByteArray(32) { 0x22 },
+            extensionCommitment = ByteArray(32) { 0x33 }
+        )
+        val program = Kcc20ReferenceProtocol.programFor(state)
+        val signature = ByteArray(65) { 0x44 }.also { it[64] = 0x01 }
+        val witness = Kcc20ReferenceProtocol.delegatorSignatureScript(signature, program)
+        val hex = Kcc20ReferenceProtocol.bytesToHex(witness)
+        assertTrue(hex.startsWith("41" + Kcc20ReferenceProtocol.bytesToHex(signature) + "04fd3ef14a"))
+        assertTrue(hex.endsWith("4dbf0f" + Kcc20ReferenceProtocol.bytesToHex(program)))
+        assertEquals(state.borrowScheme, Kcc20ReferenceProtocol.verifyProgram(program).borrowScheme)
+    }
+
+
 }
