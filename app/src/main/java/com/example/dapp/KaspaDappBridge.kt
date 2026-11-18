@@ -1567,7 +1567,7 @@ object KaspaDappBridge {
                     },
                     getAccounts: async () => {
                       const accounts = await request('getAccounts');
-                      emit('accountsChanged', accounts);
+                      publishAccounts(accounts);
                       return accounts;
                     },
                     getNetwork: async () => {
@@ -1596,7 +1596,7 @@ object KaspaDappBridge {
                     },
                     enable: async () => {
                       const accounts = await request('requestAccounts');
-                      emit('accountsChanged', accounts);
+                      publishAccounts(accounts);
                       return accounts;
                     },
                     on,
