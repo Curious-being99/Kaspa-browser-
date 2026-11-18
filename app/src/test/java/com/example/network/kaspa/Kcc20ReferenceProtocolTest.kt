@@ -234,7 +234,15 @@ class Kcc20ReferenceProtocolTest {
     fun argentAndSilverscriptSourcesMatchPinnedCompiledReferenceArtifact() {
         val context = javaClass
         val fixture = context.getResourceAsStream("/kcc20-reference/artifact-template.json")!!
-            .bufferedReader().use { org.json.JSONObject(it.readText()) }
+            .bufferedReader().use { it.readText() }
+        fun stringField(name: String): String =
+            Regex("\\\"\$name\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
+                .find(fixture)?.groupValues?.get(1)
+                ?: error("Missing string field in pinned KCC20 fixture: \$name")
+        fun intField(name: String): Int =
+            Regex("\\\"\$name\\\"\\s*:\\s*(\\d+)")
+                .find(fixture)?.groupValues?.get(1)?.toInt()
+                ?: error("Missing integer field in pinned KCC20 fixture: \$name")
         val argentSource = context.getResourceAsStream("/kcc20-reference/kcc20.ag")!!
             .bufferedReader().use { it.readText() }
         val silverscript = context.getResourceAsStream("/kcc20-reference/KCC20.sil")!!
@@ -268,8 +276,12 @@ class Kcc20ReferenceProtocolTest {
     @Test(expected = IllegalArgumentException::class)
     fun compilerArtifactWithChangedBytecodeIsRejected() {
         val fixture = javaClass.getResourceAsStream("/kcc20-reference/artifact-template.json")!!
-            .bufferedReader().use { org.json.JSONObject(it.readText()) }
-        val suffix = fixture.getString("suffix_hex")
+            .bufferedReader().use { it.readText() }
+        fun stringField(name: String): String =
+            Regex("\\\"\$name\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")
+                .find(fixture)?.groupValues?.get(1)
+                ?: error("Missing string field in pinned KCC20 fixture: \$name")
+        val suffix = stringField("suffix_hex")
         val changed = (if (suffix.startsWith("00")) "01" else "00") + suffix.substring(2)
         Kcc20ReferenceProtocol.verifyCompilerArtifactTemplate(
             fixture.getString("artifact_id"),
