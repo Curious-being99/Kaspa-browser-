@@ -14,7 +14,7 @@ use kaspa_txscript::{EngineCtx, TxScriptEngine};
 use serde_json::{json, Value};
 use std::str::FromStr;
 
-const KCC20_ARTIFACT_FIXTURE: &str = include_str!("../../app/build/generated/kcc20-argent/kcc20-runtime.json");
+const KCC20_ARTIFACT_FIXTURE: &str = include_str!("../../app/src/test/resources/kcc20-reference/artifact-template.json");
 
 fn bytes(value: &Value) -> Result<Vec<u8>, String> {
     let hex = value.as_str().ok_or_else(|| "Expected hex string".to_string())?;
