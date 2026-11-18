@@ -6,6 +6,7 @@ on:
       - main
       - master
       - draft/evm-kasplex-igra-provider-clean
+      - fix/general-kcc20-node-engine-ci
   pull_request:
     branches:
       - main
