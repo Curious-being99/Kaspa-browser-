@@ -89,8 +89,11 @@ object Kcc20RustyKaspaEngine {
                 }
             })
             put("utxos", JSONArray().apply {
-                spentUtxos.forEach { utxo ->
+                spentUtxos.forEachIndexed { index, utxo ->
+                    val input = transaction.inputs[index]
                     put(JSONObject().apply {
+                        put("txid", input.previousOutpoint.transactionId)
+                        put("index", input.previousOutpoint.index)
                         put("amount", utxo.amount.toString())
                         put("spkVersion", utxo.scriptPublicKeyVersion)
                         put("script", utxo.scriptPublicKeyHex)
