@@ -82,9 +82,6 @@ jobs:
           path: kcc20-engine/Cargo.lock
           if-no-files-found: error
 
-      - name: Run KCC20 Rust planner and witness tests
-        run: cargo test --locked --manifest-path kcc20-engine/Cargo.toml
-
       - name: Install cargo-ndk
         shell: bash
         run: |
@@ -105,6 +102,13 @@ jobs:
           git -C "$RUNNER_TEMP/argent" checkout 9a9f4b107116d0b259fae629f200fa3b663e7e9d
           test "$(git -C "$RUNNER_TEMP/argent" rev-parse HEAD)" = "9a9f4b107116d0b259fae629f200fa3b663e7e9d"
           echo "ARGENT_COMPILER_MANIFEST=$RUNNER_TEMP/argent/Cargo.toml" >> "$GITHUB_ENV"
+
+      - name: Generate and verify KCC20 runtime artifact before Rust compilation
+        run: gradle :app:verifyKcc20ArgentArtifact --no-daemon --stacktrace
+
+      - name: Run KCC20 Rust planner and witness tests
+        run: cargo test --locked --manifest-path kcc20-engine/Cargo.toml
+
 
       - name: Install Android NDK
         run: |
