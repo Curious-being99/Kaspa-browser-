@@ -74,10 +74,12 @@ class Kcc20NodeRpcClient(
                 val outputIndex = outpoint.optInt("index", outpoint.optInt("outputIndex", -1))
                 val amount = runCatching { parseLong(entry, "amount") }
                     .getOrElse { parseLong(wrapper, "amount") }
-                val scriptValue = entry.opt("scriptPublicKey")
-                    ?: entry.opt("script_public_key")
-                    ?: wrapper.opt("scriptPublicKey")
-                    ?: wrapper.opt("script_public_key")
+                val scriptValue = sequenceOf(
+                    entry.opt("scriptPublicKey"),
+                    entry.opt("script_public_key"),
+                    wrapper.opt("scriptPublicKey"),
+                    wrapper.opt("script_public_key")
+                ).firstOrNull { it != null && it != JSONObject.NULL }
                     ?: throw IllegalStateException("Node UTXO is missing its script public key")
                 val scriptObject = scriptValue as? JSONObject
                 val script = if (scriptObject != null) {
@@ -96,8 +98,13 @@ class Kcc20NodeRpcClient(
                     )
                 }
                 val covenantId = sequenceOf("covenantId", "covenant_id")
-                    .map { key -> entry.optString(key, wrapper.optString(key, "")).trim().lowercase() }
-                    .firstOrNull { it.isNotBlank() && it != "null" }
+                    .mapNotNull { key ->
+                        sequenceOf(entry, wrapper).firstNotNullOfOrNull { source ->
+                            if (!source.has(key) || source.isNull(key)) null
+                            else source.optString(key).trim().lowercase().takeIf { it.isNotBlank() && it != "null" }
+                        }
+                    }
+                    .firstOrNull()
                 require(txid.matches(Regex("[0-9a-f]{64}")) && outputIndex >= 0 && amount > 0L) {
                     "Node returned a malformed UTXO outpoint or amount"
                 }
