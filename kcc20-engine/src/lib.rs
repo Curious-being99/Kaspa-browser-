@@ -318,12 +318,15 @@ fn assemble_reference_witness(request_text: &str) -> Result<String, String> {
        suffix!=decode_hex(pinned["suffix_hex"].as_str().ok_or("Missing pinned suffix")?)? {
         return Err("Witness template differs from pinned Argent artifact".into());
     }
-    let signature=decode_hex(req["signature65"].as_str().ok_or("Missing 65-byte signature")?)?;
-    if signature.len()!=65 || signature[64]!=1 { return Err("KCC20 witness requires 65-byte SIGHASH_ALL signature".into()); }
+    let signature=if req["signature65"].is_null() { None } else {
+        let value=decode_hex(req["signature65"].as_str().ok_or("Invalid signature65")?)?;
+        if value.len()!=65 || value[64]!=1 { return Err("KCC20 witness requires 65-byte SIGHASH_ALL signature".into()); }
+        Some(value)
+    };
     let program=decode_hex(req["program"].as_str().ok_or("Missing consumed program")?)?;
     let (amount,_owner,owner_scheme,borrow_scheme,guard,extension)=decode_reference_state(&program,&template,&suffix)?;
-    if owner_scheme!=0 || borrow_scheme!=0 || guard.iter().any(|b|*b!=0) || extension.iter().any(|b|*b!=0) {
-        return Err("Witness assembly only supports the guide-verified normal P2PK path".into());
+    if borrow_scheme!=0 || guard.iter().any(|b|*b!=0) || extension.iter().any(|b|*b!=0) {
+        return Err("Witness assembly only supports the guide-verified normal borrow-disabled, zero-extension path".into());
     }
     let leader=req["leader"].as_bool().ok_or("Missing leader flag")?;
     let mut script=Vec::new();
@@ -339,11 +342,22 @@ fn assemble_reference_witness(request_text: &str) -> Result<String, String> {
             amounts.extend_from_slice(&a.to_le_bytes()); owners.extend(o); owner_schemes.push(os); borrow_schemes.push(bs); guards.extend(g); extensions.extend(e);
         }
         for column in [amounts,owners,owner_schemes,borrow_schemes,guards,extensions] { script.extend(minimal_push(&column)); }
-        let mut sig=vec![0]; sig.extend(signature);
-        script.extend(minimal_push(&sig));
+        match owner_scheme {
+            0 => {
+                let mut sig=vec![0];
+                sig.extend(signature.as_ref().ok_or("Scheme-0 KCC20 leader requires its owner's signature")?);
+                script.extend(minimal_push(&sig));
+            }
+            4 => {
+                if signature.is_some() { return Err("Scheme-4 covenant-owned leader must not carry a wallet signature".into()); }
+                script.extend(minimal_push(&[0]));
+            }
+            _ => return Err("Only guide-established scheme-0 and scheme-4 leaders are supported".into()),
+        }
         script.extend_from_slice(&[4,0x79,0xc7,0x1c,0x23]);
     } else {
-        script.extend(minimal_push(&signature));
+        if owner_scheme!=0 { return Err("Only scheme-0 KCC20 delegators are established by the guide".into()); }
+        script.extend(minimal_push(signature.as_ref().ok_or("KCC20 delegator requires its owner's signature")?));
         script.extend_from_slice(&[4,0xfd,0x3e,0xf1,0x4a]);
     }
     script.extend(minimal_push(&program));
