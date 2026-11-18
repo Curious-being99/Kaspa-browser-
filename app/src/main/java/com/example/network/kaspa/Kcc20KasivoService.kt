@@ -705,20 +705,19 @@ class Kcc20KasivoService(
                     for (index in 0 until rows.length()) {
                         val row = rows.optJSONObject(index) ?: continue
                         val outpoint = row.optString("outpoint").trim()
-                        val txid = row.optString("txid", row.optString("transaction_id", ""))
-                            .trim().lowercase().ifBlank {
-                                outpoint.substringBefore(':').takeIf { outpoint.contains(':') }.orEmpty()
-                            }
-                        val outputIndex = row.optInt(
-                            "vout",
-                            row.optInt("output_index", outpoint.substringAfter(':', "").toIntOrNull() ?: -1)
-                        )
-                        val covenantId = row.optString("covenant_id", row.optString("covenantId", ""))
-                            .trim().lowercase()
-                        val valueText = sequenceOf("value_sompi", "sompi", "amount")
-                            .firstNotNullOfOrNull { key ->
-                                if (!row.has(key) || row.isNull(key)) null else row.opt(key)?.toString()
-                            }
+                        val txid = sequenceOf("txid", "transaction_id", "tx_id")
+                            .map { row.optString(it, "").trim().lowercase() }
+                            .firstOrNull { it.isNotBlank() }
+                            ?: outpoint.substringBefore(':').takeIf { outpoint.contains(':') }.orEmpty()
+                        val outputIndex = sequenceOf("vout", "output_index", "index")
+                            .mapNotNull { row.optString(it, "").toIntOrNull() }
+                            .firstOrNull() ?: outpoint.substringAfter(':', "").toIntOrNull() ?: -1
+                        val covenantId = sequenceOf("covenant_id", "covenantId")
+                            .map { row.optString(it, "").trim().lowercase() }
+                            .firstOrNull { it.isNotBlank() }.orEmpty()
+                        val valueText = sequenceOf("value_sompi", "sompi")
+                            .map { row.optString(it, "") }
+                            .firstOrNull { it.isNotBlank() }
                         val valueSompi = valueText?.toLongOrNull()
                         val cellAddress = row.optString("address", row.optString("cell_address", "")).trim()
                         val programHex = sequenceOf("redeemScriptHex", "redeem_script_hex", "program", "program_hex", "redeem")
