@@ -235,6 +235,56 @@ class Kcc20ReferenceProtocolTest {
         val context = javaClass
         val fixture = context.getResourceAsStream("/kcc20-reference/artifact-template.json")!!
             .bufferedReader().use { it.readText() }
+        fun stringField(name: String): String =
+            Regex("\"" + Regex.escape(name) + "\"\\s*:\\s*\"([^\"]*)\"")
+                .find(fixture)?.groupValues?.get(1)
+                ?: error("Missing string field in pinned KCC20 fixture: $name")
+        fun intField(name: String): Int =
+            Regex("\"" + Regex.escape(name) + "\"\\s*:\\s*(\\d+)")
+                .find(fixture)?.groupValues?.get(1)?.toInt()
+                ?: error("Missing integer field in pinned KCC20 fixture: $name")
+        val argentSource = context.getResourceAsStream("/kcc20-reference/kcc20.ag")!!
+            .bufferedReader().use { it.readText() }
+        val silverscript = context.getResourceAsStream("/kcc20-reference/KCC20.sil")!!
+            .bufferedReader().use { it.readText() }
+
+        assertEquals(Kcc20ReferenceProtocol.ARTIFACT_ID, stringField("artifact_id"))
+        assertEquals(Kcc20ReferenceProtocol.REFERENCE_SOURCE_COMMIT, stringField("source_commit"))
+        assertEquals(Kcc20ReferenceProtocol.ARGENT_COMPILER_REVISION, stringField("argent_compiler_revision"))
+        assertEquals(Kcc20ReferenceProtocol.TEMPLATE_HASH, stringField("template_hash"))
+        assertEquals(145, intField("state_length"))
+        assertEquals(4031, intField("program_length"))
+
+        Kcc20ReferenceProtocol.verifyCompilerArtifactTemplate(
+            stringField("artifact_id"),
+            stringField("prefix_hex"),
+            stringField("suffix_hex")
+        )
+
+        assertTrue(argentSource.contains("actor KCC20 owns KCC20State"))
+        assertTrue(argentSource.contains("entry transfer("))
+        assertTrue(argentSource.contains("delegate transfer_delegator("))
+        assertTrue(argentSource.contains("require(output_total == input_total)"))
+        assertTrue(argentSource.contains("require_owner_authorized(owner, owner_scheme, path_witness)"))
+
+        assertTrue(silverscript.contains("contract KCC20("))
+        assertTrue(silverscript.contains("require(OpCovOutputCount(gen__cov_id) == OpAuthOutputCount(this.activeInputIndex))"))
+        assertTrue(silverscript.contains("validateOutputState("))
+        assertTrue(silverscript.contains("entry transfer_delegator("))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun compilerArtifactWithChangedBytecodeIsRejected() {
+        val fixture = javaClass.getResourceAsStream("/kcc20-reference/artifact-template.json")!!
+            .bufferedReader().use { it.readText() }
+        fun stringField(name: String): String =
+            Regex("\"" + Regex.escape(name) + "\"\\s*:\\s*\"([^\"]*)\"")
+                .find(fixture)?.groupValues?.get(1)
+                ?: error("Missing string field in pinned KCC20 fixture: $name")
+        fun intField(name: String): Int =
+            Regex("\"" + Regex.escape(name) + "\"\\s*:\\s*(\\d+)")
+                .find(fixture)?.groupValues?.get(1)?.toInt()
+                ?: error("Missing integer field in pinned KCC20 fixture: $name")
         val suffix = stringField("suffix_hex")
         val changed = (if (suffix.startsWith("00")) "01" else "00") + suffix.substring(2)
         Kcc20ReferenceProtocol.verifyCompilerArtifactTemplate(
