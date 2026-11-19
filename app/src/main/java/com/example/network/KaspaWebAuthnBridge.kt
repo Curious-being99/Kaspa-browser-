@@ -74,10 +74,10 @@ data class RecordedPasskeyInfo(
 
 /**
  * Origin-checked, main-frame-only WebAuthn / FIDO2 Passkey coordinator built on
- * Android WebView's app-associated WebAuthn mode, Jetpack WebKit
+ * Android WebView's browser-mode WebAuthn, Jetpack WebKit
  * `WebMessageListener` + `DOCUMENT_START_SCRIPT`, and Android `CredentialManager`.
- * This does not grant browser-wide WebAuthn origin delegation; relying-party domains
- * must associate the app through Digital Asset Links.
+ * Browser mode requires CREDENTIAL_MANAGER_SET_ORIGIN and credential-provider approval
+ * before third-party relying-party origins can be served.
  *
  * Key reliability guarantees:
  * - Preserves browser user activation by invoking Chromium's real native WebAuthn
