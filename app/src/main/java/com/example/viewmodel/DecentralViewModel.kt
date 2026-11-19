@@ -2978,18 +2978,25 @@ class DecentralViewModel(
             val isCovenantCell = expected.scriptPublicKey.version == 0 &&
                 Regex("aa20[0-9a-fA-F]{64}87").matches(expected.scriptPublicKey.script.replace(" ", ""))
             if (isCovenantCell) {
-                val expectedFamily = expected.covenantId?.trim()?.lowercase()
+                val liveFamily = live.covenantId?.trim()?.lowercase()
                     ?: throw IllegalArgumentException(
-                        "PSKT covenant input $index is missing its declared 32-byte covenant ID"
+                        "Public node did not return a covenant ID for PSKT covenant input $index"
                     )
-                require(expectedFamily.matches(Regex("[0-9a-f]{64}"))) {
-                    "PSKT covenant input $index has a malformed covenant ID"
+                require(liveFamily.matches(Regex("[0-9a-f]{64}"))) {
+                    "Public node returned a malformed covenant ID for PSKT input $index"
                 }
-                require(live.covenantId?.equals(expectedFamily, ignoreCase = true) == true) {
-                    "PSKT input $index covenant ID differs from the public-node UTXO"
+                val declaredFamily = expected.covenantId?.trim()?.lowercase()
+                if (declaredFamily != null) {
+                    require(declaredFamily.matches(Regex("[0-9a-f]{64}"))) {
+                        "PSKT covenant input $index has a malformed declared covenant ID"
+                    }
+                    require(liveFamily == declaredFamily) {
+                        "PSKT input $index covenant ID differs from the public-node UTXO"
+                    }
                 }
             } else if (expected.covenantId != null) {
-                require(live.covenantId?.equals(expected.covenantId, ignoreCase = true) == true) {
+                val declaredFamily = expected.covenantId.trim().lowercase()
+                require(live.covenantId?.equals(declaredFamily, ignoreCase = true) == true) {
                     "PSKT input $index covenant ID differs from the public-node UTXO"
                 }
             }
@@ -3007,6 +3014,26 @@ class DecentralViewModel(
             )
         }
         endpoint to spentUtxos
+    }
+
+    suspend fun resolveVerifiedDappPsktUtxoEntries(
+        transaction: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        inputAddresses: List<String>
+    ): List<KaspaTransactionEngine.KaspaUtxoEntry> {
+        val (_, verified) = fetchVerifiedDappPsktUtxos(transaction, utxoEntries, inputAddresses)
+        return verified.map { live ->
+            KaspaTransactionEngine.KaspaUtxoEntry(
+                amount = live.amount,
+                scriptPublicKey = KaspaTransactionEngine.KaspaScriptPublicKey(
+                    version = live.scriptPublicKeyVersion,
+                    script = live.scriptPublicKeyHex
+                ),
+                blockDaaScore = live.daaScore,
+                isCoinbase = live.isCoinbase,
+                covenantId = live.covenantId
+            )
+        }
     }
 
     suspend fun verifyDappCovenantPsktInputs(
