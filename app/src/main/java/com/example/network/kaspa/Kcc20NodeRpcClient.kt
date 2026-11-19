@@ -110,7 +110,7 @@ class Kcc20NodeRpcClient(
         getUtxosByAddressesAtEndpoint(endpoint, listOf(address))
 
     suspend fun getUtxosByAddressForNetwork(expectedNetwork: String, address: String): List<NodeUtxo> =
-        getUtxosByAddressAtEndpoint(resolveEndpoint(expectedNetwork), address)
+        getUtxosByAddress(resolveEndpoint(expectedNetwork), address)
 
     suspend fun getUtxosByAddressesForNetwork(expectedNetwork: String, addresses: List<String>): List<NodeUtxo> =
         getUtxosByAddressesAtEndpoint(resolveEndpoint(expectedNetwork), addresses)
