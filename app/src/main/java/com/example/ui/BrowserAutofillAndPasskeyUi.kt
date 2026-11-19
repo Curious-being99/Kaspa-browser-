@@ -444,10 +444,6 @@ fun PasskeyConfirmationDialog(
     onApprove: () -> Unit,
     onDecline: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var isAuthenticating by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
-
     val isSignIn = request.kind == PasskeyPromptKind.SIGN_IN
     val title = when {
         isSignIn -> "Use Passkey to Sign In"
@@ -537,7 +533,7 @@ fun PasskeyConfirmationDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "RELYING PARTY ORIGIN",
+                        text = "WEBSITE",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextMuted,
@@ -552,10 +548,27 @@ fun PasskeyConfirmationDialog(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "PASSKEY RP ID",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = request.rpId,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     if (request.username.isNotBlank()) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Account: ${request.username}",
+                            text = "Account hint: ${request.username}",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -566,26 +579,15 @@ fun PasskeyConfirmationDialog(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = if (isSignIn) 
-                    "Confirm passkey authentication with device biometrics to securely verify your identity with ${request.host}." 
-                else 
-                    "Create a hardware-backed passkey for ${request.host} stored securely in your device vault.",
+                text = if (isSignIn)
+                    "Kaspa Browser will now ask Android to show passkeys available for this website. Choose an account in the Android passkey sheet, then verify with your device biometrics or screen lock. Kaspa Browser never receives your biometric data or passkey private key."
+                else
+                    "Kaspa Browser will pass this website's registration request to Android. Android and your credential provider handle passkey creation and device verification; the website remains responsible for verifying the returned credential.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
                 lineHeight = 18.sp
             )
-
-            if (authError != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = authError!!,
-                    color = RedTamper,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                )
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -608,25 +610,7 @@ fun PasskeyConfirmationDialog(
                 }
 
                 Button(
-                    onClick = {
-                        if (isAuthenticating) return@Button
-                        isAuthenticating = true
-                        authError = null
-                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                            context = context,
-                            title = "System Passkey Manager",
-                            subtitle = "Verify identity for ${request.host}",
-                            onSuccess = {
-                                isAuthenticating = false
-                                onApprove()
-                            },
-                            onError = { errString ->
-                                isAuthenticating = false
-                                authError = errString.ifBlank { "Biometric verification failed" }
-                            }
-                        )
-                    },
-                    enabled = !isAuthenticating,
+                    onClick = onApprove,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -634,21 +618,13 @@ fun PasskeyConfirmationDialog(
                         .height(48.dp)
                         .testTag("passkey_confirm_approve_button")
                 ) {
-                    if (isAuthenticating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = ObsidianBg,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text(
-                            text = if (isSignIn) "Sign In" else "Create Passkey",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                    Text(
+                        text = if (isSignIn) "Continue to Passkeys" else "Continue to Create",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }
