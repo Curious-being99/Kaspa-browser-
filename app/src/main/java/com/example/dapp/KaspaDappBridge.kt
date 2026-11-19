@@ -577,7 +577,7 @@ object KaspaDappBridge {
                                 network = network
                             )
 
-                            val prepared = try {
+                            var prepared = try {
                                 DappPsktTransaction.prepareForSigning(
                                     txJson,
                                     signInputs,
@@ -594,6 +594,32 @@ object KaspaDappBridge {
                                 Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
                             }
                             val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
+                            if (hasCovenantInputs || hasCovenantOutputs) {
+                                try {
+                                    require(prepared.transaction.version == 1) {
+                                        "KCC20 covenant PSKTs must use transaction version 1"
+                                    }
+                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
+                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                    }
+                                    require(inputAddresses.all { it.startsWith("$prefix:", ignoreCase = true) }) {
+                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
+                                    }
+                                    val verifiedEntries = kotlinx.coroutines.runBlocking {
+                                        viewModel.resolveVerifiedDappPsktUtxoEntries(
+                                            transaction = prepared.transaction,
+                                            utxoEntries = prepared.utxoEntries,
+                                            inputAddresses = inputAddresses
+                                        )
+                                    }
+                                    prepared = prepared.copy(utxoEntries = verifiedEntries)
+                                } catch (error: Throwable) {
+                                    mainHandler.post {
+                                        respond(errorCode = -32602, errorMessage = error.message ?: "KCC20 inputs could not be verified against the active network node")
+                                    }
+                                    return@execute
+                                }
+                            }
                             val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
                             val resolvedDest = prepared.transaction.outputs.mapIndexed { index, out ->
                                 val script = out.scriptPublicKey.script.replace(" ", "").lowercase()
