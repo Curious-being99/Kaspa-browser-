@@ -22,7 +22,7 @@
 
 ---
 
-## System Architecture & Visual Overview
+ System Architecture & Visual Overview
 
 <p align="center">
   <a href="architecture_3d_overview.gif" title="KaspaBrowser Architecture Overview">
