@@ -22,9 +22,9 @@ object KaspaWebViewConfigurator {
     private val appliedWebAuthLevel = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Int>())
 
     /**
-     * Enables the supported app-associated WebAuthn mode for Android WebView.
-     * Each relying-party domain must explicitly associate this APK with Digital Asset Links.
-     * Browser-wide origin delegation is reserved for platform-authorized browser integrations.
+     * Enables Android WebView browser-mode WebAuthn for arbitrary relying-party origins.
+     * This requires CREDENTIAL_MANAGER_SET_ORIGIN in the manifest and approval by
+     * credential providers for third-party relying-party access.
      * Returns the runtime-applied support level or -1 if unsupported.
      */
     fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
@@ -37,10 +37,10 @@ object KaspaWebViewConfigurator {
                 }
                 if (alreadyApplied) {
                     return synchronized(appliedWebAuthLevel) { appliedWebAuthLevel[settings] }
-                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
                 }
                 val targetLevel = if (enabled) {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
                 } else {
                     WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
                 }
