@@ -4215,8 +4215,13 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     event = recoveryEvent,
                     matchingPasswordCredentials = matchingAutofillCredentials,
                     onContinueInCustomTab = {
-                        com.example.engine.BrowserEngineManager.openInCustomTab(context, recoveryEvent.url)
-                        pendingPasskeyRecovery = null
+                        val launched = com.example.engine.BrowserEngineManager.openInExternalBrowser(context, recoveryEvent.url)
+                        if (launched) {
+                            pendingPasskeyRecovery = null
+                            viewModel.setStatusMessage("Opened in browser. Tap Sign in with passkey again there; the pending WebView request cannot be transferred.")
+                        } else {
+                            viewModel.setStatusMessage("No external browser is available to continue passkey sign-in.")
+                        }
                     },
                     onUseSavedPassword = { cred ->
                         val rawPass = viewModel.decryptVaultPassword(cred)
