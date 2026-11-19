@@ -1230,8 +1230,13 @@ fun PwaStandaloneScreen(
                     event = recoveryEvent,
                     matchingPasswordCredentials = pwaMatchingCreds,
                     onContinueInCustomTab = {
-                        com.example.engine.BrowserEngineManager.openInCustomTab(context, recoveryEvent.url)
-                        pwaPendingPasskeyRecovery = null
+                        val launched = com.example.engine.BrowserEngineManager.openInExternalBrowser(context, recoveryEvent.url)
+                        if (launched) {
+                            pwaPendingPasskeyRecovery = null
+                            Toast.makeText(context, "Opened in browser. Tap Sign in with passkey again there; the pending WebView request cannot be transferred.", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "No external browser is available to continue passkey sign-in.", Toast.LENGTH_LONG).show()
+                        }
                     },
                     onUseSavedPassword = { cred ->
                         val pw = pwaVaultRepo.decryptPassword(cred)
