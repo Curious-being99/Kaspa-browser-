@@ -4,6 +4,15 @@ import org.gradle.process.ExecOperations
 import javax.inject.Inject
 import java.io.ByteArrayOutputStream
 
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.OutputDirectory
+
+abstract class Kcc20ArgentGeneratedSources : DefaultTask() {
+  @get:OutputDirectory
+  abstract val outputDirectory: DirectoryProperty
+}
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -134,7 +143,6 @@ android {
   sourceSets {
     getByName("main") {
       jniLibs.srcDirs("src/main/jniLibs", "build/rustJniLibs")
-      java.srcDir("$buildDir/generated/kcc20-argent/src")
     }
   }
   dependenciesInfo {
@@ -275,6 +283,17 @@ internal object Kcc20ArgentArtifact {
 
 tasks.named("cargoBuildKcc20Engine").configure {
   dependsOn("verifyKcc20ArgentArtifact")
+}
+
+val kcc20ArgentGeneratedSources = tasks.register<Kcc20ArgentGeneratedSources>("kcc20ArgentGeneratedSources") {
+  outputDirectory.set(layout.buildDirectory.dir("generated/kcc20-argent/src"))
+  dependsOn("verifyKcc20ArgentArtifact")
+}
+
+androidComponents.onVariants { variant ->
+  variant.sources.java?.addGeneratedSourceDirectory(kcc20ArgentGeneratedSources) {
+    it.outputDirectory
+  }
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
