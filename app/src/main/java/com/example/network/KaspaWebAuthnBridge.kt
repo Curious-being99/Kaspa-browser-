@@ -730,6 +730,11 @@ object KaspaWebAuthnBridge {
                     window.__kaspaWebAuthnInjected = true;
                     if (window.top !== window.self) return;
 
+                    // Google owns this relying-party origin. Keep its WebAuthn API native:
+                    // do not wrap the request or retry it through an app-origin CredentialManager call.
+                    var authHost = (window.location && window.location.hostname || '').toLowerCase();
+                    if (authHost === 'accounts.google.com' || authHost.endsWith('.accounts.google.com')) return;
+
                     function getPolicy() {
                         return window.__kaspaPasskeyPolicy || defaultPolicy;
                     }
