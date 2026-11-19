@@ -22,11 +22,9 @@ object KaspaWebViewConfigurator {
     private val appliedWebAuthLevel = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Int>())
 
     /**
-     * Configures WebAuthn / FIDO2 Passkey support for a browser WebView using
-     * WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER (never FOR_APP, which rejects arbitrary websites).
-     * Memoized per WebSettings instance to prevent Compose recompositions from resetting
-     * Chromium's WebAuthn handler while an interactive passkey ceremony is in flight.
-     * Returns the runtime-applied support level or -1 if unsupported.
+     * Enables browser-wide WebAuthn only when the Android WebView provider grants
+     * the privileged browser mode. Ordinary apps fall back to app-associated
+     * WebAuthn; third-party relying parties must use the system browser handoff.
      */
     fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
         return try {
@@ -38,19 +36,31 @@ object KaspaWebViewConfigurator {
                 }
                 if (alreadyApplied) {
                     return synchronized(appliedWebAuthLevel) { appliedWebAuthLevel[settings] }
-                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
                 }
-                val targetLevel = if (enabled) {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
-                } else {
+
+                val browserLevel = WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                val appLevel = WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
+                val targetLevel = if (enabled) browserLevel else {
                     WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
                 }
-                WebSettingsCompat.setWebAuthenticationSupport(settings, targetLevel)
-                val actualLevel = try {
-                    WebSettingsCompat.getWebAuthenticationSupport(settings)
-                } catch (_: Throwable) {
-                    targetLevel
+
+                var actualLevel = targetLevel
+                try {
+                    WebSettingsCompat.setWebAuthenticationSupport(settings, targetLevel)
+                    actualLevel = WebSettingsCompat.getWebAuthenticationSupport(settings)
+                } catch (browserModeError: SecurityException) {
+                    if (!enabled) throw browserModeError
+                    WebSettingsCompat.setWebAuthenticationSupport(settings, appLevel)
+                    actualLevel = WebSettingsCompat.getWebAuthenticationSupport(settings)
+                    Log.i(TAG, "Browser-wide WebAuthn is privileged on this device; using app-associated mode")
                 }
+
+                if (enabled && actualLevel == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE) {
+                    WebSettingsCompat.setWebAuthenticationSupport(settings, appLevel)
+                    actualLevel = WebSettingsCompat.getWebAuthenticationSupport(settings)
+                }
+
                 synchronized(appliedWebAuthState) {
                     appliedWebAuthState[settings] = enabled
                     appliedWebAuthLevel[settings] = actualLevel
