@@ -445,12 +445,27 @@ object KaspaWebAuthnBridge {
                             else "Creating passkey for $host..."
                         )
                         val activity = findActivity(webView.context) ?: webView.context
+                        if (!hasPrivilegedOriginPermission(activity)) {
+                            sendCredError(
+                                webView, expectedOrigin, replyProxy, callId,
+                                "This browser is not authorized by Android to request passkeys for third-party website origins.",
+                                "NotAllowedError"
+                            )
+                            callbacks.onRecoveryNeeded(
+                                PasskeyRecoveryEvent(
+                                    url = pageUrl,
+                                    host = host,
+                                    operation = "create",
+                                    reason = "Android requires browser-origin authorization from the credential provider for third-party passkeys."
+                                )
+                            )
+                            return@launch
+                        }
                         val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
-                        val originArg = if (hasPrivilegedOriginPermission(activity)) expectedOrigin else null
                         val request = CreatePublicKeyCredentialRequest(
                             requestJson = validRequestJson,
-                            origin = originArg
+                            origin = expectedOrigin
                         )
                         val response = credentialManager.createCredential(activity, request)
                         if (response is CreatePublicKeyCredentialResponse) {
@@ -550,14 +565,28 @@ object KaspaWebAuthnBridge {
                     try {
                         callbacks.onStatusMessage("Requesting passkey verification for $host...")
                         val activity = findActivity(webView.context) ?: webView.context
+                        if (!hasPrivilegedOriginPermission(activity)) {
+                            sendCredError(
+                                webView, expectedOrigin, replyProxy, callId,
+                                "This browser is not authorized by Android to request passkeys for third-party website origins.",
+                                "NotAllowedError"
+                            )
+                            callbacks.onRecoveryNeeded(
+                                PasskeyRecoveryEvent(
+                                    url = pageUrl,
+                                    host = host,
+                                    operation = "get",
+                                    reason = "Android requires browser-origin authorization from the credential provider for third-party passkeys."
+                                )
+                            )
+                            return@launch
+                        }
                         val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
                         val option = GetPublicKeyCredentialOption(validRequestJson)
                         val reqBuilder = GetCredentialRequest.Builder()
                             .addCredentialOption(option)
-                        if (hasPrivilegedOriginPermission(activity)) {
-                            reqBuilder.setOrigin(expectedOrigin)
-                        }
+                            .setOrigin(expectedOrigin)
                         val response = credentialManager.getCredential(activity, reqBuilder.build())
                         val cred = response.credential
                         if (cred is PublicKeyCredential) {
