@@ -303,7 +303,9 @@ fn encode_reference_program(amount: u64, owner: &[u8], owner_scheme: u8, borrow_
 
 
 fn minimal_push(value: &[u8]) -> Vec<u8> {
-    if value.is_empty() || (value.len()==1 && value[0]==0) { return vec![0]; }
+    // These values are byte-array arguments, not ScriptNum integers. OP_0
+    // pushes an empty vector; a one-byte zero must be encoded as 01 00.
+    if value.is_empty() { return vec![0]; }
     if value.len()==1 && (1..=16).contains(&value[0]) { return vec![0x50+value[0]]; }
     if value.len()==1 && value[0]==0x81 { return vec![0x4f]; }
     explicit_push(value)
@@ -460,6 +462,14 @@ pub extern "system" fn Java_com_example_network_kaspa_Kcc20RustyKaspaEngine_vali
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_array_push_preserves_single_zero_byte() {
+        assert_eq!(minimal_push(&[]), vec![0x00]);
+        assert_eq!(minimal_push(&[0x00]), vec![0x01, 0x00]);
+        assert_eq!(minimal_push(&[0x01]), vec![0x51]);
+        assert_eq!(minimal_push(&[0x00, 0x00]), vec![0x02, 0x00, 0x00]);
+    }
 
     #[test]
     fn rust_planner_conserves_token_amount_and_builds_successors() {
