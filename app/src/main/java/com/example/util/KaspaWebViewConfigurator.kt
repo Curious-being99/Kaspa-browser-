@@ -22,10 +22,9 @@ object KaspaWebViewConfigurator {
     private val appliedWebAuthLevel = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Int>())
 
     /**
-     * Configures WebAuthn / FIDO2 Passkey support for a browser WebView using
-     * WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER (never FOR_APP, which rejects arbitrary websites).
-     * Memoized per WebSettings instance to prevent Compose recompositions from resetting
-     * Chromium's WebAuthn handler while an interactive passkey ceremony is in flight.
+     * Enables the supported app-associated WebAuthn mode for Android WebView.
+     * Each relying-party domain must explicitly associate this APK with Digital Asset Links.
+     * Browser-wide origin delegation is reserved for platform-authorized browser integrations.
      * Returns the runtime-applied support level or -1 if unsupported.
      */
     fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
@@ -38,10 +37,10 @@ object KaspaWebViewConfigurator {
                 }
                 if (alreadyApplied) {
                     return synchronized(appliedWebAuthLevel) { appliedWebAuthLevel[settings] }
-                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 }
                 val targetLevel = if (enabled) {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 } else {
                     WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
                 }
