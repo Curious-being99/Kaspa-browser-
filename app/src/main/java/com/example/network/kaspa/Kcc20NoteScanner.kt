@@ -443,7 +443,7 @@ object Kcc20NoteScanner {
                 val spk = readScriptHex(out)
                 if (!Regex("^aa20([0-9a-fA-F]{64})87$").matches(spk)) continue
                 val targetHash = spk.substring(4, 68).lowercase()
-                val covenantId = resolveCovenantId(out, inputsArray)
+                val covenantId = resolveCovenantId(out)
                 val sompiAmount = readAmount(out)
 
                 var matched = false
@@ -475,10 +475,8 @@ object Kcc20NoteScanner {
                     if (matched) break
                 }
 
-                val finalCovenantId = covenantId ?: KNOWN_TOKENS.keys.firstOrNull() ?: "covenant_swap_note"
-                if (!matched && matchedAmount <= 0L) {
-                    matchedAmount = candidateAmounts.firstOrNull { it > 0L } ?: 1000L
-                }
+                val finalCovenantId = covenantId ?: continue
+                if (!matched || matchedAmount <= 0L || matchedRedeem.isBlank()) continue
 
                 val p2shAddr = CryptoUtils.encodeP2shAddress(hexToBytes(targetHash), expectedPrefix)
                 val newNote = DiscoveredNote(
@@ -491,7 +489,7 @@ object Kcc20NoteScanner {
                     targetScriptHash = targetHash,
                     p2shAddress = p2shAddr,
                     redeemScriptHex = matchedRedeem,
-                    lineage = matchedLineage.ifBlank { "kcc20" },
+                    lineage = matchedLineage,
                     blockTime = System.currentTimeMillis(),
                     isUnspent = true
                 )
@@ -597,7 +595,7 @@ object Kcc20NoteScanner {
                 val spk = readScriptHex(out)
                 if (!Regex("^aa20([0-9a-fA-F]{64})87$").matches(spk)) continue
                 val targetHash = spk.substring(4, 68).lowercase()
-                val covenantId = resolveCovenantId(out, inputsArray) ?: continue
+                val covenantId = resolveCovenantId(out) ?: continue
                 val sompiAmount = readAmount(out)
 
                 // Match against rebuilt redeem scripts for all candidate amounts and templates
@@ -895,7 +893,8 @@ object Kcc20NoteScanner {
                         val amt = rd8(amtHex)
                         val txId = u.optString("transactionId", u.optString("transaction_id", ""))
                         val outIdx = u.optInt("index", 0)
-                        val covId = u.optString("covenantId", u.optString("covenant_id", ""))
+                        val covId = u.optString("covenantId", u.optString("covenant_id", "")).trim().lowercase()
+                        if (!covId.matches(Regex("[0-9a-f]{64}"))) continue
                         val spk = CryptoUtils.blake2b256(hexToBytes(rHex)).joinToString("") { "%02x".format(it) }
                         val p2shAddr = CryptoUtils.encodeP2shAddress(hexToBytes(spk), prefix)
 
@@ -904,7 +903,7 @@ object Kcc20NoteScanner {
                                 DiscoveredNote(
                                     txId = txId,
                                     outputIndex = outIdx,
-                                    covenantId = covId.ifBlank { "kron-$tick" },
+                                    covenantId = covId,
                                     sompiAmount = u.optLong("amount", 10_000L),
                                     rawTokenAmount = amt,
                                     scriptPublicKey = "aa20${spk}87",
@@ -1052,7 +1051,7 @@ object Kcc20NoteScanner {
         )
     }
 
-    private fun resolveCovenantId(output: JSONObject, inputs: JSONArray): String? {
+    internal fun resolveCovenantId(output: JSONObject): String? {
         val direct = output.optString("covenant_id", output.optString("covenantId", "")).trim()
         if (direct.matches(Regex("[0-9a-fA-F]{64}"))) return direct.lowercase()
 
@@ -1063,13 +1062,6 @@ object Kcc20NoteScanner {
         val verbose = output.optJSONObject("verbose_data") ?: output.optJSONObject("verboseData")
         val verbCov = verbose?.optString("covenant_id", verbose.optString("covenantId", "")).orEmpty().trim()
         if (verbCov.matches(Regex("[0-9a-fA-F]{64}"))) return verbCov.lowercase()
-
-        // Fallback: check if inputs carry the covenant ID
-        for (j in 0 until inputs.length()) {
-            val inObj = inputs.optJSONObject(j) ?: continue
-            val inCov = inObj.optString("covenant_id", inObj.optString("covenantId", "")).trim()
-            if (inCov.matches(Regex("[0-9a-fA-F]{64}"))) return inCov.lowercase()
-        }
         return null
     }
 
@@ -1212,6 +1204,29 @@ object Kcc20NoteScanner {
                             if (amt > 0L) candidateAmounts.add(amt)
                             val tokenAmt = out.optLong("tokenAmount", out.optLong("token_amount", out.optLong("rawAmount", 0L)))
                             if (tokenAmt > 0L) candidateAmounts.add(tokenAmt)
+                        }
+
+                        if (cleanPub.matches(Regex("[0-9a-f]{64}"))) {
+                            for (amt in candidateAmounts) {
+                                if (amt <= 0L) continue
+                                val state = Kcc20ReferenceProtocol.State(
+                                    amount = java.math.BigInteger.valueOf(amt),
+                                    owner = hexToBytes(cleanPub),
+                                    ownerScheme = 0x00,
+                                    borrowScheme = 0x00,
+                                    borrowGuard = ByteArray(32),
+                                    extensionCommitment = ByteArray(32)
+                                )
+                                val candidate = Kcc20ReferenceProtocol.bytesToHex(
+                                    Kcc20ReferenceProtocol.programFor(state)
+                                )
+                                val hash = CryptoUtils.blake2b256(hexToBytes(candidate))
+                                    .joinToString("") { "%02x".format(it) }
+                                if (hash.equals(cleanHash, ignoreCase = true)) {
+                                    registerRedeemScript(txId, outputIndex, cleanHash, candidate)
+                                    return@withContext candidate
+                                }
+                            }
                         }
 
                         for ((lineage, template) in TEMPLATES) {

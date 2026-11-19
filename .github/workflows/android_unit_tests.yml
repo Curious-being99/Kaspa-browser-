@@ -8,6 +8,10 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+concurrency:
+  group: android-unit-tests-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -25,6 +29,39 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
+      - name: Install Rust and Android NDK for KCC20 script engine
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CARGO_HOME="$HOME/.cargo"
+          mkdir -p "$CARGO_HOME/bin"
+          cargo install cargo-ndk --version 3.5.4 --locked --root "$CARGO_HOME" --force
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$CARGO_HOME/bin:$PATH"
+          test -x "$CARGO_HOME/bin/cargo-ndk"
+          cargo ndk --version
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Checkout pinned Argent compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/argent-lang/argent.git "$RUNNER_TEMP/argent"
+          git -C "$RUNNER_TEMP/argent" checkout 9a9f4b107116d0b259fae629f200fa3b663e7e9d
+          test "$(git -C "$RUNNER_TEMP/argent" rev-parse HEAD)" = "9a9f4b107116d0b259fae629f200fa3b663e7e9d"
+          echo "ARGENT_COMPILER_MANIFEST=$RUNNER_TEMP/argent/Cargo.toml" >> "$GITHUB_ENV"
+
       - run: yes | sdkmanager --licenses || true
       - uses: gradle/actions/setup-gradle@v3
         with:
@@ -56,6 +93,36 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-37 build-tools;37.0.0 emulator'
+      - name: Install Rust toolchain for KCC20 script engine
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.94.0
+          targets: aarch64-linux-android
+      - name: Install cargo-ndk
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CARGO_HOME="$HOME/.cargo"
+          mkdir -p "$CARGO_HOME/bin"
+          cargo install cargo-ndk --version 3.5.4 --locked --root "$CARGO_HOME" --force
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$CARGO_HOME/bin:$PATH"
+          cargo ndk --version
+      - name: Install Android NDK for KCC20 engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Checkout pinned Argent compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/argent-lang/argent.git "$RUNNER_TEMP/argent"
+          git -C "$RUNNER_TEMP/argent" checkout 9a9f4b107116d0b259fae629f200fa3b663e7e9d
+          test "$(git -C "$RUNNER_TEMP/argent" rev-parse HEAD)" = "9a9f4b107116d0b259fae629f200fa3b663e7e9d"
+          echo "ARGENT_COMPILER_MANIFEST=$RUNNER_TEMP/argent/Cargo.toml" >> "$GITHUB_ENV"
       - name: Install Linux libraries required by Android Emulator
         run: |
           sudo apt-get update

@@ -439,6 +439,23 @@ fun DappPromptBottomSheet(
                                 HorizontalDivider(color = SurfaceCardBorder)
                             }
 
+                            if (prompt.tokenDetails.isNotBlank()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("KCC20 token details", fontSize = 13.sp, color = TextSecondary)
+                                    SelectionContainer {
+                                        Text(
+                                            text = prompt.tokenDetails,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            fontSize = 12.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = TextPrimary,
+                                            softWrap = true
+                                        )
+                                    }
+                                }
+                                HorizontalDivider(color = SurfaceCardBorder)
+                            }
+
                             if (prompt.destination.isNotBlank()) {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text(

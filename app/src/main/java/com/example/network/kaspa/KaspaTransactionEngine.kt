@@ -1,6 +1,7 @@
 package com.example.network.kaspa
 
 import com.example.network.CryptoUtils
+import com.example.network.Blake3
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -93,7 +94,8 @@ object KaspaTransactionEngine {
         val amount: Long,
         val scriptPublicKey: KaspaScriptPublicKey,
         val blockDaaScore: Long = 0L,
-        val isCoinbase: Boolean = false
+        val isCoinbase: Boolean = false,
+        val covenantId: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount.toString())
@@ -103,6 +105,11 @@ object KaspaTransactionEngine {
             put("block_daa_score", blockDaaScore.toString())
             put("isCoinbase", isCoinbase)
             put("is_coinbase", isCoinbase)
+            covenantId?.let {
+                require(it.matches(Regex("(?i)[0-9a-f]{64}"))) { "Invalid node UTXO covenant ID" }
+                put("covenantId", it.lowercase())
+                put("covenant_id", it.lowercase())
+            }
         }
 
         companion object {
@@ -122,7 +129,13 @@ object KaspaTransactionEngine {
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))
-                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase)
+                val covenantId = sequenceOf("covenantId", "covenant_id")
+                    .firstOrNull { json.has(it) && !json.isNull(it) }
+                    ?.let { json.optString(it).lowercase() }
+                require(covenantId == null || covenantId.matches(Regex("[0-9a-f]{64}"))) {
+                    "Node returned a malformed covenant ID"
+                }
+                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase, covenantId)
             }
         }
     }
@@ -138,7 +151,8 @@ object KaspaTransactionEngine {
         val previousOutpoint: KaspaOutpoint,
         var signatureScript: String = "",
         val sequence: Long = 0L,
-        val sigOpCount: Int = 1
+        val sigOpCount: Int = 1,
+        val computeBudget: Int = 0
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             val opJson = previousOutpoint.toJson()
@@ -150,6 +164,8 @@ object KaspaTransactionEngine {
             put("sequence", sequence)
             put("sigOpCount", sigOpCount)
             put("sig_op_count", sigOpCount)
+            put("computeBudget", computeBudget)
+            put("compute_budget", computeBudget)
         }
     }
 
@@ -561,16 +577,16 @@ object KaspaTransactionEngine {
     }
 
     // ==========================================
-    // Kaspa Non-Malleable Transaction ID (calc_tx_id)
-    // Strictly follows rusty-kaspa consensus rules (Blake2b-256 with key "TransactionID")
+    // Kaspa non-malleable transaction ID: v0 uses keyed BLAKE2b; v1 uses
+    // Rusty-Kaspa domain-separated keyed BLAKE3 payload/rest digests.
     // ==========================================
 
     /**
-     * Calculates the non-malleable Kaspa Transaction ID (Blake2b-256 with key "TransactionID")
-     * following rusty-kaspa consensus rules.
-     * Note: Signature scripts and sigOpCounts are excluded for version 0 transactions.
+     * Calculates the non-malleable Kaspa transaction ID using the consensus algorithm
+     * for the transaction version. Version 1 excludes signatures and mass commitments.
      */
     fun calcTransactionId(tx: KaspaTransaction): String {
+        if (tx.version >= 1) return calcVersionOneTransactionId(tx)
         val bos = ByteArrayOutputStream()
         writeUInt16LE(bos, tx.version)
         writeUInt64LE(bos, tx.inputs.size.toLong())
@@ -587,7 +603,8 @@ object KaspaTransactionEngine {
             writeUInt64LE(bos, 0L)
             // sequence (u64 LE)
             writeUInt64LE(bos, input.sequence)
-            // sigOpCount is NOT written for transaction ID
+            if (tx.version < 1) writeByte(bos, input.sigOpCount.toByte())
+            // v1 compute budgets are serialized but excluded from the v1 transaction ID.
         }
 
         writeUInt64LE(bos, tx.outputs.size.toLong())
@@ -597,6 +614,15 @@ object KaspaTransactionEngine {
             val outScriptBytes = hexToBytes(output.scriptPublicKey.script)
             writeUInt64LE(bos, outScriptBytes.size.toLong())
             bos.write(outScriptBytes)
+            if (tx.version >= 1) {
+                val covenant = output.covenant
+                writeByte(bos, (if (covenant == null) 0 else 1).toByte())
+                if (covenant != null) {
+                    require(covenant.authorizingInput in 0..0xffff)
+                    writeUInt16LE(bos, covenant.authorizingInput)
+                    bos.write(decodeCovenantId(covenant.covenantId))
+                }
+            }
         }
 
         writeUInt64LE(bos, tx.lockTime)
@@ -611,6 +637,54 @@ object KaspaTransactionEngine {
 
         val digest = CryptoUtils.blake2b256(bos.toByteArray(), KEY_TRANSACTION_ID)
         return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun calcVersionOneTransactionId(tx: KaspaTransaction): String {
+        val payloadBytes = hexToBytes(tx.payload)
+        val payloadDigest = Blake3.keyedHash("PayloadDigest", payloadBytes)
+        val rest = ByteArrayOutputStream()
+
+        writeUInt16LE(rest, tx.version)
+        writeUInt64LE(rest, tx.inputs.size.toLong())
+        for (input in tx.inputs) {
+            val txIdBytes = hexToBytes(input.previousOutpoint.transactionId)
+            require(txIdBytes.size == 32) { "Version-1 transaction input txid must be 32 bytes" }
+            rest.write(txIdBytes)
+            writeUInt32LE(rest, input.previousOutpoint.index)
+            writeUInt64LE(rest, 0L)
+            writeUInt64LE(rest, input.sequence)
+        }
+
+        writeUInt64LE(rest, tx.outputs.size.toLong())
+        for (output in tx.outputs) {
+            writeUInt64LE(rest, output.amount)
+            writeUInt16LE(rest, output.scriptPublicKey.version)
+            val script = hexToBytes(output.scriptPublicKey.script)
+            writeUInt64LE(rest, script.size.toLong())
+            rest.write(script)
+            val covenant = output.covenant
+            writeByte(rest, (if (covenant == null) 0 else 1).toByte())
+            if (covenant != null) {
+                require(covenant.authorizingInput in 0..0xffff)
+                writeUInt16LE(rest, covenant.authorizingInput)
+                rest.write(decodeCovenantId(covenant.covenantId))
+            }
+        }
+
+        writeUInt64LE(rest, tx.lockTime)
+        val subnetwork = hexToBytes(tx.subnetworkId)
+        require(subnetwork.size == 20) { "Version-1 transaction subnetwork ID must be 20 bytes" }
+        rest.write(subnetwork)
+        writeUInt64LE(rest, tx.gas)
+        writeUInt64LE(rest, 0L)
+
+        val restDigest = Blake3.keyedHash("TransactionRest", rest.toByteArray())
+        val finalPreimage = ByteArray(payloadDigest.size + restDigest.size).also {
+            System.arraycopy(payloadDigest, 0, it, 0, payloadDigest.size)
+            System.arraycopy(restDigest, 0, it, payloadDigest.size, restDigest.size)
+        }
+        return Blake3.keyedHash("TransactionV1Id", finalPreimage)
+            .joinToString("") { "%02x".format(it) }
     }
 
     /**
@@ -753,6 +827,7 @@ object KaspaTransactionEngine {
             size += 8L // signatureScript length (uint64)
             size += sigScriptBytes
             size += 8L  // sequence (uint64)
+            if (tx.version >= 1) size += 2L // compute budget (uint16)
         }
 
         size += 8L // outputs count (uint64)
@@ -762,6 +837,7 @@ object KaspaTransactionEngine {
             val scriptBytes = output.scriptPublicKey.script.length / 2
             size += 8L // script length (uint64)
             size += scriptBytes
+            if (tx.version >= 1 && output.covenant != null) size += 34L
         }
 
         size += 8L  // lockTime (uint64)
@@ -806,6 +882,26 @@ object KaspaTransactionEngine {
         size += payloadByteCount
         return size
     }
+
+    /**
+     * KCC20 guide v2 reference-v1 compute mass. This is separate from the legacy
+     * wallet estimator because v1 uses per-input compute budgets, not sigOpCount.
+     */
+    fun calculateReferenceV1ComputeMass(tx: KaspaTransaction): Long {
+        require(tx.version == 1) { "KCC20 reference mass requires transaction version 1" }
+        require(tx.inputs.all { it.sigOpCount == 0 && it.computeBudget in 0..0xffff }) {
+            "Version-1 inputs require sigOpCount=0 and a u16 compute budget"
+        }
+        val size = calculateSerializedByteSize(tx)
+        val outputCost = tx.outputs.sumOf {
+            (2L + it.scriptPublicKey.script.length / 2L) * 10L
+        }
+        val budgetCost = tx.inputs.sumOf { it.computeBudget.toLong() } * 100L
+        return Math.addExact(Math.addExact(size, outputCost), budgetCost)
+    }
+
+    fun calculateReferenceV1TransientMass(tx: KaspaTransaction): Long =
+        Math.multiplyExact(calculateSerializedByteSize(tx), 4L)
 
     /**
      * Calculates storage mass (KIP-0009 state mass factor).

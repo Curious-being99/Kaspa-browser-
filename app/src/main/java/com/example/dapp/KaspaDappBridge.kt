@@ -222,42 +222,25 @@ object KaspaDappBridge {
                         .getBoolean(origin, false)
 
                     if (!isCurrentlyConnected) {
-                        cryptoExecutor.execute {
-                            val balance = try {
-                                kotlinx.coroutines.runBlocking {
-                                    viewModel.walletService.fetchDappBalance(keyPair.kaspaAddress, network)
+                        mainHandler.post {
+                            viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
+                                origin = origin,
+                                network = network,
+                                accountAddress = keyPair.kaspaAddress,
+                                accountHandle = account?.handle.orEmpty(),
+                                onApprove = {
+                                    viewModel.dappPromptState.value = null
+                                    ensureUnlocked(onSuccess = {
+                                        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                            .edit().putBoolean(origin, true).apply()
+                                        onSuccess()
+                                    })
+                                },
+                                onReject = {
+                                    respond(errorCode = 4001, errorMessage = onRejectMsg)
+                                    viewModel.dappPromptState.value = null
                                 }
-                            } catch (_: Throwable) { null }
-                            val balanceSompi = balance?.optLong("balance", 0L) ?: 0L
-                            val balanceKasStr = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
-                                com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(balanceSompi)
-                            ) + " KAS"
-                            val activeKcc20 = viewModel.kcc20Tokens.value.filter {
-                                (it.balanceRaw.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO) > java.math.BigDecimal.ZERO
-                            }
-                            viewModel.refreshKcc20Tokens()
-                            mainHandler.post {
-                                viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.Connect(
-                                    origin = origin,
-                                    network = network,
-                                    accountAddress = keyPair.kaspaAddress,
-                                    accountHandle = account?.handle.orEmpty(),
-                                    balanceKas = balanceKasStr,
-                                    kcc20Tokens = activeKcc20,
-                                    onApprove = {
-                                        viewModel.dappPromptState.value = null
-                                        ensureUnlocked(onSuccess = {
-                                            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                                .edit().putBoolean(origin, true).apply()
-                                            onSuccess()
-                                        })
-                                    },
-                                    onReject = {
-                                        respond(errorCode = 4001, errorMessage = onRejectMsg)
-                                        viewModel.dappPromptState.value = null
-                                    }
-                                )
-                            }
+                            )
                         }
                     } else {
                         ensureUnlocked(onSuccess = onSuccess)
@@ -414,7 +397,11 @@ object KaspaDappBridge {
                                 cryptoExecutor.execute {
                                     val utxos = try {
                                         kotlinx.coroutines.runBlocking {
-                                            viewModel.walletService.fetchDappUtxos(keyPair.kaspaAddress, network)
+                                            if (networkId(network) in setOf("mainnet", "testnet-10")) {
+                                                viewModel.fetchDappNodeUtxos(keyPair.kaspaAddress)
+                                            } else {
+                                                viewModel.walletService.fetchDappUtxos(keyPair.kaspaAddress, network)
+                                            }
                                         }
                                     } catch (error: Throwable) {
                                         null
@@ -580,17 +567,27 @@ object KaspaDappBridge {
                             return@addWebMessageListener
                         }
                         cryptoExecutor.execute {
-                            val (signInputs, topLevelRedeemScript) = resolveSignInputsAndRedeemScripts(
-                                txJson = txJson,
-                                rawSignInputs = rawSignInputs,
-                                paramsObject = paramsObject,
-                                options = options,
-                                walletAddress = keyPair.kaspaAddress,
-                                walletPublicKeyHex = keyPair.publicKeyHex,
-                                network = network
-                            )
+                            val (signInputs, topLevelRedeemScript) = try {
+                                resolveSignInputsAndRedeemScripts(
+                                    txJson = txJson,
+                                    rawSignInputs = rawSignInputs,
+                                    paramsObject = paramsObject,
+                                    options = options,
+                                    walletAddress = keyPair.kaspaAddress,
+                                    walletPublicKeyHex = keyPair.publicKeyHex,
+                                    network = network
+                                )
+                            } catch (error: Throwable) {
+                                mainHandler.post {
+                                    respond(
+                                        errorCode = -32602,
+                                        errorMessage = error.message ?: "Unable to resolve PSKT signing inputs"
+                                    )
+                                }
+                                return@execute
+                            }
 
-                            val prepared = try {
+                            var prepared = try {
                                 DappPsktTransaction.prepareForSigning(
                                     txJson,
                                     signInputs,
@@ -602,6 +599,60 @@ object KaspaDappBridge {
                                     respond(errorCode = -32602, errorMessage = error.message ?: "Transaction review failed")
                                 }
                                 return@execute
+                            }
+                            val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
+                                Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
+                            }
+                            val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
+                            if (hasCovenantInputs || hasCovenantOutputs) {
+                                try {
+                                    require(prepared.transaction.version == 1) {
+                                        "KCC20 covenant PSKTs must use transaction version 1"
+                                    }
+                                    val inputAddresses = prepared.utxoEntries.map { utxo ->
+                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                    }
+                                    require(inputAddresses.all { it.startsWith("$prefix:", ignoreCase = true) }) {
+                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
+                                    }
+                                    val verifiedEntries = kotlinx.coroutines.runBlocking {
+                                        viewModel.resolveVerifiedDappPsktUtxoEntries(
+                                            transaction = prepared.transaction,
+                                            utxoEntries = prepared.utxoEntries,
+                                            inputAddresses = inputAddresses
+                                        )
+                                    }
+                                    val verifiedJson = JSONObject(prepared.originalJson.toString())
+                                    val verifiedTxRoot = verifiedJson.optJSONObject("transaction")
+                                        ?: verifiedJson.optJSONObject("tx")
+                                        ?: verifiedJson
+                                    val verifiedInputs = verifiedTxRoot.optJSONArray("inputs")
+                                        ?: throw IllegalStateException("Verified PSKT inputs are missing")
+                                    require(verifiedInputs.length() == verifiedEntries.size) {
+                                        "Verified PSKT input count changed during covenant enrichment"
+                                    }
+                                    verifiedEntries.forEachIndexed { index, entry ->
+                                        val input = verifiedInputs.getJSONObject(index)
+                                        val utxoJson = input.optJSONObject("utxoEntry")
+                                            ?: input.optJSONObject("utxo_entry")
+                                            ?: input.optJSONObject("utxo")
+                                            ?: input.optJSONObject("entry")
+                                            ?: input
+                                        entry.covenantId?.let { covenantId ->
+                                            utxoJson.put("covenantId", covenantId)
+                                            utxoJson.put("covenant_id", covenantId)
+                                        }
+                                    }
+                                    prepared = prepared.copy(
+                                        originalJson = verifiedJson,
+                                        utxoEntries = verifiedEntries
+                                    )
+                                } catch (error: Throwable) {
+                                    mainHandler.post {
+                                        respond(errorCode = -32602, errorMessage = error.message ?: "KCC20 inputs could not be verified against the active network node")
+                                    }
+                                    return@execute
+                                }
                             }
                             val walletScript = "20" + keyPair.publicKeyHex.lowercase() + "ac"
                             val resolvedDest = prepared.transaction.outputs.mapIndexed { index, out ->
@@ -617,29 +668,103 @@ object KaspaDappBridge {
                                     else append("\\nrecipient=unresolved locking script")
                                     append("\\nscriptVersion=${out.scriptPublicKey.version}")
                                     append("\\nscript=$script")
+                                    out.covenant?.let { binding ->
+                                        append("\\ncovenantId=${binding.covenantId}")
+                                        append("\\nauthorizingInput=${binding.authorizingInput}")
+                                    }
                                 }
                             }.joinToString("\\n\\n").ifBlank { "No transaction outputs found" }
 
                             mainHandler.post {
+                                val tokenDetails = try {
+                                    if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else ""
+                                } catch (error: Throwable) {
+                                    respond(errorCode = -32602, errorMessage = error.message ?: "Cannot verify exact KCC20 token base units")
+                                    return@post
+                                }
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = "Sign Kaspa Transaction",
-                                    action = "PSKT Transaction Signing",
+                                    title = if (hasCovenantInputs || hasCovenantOutputs) "Sign KCC20 Covenant Transaction" else "Sign Kaspa Transaction",
+                                    action = if (hasCovenantInputs || hasCovenantOutputs) "SIGHASH_ALL covenant PSKT signing" else "PSKT Transaction Signing",
                                     tick = "KAS",
                                     amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
-                                    amountLabel = "Total outputs (includes wallet change)",
+                                    amountLabel = if (hasCovenantInputs || hasCovenantOutputs) "KAS output total; token state is encoded in covenant scripts" else "Total outputs (includes wallet change)",
                                     destination = resolvedDest,
-                                    inputsCount = prepared.signInputs.size,
+                                    inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)),
+                                    tokenDetails = tokenDetails,
                                     isBroadcast = false,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
                                         cryptoExecutor.execute {
                                             val signingOutcome = try {
-                                                Result.success(DappPsktTransaction.signForDapp(prepared, keyPair.privateKey))
+                                                require(viewModel.activeAccount.value?.did == account?.did &&
+                                                    viewModel.activeAccount.value?.handle == account?.handle &&
+                                                    viewModel.selectedNetwork.value == network
+                                                ) { "Active wallet or network changed while the transaction was awaiting approval. Reconnect and rebuild the PSKT." }
+                                                val inputAddresses = if (hasCovenantInputs || hasCovenantOutputs) {
+                                                    prepared.utxoEntries.map { utxo ->
+                                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                                    }
+                                                } else {
+                                                    emptyList()
+                                                }
+                                                if (hasCovenantInputs || hasCovenantOutputs) {
+                                                    require(prepared.transaction.version == 1) {
+                                                        "KCC20 covenant PSKTs must use transaction version 1"
+                                                    }
+                                                    require(prepared.transaction.inputs.isNotEmpty()) {
+                                                        "KCC20 version-1 transaction has no inputs"
+                                                    }
+                                                    require(inputAddresses.all { it.startsWith("$prefix:") }) {
+                                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
+                                                    }
+                                                }
+                                                val signed = if (hasCovenantInputs || hasCovenantOutputs) {
+                                                    val provisional = prepared.copy(
+                                                        transaction = prepared.transaction.copy(
+                                                            inputs = prepared.transaction.inputs.map {
+                                                                it.copy(sigOpCount = 0, computeBudget = 0xffff)
+                                                            }
+                                                        )
+                                                    )
+                                                    val provisionalSigned = DappPsktTransaction.signForDapp(
+                                                        provisional,
+                                                        keyPair.privateKey
+                                                    )
+                                                    val assembledSigned = DappPsktTransaction.assembleReferenceCovenantWitnesses(
+                                                        provisionalSigned,
+                                                        prepared
+                                                    )
+                                                    val signedPrepared = DappPsktTransaction.inspectForSubmission(assembledSigned)
+                                                    val measured = kotlinx.coroutines.runBlocking {
+                                                        viewModel.measureDappCovenantPsktComputeBudgets(
+                                                            transaction = signedPrepared.transaction,
+                                                            utxoEntries = signedPrepared.utxoEntries,
+                                                            inputAddresses = inputAddresses
+                                                        )
+                                                    }
+                                                    val signedWithBudgets = DappPsktTransaction.applyMeasuredComputeBudgets(
+                                                        assembledSigned,
+                                                        measured.inputs.map { it.computeBudget },
+                                                        measured.mass
+                                                    )
+                                                    val finalPrepared = DappPsktTransaction.inspectForSubmission(signedWithBudgets)
+                                                    kotlinx.coroutines.runBlocking {
+                                                        viewModel.validateDappCovenantPskt(
+                                                            transaction = finalPrepared.transaction,
+                                                            utxoEntries = finalPrepared.utxoEntries,
+                                                            inputAddresses = inputAddresses
+                                                        )
+                                                    }
+                                                    signedWithBudgets
+                                                } else {
+                                                    DappPsktTransaction.signForDapp(prepared, keyPair.privateKey)
+                                                }
+                                                Result.success(signed)
                                             } catch (error: Throwable) {
                                                 Result.failure(error)
                                             }
@@ -707,15 +832,68 @@ object KaspaDappBridge {
                         val op = paramsObj.optString("op", paramsObj.optString("type", "transfer")).lowercase()
                         val amtStr = paramsObj.optString("amt", paramsObj.optString("amount", "0"))
                         val toAddr = paramsObj.optString("to", paramsObj.optString("destination", ""))
+                        val requestedSender = paramsObj.optString("sender", "").trim()
+                        if (requestedSender.isNotBlank() &&
+                            !requestedSender.equals(keyPair.kaspaAddress, ignoreCase = true)
+                        ) {
+                            respond(errorCode = 4100, errorMessage = "Requested sender does not match the active wallet")
+                            return@addWebMessageListener
+                        }
                         val rawTxJson = extractTxJsonString(paramsObj)
-                        val protocolLabel = if (method.contains("kcc", ignoreCase = true)) "KCC-20" else "KRC-20"
+                        val isKcc20Method = method.contains("kcc", ignoreCase = true)
+                        val protocolLabel = if (isKcc20Method) "KCC-20" else "KRC-20"
+                        val requestedCovenantId = if (isKcc20Method) {
+                            paramsObj.optString(
+                                "covenantId",
+                                paramsObj.optString(
+                                    "covenant_id",
+                                    paramsObj.optString("contractId", paramsObj.optString("contract", paramsObj.optString("tokenId", "")))
+                                )
+                            ).trim()
+                        } else ""
+                        val kcc20AmountBaseUnits = if (isKcc20Method) {
+                            try {
+                                val explicitBaseUnits = paramsObj.optString("amountBaseUnits", "").trim()
+                                val rawAmount = explicitBaseUnits.ifBlank { amtStr.trim() }
+                                require(rawAmount.matches(Regex("[0-9]+"))) {
+                                    "KCC-20 amount must be an integer number of base units"
+                                }
+                                java.math.BigInteger(rawAmount)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        } else null
+                        if (isKcc20Method && (
+                            rawTxJson.isNotBlank() || op != "transfer" || requestedCovenantId.isBlank() ||
+                                toAddr.isBlank() || kcc20AmountBaseUnits == null || kcc20AmountBaseUnits.signum() <= 0
+                        )) {
+                            respond(
+                                errorCode = -32602,
+                                errorMessage = if (rawTxJson.isNotBlank()) {
+                                    "Pre-built KCC20 transactions are not accepted. Supply covenantId, recipient, and amountBaseUnits so the wallet can build and validate the covenant spend itself."
+                                } else {
+                                    "KCC20 transfer requires an exact covenantId, recipient, and integer amountBaseUnits."
+                                }
+                            )
+                            return@addWebMessageListener
+                        }
 
-                        val isStructuredTx = rawTxJson.isNotBlank() && (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") || rawTxJson.contains("previous_outpoint") || rawTxJson.contains("version"))
+                        val isStructuredTx = !isKcc20Method && rawTxJson.isNotBlank() &&
+                            (rawTxJson.contains("inputs") || rawTxJson.contains("previousOutpoint") ||
+                                rawTxJson.contains("previous_outpoint") || rawTxJson.contains("version"))
                         val options = paramsObj.optJSONObject("options")
                             ?: paramsObj.optJSONObject("params")
                         val rawSignInputs = options?.optJSONArray("signInputs")
                             ?: paramsObj.optJSONArray("signInputs")
-                            ?: JSONArray().put(JSONObject().put("index", 0).put("sighashType", KaspaTransactionEngine.SIGHASH_ALL))
+                            ?: JSONArray()
+
+                        if (isStructuredTx && rawSignInputs.length() == 0) {
+                            respond(
+                                errorCode = -32602,
+                                errorMessage = "Structured Kaspa/KCC20 PSKT signing requires explicit options.signInputs. The wallet never guesses which transaction input belongs to you."
+                            )
+                            return@addWebMessageListener
+                        }
 
                         cryptoExecutor.execute {
                             val prePrepared = if (isStructuredTx) {
@@ -780,7 +958,9 @@ object KaspaDappBridge {
                                 if (toAddr.isNotBlank()) toAddr else keyPair.kaspaAddress
                             }
 
-                            val resolvedAmount = if (actualOutgoingKas != null) {
+                            val resolvedAmount = if (isKcc20Method) {
+                                kcc20AmountBaseUnits.toString()
+                            } else if (actualOutgoingKas != null) {
                                 if (amtStr.isNotBlank() && amtStr != "0") "$amtStr $tick ($actualOutgoingKas KAS)" else "$actualOutgoingKas KAS"
                             } else {
                                 amtStr
@@ -791,16 +971,32 @@ object KaspaDappBridge {
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
-                                    action = "${op.uppercase()} $tick ($protocolLabel)",
-                                    tick = tick,
+                                    title = if (isKcc20Method) "Authorize KCC20 Transfer Preparation" else if (prePrepared != null) "Confirm On-Chain Transaction" else "Confirm $tick Transaction",
+                                    action = if (isKcc20Method) "Approve construction and signing for covenant ${requestedCovenantId.take(12)}. A separate confirmation of the exact validated transaction is required before broadcast." else "${op.uppercase()} $tick ($protocolLabel)",
+                                    tick = if (isKcc20Method) "KCC20" else tick,
                                     amount = resolvedAmount,
-                                    destination = resolvedDestination,
-                                    inputsCount = prePrepared?.transaction?.inputs?.size ?: 1,
-                                    feeKas = prePrepared?.feeKas ?: "0.0001 KAS",
-                                    totalAmountKas = actualOutgoingKas ?: amtStr,
+                                    amountLabel = if (isKcc20Method) "Exact token base units" else "Amount",
+                                    destination = if (isKcc20Method) toAddr else resolvedDestination,
+                                    tokenDetails = if (isKcc20Method) buildString {
+                                        com.example.network.kaspa.Kcc20NoteScanner.KNOWN_TOKENS[requestedCovenantId]?.let { metadata ->
+                                            append("Name: ${metadata.name}\nTicker: ${metadata.ticker}\nDecimals: ${metadata.decimals}\nMetadata source: pinned token list\n")
+                                        }
+                                        append("Covenant ID: $requestedCovenantId\nExact base units: ${kcc20AmountBaseUnits?.toString().orEmpty()}")
+                                    } else "",
+                                    inputsCount = if (isKcc20Method) 0 else prePrepared?.transaction?.inputs?.size ?: 1,
+                                    feeKas = if (isKcc20Method) "Not yet calculated; exact fee appears in the required second confirmation" else prePrepared?.feeKas ?: "0.0001 KAS",
+                                    totalAmountKas = if (isKcc20Method) "" else actualOutgoingKas ?: amtStr,
+                                    isBroadcast = !isKcc20Method,
                                 onApprove = {
                                     viewModel.dappPromptState.value = null
+                                    if (isKcc20Method && (
+                                        viewModel.activeAccount.value?.did != active.did ||
+                                            viewModel.activeAccount.value?.handle != active.handle ||
+                                            viewModel.selectedNetwork.value != network
+                                    )) {
+                                        respond(errorCode = 4100, errorMessage = "Active wallet or network changed before KCC20 signing approval. Reconnect and retry.")
+                                        return@SignTransaction
+                                    }
                                     val contractId = paramsObj.optString("contractId",
                                         paramsObj.optString("contract",
                                         paramsObj.optString("tokenId",
@@ -877,40 +1073,47 @@ object KaspaDappBridge {
                                         }
                                     }
 
-                                    if (method.contains("kcc", ignoreCase = true)) {
-                                        val amtDouble = amtStr.toDoubleOrNull() ?: 0.0
-                                        if (toAddr.isNotBlank() && amtDouble > 0.0) {
-                                            val res = kotlinx.coroutines.runBlocking {
-                                                viewModel.executeKbKcc20Transfer(toAddr, amtDouble)
+                                    if (isKcc20Method) {
+                                        val amountBaseUnits = kcc20AmountBaseUnits
+                                            ?: throw IllegalArgumentException("KCC20 amount must be supplied as an integer base-unit value")
+                                        val outcome = try {
+                                            kotlinx.coroutines.runBlocking {
+                                                viewModel.executeKcc20Transfer(
+                                                    covenantId = requestedCovenantId,
+                                                    recipientAddress = toAddr,
+                                                    amountBaseUnits = amountBaseUnits,
+                                                    origin = origin,
+                                                    expectedSenderAddress = keyPair.kaspaAddress,
+                                                    expectedNetwork = network
+                                                )
                                             }
-                                            mainHandler.post {
-                                                res.fold(
-                                                    onSuccess = { txId ->
-                                                        respond(
-                                                            JSONObject()
-                                                                .put("transactionId", txId)
-                                                                .put("status", "accepted")
-                                                                .put("tick", "KB")
-                                                                .put("op", "transfer")
-                                                                .put("amt", amtStr)
-                                                                .put("to", toAddr)
-                                                        )
-                                                    },
-                                                    onFailure = { err ->
+                                        } catch (error: Throwable) {
+                                            Result.failure(error)
+                                        }
+                                        mainHandler.post {
+                                            outcome.fold(
+                                                onSuccess = { txId ->
+                                                    respond(
+                                                        JSONObject()
+                                                            .put("transactionId", txId)
+                                                            .put("status", "accepted")
+                                                            .put("covenantId", requestedCovenantId)
+                                                            .put("op", "transfer")
+                                                            .put("amountBaseUnits", amountBaseUnits.toString())
+                                                            .put("to", toAddr)
+                                                    )
+                                                },
+                                                onFailure = { err ->
+                                                    if (err is com.example.viewmodel.DecentralViewModel.Kcc20UserRejectedException) {
+                                                        respond(errorCode = 4001, errorMessage = err.message ?: "User rejected KCC20 broadcast")
+                                                    } else {
                                                         respond(
                                                             errorCode = -32000,
-                                                            errorMessage = err.message ?: "KCC-20 transfer failed"
+                                                            errorMessage = err.message ?: "KCC20 transfer failed"
                                                         )
                                                     }
-                                                )
-                                            }
-                                        } else {
-                                            mainHandler.post {
-                                                respond(
-                                                    errorCode = -32602,
-                                                    errorMessage = "KCC-20 transfer requires recipient address and amount > 0."
-                                                )
-                                            }
+                                                }
+                                            )
                                         }
                                         return@execute
                                     }
@@ -1112,46 +1315,127 @@ object KaspaDappBridge {
                                 }
                                 return@execute
                             }
+                            val hasCovenantInputs = prepared.utxoEntries.any { utxo ->
+                                Regex("aa20[0-9a-fA-F]{64}87").matches(utxo.scriptPublicKey.script.replace(" ", ""))
+                            }
+                            val hasCovenantOutputs = prepared.transaction.outputs.any { it.covenant != null }
+                            val covenantInputAddresses = if (hasCovenantInputs || hasCovenantOutputs) {
+                                try {
+                                    require(prepared.transaction.version == 1) {
+                                        "KCC20 covenant PSKTs must use version 1"
+                                    }
+                                    val addresses = prepared.utxoEntries.map { utxo ->
+                                        scriptToAddress(utxo.scriptPublicKey, prefix)
+                                    }
+                                    require(addresses.all { it.startsWith("$prefix:") }) {
+                                        "A PSKT input locking script could not be resolved to the active Kaspa network"
+                                    }
+                                    kotlinx.coroutines.runBlocking {
+                                        viewModel.validateDappCovenantPskt(
+                                            transaction = prepared.transaction,
+                                            utxoEntries = prepared.utxoEntries,
+                                            inputAddresses = addresses
+                                        )
+                                    }
+                                    addresses
+                                } catch (error: Throwable) {
+                                    mainHandler.post {
+                                        respond(errorCode = -32602, errorMessage = error.message ?: "Rusty-Kaspa covenant verification failed")
+                                    }
+                                    return@execute
+                                }
+                            } else emptyList()
                             mainHandler.post {
-                                val firstOutput = prepared.transaction.outputs.firstOrNull()
                                 val outKas = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
                                     com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(prepared.outputSumSompi)
                                 )
+                                val reviewedOutputs = prepared.transaction.outputs.mapIndexed { index, output ->
+                                    val address = runCatching { scriptToAddress(output.scriptPublicKey, prefix) }.getOrNull()
+                                    val amount = com.example.network.kaspa.KaspaTransactionEngine.formatKas(
+                                        com.example.network.kaspa.KaspaTransactionEngine.sompiToKas(output.amount)
+                                    )
+                                    buildString {
+                                        append("Output ${index + 1} — $amount KAS")
+                                        if (!address.isNullOrBlank()) append("\nrecipient=$address")
+                                        append("\nscriptVersion=${output.scriptPublicKey.version}")
+                                        append("\nscript=${output.scriptPublicKey.script}")
+                                        output.covenant?.let { binding ->
+                                            append("\ncovenantId=${binding.covenantId}")
+                                            append("\nauthorizingInput=${binding.authorizingInput}")
+                                        }
+                                    }
+                                }.joinToString("\n\n")
+                                val tokenDetails = try {
+                                    if (hasCovenantInputs || hasCovenantOutputs) DappPsktTransaction.kcc20TokenDetails(prepared) else ""
+                                } catch (error: Throwable) {
+                                    respond(errorCode = -32602, errorMessage = error.message ?: "Cannot verify exact KCC20 token base units")
+                                    return@post
+                                }
                                 viewModel.dappPromptState.value = com.example.viewmodel.DecentralViewModel.DappPromptState.SignTransaction(
                                     origin = origin,
                                     network = network,
                                     accountAddress = keyPair.kaspaAddress,
-                                    title = "Submit Kaspa Transaction",
-                                    action = "Broadcast Raw Transaction",
+                                    title = if (hasCovenantInputs || hasCovenantOutputs) "Submit KCC20 Covenant Transaction" else "Submit Kaspa Transaction",
+                                    action = if (hasCovenantInputs || hasCovenantOutputs) "Broadcast Rusty-Kaspa v2.1.0 validated transaction" else "Broadcast Kaspa Transaction",
                                     tick = "KAS",
                                     amount = outKas,
-                                    destination = firstOutput?.scriptPublicKey?.script?.take(22).orEmpty(),
-                                    inputsCount = prepared.signInputs.size,
+                                    amountLabel = if (hasCovenantInputs || hasCovenantOutputs) "KAS output total; token state is enforced by the covenant script engine" else "Total outputs",
+                                    destination = reviewedOutputs,
+                                    inputsCount = prepared.transaction.inputs.size,
                                     feeKas = prepared.feeKas,
                                     totalAmountKas = outKas,
+                                    tokenDetails = tokenDetails,
                                     onApprove = {
                                         viewModel.dappPromptState.value = null
-                                        cryptoExecutor.execute {
-                                            val receipt = try {
-                                                kotlinx.coroutines.runBlocking {
-                                                    viewModel.walletService.submitDappTransaction(
-                                                        prepared.transaction,
-                                                        keyPair.kaspaAddress,
-                                                        network
-                                                    )
+                                        if (viewModel.activeAccount.value?.did != account?.did ||
+                                            viewModel.activeAccount.value?.handle != account?.handle ||
+                                            viewModel.selectedNetwork.value != network
+                                        ) {
+                                            respond(errorCode = 4100, errorMessage = "Active wallet or network changed while awaiting broadcast approval")
+                                        } else {
+                                            cryptoExecutor.execute {
+                                                val submission = try {
+                                                    val txId = kotlinx.coroutines.runBlocking {
+                                                        if (hasCovenantInputs || hasCovenantOutputs) {
+                                                            require(viewModel.selectedNetwork.value == network) {
+                                                                "Network changed while awaiting covenant broadcast approval"
+                                                            }
+                                                            viewModel.submitDappCovenantPskt(
+                                                                transaction = prepared.transaction,
+                                                                utxoEntries = prepared.utxoEntries,
+                                                                inputAddresses = covenantInputAddresses
+                                                            )
+                                                        } else {
+                                                            val receipt = viewModel.walletService.submitDappTransaction(
+                                                                prepared.transaction,
+                                                                keyPair.kaspaAddress,
+                                                                network
+                                                            )
+                                                            require(receipt.accepted) {
+                                                                receipt.error.ifBlank { "Kaspa node did not accept the transaction" }
+                                                            }
+                                                            receipt.transactionId
+                                                        }
+                                                    }
+                                                    require(txId.equals(
+                                                        KaspaTransactionEngine.calcTransactionId(prepared.transaction),
+                                                        ignoreCase = true
+                                                    )) { "Submitted transaction ID differs from the locally calculated transaction ID" }
+                                                    Result.success(txId)
+                                                } catch (error: Throwable) {
+                                                    Result.failure(error)
                                                 }
-                                            } catch (error: Throwable) {
-                                                null
-                                            }
-                                            mainHandler.post {
-                                                if (receipt == null) {
-                                                    respond(errorCode = -32603, errorMessage = "Transaction submission failed")
-                                                } else if (!receipt.accepted) {
-                                                    respond(errorCode = -32000, errorMessage = receipt.error)
-                                                } else {
-                                                    viewModel.onSwapTransactionSigned(txJson)
-                                                    viewModel.triggerPostSwapRefresh()
-                                                    respond(receipt.transactionId)
+                                                mainHandler.post {
+                                                    submission.fold(
+                                                        onSuccess = { txId ->
+                                                            viewModel.onSwapTransactionSigned(txJson)
+                                                            viewModel.triggerPostSwapRefresh()
+                                                            respond(txId)
+                                                        },
+                                                        onFailure = { error ->
+                                                            respond(errorCode = -32000, errorMessage = error.message ?: "Transaction submission failed")
+                                                        }
+                                                    )
                                                 }
                                             }
                                         }
@@ -1383,6 +1667,21 @@ object KaspaDappBridge {
                       try { listener(value); } catch (_) {}
                     }
                   };
+                  let lastKnownAccounts = null;
+                  let lastKnownNetwork = null;
+                  const publishAccounts = accounts => {
+                    const snapshot = JSON.stringify(accounts);
+                    if (snapshot !== lastKnownAccounts) {
+                      lastKnownAccounts = snapshot;
+                      emit('accountsChanged', accounts);
+                    }
+                  };
+                  const publishNetwork = network => {
+                    if (network !== lastKnownNetwork) {
+                      lastKnownNetwork = network;
+                      emit('chainChanged', network);
+                    }
+                  };
                   const on = (event, listener) => {
                     if (typeof listener !== 'function') return provider;
                     if (!listeners.has(event)) listeners.set(event, new Set());
@@ -1396,17 +1695,17 @@ object KaspaDappBridge {
                   const provider = {
                     requestAccounts: async () => {
                       const accounts = await request('requestAccounts');
-                      emit('accountsChanged', accounts);
+                      publishAccounts(accounts);
                       return accounts;
                     },
                     getAccounts: async () => {
                       const accounts = await request('getAccounts');
-                      emit('accountsChanged', accounts);
+                      publishAccounts(accounts);
                       return accounts;
                     },
                     getNetwork: async () => {
                       const network = await request('getNetwork');
-                      emit('chainChanged', network);
+                      publishNetwork(network);
                       return network;
                     },
                     getPublicKey: () => request('getPublicKey'),
@@ -1424,13 +1723,13 @@ object KaspaDappBridge {
                     signPolicyTransaction: payload => request('signPolicyTransaction', payload),
                     disconnect: async () => {
                       const result = await request('disconnect');
-                      emit('accountsChanged', []);
+                      publishAccounts([]);
                       emit('disconnect', result);
                       return result;
                     },
                     enable: async () => {
                       const accounts = await request('requestAccounts');
-                      emit('accountsChanged', accounts);
+                      publishAccounts(accounts);
                       return accounts;
                     },
                     on,
@@ -1439,6 +1738,22 @@ object KaspaDappBridge {
                     off: removeListener
                   };
                   Object.freeze(provider);
+                  const syncProviderState = async () => {
+                    try {
+                      const accounts = await request('getAccounts');
+                      publishAccounts(accounts);
+                    } catch (_) {}
+                    try {
+                      const network = await request('getNetwork');
+                      publishNetwork(network);
+                    } catch (_) {}
+                  };
+                  window.addEventListener('focus', syncProviderState);
+                  if (typeof document !== 'undefined') {
+                    document.addEventListener('visibilitychange', () => {
+                      if (!document.hidden) syncProviderState();
+                    });
+                  }
                   const browserProvider = Object.freeze({
                     ...provider,
                     connect: async () => {
@@ -1469,6 +1784,11 @@ object KaspaDappBridge {
                       'kaspa:signMessage': 'signMessage',
                       'kaspa:signPskt': 'signPskt',
                       'kaspa:submitTransaction': 'submitTransaction',
+                      'kaspa:pushTx': 'pushTx',
+                      'kaspa:sendKaspa': 'sendKaspa',
+                      'kaspa:sendTransaction': 'sendTransaction',
+                      'kaspa:signKcc20Transaction': 'signKcc20Transaction',
+                      'kaspa:signKrc20Transaction': 'signKrc20Transaction',
                       'kaspa:disconnect': 'disconnect',
                       connect: 'requestAccounts',
                       enable: 'requestAccounts',
@@ -1640,12 +1960,9 @@ object KaspaDappBridge {
                     name: 'Kazium',
                     isKaspabrowser: true,
                     isKaspaBrowser: true,
-                    isKasware: true,
-                    isKastle: true,
-                    isKaspire: true,
                     isKaspa: true,
                     isInstalled: true,
-                    type: 'extension',
+                    type: 'in-app',
                     version: '1.2.0',
                     request: requestCompat,
                     requestAccounts: () => requestCompat({ method: 'requestAccounts' }),
@@ -1660,65 +1977,6 @@ object KaspaDappBridge {
                     sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload }),
                     disconnect: () => requestCompat({ method: 'disconnect' })
                   });
-                  installAlias('kastle', Object.freeze({
-                    ...requestProvider,
-                    isKastle: true,
-                    isInstalled: true,
-                    isKaspa: true,
-                    version: '1.2.0',
-                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
-                    signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
-                    signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
-                    sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
-                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
-                  }));
-                  installAlias('kasware', Object.freeze({
-                    ...requestProvider,
-                    isKasware: true,
-                    isInstalled: true,
-                    isKaspa: true,
-                    version: '1.2.0',
-                    getNetwork: () => requestCompat({ method: 'kaspa:getNetwork' }),
-                    getAccounts: () => requestCompat({ method: 'kaspa:getAccounts' }),
-                    requestAccounts: () => requestCompat({ method: 'kaspa:requestAccounts' }),
-                    getBalance: () => requestCompat({ method: 'kaspa:getBalance' }),
-                    getPublicKey: () => requestCompat({ method: 'kaspa:getPublicKey' }),
-                    signPskt: (payload, options) => requestCompat({ method: 'signPskt', params: (typeof payload === 'string') ? { txJsonString: payload, options: options || {} } : (options ? { ...payload, options } : payload) }),
-                    signKrc20Transaction: payload => requestCompat({ method: 'signKrc20Transaction', params: payload }),
-                    signKcc20Transaction: payload => requestCompat({ method: 'signKcc20Transaction', params: payload }),
-                    sendKaspa: (to, amount) => requestCompat({ method: 'sendKaspa', params: [to, amount] }),
-                    sendTransaction: payload => requestCompat({ method: 'sendTransaction', params: payload })
-                  }));
-                  const kasperiaProvider = {
-                    ...requestProvider,
-                    isKasperia: true,
-                    isInstalled: true,
-                    isKaspa: true
-                  };
-                  Object.defineProperty(kasperiaProvider, 'ethereum', {
-                    configurable: false,
-                    enumerable: true,
-                    get: () => window.ethereum
-                  });
-                  Object.freeze(kasperiaProvider);
-                  installAlias('kasperia', kasperiaProvider);
-                  const kaspireProvider = Object.freeze({
-                    ...kaspaBrowserProvider,
-                    id: 'kaspire',
-                    name: 'Kaspire',
-                    provider: 'kaspire',
-                    isKaspire: true,
-                    isKaspabrowser: true,
-                    isKaspaBrowser: true,
-                    isInstalled: true,
-                    isKaspa: true,
-                    type: 'extension',
-                    version: '1.2.5'
-                  });
-                  window.kaspire = kaspireProvider;
-                  window.isKaspire = true;
-                  installAlias('kaspire', kaspireProvider);
-
                   window.kaspabrowser = kaspaBrowserProvider;
                   window.kaspabrowserProvider = kaspaBrowserProvider;
                   try {
@@ -1732,18 +1990,17 @@ object KaspaDappBridge {
                       configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
                     });
                     Object.defineProperty(window, 'kaspaBrowser', {
-                      configurable: true, enumerable: true, writable: true, value: browserProvider
+                      configurable: true, enumerable: true, writable: true, value: kaspaBrowserProvider
                     });
                   } catch (_) {}
 
-                  window.isKasware = true;
                   window.isKaspa = true;
 
                   const walletNamespace = window.wallet && typeof window.wallet === 'object' ? window.wallet : {};
                   if (!Object.prototype.hasOwnProperty.call(walletNamespace, 'kaspa')) {
                     try {
                       Object.defineProperty(walletNamespace, 'kaspa', {
-                        configurable: false, enumerable: true, writable: false, value: browserProvider
+                        configurable: false, enumerable: true, writable: false, value: kaspaBrowserProvider
                       });
                       if (window.wallet !== walletNamespace) {
                         Object.defineProperty(window, 'wallet', {
@@ -1763,18 +2020,14 @@ object KaspaDappBridge {
                   const announce = () => {
                     const detail = Object.freeze({ info, provider: kaspaBrowserProvider });
                     window.dispatchEvent(new CustomEvent('kaspa:provider', { detail }));
-                    window.dispatchEvent(new CustomEvent('kaspire:provider', { detail: Object.freeze({ info: { ...info, id: 'kaspire', name: 'Kaspire', rdns: 'io.kaspire' }, provider: kaspireProvider }) }));
-                    window.dispatchEvent(new CustomEvent('kasware:provider', { detail: Object.freeze({ info: { ...info, id: 'kasware', name: 'Kasware', rdns: 'com.kasware.wallet' }, provider: window.kasware }) }));
+
                   };
                   window.addEventListener('kaspa:requestProvider', announce);
                   window.addEventListener('kaspabrowser#requestProvider', announce);
-                  window.addEventListener('kaspire:requestProvider', announce);
-                  window.addEventListener('kasware:requestProvider', announce);
+
                   announce();
                   window.dispatchEvent(new Event('kaspabrowser#initialized'));
-                  window.dispatchEvent(new Event('kasperia#initialized'));
-                  window.dispatchEvent(new Event('kaspire#initialized'));
-                  window.dispatchEvent(new Event('kasware#initialized'));
+
                 })();
             """.trimIndent().replace("UUID_PLACEHOLDER", UUID.randomUUID().toString())
 

@@ -1,5 +1,7 @@
 package com.example.dapp
 
+import com.example.network.kaspa.Kcc20ReferenceProtocol
+
 import com.example.network.CryptoUtils
 import com.example.network.kaspa.KaspaTransactionEngine
 import com.example.network.kaspa.Kcc20NoteScanner
@@ -23,7 +25,9 @@ internal object DappPsktTransaction {
         val outputSumSompi: Long,
         val feeSompi: Long,
         val redeemScript: String = "",
-        val walletPublicKeyHex: String = ""
+        val walletPublicKeyHex: String = "",
+        val inputRedeemScripts: List<String> = emptyList(),
+        val outputRedeemScripts: List<String> = emptyList()
     ) {
         val feeKas: String
             get() = KaspaTransactionEngine.formatKas(KaspaTransactionEngine.sompiToKas(feeSompi))
@@ -80,9 +84,6 @@ internal object DappPsktTransaction {
                 "Input index is out of range"
             }
             val input = prepared.transaction.inputs[request.index]
-            require(input.signatureScript.isBlank()) {
-                "Refusing to overwrite an existing signature script"
-            }
             val utxoScript = prepared.utxoEntries[request.index].scriptPublicKey.script
                 .replace(" ", "").lowercase()
             val pubHex = walletPublicKeyHex.lowercase()
@@ -92,9 +93,11 @@ internal object DappPsktTransaction {
                 "Input ${request.index} has an invalid or missing UTXO amount"
             }
 
-            // Only sign standard version-0 P2PK outputs whose complete locking script
-            // exactly commits to this wallet key. Substring matches are not ownership proofs.
+            // Standard wallet funding inputs must be unsigned and match the active key exactly.
             if (utxo.scriptPublicKey.version == 0 && utxoScript == expectedScript) {
+                require(input.signatureScript.isBlank()) {
+                    "Refusing to overwrite an existing signature script"
+                }
                 resolvedRequests.add(request)
                 continue
             }
@@ -129,11 +132,19 @@ internal object DappPsktTransaction {
                 require(actualHash.equals(p2shHash, ignoreCase = true)) {
                     "P2SH redeemScript does not match input ${request.index} locking script"
                 }
-                val isStandardP2pk = (redeemHex == expectedScript)
-                val isCovenantNote = (redeemHex.contains("20" + pubHex) || redeemHex.contains(pubHex)) &&
-                    (redeemHex.length >= 68)
-                require(isStandardP2pk || isCovenantNote) {
-                    "P2SH input ${request.index} is not a supported single-key P2PK deposit or KCC-20 covenant note for the active wallet key"
+                val isStandardP2pk = redeemHex == expectedScript
+                val covenantState = runCatching {
+                    com.example.network.kaspa.Kcc20ReferenceProtocol.verifyProgram(redeemBytes)
+                }.getOrNull()
+                val isWalletOwnedReferenceNote = covenantState != null &&
+                    covenantState.ownerScheme == 0x00 &&
+                    covenantState.owner.contentEquals(hexToBytes(pubHex))
+
+                require(isStandardP2pk || isWalletOwnedReferenceNote) {
+                    "P2SH input ${request.index} is not an exact pinned KCC20 reference note owned by the active wallet, or a standard P2PK deposit"
+                }
+                require(input.signatureScript.isBlank()) {
+                    "Refusing to overwrite an existing signature script"
                 }
                 resolvedRequests.add(request.copy(redeemScript = finalRedeem))
                 continue
@@ -143,6 +154,9 @@ internal object DappPsktTransaction {
                 "Input ${request.index} is not an exact supported P2PK/P2SH-P2PK deposit for the active wallet key " +
                     "(scriptVersion=${utxo.scriptPublicKey.version}, amountSompi=${utxo.amount})"
             )
+        }
+        require(resolvedRequests.isNotEmpty()) {
+            "No unsigned input owned by the active wallet was selected for signing"
         }
         return prepared.copy(signInputs = resolvedRequests)
     }
@@ -170,6 +184,9 @@ internal object DappPsktTransaction {
         val txRoot = signedRoot.optJSONObject("transaction") ?: signedRoot.optJSONObject("tx") ?: signedRoot
         val inputArray = txRoot.optJSONArray("inputs")
             ?: throw IllegalArgumentException("Transaction inputs are missing")
+        require(inputArray.length() == prepared.transaction.inputs.size) {
+            "PSKT input count changed before signing"
+        }
         for (request in prepared.signInputs) {
             val input = prepared.transaction.inputs[request.index]
             val utxoEntry = prepared.utxoEntries[request.index]
@@ -215,6 +232,189 @@ internal object DappPsktTransaction {
 
     fun signForDapp(prepared: Prepared, privateKey: BigInteger): String =
         sign(prepared, privateKey, isDappSigning = true)
+
+    fun assembleReferenceCovenantWitnesses(signedJson: String, prepared: Prepared): String {
+        val root = JSONObject(signedJson)
+        val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
+        val inputs = txRoot.optJSONArray("inputs")
+            ?: throw IllegalArgumentException("Signed PSKT inputs are missing")
+        require(inputs.length() == prepared.transaction.inputs.size) {
+            "Signed PSKT input count changed before KCC20 witness assembly"
+        }
+
+        val families = linkedMapOf<String, MutableList<Int>>()
+        prepared.utxoEntries.forEachIndexed { index, utxo ->
+            val script = utxo.scriptPublicKey.script.replace(" ", "").lowercase()
+            if (utxo.scriptPublicKey.version != 0 || !Regex("aa20[0-9a-f]{64}87").matches(script)) {
+                return@forEachIndexed
+            }
+            val programHex = prepared.inputRedeemScripts.getOrNull(index).orEmpty()
+            if (programHex.isBlank()) return@forEachIndexed
+            val program = hexToBytes(programHex)
+            if (runCatching { Kcc20ReferenceProtocol.verifyProgram(program) }.isFailure) {
+                return@forEachIndexed
+            }
+            require(Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                .equals(script, ignoreCase = true)) {
+                "KCC20 input $index redeem program does not match its P2SH locking script"
+            }
+            val family = utxo.covenantId?.trim()?.lowercase()
+                ?: throw IllegalArgumentException("KCC20 input $index has no node-declared covenant ID")
+            require(family.matches(Regex("[0-9a-f]{64}"))) {
+                "KCC20 input $index has a malformed covenant ID"
+            }
+            families.getOrPut(family) { mutableListOf() }.add(index)
+        }
+        require(families.isNotEmpty()) { "No reference KCC20 covenant inputs were supplied" }
+
+        val outputPrograms = prepared.outputRedeemScripts.mapIndexedNotNull { index, hex ->
+            if (hex.isBlank()) return@mapIndexedNotNull null
+            val program = runCatching { hexToBytes(hex) }.getOrNull() ?: return@mapIndexedNotNull null
+            val state = runCatching { Kcc20ReferenceProtocol.verifyProgram(program) }.getOrNull()
+                ?: return@mapIndexedNotNull null
+            val output = prepared.transaction.outputs.getOrNull(index) ?: return@mapIndexedNotNull null
+            require(output.scriptPublicKey.version == 0 &&
+                Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                    .equals(output.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
+            ) { "KCC20 continuation output $index has an invalid P2SH program" }
+            val binding = output.covenant
+                ?: throw IllegalArgumentException("KCC20 continuation output $index is missing its covenant binding")
+            require(binding.covenantId.matches(Regex("[0-9a-fA-F]{64}")) &&
+                binding.authorizingInput in prepared.transaction.inputs.indices
+            ) { "KCC20 continuation output $index has an invalid covenant binding" }
+            Triple(index, binding, program) to state
+        }
+
+        for ((family, familyInputs) in families) {
+            require(familyInputs.size in 1..Kcc20ReferenceProtocol.MAX_TOKEN_INPUTS)
+            val leaderIndex = familyInputs.first()
+            val familyOutputs = outputPrograms.filter { (entry, _) ->
+                entry.second.covenantId.equals(family, ignoreCase = true)
+            }
+            require(familyOutputs.isNotEmpty() && familyOutputs.size <= Kcc20ReferenceProtocol.MAX_TOKEN_OUTPUTS) {
+                "KCC20 family $family has no valid continuation outputs"
+            }
+            familyOutputs.forEach { (entry, _) ->
+                require(entry.second.authorizingInput == leaderIndex) {
+                    "KCC20 continuation output ${entry.first} is not authorized by family leader $leaderIndex"
+                }
+            }
+            val leaderState = Kcc20ReferenceProtocol.verifyProgram(hexToBytes(prepared.inputRedeemScripts[leaderIndex]))
+            val inputsTotal = familyInputs.fold(java.math.BigInteger.ZERO) { total, index ->
+                val state = Kcc20ReferenceProtocol.verifyProgram(hexToBytes(prepared.inputRedeemScripts[index]))
+                require(state.borrowScheme == 0 && state.borrowGuard.all { it == 0.toByte() } &&
+                    state.extensionCommitment.contentEquals(leaderState.extensionCommitment)) {
+                    "KCC20 input $index uses an unsupported or incompatible state policy"
+                }
+                total + state.amount
+            }
+            val nextStates = familyOutputs.map { (_, state) ->
+                require(state.borrowScheme == 0 && state.borrowGuard.all { it == 0.toByte() } &&
+                    state.extensionCommitment.contentEquals(leaderState.extensionCommitment)) {
+                    "KCC20 continuation uses an unsupported or incompatible state policy"
+                }
+                state
+            }
+            val outputsTotal = nextStates.fold(java.math.BigInteger.ZERO) { total, state -> total + state.amount }
+            require(inputsTotal == outputsTotal) { "KCC20 family $family token amounts do not balance" }
+            val successorPrograms = familyOutputs.map { it.first.third }
+            familyInputs.forEachIndexed { position, inputIndex ->
+                val state = Kcc20ReferenceProtocol.verifyProgram(hexToBytes(prepared.inputRedeemScripts[inputIndex]))
+                val inputJson = inputs.getJSONObject(inputIndex)
+                val signatureScript = inputJson.optString("signatureScript",
+                    inputJson.optString("signature_script", "")).lowercase()
+                val signature = when {
+                    position == 0 && state.ownerScheme == 0x04 -> {
+                        require(signatureScript.isBlank()) { "Covenant-owned KCC20 leader must not carry a wallet signature" }
+                        null
+                    }
+                    else -> {
+                        require(state.ownerScheme == 0x00 && signatureScript.matches(Regex("41[0-9a-f]{128}01"))) {
+                            "KCC20 input $inputIndex requires its owner's SIGHASH_ALL signature"
+                        }
+                        hexToBytes(signatureScript.substring(2))
+                    }
+                }
+                val witness = com.example.network.kaspa.Kcc20RustyKaspaEngine.assembleReferenceWitness(
+                    hexToBytes(prepared.inputRedeemScripts[inputIndex]),
+                    position == 0,
+                    signature,
+                    if (position == 0) successorPrograms else emptyList()
+                )
+                inputJson.put("signatureScript", Kcc20ReferenceProtocol.bytesToHex(witness))
+                inputJson.remove("signature_script")
+            }
+        }
+        return root.toString()
+    }
+
+    fun kcc20TokenDetails(prepared: Prepared): String {
+        data class Totals(var inputs: BigInteger = BigInteger.ZERO, var outputs: BigInteger = BigInteger.ZERO)
+        val totals = sortedMapOf<String, Totals>()
+        prepared.utxoEntries.forEachIndexed { index, utxo ->
+            val script = utxo.scriptPublicKey.script.replace(" ", "").lowercase()
+            if (utxo.scriptPublicKey.version != 0 || !script.matches(Regex("aa20[0-9a-f]{64}87"))) return@forEachIndexed
+            val covenantId = utxo.covenantId?.trim()?.lowercase()
+                ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                ?: throw IllegalArgumentException("KCC20 approval input $index has no verified covenant ID")
+            val programHex = prepared.inputRedeemScripts.getOrNull(index).orEmpty()
+            require(programHex.isNotBlank()) { "KCC20 approval input $index has no verified state program" }
+            val state = Kcc20ReferenceProtocol.verifyProgram(Kcc20ReferenceProtocol.decodeHex(programHex))
+            require(Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(Kcc20ReferenceProtocol.decodeHex(programHex))).equals(script, ignoreCase = true)) {
+                "KCC20 approval input $index state program does not match its P2SH locking script"
+            }
+            val amounts = totals.getOrPut(covenantId) { Totals() }
+            amounts.inputs = amounts.inputs.add(state.amount)
+        }
+        prepared.transaction.outputs.forEachIndexed { index, output ->
+            val binding = output.covenant ?: return@forEachIndexed
+            val covenantId = binding.covenantId.trim().lowercase()
+            require(covenantId.matches(Regex("[0-9a-f]{64}"))) { "KCC20 approval output $index has a malformed covenant ID" }
+            val programHex = prepared.outputRedeemScripts.getOrNull(index).orEmpty()
+            require(programHex.isNotBlank()) { "KCC20 approval output $index has no verified state program" }
+            val program = Kcc20ReferenceProtocol.decodeHex(programHex)
+            val state = Kcc20ReferenceProtocol.verifyProgram(program)
+            require(output.scriptPublicKey.version == 0 &&
+                Kcc20ReferenceProtocol.bytesToHex(Kcc20ReferenceProtocol.p2shScript(program))
+                    .equals(output.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)
+            ) {
+                "KCC20 approval output $index state program does not match its P2SH locking script"
+            }
+            val amounts = totals.getOrPut(covenantId) { Totals() }
+            amounts.outputs = amounts.outputs.add(state.amount)
+        }
+        require(totals.isNotEmpty()) { "KCC20 approval has no verifiable token covenant states" }
+        return totals.entries.joinToString("\n\n") { (covenantId, amounts) ->
+            val metadata = Kcc20NoteScanner.KNOWN_TOKENS[covenantId]
+            val trustedMetadata = metadata?.let {
+                "Name: ${it.name}\nTicker: ${it.ticker}\nDecimals: ${it.decimals}\nMetadata source: pinned token list\n"
+            }.orEmpty()
+            trustedMetadata +
+                "Covenant ID: $covenantId\nInput base units: ${amounts.inputs}\nOutput base units: ${amounts.outputs}"
+        }
+    }
+    fun applyMeasuredComputeBudgets(signedJson: String, budgets: List<Int>, storageMass: Long? = null): String {
+        val root = JSONObject(signedJson)
+        val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
+        val inputs = txRoot.optJSONArray("inputs")
+            ?: throw IllegalArgumentException("Signed PSKT inputs are missing")
+        require(inputs.length() == budgets.size && budgets.all { it in 1..0xffff }) {
+            "Measured compute budgets do not match the signed PSKT inputs"
+        }
+        for (index in budgets.indices) {
+            val input = inputs.optJSONObject(index)
+                ?: throw IllegalArgumentException("Signed PSKT input is malformed")
+            input.put("sigOpCount", 0)
+            input.put("sig_op_count", 0)
+            input.put("computeBudget", budgets[index])
+            input.put("compute_budget", budgets[index])
+        }
+        if (storageMass != null) {
+            require(storageMass >= 0L) { "Rusty-Kaspa returned a negative contextual storage mass" }
+            txRoot.put("mass", storageMass)
+        }
+        return root.toString()
+    }
 
     private fun parseAndValidate(txJsonString: String, signInputs: List<SignInput>, redeemScript: String): Prepared {
         require(txJsonString.isNotBlank() && txJsonString.length <= MAX_TRANSACTION_JSON_CHARS) {
@@ -346,12 +546,14 @@ internal object DappPsktTransaction {
             inputs += KaspaTransactionEngine.KaspaTransactionInput(
                 previousOutpoint = KaspaTransactionEngine.KaspaOutpoint(txId.lowercase(), outIndex),
                 signatureScript = item.optString("signatureScript", item.optString("signature_script", "")),
-                sequence = item.optLong("sequence", 0L),
-                sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", 1))
+                sequence = item.optLong("sequence", item.optLong("sequence_number", 0L)),
+                sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", 1)),
+                computeBudget = item.optInt("computeBudget", item.optInt("compute_budget", 0))
             )
         }
 
         val outputs = ArrayList<KaspaTransactionEngine.KaspaTransactionOutput>(outputArray.length())
+        val outputRedeemScripts = ArrayList<String>(outputArray.length())
         var outputSum = 0L
         for (index in 0 until outputArray.length()) {
             val item = outputArray.optJSONObject(index)
@@ -364,12 +566,39 @@ internal object DappPsktTransaction {
             require(script.script.matches(Regex("(?i)([0-9a-f]{2})+"))) {
                 "Output $index has an invalid script"
             }
+            val outputRedeem = sequenceOf("redeemScript", "redeem_script", "redeemScriptHex", "redeem_script_hex")
+                .mapNotNull { key -> item.optString(key, "").takeIf { it.isNotBlank() } }
+                .firstOrNull().orEmpty().lowercase()
+            if (outputRedeem.isNotBlank()) {
+                require(outputRedeem.matches(Regex("(?i)([0-9a-f]{2})+"))) {
+                    "Output $index redeem script is malformed"
+                }
+                val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(script.script.replace(" ", "").lowercase())?.groupValues?.get(1)
+                    ?: throw IllegalArgumentException("Output $index supplies a redeem script for a non-P2SH output")
+                val actualHash = CryptoUtils.blake2b256(hexToBytes(outputRedeem)).joinToString("") { "%02x".format(it) }
+                require(actualHash.equals(p2shHash, ignoreCase = true)) {
+                    "Output $index redeem script does not match its P2SH locking script"
+                }
+            }
+            outputRedeemScripts += outputRedeem
             outputSum = Math.addExact(outputSum, amount)
             val covenantJson = item.optJSONObject("covenant")
-            val covenant = covenantJson?.let {
+            val covenant = covenantJson?.let { binding ->
+                val authorizingKey = sequenceOf("authorizingInput", "authorizing_input")
+                    .firstOrNull { key -> binding.has(key) && !binding.isNull(key) }
+                    ?: throw IllegalArgumentException("Output $index covenant binding is missing authorizingInput")
+                val authorizingInput = binding.optInt(authorizingKey, -1)
+                require(authorizingInput in inputs.indices) {
+                    "Output $index covenant authorizingInput is outside the transaction input range"
+                }
+                val covenantId = binding.optString("covenantId", binding.optString("covenant_id", ""))
+                    .trim().lowercase()
+                require(covenantId.matches(Regex("[0-9a-f]{64}"))) {
+                    "Output $index covenant ID must be exactly 32-byte hex"
+                }
                 KaspaTransactionEngine.KaspaCovenantBinding(
-                    authorizingInput = it.optInt("authorizingInput", it.optInt("authorizing_input", 0)),
-                    covenantId = it.optString("covenantId", it.optString("covenant_id", ""))
+                    authorizingInput = authorizingInput,
+                    covenantId = covenantId
                 )
             }
             outputs += KaspaTransactionEngine.KaspaTransactionOutput(amount, script, covenant)
@@ -390,9 +619,15 @@ internal object DappPsktTransaction {
             payload = txRoot.optString("payload", ""),
             mass = txRoot.optLong("mass", 0L)
         )
-        val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
-        require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-            "Transaction mass exceeds the standard mempool limit"
+        val hasCovenantTransaction = tx.version == 1 && (
+            utxoEntries.any { !it.covenantId.isNullOrBlank() } ||
+                outputs.any { it.covenant != null }
+            )
+        if (!hasCovenantTransaction) {
+            val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
+            require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                "Transaction mass exceeds the standard mempool limit"
+            }
         }
         val resolvedSignInputs = signInputs.map { request ->
             if (request.redeemScript.isNotBlank()) request
@@ -407,7 +642,11 @@ internal object DappPsktTransaction {
                 )
             }
         }
-        return Prepared(root, tx, utxoEntries, resolvedSignInputs, inputSum, outputSum, fee, redeemScript)
+        return Prepared(
+            root, tx, utxoEntries, resolvedSignInputs, inputSum, outputSum, fee, redeemScript,
+            inputRedeemScripts = inputRedeemScripts.toList(),
+            outputRedeemScripts = outputRedeemScripts.toList()
+        )
     }
 
     private fun parseOutputScriptPublicKey(

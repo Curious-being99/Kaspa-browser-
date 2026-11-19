@@ -1,0 +1,61 @@
+// Permissionless creation of zero-token receiving UTXOs.
+
+import "./kcc20.ag";
+
+state TokenSeedState {
+    pubkey owner;
+    byte[32] extension_commitment;
+}
+
+actor TokenSeed owns TokenSeedState {
+    entry create(KCC20State recipient_state) emits {
+        seeder: TokenSeed,
+        recipient: KCC20,
+    } {
+        require(recipient_state.amount == 0);
+        require(recipient_state.extension_commitment == extension_commitment);
+        require_valid_owner_scheme(recipient_state.owner_scheme);
+        require_valid_borrow_scheme(recipient_state.borrow_scheme);
+
+        require(seeder.value == self.value);
+        unrestricted(recipient.value);
+        become {
+            seeder <- self,
+            recipient <- KCC20(recipient_state),
+        };
+    }
+
+    entry split(pubkey new_owner) emits {
+        seeder: TokenSeed,
+        additional: TokenSeed,
+    } {
+        TokenSeedState added = {
+            owner: new_owner,
+            extension_commitment: extension_commitment,
+        };
+
+        require(seeder.value == self.value);
+        unrestricted(additional.value);
+        become {
+            seeder <- self,
+            additional <- TokenSeed(added),
+        };
+    }
+
+    // Every spend leaves a seeder alive, including owner-authorized reclaim.
+    entry reclaim() consumes {
+        retiring: TokenSeed,
+    } emits {
+        seeder: TokenSeed,
+    } {
+        require(retiring.extension_commitment == extension_commitment);
+        require(seeder.value == self.value);
+        become seeder <- self;
+    }
+
+    delegate reclaim_delegator(sig owner_signature) consumes {
+        leader: TokenSeed,
+    } {
+        require(checkSig(owner_signature, owner));
+    }
+}

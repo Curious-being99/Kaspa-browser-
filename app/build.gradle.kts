@@ -4,6 +4,12 @@ import org.gradle.process.ExecOperations
 import javax.inject.Inject
 import java.io.ByteArrayOutputStream
 
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.TaskAction
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -11,6 +17,25 @@ plugins {
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
 }
+
+abstract class Kcc20ArgentGeneratedSources : DefaultTask() {
+  @get:InputDirectory
+  abstract val inputDirectory: DirectoryProperty
+
+  @get:OutputDirectory
+  abstract val outputDirectory: DirectoryProperty
+
+  @TaskAction
+  fun copyGeneratedSources() {
+    val source = inputDirectory.get().asFile
+    val destination = outputDirectory.get().asFile
+    destination.deleteRecursively()
+    if (source.exists()) {
+      source.copyRecursively(destination, overwrite = true)
+    }
+  }
+}
+
 
 abstract class GitCommitCountValueSource : ValueSource<Int, ValueSourceParameters.None> {
   @get:Inject
@@ -166,6 +191,133 @@ tasks.register("cargoBuildRustSearchEngine") {
       println("Building Rust Search Engine native library in ${rustDir.absolutePath}...")
     }
   }
+}
+
+tasks.register<Exec>("cargoBuildKcc20Engine") {
+  group = "build"
+  description = "Builds the Rusty-Kaspa v2.1.0 KCC20 script engine for Android"
+  workingDir = file("$rootDir/kcc20-engine")
+  commandLine(
+    "cargo", "ndk",
+    "-t", "arm64-v8a",
+    "-o", file("$buildDir/rustJniLibs").absolutePath,
+    "build",
+    "--release"
+  )
+  environment("KCC20_RUNTIME_MANIFEST", file("$buildDir/generated/kcc20-argent/kcc20-runtime.json").absolutePath)
+}
+
+tasks.register("verifyKcc20ArgentArtifact") {
+  group = "verification"
+  description = "Regenerates the KCC20 covenant with pinned argentc and verifies its compiled artifact"
+  val compilerManifest = providers.environmentVariable("ARGENT_COMPILER_MANIFEST")
+    .orElse("$rootDir/third_party/argent/Cargo.toml")
+  val source = file("$rootDir/kcc20-engine/contracts/public_mint.ag")
+  val fixture = file("$rootDir/kcc20-engine/contracts/artifact-template.json")
+  val pinnedSil = file("$rootDir/kcc20-engine/contracts/KCC20.sil")
+  val outputDir = file("$buildDir/generated/kcc20-argent")
+  outputs.dir(outputDir)
+
+  doLast {
+    val manifest = file(compilerManifest.get())
+    require(manifest.isFile) {
+      "Pinned Argent compiler checkout is required. Set ARGENT_COMPILER_MANIFEST to the Cargo.toml at revision 9a9f4b107116d0b259fae629f200fa3b663e7e9d."
+    }
+    require(source.isFile && fixture.isFile && pinnedSil.isFile) {
+      "KCC20 Argent source, artifact fixture, or pinned Silverscript is missing"
+    }
+    delete(outputDir)
+    providers.exec {
+      workingDir(rootDir)
+      commandLine(
+        "cargo", "run", "--locked", "--manifest-path", manifest.absolutePath,
+        "--", "build", source.absolutePath, "--app", "KCC20PublicMint", "--out", outputDir.absolutePath
+      )
+    }.result.get().assertNormalExitValue()
+
+    val generatedArtifactFile = file("$outputDir/artifact.json")
+    require(generatedArtifactFile.isFile) { "argentc did not generate artifact.json" }
+    val expected = groovy.json.JsonSlurper().parse(fixture) as Map<*, *>
+    val generated = groovy.json.JsonSlurper().parse(generatedArtifactFile) as Map<*, *>
+    require(generated["id"] == expected["artifact_id"]) {
+      "Regenerated Argent artifact ID differs from the pinned KCC20 reference"
+    }
+    val argent = generated["argent"] as Map<*, *>
+    val plan = argent["template_plan"] as Map<*, *>
+    val templates = plan["templates"] as List<*>
+    val tokenActor = templates.map { it as Map<*, *> }.single { it["actor"] == "KCC20" }
+    val handle = tokenActor["actor_type_handle"] as Map<*, *>
+    val template = handle["template"] as Map<*, *>
+    fun bytesHex(value: Any?): String {
+      val bytes = value as List<*>
+      return bytes.joinToString("") { (it as Number).toInt().toString(16).padStart(2, '0') }
+    }
+    require(bytesHex(template["prefix"]) == expected["prefix_hex"]) {
+      "Regenerated Argent KCC20 prefix differs from the pinned artifact"
+    }
+    require(bytesHex(template["suffix"]) == expected["suffix_hex"]) {
+      "Regenerated Argent KCC20 bytecode differs from the pinned artifact"
+    }
+    val prefixHex = bytesHex(template["prefix"])
+    require(prefixHex.length == 68 && prefixHex.startsWith("6b20")) {
+      "Regenerated Argent KCC20 prefix has an invalid state-push header"
+    }
+    val templateHash = prefixHex.substring(4)
+    require(templateHash == expected["template_hash"]) {
+      "Regenerated Argent KCC20 template hash differs from the pinned artifact"
+    }
+    val generatedSil = fileTree(outputDir).matching { include("**/KCC20.sil") }.singleFile
+    require(generatedSil.readBytes().contentEquals(pinnedSil.readBytes())) {
+      "Regenerated KCC20 Silverscript differs from the pinned reference source"
+    }
+    val suffixHex = bytesHex(template["suffix"])
+    val generatedSource = file("$buildDir/generated/kcc20-argent/src/com/example/network/kaspa/Kcc20ArgentArtifact.kt")
+    generatedSource.parentFile.mkdirs()
+    generatedSource.writeText(
+      """package com.example.network.kaspa
+
+internal object Kcc20ArgentArtifact {
+    const val ARTIFACT_ID = "${generated["id"]}"
+    const val TEMPLATE_HASH = "${prefixHex.substring(4)}"
+    const val PREFIX_HEX = "$prefixHex"
+    const val SUFFIX_HEX = "$suffixHex"
+}
+"""
+    )
+    file("$outputDir/kcc20-runtime.json").writeText(
+      groovy.json.JsonOutput.toJson(mapOf(
+        "artifact_id" to generated["id"],
+        "template_hash" to templateHash,
+        "prefix_hex" to prefixHex,
+        "suffix_hex" to suffixHex
+      ))
+    )
+    println("Verified argentc regeneration and generated Android/Rust KCC20 artifact bindings.")
+  }
+}
+
+tasks.named("cargoBuildKcc20Engine").configure {
+  dependsOn("verifyKcc20ArgentArtifact")
+}
+
+val kcc20ArgentGeneratedSources = tasks.register<Kcc20ArgentGeneratedSources>("kcc20ArgentGeneratedSources") {
+  inputDirectory.set(layout.buildDirectory.dir("generated/kcc20-argent/src"))
+  outputDirectory.set(layout.buildDirectory.dir("generated/kcc20-argent-variant/src"))
+  dependsOn("verifyKcc20ArgentArtifact")
+}
+
+androidComponents.onVariants { variant ->
+  variant.sources.java?.addGeneratedSourceDirectory(kcc20ArgentGeneratedSources) {
+    it.outputDirectory
+  }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+  dependsOn("verifyKcc20ArgentArtifact")
+}
+
+tasks.named("preBuild").configure {
+  dependsOn("cargoBuildKcc20Engine", "verifyKcc20ArgentArtifact")
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

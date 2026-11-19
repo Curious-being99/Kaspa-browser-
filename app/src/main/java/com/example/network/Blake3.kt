@@ -24,11 +24,29 @@ object Blake3 {
     private const val CHUNK_END = 2
     private const val PARENT = 4
     private const val ROOT = 8
+    private const val KEYED_HASH = 16
 
     private val MSG_PERMUTATION = intArrayOf(2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8)
 
     fun hash(data: ByteArray): ByteArray {
         val hasher = Hasher()
+        hasher.update(data)
+        return hasher.finalize()
+    }
+
+    fun keyedHash(domain: String, data: ByteArray): ByteArray {
+        val domainBytes = domain.toByteArray(Charsets.UTF_8)
+        require(domainBytes.isNotEmpty() && domainBytes.size <= 32) { "BLAKE3 domain key must be 1 to 32 bytes" }
+        val key = ByteArray(32)
+        System.arraycopy(domainBytes, 0, key, 0, domainBytes.size)
+        val keyWords = IntArray(8) { index ->
+            val offset = index * 4
+            (key[offset].toInt() and 0xff) or
+                ((key[offset + 1].toInt() and 0xff) shl 8) or
+                ((key[offset + 2].toInt() and 0xff) shl 16) or
+                ((key[offset + 3].toInt() and 0xff) shl 24)
+        }
+        val hasher = Hasher(keyWords, KEYED_HASH)
         hasher.update(data)
         return hasher.finalize()
     }
