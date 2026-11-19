@@ -59,6 +59,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 android {
+  sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("generated/kcc20-argent/src"))
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
@@ -278,7 +279,6 @@ tasks.named("cargoBuildKcc20Engine").configure {
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
   dependsOn("verifyKcc20ArgentArtifact")
-  source(fileTree("$buildDir/generated/kcc20-argent/src") { include("**/*.kt") })
 }
 
 tasks.named("preBuild").configure {
