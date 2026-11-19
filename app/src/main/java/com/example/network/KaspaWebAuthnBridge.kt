@@ -1126,7 +1126,7 @@ object KaspaWebAuthnBridge {
                         var userName = (pubKey.user && (pubKey.user.name || pubKey.user.displayName)) || '';
 
                         var proceedCreate = function(confirmedByDialog) {
-                            if (!isConditionalUpgrade && originalCreate && !policy.skipNativeWebView) {
+                            if (!confirmedByDialog && !isConditionalUpgrade && originalCreate && !policy.skipNativeWebView) {
                                 var t0 = Date.now();
                                 return originalCreate(options).then(function(cred) {
                                     postBridgeMessage({
@@ -1198,7 +1198,7 @@ object KaspaWebAuthnBridge {
                         var rpId = pubKey.rpId || (window.location && window.location.hostname) || '';
 
                         var proceedGet = function(confirmedByDialog) {
-                            if (originalGet && !policy.skipNativeWebView) {
+                            if (!confirmedByDialog && originalGet && !policy.skipNativeWebView) {
                                 var t0 = Date.now();
                                 return originalGet(options).then(function(cred) {
                                     postBridgeMessage({
