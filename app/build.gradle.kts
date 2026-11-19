@@ -7,10 +7,25 @@ import java.io.ByteArrayOutputStream
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.TaskAction
 
 abstract class Kcc20ArgentGeneratedSources : DefaultTask() {
+  @get:InputDirectory
+  abstract val inputDirectory: DirectoryProperty
+
   @get:OutputDirectory
   abstract val outputDirectory: DirectoryProperty
+
+  @TaskAction
+  fun copyGeneratedSources() {
+    val source = inputDirectory.get().asFile
+    val destination = outputDirectory.get().asFile
+    destination.deleteRecursively()
+    if (source.exists()) {
+      source.copyRecursively(destination, overwrite = true)
+    }
+  }
 }
 
 plugins {
@@ -286,7 +301,8 @@ tasks.named("cargoBuildKcc20Engine").configure {
 }
 
 val kcc20ArgentGeneratedSources = tasks.register<Kcc20ArgentGeneratedSources>("kcc20ArgentGeneratedSources") {
-  outputDirectory.set(layout.buildDirectory.dir("generated/kcc20-argent/src"))
+  inputDirectory.set(layout.buildDirectory.dir("generated/kcc20-argent/src"))
+  outputDirectory.set(layout.buildDirectory.dir("generated/kcc20-argent-variant/src"))
   dependsOn("verifyKcc20ArgentArtifact")
 }
 
