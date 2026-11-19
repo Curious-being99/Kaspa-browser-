@@ -1,0 +1,113 @@
+// Permissionless issuance for KCC20 with a per-mint limit.
+
+import "./token_seed.ag";
+
+state PublicMintState {
+    int remaining;
+    int mint_amount;
+    pubkey owner;
+    byte[32] extension_commitment;
+}
+
+actor PublicMint owns PublicMintState {
+    entry mint(KCC20State recipient_state) emits {
+        minter: PublicMint,
+        recipient: KCC20,
+    } {
+        require(recipient_state.amount > 0);
+        require(recipient_state.amount <= mint_amount);
+        require(recipient_state.amount <= remaining);
+        // Issue only the extension identity configured at launch.
+        require(recipient_state.extension_commitment == extension_commitment);
+
+        // Validate the recipient's policy schemes.
+        require_valid_owner_scheme(recipient_state.owner_scheme);
+        require_valid_borrow_scheme(recipient_state.borrow_scheme);
+
+        // Deduct the minted amount while preserving the issuance policy.
+        PublicMintState next_minter = {
+            remaining: remaining - recipient_state.amount,
+            mint_amount: mint_amount,
+            owner: owner,
+            extension_commitment: extension_commitment,
+        };
+
+        // Preserve the minter's utxo value
+        require(minter.value == self.value);
+        // Declare the recipient's token utxo value unrestricted
+        unrestricted(recipient.value);
+        become {
+            minter <- PublicMint(next_minter),
+            recipient <- KCC20(recipient_state),
+        };
+    }
+
+    // The caller chooses the new minter's allowance, owner, and deposit.
+    entry split(int take, pubkey new_owner) emits {
+        minter: PublicMint,
+        additional: PublicMint,
+    } {
+        require(take > 0);
+        require(take <= remaining / 2);
+
+        PublicMintState retained = {
+            remaining: remaining - take,
+            mint_amount: mint_amount,
+            owner: owner,
+            extension_commitment: extension_commitment,
+        };
+        PublicMintState added = {
+            remaining: take,
+            mint_amount: mint_amount,
+            owner: new_owner,
+            extension_commitment: extension_commitment,
+        };
+
+        require(minter.value == self.value);
+        unrestricted(additional.value);
+        become {
+            minter <- PublicMint(retained),
+            additional <- PublicMint(added),
+        };
+    }
+
+    entry reclaim(sig owner_signature) emits none {
+        require(remaining == 0);
+        require(checkSig(owner_signature, owner));
+    }
+
+    // Accept the retiring minter's allowance while preserving this deposit.
+    entry reclaim_into() consumes {
+        retiring: PublicMint,
+    } emits {
+        minter: PublicMint,
+    } {
+        require(remaining >= 0);
+        require(retiring.remaining >= 0);
+        require(retiring.mint_amount == mint_amount);
+        require(retiring.extension_commitment == extension_commitment);
+
+        PublicMintState next_minter = {
+            remaining: remaining + retiring.remaining,
+            mint_amount: mint_amount,
+            owner: owner,
+            extension_commitment: extension_commitment,
+        };
+
+        require(minter.value == self.value);
+        become minter <- PublicMint(next_minter);
+    }
+
+    // The retiring owner authorizes releasing this deposit and returning its allowance.
+    delegate reclaim_delegator(sig owner_signature) consumes {
+        leader: PublicMint,
+    } {
+        require(checkSig(owner_signature, owner));
+    }
+}
+
+app KCC20PublicMint {
+    actor KCC20;
+    actor PublicMint;
+    actor TokenSeed;
+}
