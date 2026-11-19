@@ -283,6 +283,9 @@ fn decode_reference_state(program: &[u8], template_hash: &[u8], suffix: &[u8]) -
     let owner = field(32)?;
     let owner_scheme = field(1)?[0];
     let borrow_scheme = field(1)?[0];
+    if owner_scheme > 4 || borrow_scheme > 3 {
+        return Err("KCC20 state contains a reserved owner or borrow scheme".into());
+    }
     let borrow_guard = field(32)?;
     let extension = field(32)?;
     if p != state.len() { return Err("Unexpected KCC20 state trailing bytes".into()); }
@@ -469,6 +472,32 @@ mod tests {
         assert_eq!(minimal_push(&[0x00]), vec![0x01, 0x00]);
         assert_eq!(minimal_push(&[0x01]), vec![0x51]);
         assert_eq!(minimal_push(&[0x00, 0x00]), vec![0x02, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn kcc20_byte_array_witness_push_preserves_zero_byte() {
+        assert_eq!(minimal_push(&[]), vec![0x00]);
+        assert_eq!(minimal_push(&[0x00]), vec![0x01, 0x00]);
+        assert_eq!(minimal_push(&[0x01]), vec![0x51]);
+        assert_eq!(minimal_push(&[0x10]), vec![0x60]);
+        assert_eq!(minimal_push(&[0x81]), vec![0x4f]);
+    }
+
+    #[test]
+    fn reference_state_decoder_rejects_reserved_owner_and_borrow_schemes() {
+        let pinned: Value = serde_json::from_str(KCC20_RUNTIME_MANIFEST).unwrap();
+        let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
+        let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
+        let owner = vec![0x33; 32];
+        let valid = encode_reference_program(100, &owner, 0, 0, &vec![0;32], &vec![0;32], &template, &suffix).unwrap();
+
+        let mut invalid_owner = valid.clone();
+        invalid_owner[77] = 5;
+        assert!(decode_reference_state(&invalid_owner, &template, &suffix).is_err());
+
+        let mut invalid_borrow = valid;
+        invalid_borrow[79] = 4;
+        assert!(decode_reference_state(&invalid_borrow, &template, &suffix).is_err());
     }
 
     #[test]
