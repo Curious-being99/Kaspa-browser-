@@ -612,7 +612,31 @@ object KaspaDappBridge {
                                             inputAddresses = inputAddresses
                                         )
                                     }
-                                    prepared = prepared.copy(utxoEntries = verifiedEntries)
+                                    val verifiedJson = JSONObject(prepared.originalJson.toString())
+                                    val verifiedTxRoot = verifiedJson.optJSONObject("transaction")
+                                        ?: verifiedJson.optJSONObject("tx")
+                                        ?: verifiedJson
+                                    val verifiedInputs = verifiedTxRoot.optJSONArray("inputs")
+                                        ?: throw IllegalStateException("Verified PSKT inputs are missing")
+                                    require(verifiedInputs.length() == verifiedEntries.size) {
+                                        "Verified PSKT input count changed during covenant enrichment"
+                                    }
+                                    verifiedEntries.forEachIndexed { index, entry ->
+                                        val input = verifiedInputs.getJSONObject(index)
+                                        val utxoJson = input.optJSONObject("utxoEntry")
+                                            ?: input.optJSONObject("utxo_entry")
+                                            ?: input.optJSONObject("utxo")
+                                            ?: input.optJSONObject("entry")
+                                            ?: input
+                                        entry.covenantId?.let { covenantId ->
+                                            utxoJson.put("covenantId", covenantId)
+                                            utxoJson.put("covenant_id", covenantId)
+                                        }
+                                    }
+                                    prepared = prepared.copy(
+                                        originalJson = verifiedJson,
+                                        utxoEntries = verifiedEntries
+                                    )
                                 } catch (error: Throwable) {
                                     mainHandler.post {
                                         respond(errorCode = -32602, errorMessage = error.message ?: "KCC20 inputs could not be verified against the active network node")
