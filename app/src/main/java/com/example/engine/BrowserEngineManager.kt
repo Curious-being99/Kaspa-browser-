@@ -443,7 +443,7 @@ object BrowserEngineManager {
         val modeLabel = when {
             !requestedEnabled -> "Disabled by User"
             actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER -> "FOR_BROWSER Active"
-            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP -> "FOR_APP Only"
+            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP -> "FOR_APP (Digital Asset Links required)"
             actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE -> "Restricted by System Policy"
             else -> "Mode=$actualSupport"
         }
