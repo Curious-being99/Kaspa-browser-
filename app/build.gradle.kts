@@ -10,6 +10,14 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.TaskAction
 
+plugins {
+  alias(libs.plugins.android.application)
+  alias(libs.plugins.kotlin.compose)
+  alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.roborazzi)
+  alias(libs.plugins.secrets)
+}
+
 abstract class Kcc20ArgentGeneratedSources : DefaultTask() {
   @get:InputDirectory
   abstract val inputDirectory: DirectoryProperty
@@ -28,13 +36,6 @@ abstract class Kcc20ArgentGeneratedSources : DefaultTask() {
   }
 }
 
-plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.compose)
-  alias(libs.plugins.google.devtools.ksp)
-  alias(libs.plugins.roborazzi)
-  alias(libs.plugins.secrets)
-}
 
 abstract class GitCommitCountValueSource : ValueSource<Int, ValueSourceParameters.None> {
   @get:Inject
