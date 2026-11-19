@@ -567,15 +567,25 @@ object KaspaDappBridge {
                             return@addWebMessageListener
                         }
                         cryptoExecutor.execute {
-                            val (signInputs, topLevelRedeemScript) = resolveSignInputsAndRedeemScripts(
-                                txJson = txJson,
-                                rawSignInputs = rawSignInputs,
-                                paramsObject = paramsObject,
-                                options = options,
-                                walletAddress = keyPair.kaspaAddress,
-                                walletPublicKeyHex = keyPair.publicKeyHex,
-                                network = network
-                            )
+                            val (signInputs, topLevelRedeemScript) = try {
+                                resolveSignInputsAndRedeemScripts(
+                                    txJson = txJson,
+                                    rawSignInputs = rawSignInputs,
+                                    paramsObject = paramsObject,
+                                    options = options,
+                                    walletAddress = keyPair.kaspaAddress,
+                                    walletPublicKeyHex = keyPair.publicKeyHex,
+                                    network = network
+                                )
+                            } catch (error: Throwable) {
+                                mainHandler.post {
+                                    respond(
+                                        errorCode = -32602,
+                                        errorMessage = error.message ?: "Unable to resolve PSKT signing inputs"
+                                    )
+                                }
+                                return@execute
+                            }
 
                             var prepared = try {
                                 DappPsktTransaction.prepareForSigning(
