@@ -500,7 +500,21 @@ class KaspaWalletService(
                             val utxoEntryObj = obj.optJSONObject("utxoEntry") ?: obj.optJSONObject("utxo_entry") ?: continue
 
                             val outpoint = KaspaTransactionEngine.KaspaOutpoint.fromJson(outpointObj)
-                            val utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoEntryObj)
+                            var utxoEntry = KaspaTransactionEngine.KaspaUtxoEntry.fromJson(utxoEntryObj)
+                            if (utxoEntry.covenantId.isNullOrBlank()) {
+                                val topCov = obj.optString("covenantId", obj.optString("covenant_id", ""))
+                                    .ifBlank {
+                                        obj.optJSONObject("covenant")?.let { cov ->
+                                            cov.optString("covenantId", cov.optString("covenant_id", ""))
+                                        } ?: ""
+                                    }
+                                    .trim()
+                                    .lowercase()
+                                    .removePrefix("0x")
+                                if (topCov.matches(Regex("[0-9a-f]{64}"))) {
+                                    utxoEntry = utxoEntry.copy(covenantId = topCov)
+                                }
+                            }
                             utxos.add(KaspaTransactionEngine.KaspaUtxo(outpoint, utxoEntry))
                         }
                     }
@@ -674,6 +688,14 @@ class KaspaWalletService(
                 val spkVersion = spkObj?.optInt("version", 0) ?: 0
                 val daa = utxoEntryObj?.optLong("blockDaaScore", utxoEntryObj.optLong("block_daa_score", 0L)) ?: 0L
                 val isCoinbase = utxoEntryObj?.optBoolean("isCoinbase", utxoEntryObj.optBoolean("is_coinbase", false)) ?: false
+                val rawCovId = sequenceOf(
+                    utxoEntryObj?.optString("covenantId", ""),
+                    utxoEntryObj?.optString("covenant_id", ""),
+                    utxoEntryObj?.optJSONObject("covenant")?.optString("covenantId", ""),
+                    utxoEntryObj?.optJSONObject("covenant")?.optString("covenant_id", ""),
+                    item.optString("covenantId", ""),
+                    item.optString("covenant_id", "")
+                ).filterNotNull().firstOrNull { it.isNotBlank() && it != "null" }?.trim()?.lowercase()
 
                 val outpointNormalized = JSONObject().apply {
                     put("transactionId", txId)
@@ -697,6 +719,10 @@ class KaspaWalletService(
                     put("block_daa_score", daa.toString())
                     put("isCoinbase", isCoinbase)
                     put("is_coinbase", isCoinbase)
+                    if (!rawCovId.isNullOrBlank()) {
+                        put("covenantId", rawCovId)
+                        put("covenant_id", rawCovId)
+                    }
                 }
                 val enrichedItem = JSONObject().apply {
                     put("address", normalized)
@@ -705,6 +731,10 @@ class KaspaWalletService(
                     put("previous_outpoint", outpointNormalized)
                     put("utxoEntry", utxoEntryNormalized)
                     put("utxo_entry", utxoEntryNormalized)
+                    if (!rawCovId.isNullOrBlank()) {
+                        put("covenantId", rawCovId)
+                        put("covenant_id", rawCovId)
+                    }
                 }
                 enriched.put(enrichedItem)
             }
@@ -736,13 +766,85 @@ class KaspaWalletService(
         }) {
             "Transaction contains malformed input scripts"
         }
-        val mass = tx.mass.takeIf { it > 0L } ?: tx.calculateMass()
-        require(mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-            "Transaction mass exceeds the standard mempool limit"
+        if (tx.version >= 1) {
+            val compute = KaspaTransactionEngine.calculateComputeMass(tx)
+            val transient = KaspaTransactionEngine.calculateTransientMass(tx)
+            require(compute <= KaspaTransactionEngine.MAXIMUM_V1_COMPUTE_MASS) {
+                "Transaction compute mass $compute exceeds v2.1.0 limit ${KaspaTransactionEngine.MAXIMUM_V1_COMPUTE_MASS}"
+            }
+            require(transient <= KaspaTransactionEngine.MAXIMUM_V1_TRANSIENT_MASS) {
+                "Transaction transient mass $transient exceeds v2.1.0 limit ${KaspaTransactionEngine.MAXIMUM_V1_TRANSIENT_MASS}"
+            }
+            val effectiveMass = tx.mass.takeIf { it > 0L } ?: maxOf(compute, (transient + 1L) / 2L)
+            require(effectiveMass <= KaspaTransactionEngine.MAXIMUM_V1_STORAGE_MASS) {
+                "Transaction mass $effectiveMass exceeds v2.1.0 mempool limit ${KaspaTransactionEngine.MAXIMUM_V1_STORAGE_MASS}"
+            }
+        } else {
+            val mass = tx.mass.takeIf { it > 0L } ?: tx.calculateMass()
+            require(mass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                "Transaction mass exceeds the standard mempool limit"
+            }
         }
         val txId = KaspaTransactionEngine.calcTransactionId(tx)
         val result = broadcastTransactionWithFailover(tx, txId, normalizedAddress, networkName)
         return DappBroadcastReceipt(result.isConfirmed, result.txId, result.errorMessage)
+    }
+
+    /**
+     * Submits a Version 1 transaction and performs Guide §4.5 `computeBudget` walk-up retries
+     * without re-signing when the node refuses with:
+     * `script units exceeded the amount committed in the input: used=N, limit=L`
+     */
+    suspend fun submitDappTransactionWithBudgetWalk(
+        tx: KaspaTransactionEngine.KaspaTransaction,
+        utxoEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        actualFeePaidSompi: Long,
+        senderAddress: String,
+        networkName: String = "Kaspa Mainnet",
+        maxWalkRetries: Int = 3
+    ): Pair<KaspaTransactionEngine.KaspaTransaction, DappBroadcastReceipt> {
+        var currentTx = tx
+        var receipt = submitDappTransaction(currentTx, senderAddress, networkName)
+        if (currentTx.version < 1 || utxoEntries.size != currentTx.inputs.size) {
+            return currentTx to receipt
+        }
+        val exceedingRegex = Regex(
+            """script units exceeded the amount committed in the input:\s*used=(\d+),\s*limit=(\d+)""",
+            RegexOption.IGNORE_CASE
+        )
+        val inputIdxRegex = Regex("""input\s*#?(\d+)""", RegexOption.IGNORE_CASE)
+        var attempts = 0
+        while (!receipt.accepted && attempts < maxWalkRetries) {
+            val match = exceedingRegex.find(receipt.error) ?: break
+            attempts++
+            val usedUnits = match.groupValues[1].toLongOrNull() ?: break
+            val failedLimit = match.groupValues[2].toLongOrNull() ?: break
+            val needed = KaspaTransactionEngine.budgetForScriptUnits(usedUnits)
+            val explicitIdx = inputIdxRegex.find(receipt.error)?.groupValues?.get(1)?.toIntOrNull()
+
+            val updatedInputs = currentTx.inputs.mapIndexed { idx, inp ->
+                val currentAllowed = inp.computeBudget.toLong() * KaspaTransactionEngine.SCRIPT_UNITS_PER_BUDGET_UNIT +
+                    KaspaTransactionEngine.SCRIPT_UNITS_FREE_PER_INPUT
+                val shouldRaise = (explicitIdx != null && idx == explicitIdx) ||
+                    (explicitIdx == null && currentAllowed == failedLimit)
+                if (shouldRaise) {
+                    val nextBudget = if (needed <= inp.computeBudget) inp.computeBudget + 1 else needed
+                    inp.copy(computeBudget = nextBudget.coerceAtMost(0xffff))
+                } else {
+                    inp
+                }
+            }
+            if (updatedInputs == currentTx.inputs) break
+            val candidate = currentTx.copy(inputs = updatedInputs)
+            val candidateReport = KaspaTransactionEngine.assessV1MempoolMass(candidate, utxoEntries)
+            if (!candidateReport.withinLimits || actualFeePaidSompi < candidateReport.minRelayFeeSompi) {
+                break
+            }
+            candidate.mass = candidateReport.normalizedMaxMass
+            currentTx = candidate
+            receipt = submitDappTransaction(currentTx, senderAddress, networkName)
+        }
+        return currentTx to receipt
     }
 
     private data class BroadcastResult(

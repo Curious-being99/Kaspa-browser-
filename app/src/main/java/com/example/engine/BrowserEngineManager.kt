@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 data class BrowserEngineStatus(
     val engineName: String = "Kazview",
-    val engineArchitecture: String = "Hybrid Core + Chromium WebView",
+    val engineArchitecture: String = "Kazview WebKit / WebKitGTK Core",
     val webViewPackage: String = "Checking...",
     val webViewVersion: String = "Unknown",
     val isMultiProcess: Boolean = false,
@@ -62,14 +62,15 @@ data class BrowserEngineStatus(
 )
 
 /**
- * Kazview Browser Core Coordinator.
+ * Kazview Browser Core Coordinator (WebKit & WebKitGTK Standards).
  *
- * Combines Chromium's battle-tested Blink rendering, multi-process isolation, WebAuthn
- * FOR_BROWSER passkeys, and Custom Tabs handoff with Kazview's privacy & speed layer:
- * - Async off-UI-thread renderer warm-up
- * - Native Blink Back/Forward Cache & Attribution Reporting privacy hardening
+ * Combines Android's high-speed WebKit rendering engine (`android.webkit` / `androidx.webkit`),
+ * multi-process isolation, WebKitGTK Linux standards parity, WebAuthn FOR_BROWSER passkeys,
+ * and Custom Tabs handoff with Kazview's privacy & speed layer:
+ * - Async off-UI-thread WebKit renderer warm-up
+ * - Native WebKit Back/Forward Cache & Attribution Reporting privacy hardening
  * - HTTP/3 QUIC profile hints + privacy-gated TLS/QUIC speculative preconnect
- * - Isolated Chromium Multi-Profile storage for Stealth sessions
+ * - Isolated WebKit Multi-Profile storage for Stealth sessions
  * - Non-destructive background tab freezer & cold-tab memory hibernation
  */
 object BrowserEngineManager {
@@ -513,7 +514,7 @@ object BrowserEngineManager {
 
         return prev.copy(
             engineName = ENGINE_BRAND_NAME,
-            engineArchitecture = "Hybrid Core + Chromium WebView",
+            engineArchitecture = "Kazview WebKit / WebKitGTK Core",
             webViewPackage = pkgInfo?.packageName ?: "Android System WebView",
             webViewVersion = pkgInfo?.versionName ?: "Runtime Default",
             isMultiProcess = multiProcess,

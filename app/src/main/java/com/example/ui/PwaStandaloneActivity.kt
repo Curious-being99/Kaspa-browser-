@@ -166,51 +166,7 @@ class PwaStandaloneActivity : FragmentActivity() {
         // Idempotent: Never call webView.reload() or loadUrl() from onResume
     }
 
-    private var currentFloatingActionMode: android.view.ActionMode? = null
-
-    override fun onWindowStartingActionMode(callback: android.view.ActionMode.Callback?, type: Int): android.view.ActionMode? {
-        if (type == android.view.ActionMode.TYPE_FLOATING) {
-            try {
-                currentFloatingActionMode?.finish()
-            } catch (_: Throwable) {}
-            currentFloatingActionMode = null
-        }
-        return super.onWindowStartingActionMode(callback, type)
-    }
-
-    override fun onActionModeStarted(mode: android.view.ActionMode?) {
-        super.onActionModeStarted(mode)
-        if (mode?.type == android.view.ActionMode.TYPE_FLOATING) {
-            currentFloatingActionMode = mode
-        }
-    }
-
-    override fun onActionModeFinished(mode: android.view.ActionMode?) {
-        if (mode?.type == android.view.ActionMode.TYPE_FLOATING) {
-            if (currentFloatingActionMode === mode) {
-                currentFloatingActionMode = null
-            }
-        }
-        try {
-            super.onActionModeFinished(mode)
-        } catch (_: Throwable) {}
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        if (!hasFocus) {
-            try {
-                currentFloatingActionMode?.finish()
-            } catch (_: Throwable) {}
-            currentFloatingActionMode = null
-        }
-        super.onWindowFocusChanged(hasFocus)
-    }
-
     override fun onPause() {
-        try {
-            currentFloatingActionMode?.finish()
-        } catch (_: Throwable) {}
-        currentFloatingActionMode = null
         super.onPause()
         try {
             CookieManager.getInstance().flush()
@@ -483,6 +439,11 @@ fun PwaStandaloneScreen(
             WebSettings.getDefaultUserAgent(context)
         } catch (_: Throwable) {
             null
+        }
+        wv.settings.useWideViewPort = desktop
+        wv.settings.loadWithOverviewMode = desktop
+        if (desktop) {
+            wv.setInitialScale(0)
         }
         KaspaPrivacyEngine.applyUserAgentAndMetadata(wv.settings, desktop, defaultDeviceUa)
         val target = wv.url ?: currentUrl

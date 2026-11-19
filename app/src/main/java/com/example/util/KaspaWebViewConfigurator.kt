@@ -65,7 +65,7 @@ object KaspaWebViewConfigurator {
     }
 
     /**
-     * Applies Kazview's native Blink enhancements (Back-Forward Cache for instant
+     * Applies Kazview's native WebKit & WebKitGTK enhancements (Back-Forward Cache for instant
      * back/forward navigation and Privacy Sandbox Attribution Reporting suppression) safely
      * behind WebViewFeature checks.
      */

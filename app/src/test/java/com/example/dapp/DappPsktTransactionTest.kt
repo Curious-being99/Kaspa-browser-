@@ -242,7 +242,7 @@ class DappPsktTransactionTest {
             publicKeyHex
         )
         val result = DappPsktTransaction.signForDapp(prepared, privateKey)
-        assertTrue(result is String)
+        assertTrue(result.isNotBlank())
         val signedObj = JSONObject(result)
         val firstInput = signedObj.getJSONArray("inputs").getJSONObject(0)
         val signatureScript = firstInput.getString("signatureScript")
@@ -926,5 +926,161 @@ class DappPsktTransactionTest {
         val sigScript = signed.getJSONArray("inputs").getJSONObject(0).getString("signatureScript")
         assertTrue(sigScript.startsWith("41"))
         assertTrue(sigScript.endsWith(expectedP2pkRedeem))
+    }
+
+    @Test
+    fun structuredKcc20SigningBuildsLeaderAndDelegatorScriptsAndEnforcesSection10() {
+        val kp = CryptoUtils.deriveKaspaKeyPair(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            "kaspa"
+        )
+        val kpRecipient = CryptoUtils.deriveKaspaKeyPair(
+            "legal winner thank year wave sausage worth useful legal winner thank yellow",
+            "kaspa"
+        )
+        try {
+            val baseProg = com.example.network.kaspa.Kcc20ReferenceProtocol.pinnedRefProgram!!
+            val covId = "cbe213cecb9e943edaa31a85a697e8174c7338bbd5d2a38ef94db20b53f7ea44"
+            val leaderState = com.example.network.kaspa.Kcc20ReferenceProtocol.CellState(
+                amount = BigInteger.valueOf(600L),
+                owner = kp.publicKeyBytes
+            )
+            val delegatorState = com.example.network.kaspa.Kcc20ReferenceProtocol.CellState(
+                amount = BigInteger.valueOf(400L),
+                owner = kp.publicKeyBytes
+            )
+            val leaderRedeem = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(leaderState, baseProg)
+            val delegatorRedeem = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(delegatorState, baseProg)
+            val nextStates = listOf(
+                com.example.network.kaspa.Kcc20ReferenceProtocol.CellState(amount = BigInteger.valueOf(750L), owner = kpRecipient.publicKeyBytes),
+                com.example.network.kaspa.Kcc20ReferenceProtocol.CellState(amount = BigInteger.valueOf(250L), owner = kp.publicKeyBytes)
+            )
+            val cont0Redeem = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(nextStates[0], baseProg)
+            val cont1Redeem = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(nextStates[1], baseProg)
+            fun toHex(b: ByteArray) = b.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            val userSpk = "20" + kp.publicKeyHex + "ac"
+
+            val v1TxJson = JSONObject()
+                .put("version", 1)
+                .put(
+                    "inputs",
+                    JSONArray()
+                        .put(
+                            JSONObject()
+                                .put("previousOutpoint", JSONObject().put("transactionId", "11".repeat(32)).put("index", 0))
+                                .put("signatureScript", "")
+                                .put("sequence", 0)
+                                .put("computeBudget", 16)
+                                .put(
+                                    "utxoEntry",
+                                    JSONObject()
+                                        .put("amount", "20000000")
+                                        .put("scriptPublicKey", JSONObject().put("version", 0).put("script", com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(leaderRedeem)))
+                                        .put("covenantId", covId)
+                                )
+                                .put("redeemScript", toHex(leaderRedeem))
+                        )
+                        .put(
+                            JSONObject()
+                                .put("previousOutpoint", JSONObject().put("transactionId", "22".repeat(32)).put("index", 0))
+                                .put("signatureScript", "")
+                                .put("sequence", 0)
+                                .put("computeBudget", 14)
+                                .put(
+                                    "utxoEntry",
+                                    JSONObject()
+                                        .put("amount", "20000000")
+                                        .put("scriptPublicKey", JSONObject().put("version", 0).put("script", com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(delegatorRedeem)))
+                                        .put("covenantId", covId)
+                                )
+                                .put("redeemScript", toHex(delegatorRedeem))
+                        )
+                        .put(
+                            JSONObject()
+                                .put("previousOutpoint", JSONObject().put("transactionId", "33".repeat(32)).put("index", 0))
+                                .put("signatureScript", "")
+                                .put("sequence", 0)
+                                .put("computeBudget", 12)
+                                .put(
+                                    "utxoEntry",
+                                    JSONObject()
+                                        .put("amount", "50000000")
+                                        .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userSpk))
+                                )
+                        )
+                )
+                .put(
+                    "outputs",
+                    JSONArray()
+                        .put(
+                            JSONObject()
+                                .put("amount", "20000000")
+                                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(cont0Redeem)))
+                                .put("covenant", JSONObject().put("authorizingInput", 0).put("covenantId", covId))
+                                .put("redeemScript", toHex(cont0Redeem))
+                        )
+                        .put(
+                            JSONObject()
+                                .put("amount", "20000000")
+                                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(cont1Redeem)))
+                                .put("covenant", JSONObject().put("authorizingInput", 0).put("covenantId", covId))
+                                .put("redeemScript", toHex(cont1Redeem))
+                        )
+                        .put(
+                            JSONObject()
+                                .put("amount", "40000000")
+                                .put("scriptPublicKey", JSONObject().put("version", 0).put("script", userSpk))
+                        )
+                )
+
+            val signInputs = JSONArray().put(0).put(1).put(2)
+            val prepared = DappPsktTransaction.prepareForSigning(v1TxJson.toString(), signInputs, kp.publicKeyHex)
+            val signedStr = DappPsktTransaction.signKcc20StructuredTransaction(prepared, kp.privateKey, nextStates)
+            val signedJson = JSONObject(signedStr)
+            assertTrue(signedJson.getLong("mass") > 0L)
+
+            val signedInputs = signedJson.getJSONArray("inputs")
+            val leaderSig = signedInputs.getJSONObject(0).getString("signatureScript")
+            val delegatorSig = signedInputs.getJSONObject(1).getString("signatureScript")
+            val kasSig = signedInputs.getJSONObject(2).getString("signatureScript")
+            // Leader carries 79c71c23 dispatch tag + ends with leader program
+            assertTrue(leaderSig.contains("79c71c23"))
+            assertTrue(leaderSig.endsWith(toHex(leaderRedeem)))
+            // Delegator carries fd3ef14a dispatch tag + ends with delegator program
+            assertTrue(delegatorSig.contains("fd3ef14a"))
+            assertTrue(delegatorSig.endsWith(toHex(delegatorRedeem)))
+            // Plain P2PK KAS input keeps bare 66-byte signature script
+            assertTrue(kasSig.matches(Regex("(?i)^41[0-9a-f]{128}01$")))
+
+            // §10 check: non-zero extensionCommitment on a cell must be refused during prepareForSigning
+            val badExtState = leaderState.copy(extensionCommitment = ByteArray(32) { 0x09 })
+            val badExtRedeem = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(badExtState, baseProg)
+            val badExtTx = JSONObject(v1TxJson.toString()).apply {
+                val inp0 = getJSONArray("inputs").getJSONObject(0)
+                inp0.put("redeemScript", toHex(badExtRedeem))
+                inp0.getJSONObject("utxoEntry").getJSONObject("scriptPublicKey")
+                    .put("script", com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(badExtRedeem))
+            }
+            var extFailed = false
+            try {
+                DappPsktTransaction.prepareForSigning(badExtTx.toString(), signInputs, kp.publicKeyHex)
+            } catch (_: IllegalArgumentException) {
+                extFailed = true
+            }
+            assertTrue("Non-zero extensionCommitment must be refused per §10", extFailed)
+
+            // Version 0 tx carrying output covenant must be refused
+            val badV0Tx = JSONObject(v1TxJson.toString()).put("version", 0)
+            var v0Failed = false
+            try {
+                DappPsktTransaction.prepareForSigning(badV0Tx.toString(), signInputs, kp.publicKeyHex)
+            } catch (_: IllegalArgumentException) {
+                v0Failed = true
+            }
+            assertTrue("Version 0 transaction with output covenant must be refused", v0Failed)
+        } finally {
+            kp.wipe()
+            kpRecipient.wipe()
+        }
     }
 }

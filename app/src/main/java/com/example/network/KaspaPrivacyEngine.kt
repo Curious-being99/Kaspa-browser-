@@ -544,12 +544,13 @@ object KaspaPrivacyEngine {
                     builder.setBrandVersionList(cleanedBrands)
                 }
                 if (isDesktop) {
+                    val isArm = android.os.Build.SUPPORTED_ABIS.any { it.contains("arm", ignoreCase = true) }
                     builder
                         .setPlatform("Linux")
                         .setPlatformVersion("")
                         .setModel("")
                         .setMobile(false)
-                        .setArchitecture("x86")
+                        .setArchitecture(if (isArm) "arm" else "x86")
                         .setBitness(64)
                         .setWow64(false)
                 } else {
@@ -700,10 +701,16 @@ object KaspaPrivacyEngine {
 
                 function hasChallengeContent() {
                     try {
+                        // Top-level interstitial challenge pages take over the entire document (e.g. Cloudflare "Just a moment" or challenge-form).
+                        // Standard pages embedding cf-turnstile, g-recaptcha, or h-captcha widgets must maintain desktop layout,
+                        // while the subframe iframe itself is already protected by window.top !== window.self.
                         if ((document.title && document.title.indexOf('Just a moment') !== -1) ||
                             document.getElementById('challenge-running') ||
-                            document.getElementById('challenge-form') ||
-                            document.querySelector('script[src*="/cdn-cgi/challenge-platform"], script[src*="challenges.cloudflare.com"], iframe[src*="challenges.cloudflare.com"], iframe[src*="recaptcha"], iframe[src*="hcaptcha.com"], div.cf-turnstile, div.g-recaptcha, div.h-captcha')) {
+                            document.getElementById('challenge-form')) {
+                            return true;
+                        }
+                        var challengeStage = document.getElementById('challenge-stage');
+                        if (challengeStage && document.body && document.body.children.length <= 3) {
                             return true;
                         }
                     } catch (_) {}
@@ -749,7 +756,7 @@ object KaspaPrivacyEngine {
                             cleanupDesktopOverrides();
                             return;
                         }
-                        var target = document.head;
+                        var target = document.head || document.documentElement;
                         if (!target) return;
 
                         var metas = document.querySelectorAll('meta[name="viewport"]');
@@ -819,7 +826,12 @@ object KaspaPrivacyEngine {
                     }
                 } catch (_) {}
 
-                document.addEventListener('DOMContentLoaded', enforceDesktopLayout, { once: true });
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', enforceDesktopLayout, { once: true });
+                } else {
+                    enforceDesktopLayout();
+                }
+                window.addEventListener('load', enforceDesktopLayout, { once: true });
 
             } catch (_) {}
         })();

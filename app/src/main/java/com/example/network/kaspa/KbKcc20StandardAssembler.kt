@@ -104,8 +104,8 @@ object KbKcc20StandardAssembler {
         val suffix = program.copyOfRange(STATE_END, program.size)
         val state = KbKcc20Protocol.decodeState(stateBytes)
         if (requireArgentTemplate) {
-            // Fail closed: do not plan spends against an unverified program.
-            KbKcc20Protocol.verifyArgentTemplate(program)
+            // Fail closed: do not plan spends against an unverified program (pinned Reference or KB).
+            Kcc20ReferenceProtocol.identifyTemplate(program)
         }
         return ProgramParts(prefix = prefix, state = state, suffix = suffix, full = program)
     }
@@ -141,9 +141,11 @@ object KbKcc20StandardAssembler {
         leader: Boolean
     ): ByteArray {
         require(pubkey32.size == 32) { "pubkey32 must be 32 bytes" }
-        val effectiveOwnerScheme = if (state.ownerScheme == 0x01 || state.owner.all { it == 0.toByte() }) 0x00 else state.ownerScheme
-        require(effectiveOwnerScheme == 0x00) {
+        require(state.ownerScheme == 0x00) {
             "owner_scheme ${state.ownerScheme} is not signable by a Schnorr hot wallet"
+        }
+        require(state.owner.contentEquals(pubkey32)) {
+            "cell owner does not match wallet pubkey"
         }
         val path = if (leader) byteArrayOf(WITNESS_PATH_TRANSFER.toByte()) else ByteArray(0)
         val sig = ByteArray(SIG_LEN) // zeros → patched after sighash
@@ -226,6 +228,11 @@ object KbKcc20StandardAssembler {
     ): List<SpendPiece> {
         require(amountBaseUnits.signum() > 0) { "amount must be positive" }
         require(pieces.isNotEmpty()) { "need at least one token cell" }
+        val maxInputs = if (requireArgentTemplate) {
+            Kcc20ReferenceProtocol.identifyTemplate(pieces[0].redeem).maxInputs
+        } else {
+            KbKcc20Protocol.MAX_TOKEN_INPUTS
+        }
         val eligible = pieces.map { piece ->
             require(piece.valueSompi > 0L) { "token cell has invalid KAS value" }
             piece to splitProgram(piece.redeem, requireArgentTemplate).state.amountBaseUnits
@@ -235,32 +242,45 @@ object KbKcc20StandardAssembler {
         val selected = mutableListOf<SpendPiece>()
         var total = BigInteger.ZERO
         for ((piece, tokenAmount) in eligible) {
-            if (selected.size == KbKcc20Protocol.MAX_TOKEN_INPUTS) break
+            if (selected.size == maxInputs) break
             selected += piece
             total += tokenAmount
             if (total >= amountBaseUnits) return selected
         }
         throw IllegalArgumentException(
-            "Insufficient spendable KB cells: selected ${selected.size} of ${pieces.size}, " +
+            "Insufficient spendable KCC-20 cells: selected ${selected.size} of ${pieces.size} (max $maxInputs inputs), " +
                 "available $total base units, required $amountBaseUnits"
         )
     }
 
     /**
      * Plan a standard transfer from one or more live cells owned by [pubkey32].
-     * [amountBaseUnits] is the amount to send to [recipientOwner] (p2pk-schnorr).
-     * Change (if any) returns to the leader cell's owner/borrow policy.
+     * [amountBaseUnits] is the amount to send to [recipientOwner] (scheme 0x00 P2PK-Schnorr).
+     * Change (if any) returns to the leader cell's owner (scheme 0x00, borrow disabled).
      */
     fun planStandardTransfer(
         pieces: List<SpendPiece>,
         pubkey32: ByteArray,
         recipientOwner: ByteArray,
-        amountBaseUnits: BigInteger
+        amountBaseUnits: BigInteger,
+        covenantId: String = KbKcc20Protocol.TOKEN_COVENANT_ID,
+        recipientOwnerScheme: Int = 0x00
     ): StandardPlan {
         require(pubkey32.size == 32 && recipientOwner.size == 32)
+        val cleanCovenantId = covenantId.trim().lowercase().removePrefix("0x")
+        require(cleanCovenantId.matches(Regex("[0-9a-f]{64}"))) {
+            "covenantId must be 32-byte hex"
+        }
+        require(recipientOwnerScheme in 0x00..0x04) {
+            "unsupported recipient owner scheme $recipientOwnerScheme"
+        }
         require(amountBaseUnits.signum() > 0) { "amount must be positive" }
         require(pieces.isNotEmpty()) { "need at least one token cell" }
-        require(pieces.size <= KbKcc20Protocol.MAX_TOKEN_INPUTS)
+
+        val templateKind = Kcc20ReferenceProtocol.identifyTemplate(pieces[0].redeem)
+        require(pieces.size <= templateKind.maxInputs) {
+            "too many token inputs (${pieces.size} > max ${templateKind.maxInputs} for ${templateKind.id})"
+        }
 
         val parsed = pieces.map { p -> p to splitProgram(p.redeem) }
         val leader = parsed[0].second
@@ -271,33 +291,36 @@ object KbKcc20StandardAssembler {
         }
 
         val consumed = parsed.map { it.second.state }
-        // Ownership check: leader (and all) must be controlled by pubkey for p2pk
         for (s in consumed) {
-            when (s.ownerScheme) {
-                0x00 -> require(s.owner.contentEquals(pubkey32)) {
-                    "cell owner does not match wallet pubkey"
-                }
-                // Refuse p2pkh until a verified P2PKHHash(pubkey) check is implemented.
-                0x01 -> throw IllegalArgumentException(
-                    "owner_scheme p2pkh-schnorr is not accepted without a verified pubkey-hash check"
-                )
-                else -> throw IllegalArgumentException("unsupported owner scheme ${s.ownerScheme}")
+            require(s.ownerScheme == 0x00) {
+                "unsupported spending owner_scheme ${s.ownerScheme} (only 0x00 P2PK-Schnorr is supported)"
+            }
+            require(s.borrowScheme == 0x00) {
+                "unsupported borrow_scheme ${s.borrowScheme} (borrow path 0x01..0x03 is not supported per §10)"
+            }
+            require(s.owner.contentEquals(pubkey32)) {
+                "cell owner does not match wallet pubkey"
+            }
+            require(s.extensionCommitment.all { it == 0.toByte() }) {
+                "non-zero extension_commitment is not supported"
+            }
+            require(s.extensionCommitment.contentEquals(leader.state.extensionCommitment)) {
+                "delegator extension_commitment must match leader"
             }
         }
 
         val inputSum = consumed.fold(BigInteger.ZERO) { a, s -> a + s.amountBaseUnits }
         require(amountBaseUnits <= inputSum) { "amount exceeds token inputs" }
 
-        val ext = leader.state.extensionCommitment
         val nextStates = mutableListOf(
             KbKcc20State(
                 amountBaseUnits = amountBaseUnits,
                 amountEncoding = KbKcc20Protocol.encodeAmount(amountBaseUnits),
                 owner = recipientOwner.copyOf(),
-                ownerScheme = 0x00,
+                ownerScheme = recipientOwnerScheme,
                 borrowScheme = 0x00,
                 borrowGuard = ByteArray(32),
-                extensionCommitment = ext.copyOf()
+                extensionCommitment = ByteArray(32)
             )
         )
         val change = inputSum - amountBaseUnits
@@ -306,13 +329,15 @@ object KbKcc20StandardAssembler {
                 amountBaseUnits = change,
                 amountEncoding = KbKcc20Protocol.encodeAmount(change),
                 owner = leader.state.owner.copyOf(),
-                ownerScheme = leader.state.ownerScheme,
-                borrowScheme = leader.state.borrowScheme,
-                borrowGuard = leader.state.borrowGuard.copyOf(),
-                extensionCommitment = ext.copyOf()
+                ownerScheme = 0x00,
+                borrowScheme = 0x00,
+                borrowGuard = ByteArray(32),
+                extensionCommitment = ByteArray(32)
             )
         }
-        require(nextStates.size <= KbKcc20Protocol.MAX_TOKEN_OUTPUTS)
+        require(nextStates.size <= templateKind.maxOutputs) {
+            "too many token outputs (${nextStates.size} > max ${templateKind.maxOutputs})"
+        }
 
         val leaderWitness = ownerWitnessPlaceholder(leader.state, pubkey32, leader = true)
         val seats = parsed.mapIndexed { i, (piece, prog) ->
@@ -335,7 +360,144 @@ object KbKcc20StandardAssembler {
             seats = seats,
             inputSum = inputSum,
             outputSum = outputSum,
-            covenantId = KbKcc20Protocol.TOKEN_COVENANT_ID
+            covenantId = cleanCovenantId
+        )
+    }
+
+    data class Kcc20FundingPlan(
+        val feeInputs: List<KaspaTransactionEngine.KaspaUtxo>,
+        val initialChangeSompi: Long?,
+        val estimatedFeeSompi: Long
+    )
+
+    /**
+     * Selects the minimal unbound P2PK KAS inputs (which may be empty on cell merges per §3.3)
+     * and determines whether a plain KAS change output fits within rusty-kaspa v2.1.0 mempool limits.
+     */
+    fun planFundingAndChange(
+        cellInputs: List<KaspaTransactionEngine.KaspaTransactionInput>,
+        cellEntries: List<KaspaTransactionEngine.KaspaUtxoEntry>,
+        cellOutputs: List<KaspaTransactionEngine.KaspaTransactionOutput>,
+        livePlainUtxos: List<KaspaTransactionEngine.KaspaUtxo>,
+        changeScript: KaspaTransactionEngine.KaspaScriptPublicKey,
+        feeRateSompiPerGram: Long,
+        minimumChangeSompis: Long = KaspaTransactionEngine.DUST_THRESHOLD_SOMPIS
+    ): Kcc20FundingPlan {
+        val tokenInputSompis = cellEntries.sumOf { it.amount }
+        val successorDepositSompis = cellOutputs.sumOf { it.amount }
+
+        fun evaluate(candidateFeeInputs: List<KaspaTransactionEngine.KaspaUtxo>): Kcc20FundingPlan? {
+            val probeInputs = cellInputs + candidateFeeInputs.map {
+                KaspaTransactionEngine.KaspaTransactionInput(
+                    previousOutpoint = it.outpoint,
+                    signatureScript = "00".repeat(66),
+                    sequence = 0L,
+                    sigOpCount = 0,
+                    computeBudget = 12
+                )
+            }
+            val probeEntries = cellEntries + candidateFeeInputs.map { it.utxoEntry }
+            val totalIn = Math.addExact(tokenInputSompis, candidateFeeInputs.sumOf { it.utxoEntry.amount })
+
+            val baseTx = KaspaTransactionEngine.KaspaTransaction(
+                version = 1,
+                inputs = probeInputs,
+                outputs = cellOutputs,
+                lockTime = 0L,
+                subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID
+            )
+            val baseReport = KaspaTransactionEngine.assessV1MempoolMass(baseTx, probeEntries)
+            val baseFee = maxOf(
+                Math.multiplyExact(maxOf(baseReport.computeMass, (baseReport.transientMass + 1L) / 2L), feeRateSompiPerGram),
+                baseReport.minRelayFeeSompi,
+                KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+            )
+            if (totalIn < successorDepositSompis + baseFee) return null
+
+            val prelimRem = totalIn - successorDepositSompis - baseFee
+            if (prelimRem < minimumChangeSompis) {
+                // Dust remainder <= 0.02 KAS absorbed as fee (no storage-spiking small output)
+                return if (baseReport.withinLimits) {
+                    Kcc20FundingPlan(candidateFeeInputs, null, baseFee)
+                } else null
+            }
+
+            // Re-price fee WITH the plain change output included
+            val withChangeOutputs = cellOutputs + KaspaTransactionEngine.KaspaTransactionOutput(
+                amount = prelimRem,
+                scriptPublicKey = changeScript
+            )
+            val withChangeTx = baseTx.copy(outputs = withChangeOutputs)
+            val withChangeReport = KaspaTransactionEngine.assessV1MempoolMass(withChangeTx, probeEntries)
+            val withChangeFee = maxOf(
+                Math.multiplyExact(maxOf(withChangeReport.computeMass, (withChangeReport.transientMass + 1L) / 2L), feeRateSompiPerGram),
+                withChangeReport.minRelayFeeSompi,
+                KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+            )
+            val adjustedChange = totalIn - successorDepositSompis - withChangeFee
+            if (adjustedChange < minimumChangeSompis) {
+                return if (totalIn >= successorDepositSompis + baseFee && baseReport.withinLimits) {
+                    Kcc20FundingPlan(candidateFeeInputs, null, baseFee)
+                } else null
+            }
+
+            val finalChangeOutputs = cellOutputs + KaspaTransactionEngine.KaspaTransactionOutput(
+                amount = adjustedChange,
+                scriptPublicKey = changeScript
+            )
+            val finalReport = KaspaTransactionEngine.assessV1MempoolMass(baseTx.copy(outputs = finalChangeOutputs), probeEntries)
+            return if (finalReport.withinLimits) {
+                Kcc20FundingPlan(candidateFeeInputs, adjustedChange, withChangeFee)
+            } else {
+                null
+            }
+        }
+
+        // 1. Probe 0 extra plain KAS inputs first (exact Merge path per Guide §3.3)
+        evaluate(emptyList())?.let { return it }
+
+        // 2. Incrementally add unbound plain P2PK UTXOs until deposits + fee + viable non-storage-spiking change pass
+        val picked = mutableListOf<KaspaTransactionEngine.KaspaUtxo>()
+        val sortedUtxos = livePlainUtxos.sortedByDescending { it.utxoEntry.amount }
+        for (u in sortedUtxos) {
+            picked += u
+            evaluate(picked)?.let { return it }
+        }
+
+        // Diagnose why convergence failed so the user receives a concrete actionable message
+        val allEntries = cellEntries + sortedUtxos.map { it.utxoEntry }
+        val allInputs = cellInputs + sortedUtxos.map {
+            KaspaTransactionEngine.KaspaTransactionInput(
+                previousOutpoint = it.outpoint,
+                signatureScript = "00".repeat(66),
+                sequence = 0L,
+                sigOpCount = 0,
+                computeBudget = 12
+            )
+        }
+        val maxIn = Math.addExact(tokenInputSompis, sortedUtxos.sumOf { it.utxoEntry.amount })
+        val probeTx = KaspaTransactionEngine.KaspaTransaction(
+            version = 1,
+            inputs = allInputs,
+            outputs = cellOutputs,
+            lockTime = 0L,
+            subnetworkId = KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID
+        )
+        val probeReport = KaspaTransactionEngine.assessV1MempoolMass(probeTx, allEntries)
+        val minFeeNeeded = maxOf(
+            Math.multiplyExact(maxOf(probeReport.computeMass, (probeReport.transientMass + 1L) / 2L), feeRateSompiPerGram),
+            probeReport.minRelayFeeSompi,
+            KaspaTransactionEngine.MINIMUM_WALLET_TRANSACTION_FEE_SOMPIS
+        )
+        if (maxIn < successorDepositSompis + minFeeNeeded) {
+            val missing = (successorDepositSompis + minFeeNeeded) - maxIn
+            throw IllegalStateException(
+                "Insufficient plain KAS for covenant deposits plus current network fee (needs $missing additional sompi from unbound P2PK UTXOs)."
+            )
+        }
+        val leftover = maxIn - successorDepositSompis - minFeeNeeded
+        throw IllegalStateException(
+            "KCC-20 transaction with KAS change output ($leftover sompi) exceeds v2.1.0 storage/mempool limit (${probeReport.limitViolationReason ?: "storage mass > 500,000 g"}). Add a larger KAS UTXO or consolidate small UTXOs first."
         )
     }
 

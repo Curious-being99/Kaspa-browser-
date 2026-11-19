@@ -93,7 +93,8 @@ object KaspaTransactionEngine {
         val amount: Long,
         val scriptPublicKey: KaspaScriptPublicKey,
         val blockDaaScore: Long = 0L,
-        val isCoinbase: Boolean = false
+        val isCoinbase: Boolean = false,
+        val covenantId: String? = null
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("amount", amount.toString())
@@ -103,6 +104,10 @@ object KaspaTransactionEngine {
             put("block_daa_score", blockDaaScore.toString())
             put("isCoinbase", isCoinbase)
             put("is_coinbase", isCoinbase)
+            if (!covenantId.isNullOrBlank()) {
+                put("covenantId", covenantId.lowercase())
+                put("covenant_id", covenantId.lowercase())
+            }
         }
 
         companion object {
@@ -122,7 +127,16 @@ object KaspaTransactionEngine {
                 }
                 val daa = json.optLong("blockDaaScore", json.optLong("block_daa_score", 0L))
                 val isCoinbase = json.optBoolean("isCoinbase", json.optBoolean("is_coinbase", false))
-                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase)
+                val rawCov = json.optString("covenantId", json.optString("covenant_id", ""))
+                    .ifBlank {
+                        val covObj = json.optJSONObject("covenant")
+                        covObj?.optString("covenantId", covObj.optString("covenant_id", "")) ?: ""
+                    }
+                    .trim()
+                    .lowercase()
+                    .removePrefix("0x")
+                val covenantId = rawCov.takeIf { it.isNotBlank() && it != "null" }
+                return KaspaUtxoEntry(amt, scriptPubKey, daa, isCoinbase, covenantId)
             }
         }
     }
@@ -138,9 +152,10 @@ object KaspaTransactionEngine {
         val previousOutpoint: KaspaOutpoint,
         var signatureScript: String = "",
         val sequence: Long = 0L,
-        val sigOpCount: Int = 1
+        val sigOpCount: Int = 1,
+        val computeBudget: Int = 0
     ) {
-        fun toJson(): JSONObject = JSONObject().apply {
+        fun toJson(txVersion: Int = 0): JSONObject = JSONObject().apply {
             val opJson = previousOutpoint.toJson()
             put("previousOutpoint", opJson)
             put("previous_outpoint", opJson)
@@ -148,8 +163,12 @@ object KaspaTransactionEngine {
             put("signatureScript", signatureScript)
             put("signature_script", signatureScript)
             put("sequence", sequence)
-            put("sigOpCount", sigOpCount)
-            put("sig_op_count", sigOpCount)
+            put("sigOpCount", if (txVersion >= 1) 0 else sigOpCount)
+            put("sig_op_count", if (txVersion >= 1) 0 else sigOpCount)
+            if (txVersion >= 1 || computeBudget > 0) {
+                put("computeBudget", computeBudget)
+                put("compute_budget", computeBudget)
+            }
         }
     }
 
@@ -190,7 +209,15 @@ object KaspaTransactionEngine {
     const val MASS_PER_TX_BYTE = 1L
     const val MASS_PER_SCRIPT_PUB_KEY_BYTE = 10L
     const val MASS_PER_SIG_OP = 1000L
-    // Kaspa mempool standard rule: maximum allowed mass for an individual transaction is 100,000 grams.
+    // Rusty-Kaspa v2.1.0 transaction v1 compute budget & mass limits (consensus/core/src/mass & config/params.rs)
+    const val MASS_PER_COMPUTE_BUDGET_UNIT = 100L
+    const val SCRIPT_UNITS_FREE_PER_INPUT = 9_999L
+    const val SCRIPT_UNITS_PER_BUDGET_UNIT = 10_000L
+    const val TRANSIENT_BYTE_TO_MASS_FACTOR = 4L
+    const val MAXIMUM_V1_COMPUTE_MASS = 500_000L
+    const val MAXIMUM_V1_STORAGE_MASS = 500_000L
+    const val MAXIMUM_V1_TRANSIENT_MASS = 1_000_000L
+    // Kaspa v0 mempool standard rule: maximum allowed mass for an individual transaction is 100,000 grams.
     const val MAXIMUM_STANDARD_TRANSACTION_MASS = 100_000L
     // Kaspa consensus rule: maximum allowed mass for an entire block (all transactions combined) is 500,000 grams.
     const val MAXIMUM_BLOCK_MASS = 500_000L
@@ -258,7 +285,7 @@ object KaspaTransactionEngine {
         fun toJson(): JSONObject = JSONObject().apply {
             put("version", version)
             val inputsArr = JSONArray()
-            inputs.forEach { inputsArr.put(it.toJson()) }
+            inputs.forEach { inputsArr.put(it.toJson(version)) }
             put("inputs", inputsArr)
 
             val outputsArr = JSONArray()
@@ -582,21 +609,14 @@ object KaspaTransactionEngine {
             }
             bos.write(padTxId)
             writeUInt32LE(bos, input.previousOutpoint.index)
-            // In rusty-kaspa id_v0 (TxEncodingFlags::EXCLUDE_SIGNATURE_SCRIPT):
-            // writes var_bytes(&[]), which is length 0 (u64 LE = 0)
+            // Excludes signatureScript (writes 0-length slice), sigOpCount, and v1 computeBudget.
             writeUInt64LE(bos, 0L)
-            // sequence (u64 LE)
             writeUInt64LE(bos, input.sequence)
-            // sigOpCount is NOT written for transaction ID
         }
 
         writeUInt64LE(bos, tx.outputs.size.toLong())
         for (output in tx.outputs) {
-            writeUInt64LE(bos, output.amount)
-            writeUInt16LE(bos, output.scriptPublicKey.version)
-            val outScriptBytes = hexToBytes(output.scriptPublicKey.script)
-            writeUInt64LE(bos, outScriptBytes.size.toLong())
-            bos.write(outScriptBytes)
+            writeSighashOutput(bos, output, tx.version)
         }
 
         writeUInt64LE(bos, tx.lockTime)
@@ -614,7 +634,7 @@ object KaspaTransactionEngine {
     }
 
     /**
-     * Calculates the transaction hash (committing to mass, signatures, and full fields)
+     * Calculates the transaction hash (committing to mass, signatures, compute budgets/sigOpCounts, and covenant bindings).
      */
     fun calcTransactionHash(tx: KaspaTransaction): String {
         val bos = ByteArrayOutputStream()
@@ -631,17 +651,17 @@ object KaspaTransactionEngine {
             val sigScriptBytes = hexToBytes(input.signatureScript)
             writeUInt64LE(bos, sigScriptBytes.size.toLong())
             bos.write(sigScriptBytes)
-            writeByte(bos, input.sigOpCount.toByte())
+            if (tx.version >= 1) {
+                writeUInt16LE(bos, input.computeBudget.coerceIn(0, 0xffff))
+            } else {
+                writeByte(bos, input.sigOpCount.toByte())
+            }
             writeUInt64LE(bos, input.sequence)
         }
 
         writeUInt64LE(bos, tx.outputs.size.toLong())
         for (output in tx.outputs) {
-            writeUInt64LE(bos, output.amount)
-            writeUInt16LE(bos, output.scriptPublicKey.version)
-            val outScriptBytes = hexToBytes(output.scriptPublicKey.script)
-            writeUInt64LE(bos, outScriptBytes.size.toLong())
-            bos.write(outScriptBytes)
+            writeSighashOutput(bos, output, tx.version)
         }
 
         writeUInt64LE(bos, tx.lockTime)
@@ -740,7 +760,8 @@ object KaspaTransactionEngine {
     }
 
     /**
-     * Calculates the exact serialized byte length of a Kaspa Transaction.
+     * Calculates the exact serialized byte length of a Kaspa Transaction (rusty-kaspa v2.1.0).
+     * Includes 2-byte v1 computeBudget per input and 34-byte covenant binding per bound output.
      */
     fun calculateSerializedByteSize(tx: KaspaTransaction): Long {
         var size = 0L
@@ -753,6 +774,7 @@ object KaspaTransactionEngine {
             size += 8L // signatureScript length (uint64)
             size += sigScriptBytes
             size += 8L  // sequence (uint64)
+            if (tx.version >= 1) size += 2L // v1 computeBudget (uint16)
         }
 
         size += 8L // outputs count (uint64)
@@ -762,6 +784,9 @@ object KaspaTransactionEngine {
             val scriptBytes = output.scriptPublicKey.script.length / 2
             size += 8L // script length (uint64)
             size += scriptBytes
+            if (tx.version >= 1 && output.covenant != null) {
+                size += 34L // authorizingInput (u16 = 2B) + covenantId (32B)
+            }
         }
 
         size += 8L  // lockTime (uint64)
@@ -773,6 +798,69 @@ object KaspaTransactionEngine {
         size += payloadBytes
 
         return size
+    }
+
+    /**
+     * Exact rusty-kaspa v2.1.0 compute mass for a built transaction (v0 and v1).
+     * compute = size + 10 * sum(2 + spkBytes) + (v1 ? 100 * sum(computeBudget) : 1000 * sum(sigOpCount))
+     */
+    fun calculateComputeMass(tx: KaspaTransaction): Long {
+        val size = calculateSerializedByteSize(tx)
+        val scriptPubKeyGrams = tx.outputs.fold(0L) { total, output ->
+            val scriptLen = if (output.scriptPublicKey.script.isNotBlank()) {
+                output.scriptPublicKey.script.length / 2
+            } else {
+                STANDARD_P2PK_SCRIPT_BYTES
+            }
+            Math.addExact(total, Math.multiplyExact(2L + scriptLen, MASS_PER_SCRIPT_PUB_KEY_BYTE))
+        }
+        val executionGrams = if (tx.version >= 1) {
+            Math.multiplyExact(
+                tx.inputs.sumOf { it.computeBudget.coerceAtLeast(0).toLong() },
+                MASS_PER_COMPUTE_BUDGET_UNIT
+            )
+        } else {
+            Math.multiplyExact(
+                tx.inputs.sumOf { it.sigOpCount.coerceAtLeast(0).toLong() },
+                MASS_PER_SIG_OP
+            )
+        }
+        return Math.addExact(Math.addExact(size * MASS_PER_TX_BYTE, scriptPubKeyGrams), executionGrams)
+    }
+
+    fun calculateTransientMass(tx: KaspaTransaction): Long =
+        Math.multiplyExact(calculateSerializedByteSize(tx), TRANSIENT_BYTE_TO_MASS_FACTOR)
+
+    /**
+     * Relay fee floor in sompi (100 * max(compute, ceil(transient * 0.5)), storage excluded).
+     */
+    fun calculateMinRelayFeeSompi(tx: KaspaTransaction): Long {
+        val compute = calculateComputeMass(tx)
+        val transient = calculateTransientMass(tx)
+        val halfCeilTransient = (transient + 1L) / 2L
+        return Math.multiplyExact(
+            TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM,
+            maxOf(compute, halfCeilTransient)
+        )
+    }
+
+    /**
+     * Computes minimum required v1 computeBudget for an input consuming [usedUnits] script units.
+     * Each input gets 9,999 units free; each budget unit adds 10,000 units.
+     */
+    fun budgetForScriptUnits(usedUnits: Long): Int {
+        if (usedUnits <= SCRIPT_UNITS_FREE_PER_INPUT) return 0
+        val excess = usedUnits - SCRIPT_UNITS_FREE_PER_INPUT
+        return ((excess + SCRIPT_UNITS_PER_BUDGET_UNIT - 1L) / SCRIPT_UNITS_PER_BUDGET_UNIT).toInt()
+    }
+
+    /**
+     * KIP-0009 UTXO plurality: ceil((63 + spkBytes + (covenant ? 32 : 0)) / 100).
+     * P2PK (34B, unbound) -> 1; P2SH cell (35B, covenant bound) -> 2.
+     */
+    fun utxoPlurality(scriptBytes: Int, hasCovenant: Boolean): Long {
+        val effective = 63L + scriptBytes.coerceAtLeast(0) + (if (hasCovenant) 32L else 0L)
+        return (effective + 99L) / 100L
     }
 
     /**
@@ -845,8 +933,123 @@ object KaspaTransactionEngine {
         return (harmonicOuts - arithmeticIns).coerceAtLeast(0L)
     }
 
+    /**
+     * Full KIP-0009 storage mass with UTXO plurality (rusty-kaspa v2.1.0 consensus/core/src/mass/mod.rs).
+     */
+    fun calculateStorageMass(
+        utxoEntries: List<KaspaUtxoEntry>,
+        outputs: List<KaspaTransactionOutput>,
+        transactionVersion: Int = 1
+    ): Long {
+        if (outputs.isEmpty()) return 0L
+        val cBig = BigInteger.valueOf(STORAGE_MASS_PARAMETER)
+        var outsP = 0L
+        var harmOuts = BigInteger.ZERO
+        for (out in outputs) {
+            if (out.amount <= 0L) continue
+            val p = utxoPlurality(
+                scriptBytes = out.scriptPublicKey.script.length / 2,
+                hasCovenant = transactionVersion >= 1 && out.covenant != null
+            )
+            outsP += p
+            val pBig = BigInteger.valueOf(p)
+            harmOuts = harmOuts.add(cBig.multiply(pBig).multiply(pBig).divide(BigInteger.valueOf(out.amount)))
+        }
+        if (utxoEntries.isEmpty()) {
+            return harmOuts.coerceAtMost(BigInteger.valueOf(Long.MAX_VALUE)).toLong()
+        }
+        val insP = utxoEntries.sumOf { entry ->
+            utxoPlurality(
+                scriptBytes = entry.scriptPublicKey.script.length / 2,
+                hasCovenant = transactionVersion >= 1 && !entry.covenantId.isNullOrBlank()
+            )
+        }
+        val relaxed = (outsP == 1L) || (utxoEntries.size <= 2 && (insP == 1L || (outsP == 2L && insP == 2L)))
+        if (relaxed) {
+            var harmIns = BigInteger.ZERO
+            for (entry in utxoEntries) {
+                if (entry.amount <= 0L) continue
+                val p = utxoPlurality(
+                    scriptBytes = entry.scriptPublicKey.script.length / 2,
+                    hasCovenant = transactionVersion >= 1 && !entry.covenantId.isNullOrBlank()
+                )
+                val pBig = BigInteger.valueOf(p)
+                harmIns = harmIns.add(cBig.multiply(pBig).multiply(pBig).divide(BigInteger.valueOf(entry.amount)))
+            }
+            val diff = harmOuts.subtract(harmIns)
+            return if (diff.signum() > 0) diff.coerceAtMost(BigInteger.valueOf(Long.MAX_VALUE)).toLong() else 0L
+        }
+        val sumIns = utxoEntries.fold(BigInteger.ZERO) { acc, entry ->
+            acc.add(BigInteger.valueOf(entry.amount.coerceAtLeast(0L)))
+        }
+        val insPBig = BigInteger.valueOf(insP.coerceAtLeast(1L))
+        var mean = sumIns.divide(insPBig)
+        if (mean < BigInteger.ONE) mean = BigInteger.ONE
+        val arith = insPBig.multiply(cBig.divide(mean))
+        val diff = harmOuts.subtract(arith)
+        return if (diff.signum() > 0) diff.coerceAtMost(BigInteger.valueOf(Long.MAX_VALUE)).toLong() else 0L
+    }
+
     fun calculateStorageMass(outputs: List<KaspaTransactionOutput>): Long {
-        return calculateStorageMass(emptyList(), outputs.map { it.amount })
+        return calculateStorageMass(emptyList(), outputs, transactionVersion = 1)
+    }
+
+    data class MempoolMassReport(
+        val computeMass: Long,
+        val storageMass: Long,
+        val transientMass: Long,
+        val normalizedMaxMass: Long,
+        val minRelayFeeSompi: Long,
+        val withinLimits: Boolean,
+        val limitViolationReason: String? = null
+    )
+
+    /**
+     * Checks rusty-kaspa v2.1.0 per-transaction mempool limits:
+     * compute <= 500,000, storage <= 500,000, transient <= 1,000,000.
+     */
+    fun assessV1MempoolMass(
+        tx: KaspaTransaction,
+        utxoEntries: List<KaspaUtxoEntry>
+    ): MempoolMassReport {
+        val compute = calculateComputeMass(tx)
+        val storage = calculateStorageMass(utxoEntries, tx.outputs, tx.version)
+        val transient = calculateTransientMass(tx)
+        val normalizedMax = maxOf(compute, storage, (transient + 1L) / 2L)
+        val minRelayFee = calculateMinRelayFeeSompi(tx)
+        val violation = when {
+            compute > MAXIMUM_V1_COMPUTE_MASS ->
+                "transaction compute mass of $compute exceeds v2.1.0 limit $MAXIMUM_V1_COMPUTE_MASS"
+            storage > MAXIMUM_V1_STORAGE_MASS ->
+                "transaction storage mass of $storage is larger than max allowed size of $MAXIMUM_V1_STORAGE_MASS"
+            transient > MAXIMUM_V1_TRANSIENT_MASS ->
+                "transaction transient mass of $transient exceeds v2.1.0 limit $MAXIMUM_V1_TRANSIENT_MASS"
+            else -> null
+        }
+        return MempoolMassReport(
+            computeMass = compute,
+            storageMass = storage,
+            transientMass = transient,
+            normalizedMaxMass = normalizedMax,
+            minRelayFeeSompi = minRelayFee,
+            withinLimits = violation == null,
+            limitViolationReason = violation
+        )
+    }
+
+    /**
+     * Calculates the overall consensus mass of a Kaspa transaction with full UTXO metadata (including covenant plurality).
+     */
+    @JvmName("calculateMassWithUtxos")
+    fun calculateMass(tx: KaspaTransaction, utxoEntries: List<KaspaUtxoEntry>): Long {
+        val computeMass = calculateComputeMass(tx)
+        val storageMass = calculateStorageMass(utxoEntries, tx.outputs, tx.version)
+        return if (tx.version >= 1) {
+            val halfTransient = (calculateTransientMass(tx) + 1L) / 2L
+            maxOf(computeMass, storageMass, halfTransient)
+        } else {
+            maxOf(computeMass, storageMass)
+        }
     }
 
     /**
@@ -854,18 +1057,15 @@ object KaspaTransactionEngine {
      * mass = max(compute_mass, storage_mass)
      */
     fun calculateMass(tx: KaspaTransaction, inputAmounts: List<Long> = emptyList()): Long {
-        val totalSigOps = tx.inputs.sumOf { it.sigOpCount.coerceAtLeast(0) }
-        val size = calculateSerializedByteSize(tx)
-        val computeMassForSize = size * MASS_PER_TX_BYTE
-        val scriptPubKeyMass = tx.outputs.sumOf {
-            val scriptLen = if (it.scriptPublicKey.script.isNotBlank()) it.scriptPublicKey.script.length / 2 else STANDARD_P2PK_SCRIPT_BYTES
-            (2L + scriptLen) * MASS_PER_SCRIPT_PUB_KEY_BYTE
+        val computeMass = calculateComputeMass(tx)
+        val storageMass = if (tx.version >= 1 && tx.outputs.any { it.covenant != null }) {
+            val dummyUtxos = inputAmounts.map { amt ->
+                KaspaUtxoEntry(amount = amt, scriptPublicKey = KaspaScriptPublicKey(0, "20" + "00".repeat(32) + "ac"))
+            }
+            calculateStorageMass(dummyUtxos, tx.outputs, tx.version)
+        } else {
+            calculateStorageMass(inputAmounts, tx.outputs.map { it.amount })
         }
-        val sigOpMass = totalSigOps * MASS_PER_SIG_OP
-        val computeMass = computeMassForSize + scriptPubKeyMass + sigOpMass
-
-        val outAmounts = tx.outputs.map { it.amount }
-        val storageMass = calculateStorageMass(inputAmounts, outAmounts)
         return maxOf(computeMass, storageMass)
     }
 
@@ -944,18 +1144,7 @@ object KaspaTransactionEngine {
     fun calculateToccataMinimumStandardFee(tx: KaspaTransaction): Long {
         require(tx.inputs.isNotEmpty()) { "A standard transaction must contain at least one input" }
         require(tx.outputs.isNotEmpty()) { "A standard transaction must contain at least one output" }
-        val serializedBytes = calculateSerializedByteSize(tx)
-        val sigOps = tx.inputs.sumOf { it.sigOpCount.coerceAtLeast(0) }
-        val scriptPublicKeyGrams = tx.outputs.fold(0L) { total, output ->
-            val scriptBytes = output.scriptPublicKey.script.length / 2
-            Math.addExact(total, Math.multiplyExact(2L + scriptBytes, MASS_PER_SCRIPT_PUB_KEY_BYTE))
-        }
-        val computeGrams = Math.addExact(
-            Math.addExact(serializedBytes, scriptPublicKeyGrams),
-            Math.multiplyExact(sigOps.toLong(), MASS_PER_SIG_OP)
-        )
-        val feeGrams = maxOf(computeGrams, Math.multiplyExact(serializedBytes, 2L))
-        return Math.multiplyExact(feeGrams, TOCCATA_MINIMUM_STANDARD_FEE_RATE_SOMPI_PER_GRAM)
+        return calculateMinRelayFeeSompi(tx)
     }
 
     /**

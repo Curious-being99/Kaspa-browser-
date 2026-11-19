@@ -218,6 +218,23 @@ object KbKcc20Protocol {
             "KB KCC-20 state-view template hash mismatch"
         }
 
+        val pinned = Kcc20ReferenceProtocol.pinnedKbProgram
+        if (pinned != null) {
+            require(program.size == pinned.size) {
+                "KB KCC-20 program size ${program.size} does not match pinned ${pinned.size}"
+            }
+            require(program[0] == pinned[0]) {
+                "KB KCC-20 prefix byte does not match pinned build"
+            }
+            require(
+                suffix.contentEquals(
+                    pinned.copyOfRange(ARGENT_TEMPLATE_STATE_OFFSET + ARGENT_TEMPLATE_STATE_SIZE, pinned.size)
+                )
+            ) {
+                "KB KCC-20 suffix bytes do not match the pinned build"
+            }
+        }
+
         return KbKcc20TemplateVerification(
             templateHash = computedTemplateHash.toHex(),
             viewTemplateHash = computedViewHash.toHex(),

@@ -92,7 +92,7 @@ object KaziumKnowledgeBase {
     val whatsNewHighlights = listOf(
         UpdateHighlight(
             title = "Kazium Brand & Real-Time Home Experience",
-            summary = "Renamed to Kazium powered by the Kazview hybrid Chromium/Cronet core with the 'Kaspa · Real Time Decentralized' interactive home experience.",
+            summary = "Renamed to Kazium powered by the Kazview WebKit engine with WebKitGTK standards parity and the 'Kaspa · Real Time Decentralized' interactive home experience.",
             deepDetail = "Features a compact top-aligned search bar, streamlined narrow Speed Dial cards, rounded lightweight news feed cards stacked cleanly, and responsive edge-to-edge layout insets."
         ),
         UpdateHighlight(

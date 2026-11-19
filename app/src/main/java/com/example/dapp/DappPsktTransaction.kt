@@ -75,7 +75,7 @@ internal object DappPsktTransaction {
         )
         val expectedScript = "20" + walletPublicKeyHex.lowercase() + "ac"
         val resolvedRequests = mutableListOf<SignInput>()
-        for (request in requests) {
+        for (request in prepared.signInputs) {
             require(request.index in prepared.transaction.inputs.indices) {
                 "Input index is out of range"
             }
@@ -130,10 +130,28 @@ internal object DappPsktTransaction {
                     "P2SH redeemScript does not match input ${request.index} locking script"
                 }
                 val isStandardP2pk = (redeemHex == expectedScript)
-                val isCovenantNote = (redeemHex.contains("20" + pubHex) || redeemHex.contains(pubHex)) &&
-                    (redeemHex.length >= 68)
+                val identifiedKcc20 = runCatching {
+                    com.example.network.kaspa.Kcc20ReferenceProtocol.identifyTemplate(redeemBytes)
+                }.getOrNull()
+                val isCovenantNote = if (identifiedKcc20 != null) {
+                    val cellState = com.example.network.kaspa.Kcc20ReferenceProtocol.stateOf(redeemBytes)
+                    require(cellState.borrowScheme == 0) {
+                        "KCC-20 input ${request.index} borrow_scheme ${cellState.borrowScheme} is not supported (§10)"
+                    }
+                    require(cellState.extensionCommitment.all { it == 0.toByte() }) {
+                        "KCC-20 input ${request.index} non-zero extension_commitment is not supported (§10)"
+                    }
+                    require(cellState.amount.signum() >= 0) {
+                        "KCC-20 input ${request.index} has negative token amount"
+                    }
+                    val stateOwnerHex = cellState.owner.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                    cellState.ownerScheme == 0x00 && stateOwnerHex == pubHex
+                } else {
+                    (redeemHex.contains("20" + pubHex) || redeemHex.contains(pubHex)) &&
+                        (redeemHex.length >= 68)
+                }
                 require(isStandardP2pk || isCovenantNote) {
-                    "P2SH input ${request.index} is not a supported single-key P2PK deposit or KCC-20 covenant note for the active wallet key"
+                    "P2SH input ${request.index} is not a supported single-key P2PK deposit or owner-0x00 KCC-20 cell for the active wallet key"
                 }
                 resolvedRequests.add(request.copy(redeemScript = finalRedeem))
                 continue
@@ -213,6 +231,187 @@ internal object DappPsktTransaction {
         return signedRoot.toString()
     }
 
+    /**
+     * Signs a structured KCC-20 transaction prepared by the wallet bridge:
+     * - For P2SH inputs matching a pinned KCC-20 template (Reference or KB), wraps the wallet's
+     *   `41 || sig64 || 01` signature inside `leaderScript(nextStates, ...)` (tag `79c71c23`)
+     *   or `delegatorScript(...)` (tag `fd3ef14a`) per Guide §3 / §6.1 step 4, rather than emitting
+     *   an invalid plain P2SH-P2PK unlock `41 || sig64 || 01 || push(program)`.
+     * - For plain P2PK inputs and non-KCC-20 P2SH scripts, keeps standard Schnorr / P2SH scripts.
+     * - Updates `tx.mass` on Version 1 transactions and enforces rusty-kaspa v2.1.0 limits + relay floor.
+     */
+    fun signKcc20StructuredTransaction(
+        prepared: Prepared,
+        privateKey: BigInteger,
+        explicitNextStates: List<com.example.network.kaspa.Kcc20ReferenceProtocol.CellState>? = null
+    ): String {
+        val signedRoot = JSONObject(prepared.originalJson.toString())
+        val txRoot = signedRoot.optJSONObject("transaction") ?: signedRoot.optJSONObject("tx") ?: signedRoot
+        val inputArray = txRoot.optJSONArray("inputs")
+            ?: throw IllegalArgumentException("Transaction inputs are missing")
+        val outputArray = txRoot.optJSONArray("outputs") ?: JSONArray()
+
+        for (request in prepared.signInputs) {
+            val input = prepared.transaction.inputs[request.index]
+            val utxoEntry = prepared.utxoEntries[request.index]
+            val sighash = KaspaTransactionEngine.calcSchnorrSignatureHash(
+                prepared.transaction,
+                request.index,
+                request.sighashType,
+                utxoEntry
+            )
+            val signature = CryptoUtils.signSchnorr(privateKey, sighash)
+            val walletPublicKey = hexToBytes(prepared.walletPublicKeyHex)
+            require(
+                walletPublicKey.size == 32 &&
+                    CryptoUtils.verifySchnorrSignature(signature, sighash, walletPublicKey)
+            ) {
+                "Input ${request.index} signature failed local Schnorr verification for the active wallet key"
+            }
+
+            val walletSigScriptHex = "41" + signature + "01"
+            val lockingScript = utxoEntry.scriptPublicKey.script.replace(" ", "").lowercase()
+            val p2shHash = Regex("aa20([0-9a-f]{64})87").matchEntire(lockingScript)?.groupValues?.get(1)
+
+            val signatureScript = if (p2shHash != null) {
+                val prevOut = input.previousOutpoint
+                val redeemHex = (request.redeemScript.takeIf { it.isNotBlank() }
+                    ?: prepared.redeemScript.takeIf { it.isNotBlank() }
+                    ?: Kcc20NoteScanner.findRedeemScript(prevOut.transactionId, prevOut.index, p2shHash)
+                    ?: throw IllegalArgumentException("P2SH redeemScript is required for input ${request.index}"))
+                    .lowercase()
+                val redeemBytes = hexToBytes(redeemHex)
+                val identified = runCatching {
+                    com.example.network.kaspa.Kcc20ReferenceProtocol.identifyTemplate(redeemBytes)
+                }.getOrNull()
+
+                if (identified != null) {
+                    require(prepared.transaction.version >= 1) {
+                        "KCC-20 cell input ${request.index} requires transaction version 1 (sigOpCount=0, computeBudget)"
+                    }
+                    // Determine whether this cell input is a leader (transfer) or delegator (transfer_delegator)
+                    val inputCov = utxoEntry.covenantId?.trim()?.lowercase()?.removePrefix("0x")
+                    val continuationsForThisInput = prepared.transaction.outputs.withIndex().filter { (_, out) ->
+                        val cov = out.covenant ?: return@filter false
+                        cov.authorizingInput == request.index &&
+                            (inputCov.isNullOrBlank() || cov.covenantId.equals(inputCov, ignoreCase = true))
+                    }
+                    val hasEarlierSameFamilyCell = if (!inputCov.isNullOrBlank()) {
+                        (0 until request.index).any { prevIdx ->
+                            prepared.utxoEntries.getOrNull(prevIdx)?.covenantId?.equals(inputCov, ignoreCase = true) == true
+                        }
+                    } else false
+
+                    val isDelegator = hasEarlierSameFamilyCell && continuationsForThisInput.isEmpty()
+                    val assembledBytes = if (isDelegator) {
+                        com.example.network.kaspa.Kcc20ReferenceProtocol.delegatorScript(walletSigScriptHex, redeemBytes)
+                    } else {
+                        val leaderConts = if (continuationsForThisInput.isNotEmpty()) {
+                            continuationsForThisInput
+                        } else if (!inputCov.isNullOrBlank()) {
+                            prepared.transaction.outputs.withIndex().filter { (_, out) ->
+                                out.covenant?.covenantId.equals(inputCov, ignoreCase = true)
+                            }
+                        } else {
+                            prepared.transaction.outputs.withIndex().filter { (_, out) -> out.covenant != null }
+                        }
+                        require(leaderConts.isNotEmpty()) {
+                            "KCC-20 leader input ${request.index} has no bound continuation outputs"
+                        }
+                        val nextStates = if (explicitNextStates != null && explicitNextStates.size == leaderConts.size) {
+                            explicitNextStates
+                        } else {
+                            // Extract & verify each continuation state from output redeemScript if present
+                            leaderConts.map { (outIdx, out) ->
+                                val outJson = outputArray.optJSONObject(outIdx)
+                                val outRedeemHex = sequenceOf(
+                                    "redeemScript", "redeem_script", "redeemScriptHex", "redeem_script_hex", "program", "programHex", "program_hex"
+                                ).mapNotNull { k -> outJson?.optString(k, "")?.takeIf { it.isNotBlank() && it != "null" } }
+                                    .firstOrNull()
+                                    ?: throw IllegalArgumentException(
+                                        "KCC-20 leader input ${request.index} requires nextStates or output[$outIdx] redeemScript to build transfer signature script"
+                                    )
+                                val outRedeemBytes = hexToBytes(outRedeemHex)
+                                val outTemplate = com.example.network.kaspa.Kcc20ReferenceProtocol.identifyTemplate(outRedeemBytes)
+                                    ?: throw IllegalArgumentException("Output $outIdx redeemScript does not match pinned KCC-20 template")
+                                require(outTemplate == identified) {
+                                    "Output $outIdx template (${outTemplate.id}) does not match leader template (${identified.id})"
+                                }
+                                val expectedOutSpk = com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(outRedeemBytes)
+                                require(expectedOutSpk.equals(out.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)) {
+                                    "Output $outIdx scriptPublicKey does not match its KCC-20 redeemScript P2SH hash"
+                                }
+                                com.example.network.kaspa.Kcc20ReferenceProtocol.stateOf(outRedeemBytes)
+                            }
+                        }
+                        // Guide §2.3 check 3 / §8: every continuation output P2SH must equal programFor(nextStates[k], leaderProgram)
+                        leaderConts.forEachIndexed { k, (outIdx, out) ->
+                            val rebuilt = com.example.network.kaspa.Kcc20ReferenceProtocol.programFor(nextStates[k], redeemBytes)
+                            val rebuiltSpk = com.example.network.kaspa.Kcc20ReferenceProtocol.p2shScript(rebuilt)
+                            require(rebuiltSpk.equals(out.scriptPublicKey.script.replace(" ", ""), ignoreCase = true)) {
+                                "Continuation output $outIdx P2SH mismatch against nextStates[$k]"
+                            }
+                        }
+                        com.example.network.kaspa.Kcc20ReferenceProtocol.leaderScript(nextStates, walletSigScriptHex, redeemBytes)
+                    }
+                    assembledBytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                } else {
+                    walletSigScriptHex + pushDataScript(redeemHex)
+                }
+            } else {
+                walletSigScriptHex
+            }
+
+            input.signatureScript = signatureScript
+            val originalInput = inputArray.optJSONObject(request.index)
+                ?: throw IllegalArgumentException("Transaction input is malformed")
+            originalInput.put("signatureScript", signatureScript)
+        }
+
+        if (prepared.transaction.version >= 1) {
+            val report = KaspaTransactionEngine.assessV1MempoolMass(prepared.transaction, prepared.utxoEntries)
+            require(report.withinLimits) {
+                report.limitViolationReason ?: "Signed v1 transaction exceeds rusty-kaspa v2.1.0 mempool limits"
+            }
+            require(prepared.feeSompi >= report.minRelayFeeSompi) {
+                "Signed v1 transaction fee (${prepared.feeSompi} sompi) is below minimum relay floor (${report.minRelayFeeSompi} sompi)"
+            }
+            prepared.transaction.mass = report.normalizedMaxMass
+            txRoot.put("mass", report.normalizedMaxMass)
+        }
+        return signedRoot.toString()
+    }
+
+    fun parseNextStatesFromJson(vararg objects: JSONObject?): List<com.example.network.kaspa.Kcc20ReferenceProtocol.CellState>? {
+        val array = objects.firstNotNullOfOrNull { obj ->
+            obj?.optJSONArray("nextStates") ?: obj?.optJSONArray("next_states")
+        } ?: return null
+        if (array.length() == 0) return null
+        return (0 until array.length()).mapNotNull { idx ->
+            val item = array.optJSONObject(idx) ?: return null
+            val amountStr = sequenceOf("amount", "value", "amountBaseUnits", "amount_base_units")
+                .mapNotNull { k -> if (item.has(k) && !item.isNull(k)) item.optString(k, "").trim().takeIf { it.isNotEmpty() } else null }
+                .firstOrNull() ?: return null
+            val amount = amountStr.toBigIntegerOrNull() ?: return null
+            val ownerHex = item.optString("owner", "").trim().lowercase().removePrefix("0x")
+            if (!ownerHex.matches(Regex("[0-9a-f]{64}"))) return null
+            val ownerScheme = item.optInt("ownerScheme", item.optInt("owner_scheme", 0))
+            val borrowScheme = item.optInt("borrowScheme", item.optInt("borrow_scheme", 0))
+            val borrowGuardHex = item.optString("borrowGuard", item.optString("borrow_guard", "")).trim().lowercase().removePrefix("0x")
+            val borrowGuard = if (borrowGuardHex.matches(Regex("[0-9a-f]{64}"))) hexToBytes(borrowGuardHex) else ByteArray(32)
+            val extHex = item.optString("extensionCommitment", item.optString("extension_commitment", "")).trim().lowercase().removePrefix("0x")
+            val ext = if (extHex.matches(Regex("[0-9a-f]{64}"))) hexToBytes(extHex) else ByteArray(32)
+            com.example.network.kaspa.Kcc20ReferenceProtocol.CellState(
+                amount = amount,
+                owner = hexToBytes(ownerHex),
+                ownerScheme = ownerScheme,
+                borrowScheme = borrowScheme,
+                borrowGuard = borrowGuard,
+                extensionCommitment = ext
+            )
+        }
+    }
+
     fun signForDapp(prepared: Prepared, privateKey: BigInteger): String =
         sign(prepared, privateKey, isDappSigning = true)
 
@@ -226,6 +425,7 @@ internal object DappPsktTransaction {
             throw IllegalArgumentException("Invalid transaction JSON")
         }
         val txRoot = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
+        val txVersion = txRoot.optInt("version", 0)
         val inputArray = txRoot.optJSONArray("inputs")
             ?: throw IllegalArgumentException("Transaction inputs are missing")
         val outputArray = txRoot.optJSONArray("outputs")
@@ -343,11 +543,15 @@ internal object DappPsktTransaction {
             }
             inputSum = Math.addExact(inputSum, utxo.amount)
             utxoEntries += utxo
+            val computeBudget = item.optInt("computeBudget", item.optInt("compute_budget", 0))
+            require(computeBudget in 0..0xffff) { "Input $index has invalid computeBudget $computeBudget" }
+            val defaultSigOpCount = if (txVersion >= 1) 0 else 1
             inputs += KaspaTransactionEngine.KaspaTransactionInput(
                 previousOutpoint = KaspaTransactionEngine.KaspaOutpoint(txId.lowercase(), outIndex),
                 signatureScript = item.optString("signatureScript", item.optString("signature_script", "")),
                 sequence = item.optLong("sequence", 0L),
-                sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", 1))
+                sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", defaultSigOpCount)),
+                computeBudget = computeBudget
             )
         }
 
@@ -367,9 +571,21 @@ internal object DappPsktTransaction {
             outputSum = Math.addExact(outputSum, amount)
             val covenantJson = item.optJSONObject("covenant")
             val covenant = covenantJson?.let {
+                require(txVersion >= 1) {
+                    "Output $index covenant binding requires transaction version 1"
+                }
+                val authInput = it.optInt("authorizingInput", it.optInt("authorizing_input", -1))
+                val covId = it.optString("covenantId", it.optString("covenant_id", ""))
+                    .trim().lowercase().removePrefix("0x")
+                require(authInput in inputs.indices) {
+                    "Output $index covenant authorizingInput ($authInput) is out of bounds"
+                }
+                require(covId.matches(Regex("[0-9a-f]{64}"))) {
+                    "Output $index has invalid covenantId"
+                }
                 KaspaTransactionEngine.KaspaCovenantBinding(
-                    authorizingInput = it.optInt("authorizingInput", it.optInt("authorizing_input", 0)),
-                    covenantId = it.optString("covenantId", it.optString("covenant_id", ""))
+                    authorizingInput = authInput,
+                    covenantId = covId
                 )
             }
             outputs += KaspaTransactionEngine.KaspaTransactionOutput(amount, script, covenant)
@@ -381,7 +597,7 @@ internal object DappPsktTransaction {
         }
 
         val tx = KaspaTransactionEngine.KaspaTransaction(
-            version = txRoot.optInt("version", 0),
+            version = txVersion,
             inputs = inputs,
             outputs = outputs,
             lockTime = txRoot.optLong("lockTime", txRoot.optLong("lock_time", 0L)),
@@ -390,9 +606,16 @@ internal object DappPsktTransaction {
             payload = txRoot.optString("payload", ""),
             mass = txRoot.optLong("mass", 0L)
         )
-        val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries.map { it.amount })
-        require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
-            "Transaction mass exceeds the standard mempool limit"
+        if (tx.version >= 1) {
+            val report = KaspaTransactionEngine.assessV1MempoolMass(tx, utxoEntries)
+            require(report.withinLimits) {
+                report.limitViolationReason ?: "Transaction mass exceeds rusty-kaspa v2.1.0 mempool limits"
+            }
+        } else {
+            val calculatedMass = KaspaTransactionEngine.calculateMass(tx, utxoEntries)
+            require(calculatedMass <= KaspaTransactionEngine.MAXIMUM_STANDARD_TRANSACTION_MASS) {
+                "Transaction mass exceeds the standard mempool limit"
+            }
         }
         val resolvedSignInputs = signInputs.map { request ->
             if (request.redeemScript.isNotBlank()) request

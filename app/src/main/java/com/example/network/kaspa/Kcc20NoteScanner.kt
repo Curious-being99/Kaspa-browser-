@@ -260,13 +260,43 @@ object Kcc20NoteScanner {
     // Keys: targetScriptHash (64-char hex) and/or "${txId.lowercase()}:$outputIndex"
     private val noteRedeemScriptCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    // Global thread-safe in-memory cache of discovered notes
-    // Keys: "${txId.lowercase()}:$outputIndex" and targetScriptHash / p2shAddress
-    private val cachedNotesByOutpoint = java.util.concurrent.ConcurrentHashMap<String, DiscoveredNote>()
+    private data class CachedNoteEntry(
+        val networkPrefix: String,
+        val ownerPubKeyHex: String,
+        val note: DiscoveredNote
+    )
+
+    // Global thread-safe in-memory cache of discovered notes strictly scoped by (networkPrefix, ownerPubKeyHex, outpoint)
+    private val cachedNotesByOutpoint = java.util.concurrent.ConcurrentHashMap<String, CachedNoteEntry>()
     private val cachedNoteAddressesByToken = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
 
-    fun getCachedNotes(): List<DiscoveredNote> =
-        cachedNotesByOutpoint.values.distinctBy { "${it.txId.lowercase()}:${it.outputIndex}" }
+    private fun noteCacheKey(
+        networkPrefix: String,
+        ownerPubKeyHex: String,
+        txId: String,
+        outputIndex: Int
+    ): String = "${networkPrefix.trim().lowercase()}:${ownerPubKeyHex.trim().lowercase().removePrefix("0x")}:${txId.trim().lowercase()}:$outputIndex"
+
+    fun clearCache() {
+        cachedNotesByOutpoint.clear()
+        noteRedeemScriptCache.clear()
+        cachedNoteAddressesByToken.clear()
+    }
+
+    fun getCachedNotes(
+        networkPrefix: String? = null,
+        ownerPubKeyHex: String? = null
+    ): List<DiscoveredNote> {
+        val cleanPrefix = networkPrefix?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val cleanOwner = ownerPubKeyHex?.trim()?.lowercase()?.removePrefix("0x")?.takeIf { it.isNotBlank() }
+        return cachedNotesByOutpoint.values
+            .filter { entry ->
+                (cleanPrefix == null || entry.networkPrefix == cleanPrefix) &&
+                    (cleanOwner == null || entry.ownerPubKeyHex == cleanOwner)
+            }
+            .map { it.note }
+            .distinctBy { "${it.txId.lowercase()}:${it.outputIndex}" }
+    }
 
     fun registerRedeemScript(txId: String?, outputIndex: Int?, targetScriptHash: String?, redeemScriptHex: String) {
         if (redeemScriptHex.isBlank()) return
@@ -379,14 +409,14 @@ object Kcc20NoteScanner {
             val txObj = root.optJSONObject("transaction") ?: root.optJSONObject("tx") ?: root
             val inputsArray = txObj.optJSONArray("inputs") ?: JSONArray()
             val outputsArray = txObj.optJSONArray("outputs") ?: JSONArray()
-            val txId = sequenceOf(
+            val explicitTxId = sequenceOf(
                 txObj.optString("transaction_id", ""),
                 txObj.optString("transactionId", ""),
                 txObj.optString("txid", ""),
-                txObj.optString("subnetwork_id", "").takeIf { it.length == 64 },
                 root.optString("txId", ""),
                 root.optString("transactionId", "")
-            ).filterNotNull().firstOrNull { it.isNotBlank() } ?: "pending_${System.currentTimeMillis()}"
+            ).firstOrNull { it.matches(Regex("(?i)[0-9a-f]{64}")) }?.lowercase()
+            val txId = explicitTxId ?: computeTxIdFromJson(txObj) ?: "pending_${System.currentTimeMillis()}"
 
             // 1. Process inputs: If this swap spends an existing covenant note, mark it as spent immediately
             for (j in 0 until inputsArray.length()) {
@@ -398,33 +428,47 @@ object Kcc20NoteScanner {
                     ?: inObj.optInt("vout", inObj.optInt("index", -1))
 
                 if (inTxId.isNotBlank() && inIndex >= 0) {
-                    val key = "${inTxId.lowercase()}:$inIndex"
+                    val key = noteCacheKey(expectedPrefix, cleanPubKey, inTxId, inIndex)
                     val existing = cachedNotesByOutpoint[key]
                     if (existing != null) {
-                        cachedNotesByOutpoint[key] = existing.copy(isUnspent = false)
+                        cachedNotesByOutpoint[key] = existing.copy(note = existing.note.copy(isUnspent = false))
                     }
                 }
 
-                // Check signature script / redeem script pushes and input UTXO scriptPublicKey
+                // Check signature script / redeem script pushes and input UTXO scriptPublicKey (scoped to active network & owner)
                 val inUtxoSpk = inObj.optJSONObject("utxoEntry")?.optJSONObject("scriptPublicKey")?.optString("script", "").orEmpty().lowercase()
                 val sig = inObj.optString("signature_script", inObj.optString("signatureScript", ""))
                 val redeem = inObj.optString("redeemScript", inObj.optString("redeem_script", ""))
                 val scriptText = (sig + redeem).lowercase()
-                for ((outpointKey, cached) in cachedNotesByOutpoint) {
+                for ((outpointKey, entry) in cachedNotesByOutpoint) {
+                    if (entry.networkPrefix != expectedPrefix || entry.ownerPubKeyHex != cleanPubKey) continue
+                    val cached = entry.note
                     if (cached.isUnspent) {
                         val matchesSpk = inUtxoSpk.isNotBlank() && inUtxoSpk.contains(cached.targetScriptHash)
                         val matchesScript = scriptText.isNotBlank() && (
-                            scriptText.contains(cached.targetScriptHash) || 
-                            (cached.redeemScriptHex.isNotBlank() && scriptText.contains(cached.redeemScriptHex))
-                        )
+                            scriptText.contains(cached.targetScriptHash) ||
+                                (cached.redeemScriptHex.isNotBlank() && scriptText.contains(cached.redeemScriptHex))
+                            )
                         if (matchesSpk || matchesScript) {
-                            cachedNotesByOutpoint[outpointKey] = cached.copy(isUnspent = false)
+                            cachedNotesByOutpoint[outpointKey] = entry.copy(note = cached.copy(isUnspent = false))
                         }
                     }
                 }
             }
 
-            // Extract candidate amounts from inputs & outputs
+            // Extract leader transfer next_states + candidate amounts from inputs & outputs
+            val leaderNotes = extractLeaderDecodedNotes(txObj, txId, System.currentTimeMillis(), cleanPubKey, expectedPrefix)
+            val leaderMatchedIndices = leaderNotes.map { it.outputIndex }.toSet()
+            for (note in leaderNotes) {
+                val pending = note.copy(isUnspent = true)
+                val outpointKey = noteCacheKey(expectedPrefix, cleanPubKey, txId, note.outputIndex)
+                cachedNotesByOutpoint[outpointKey] = CachedNoteEntry(expectedPrefix, cleanPubKey, pending)
+                cachedNoteAddressesByToken.getOrPut(pending.covenantId.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(pending.p2shAddress)
+                if (pending.redeemScriptHex.isNotBlank()) {
+                    registerRedeemScript(txId, pending.outputIndex, pending.targetScriptHash, pending.redeemScriptHex)
+                }
+            }
+
             val candidateAmounts = mutableSetOf<Long>()
             for (j in 0 until inputsArray.length()) {
                 val input = inputsArray.optJSONObject(j) ?: continue
@@ -437,13 +481,14 @@ object Kcc20NoteScanner {
                 if (directAmt > 0L) candidateAmounts.add(directAmt)
             }
 
-            // 2. Process outputs: Look for newly minted / received covenant notes
+            // 2. Process remaining outputs strictly requiring output-level covenant ID and exact redeem hash match
             for (i in 0 until outputsArray.length()) {
+                if (i in leaderMatchedIndices) continue
                 val out = outputsArray.optJSONObject(i) ?: continue
                 val spk = readScriptHex(out)
                 if (!Regex("^aa20([0-9a-fA-F]{64})87$").matches(spk)) continue
                 val targetHash = spk.substring(4, 68).lowercase()
-                val covenantId = resolveCovenantId(out, inputsArray)
+                val covenantId = resolveCovenantId(out) ?: continue
                 val sompiAmount = readAmount(out)
 
                 var matched = false
@@ -475,37 +520,76 @@ object Kcc20NoteScanner {
                     if (matched) break
                 }
 
-                val finalCovenantId = covenantId ?: KNOWN_TOKENS.keys.firstOrNull() ?: "covenant_swap_note"
-                if (!matched && matchedAmount <= 0L) {
-                    matchedAmount = candidateAmounts.firstOrNull { it > 0L } ?: 1000L
-                }
+                if (!matched || matchedAmount <= 0L) continue
 
                 val p2shAddr = CryptoUtils.encodeP2shAddress(hexToBytes(targetHash), expectedPrefix)
                 val newNote = DiscoveredNote(
                     txId = txId,
                     outputIndex = i,
-                    covenantId = finalCovenantId,
+                    covenantId = covenantId,
                     sompiAmount = sompiAmount,
                     rawTokenAmount = matchedAmount,
                     scriptPublicKey = spk,
                     targetScriptHash = targetHash,
                     p2shAddress = p2shAddr,
                     redeemScriptHex = matchedRedeem,
-                    lineage = matchedLineage.ifBlank { "kcc20" },
+                    lineage = matchedLineage,
                     blockTime = System.currentTimeMillis(),
                     isUnspent = true
                 )
-                val outpointKey = "${txId.lowercase()}:$i"
-                cachedNotesByOutpoint[outpointKey] = newNote
-                cachedNotesByOutpoint[p2shAddr.lowercase()] = newNote
-                cachedNoteAddressesByToken.getOrPut(finalCovenantId.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(p2shAddr)
-                if (matchedRedeem.isNotBlank()) {
-                    registerRedeemScript(txId, i, targetHash, matchedRedeem)
-                }
+                val outpointKey = noteCacheKey(expectedPrefix, cleanPubKey, txId, i)
+                cachedNotesByOutpoint[outpointKey] = CachedNoteEntry(expectedPrefix, cleanPubKey, newNote)
+                cachedNoteAddressesByToken.getOrPut(covenantId.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(p2shAddr)
+                registerRedeemScript(txId, i, targetHash, matchedRedeem)
             }
         } catch (_: Exception) {}
 
-        return buildScanResultFromNotes(getCachedNotes(), emptyList(), isTestnet)
+        return buildScanResultFromNotes(getCachedNotes(expectedPrefix, cleanPubKey), emptyList(), isTestnet)
+    }
+
+    private fun computeTxIdFromJson(txObj: JSONObject): String? {
+        return try {
+            val version = txObj.optInt("version", 1)
+            val inputsArr = txObj.optJSONArray("inputs") ?: return null
+            val outputsArr = txObj.optJSONArray("outputs") ?: return null
+            val inputs = (0 until inputsArr.length()).map { idx ->
+                val item = inputsArr.getJSONObject(idx)
+                val po = item.optJSONObject("previousOutpoint") ?: item.optJSONObject("previous_outpoint") ?: item
+                val prevId = po.optString("transactionId", po.optString("transaction_id", item.optString("txid", "")))
+                val prevIdx = po.optLong("index", po.optLong("output_index", item.optLong("vout", 0L)))
+                KaspaTransactionEngine.KaspaTransactionInput(
+                    previousOutpoint = KaspaTransactionEngine.KaspaOutpoint(prevId, prevIdx),
+                    signatureScript = item.optString("signatureScript", item.optString("signature_script", "")),
+                    sequence = item.optLong("sequence", 0L),
+                    sigOpCount = item.optInt("sigOpCount", item.optInt("sig_op_count", 0)),
+                    computeBudget = item.optInt("computeBudget", item.optInt("compute_budget", 0))
+                )
+            }
+            val outputs = (0 until outputsArr.length()).map { idx ->
+                val out = outputsArr.getJSONObject(idx)
+                val amt = readAmount(out)
+                val spk = KaspaTransactionEngine.KaspaScriptPublicKey(0, readScriptHex(out))
+                val covJson = out.optJSONObject("covenant")
+                val cov = covJson?.let {
+                    val authIn = it.optInt("authorizingInput", it.optInt("authorizing_input", 0))
+                    val cId = it.optString("covenantId", it.optString("covenant_id", "")).trim().lowercase().removePrefix("0x")
+                    if (cId.matches(Regex("[0-9a-f]{64}"))) KaspaTransactionEngine.KaspaCovenantBinding(authIn, cId) else null
+                }
+                KaspaTransactionEngine.KaspaTransactionOutput(amt, spk, cov)
+            }
+            val tx = KaspaTransactionEngine.KaspaTransaction(
+                version = version,
+                inputs = inputs,
+                outputs = outputs,
+                lockTime = txObj.optLong("lockTime", txObj.optLong("lock_time", 0L)),
+                subnetworkId = txObj.optString("subnetworkId", txObj.optString("subnetwork_id", KaspaTransactionEngine.DEFAULT_SUBNETWORK_ID)),
+                gas = txObj.optLong("gas", 0L),
+                payload = txObj.optString("payload", "")
+            )
+            KaspaTransactionEngine.calcTransactionId(tx)
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     /**
@@ -591,13 +675,23 @@ object Kcc20NoteScanner {
                 }
             }
 
-            // Filter candidate note outputs (having P2SH script aa20...87 and a covenant ID)
+            // 2a. Decode every leader transfer(next_states, witness) across all families in this tx (Guide §2.1)
+            val leaderDecodedNotes = extractLeaderDecodedNotes(tx, txId, blockTime, cleanPubKey, expectedPrefix)
+            val leaderMatchedIndices = mutableSetOf<Int>()
+            for (note in leaderDecodedNotes) {
+                discoveredNotes.add(note)
+                leaderMatchedIndices.add(note.outputIndex)
+                registerRedeemScript(txId, note.outputIndex, note.targetScriptHash, note.redeemScriptHex)
+            }
+
+            // 2b. Filter remaining P2SH outputs having an explicit output covenant ID (e.g. genesis / q4 / kron)
             for (i in 0 until outputsArray.length()) {
+                if (i in leaderMatchedIndices) continue
                 val out = outputsArray.optJSONObject(i) ?: continue
                 val spk = readScriptHex(out)
                 if (!Regex("^aa20([0-9a-fA-F]{64})87$").matches(spk)) continue
                 val targetHash = spk.substring(4, 68).lowercase()
-                val covenantId = resolveCovenantId(out, inputsArray) ?: continue
+                val covenantId = resolveCovenantId(out) ?: continue
                 val sompiAmount = readAmount(out)
 
                 // Match against rebuilt redeem scripts for all candidate amounts and templates
@@ -612,7 +706,7 @@ object Kcc20NoteScanner {
 
                     for (amt in candidateAmounts) {
                         if (amt <= 0L) continue
-                        val forms = if (template.kind == 1) listOf("p2pk", "p2sh") else listOf("p2pk", "p2sh")
+                        val forms = listOf("p2pk", "p2sh")
                         for (form in forms) {
                             val candidateRedeem = buildNoteRedeem(template, cleanPubKey, amt, form, code)
                             val p2shHash = CryptoUtils.blake2b256(hexToBytes(candidateRedeem))
@@ -656,19 +750,23 @@ object Kcc20NoteScanner {
         val kronNotes = fetchKronNotes(cleanAddr, cleanPubKey, expectedPrefix)
         discoveredNotes.addAll(kronNotes)
 
-        // 4. Merge previously cached notes (including any recent swap notes)
-        discoveredNotes.addAll(cachedNotesByOutpoint.values)
+        // 4. Merge previously cached notes strictly scoped to active network & wallet owner
+        discoveredNotes.addAll(getCachedNotes(expectedPrefix, cleanPubKey))
 
         // 5. Verify on-chain unspent status directly via Kaspa Node GET /addresses/{p2shAddress}/utxos
         val verifiedNotes = mutableListOf<DiscoveredNote>()
         for (note in discoveredNotes.distinctBy { "${it.txId.lowercase()}:${it.outputIndex}" }) {
-            val isUnspent = checkNoteIsUnspent(note.p2shAddress, note.txId, note.outputIndex, rpcNodes)
+            val key = noteCacheKey(expectedPrefix, cleanPubKey, note.txId, note.outputIndex)
+            val status = checkNoteUtxoStatus(note, rpcNodes)
+            val isUnspent = when (status) {
+                UtxoStatus.UNSPENT -> true
+                UtxoStatus.SPENT -> false
+                UtxoStatus.UNKNOWN -> cachedNotesByOutpoint[key]?.note?.isUnspent == true
+            }
             val updated = note.copy(isUnspent = isUnspent)
             verifiedNotes.add(updated)
-            val key = "${note.txId.lowercase()}:${note.outputIndex}"
-            cachedNotesByOutpoint[key] = updated
+            cachedNotesByOutpoint[key] = CachedNoteEntry(expectedPrefix, cleanPubKey, updated)
             if (note.p2shAddress.isNotBlank()) {
-                cachedNotesByOutpoint[note.p2shAddress.lowercase()] = updated
                 cachedNoteAddressesByToken.getOrPut(note.covenantId.lowercase()) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(note.p2shAddress)
             }
         }
@@ -813,18 +911,28 @@ object Kcc20NoteScanner {
         return last?.joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
+    private enum class UtxoStatus { UNSPENT, SPENT, UNKNOWN }
+
     /**
-     * Checks if a note's outpoint is still unspent by querying GET /addresses/{p2shAddress}/utxos.
+     * Checks if a note's outpoint is still unspent by querying GET /addresses/{p2shAddress}/utxos,
+     * verifying outpoint, KAS amount, redeem program hash consistency, and covenant ID (falling
+     * back to the creating transaction output when REST `/utxos` omits `covenantId`).
      */
-    private suspend fun checkNoteIsUnspent(
-        p2shAddress: String,
-        txId: String,
-        outputIndex: Int,
+    private suspend fun checkNoteUtxoStatus(
+        note: DiscoveredNote,
         rpcNodes: List<String>
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): UtxoStatus = withContext(Dispatchers.IO) {
+        if (note.p2shAddress.isBlank() || note.txId.isBlank()) return@withContext UtxoStatus.UNKNOWN
+        if (note.redeemScriptHex.isNotBlank() && note.targetScriptHash.isNotBlank()) {
+            val actualHash = CryptoUtils.blake2b256(hexToBytes(note.redeemScriptHex))
+                .joinToString("") { "%02x".format(it) }
+            if (!actualHash.equals(note.targetScriptHash, ignoreCase = true)) {
+                return@withContext UtxoStatus.SPENT
+            }
+        }
         for (node in rpcNodes) {
             try {
-                val url = "$node/addresses/$p2shAddress/utxos"
+                val url = "$node/addresses/${note.p2shAddress}/utxos"
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 4000
@@ -841,16 +949,58 @@ object Kcc20NoteScanner {
                             ?: utxo
                         val uTxid = outpoint.optString("transaction_id", outpoint.optString("transactionId", ""))
                         val uIndex = outpoint.optInt("index", outpoint.optInt("output_index", -1))
-                        if (uTxid.equals(txId, ignoreCase = true) && uIndex == outputIndex) {
-                            return@withContext true
+                        if (uTxid.equals(note.txId, ignoreCase = true) && uIndex == note.outputIndex) {
+                            val entryObj = utxo.optJSONObject("utxoEntry") ?: utxo.optJSONObject("utxo_entry") ?: utxo
+                            val uAmt = entryObj.optLong("amount", utxo.optLong("amount", -1L))
+                            if (note.sompiAmount > 0L && uAmt > 0L && uAmt != note.sompiAmount) {
+                                return@withContext UtxoStatus.SPENT
+                            }
+                            val uCov = entryObj.optString("covenantId", entryObj.optString("covenant_id", ""))
+                                .ifBlank { utxo.optString("covenantId", utxo.optString("covenant_id", "")) }
+                                .ifBlank { entryObj.optJSONObject("covenant")?.let { it.optString("covenantId", it.optString("covenant_id", "")) } ?: "" }
+                                .trim().lowercase().removePrefix("0x")
+                            if (uCov.matches(Regex("[0-9a-f]{64}"))) {
+                                if (!uCov.equals(note.covenantId, ignoreCase = true)) {
+                                    return@withContext UtxoStatus.SPENT
+                                }
+                            } else if (note.covenantId.matches(Regex("[0-9a-f]{64}"))) {
+                                val creatingCov = fetchCreatingTxOutputCovenant(note.txId, note.outputIndex, rpcNodes)
+                                if (creatingCov != null && !creatingCov.equals(note.covenantId, ignoreCase = true)) {
+                                    return@withContext UtxoStatus.SPENT
+                                }
+                            }
+                            return@withContext UtxoStatus.UNSPENT
                         }
                     }
-                    return@withContext false
+                    return@withContext UtxoStatus.SPENT
                 }
             } catch (_: Exception) {}
         }
-        // Fallback: assume unspent if network call fails
-        true
+        UtxoStatus.UNKNOWN
+    }
+
+    private fun fetchCreatingTxOutputCovenant(txId: String, outputIndex: Int, rpcNodes: List<String>): String? {
+        for (node in rpcNodes) {
+            try {
+                val conn = (URL("$node/transactions/$txId").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    if (conn.responseCode == 200) {
+                        val txObj = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                        val outputs = txObj.optJSONArray("outputs") ?: continue
+                        val outObj = outputs.optJSONObject(outputIndex) ?: continue
+                        return resolveCovenantId(outObj)
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (_: Exception) {}
+        }
+        return null
     }
 
     /**
@@ -895,7 +1045,8 @@ object Kcc20NoteScanner {
                         val amt = rd8(amtHex)
                         val txId = u.optString("transactionId", u.optString("transaction_id", ""))
                         val outIdx = u.optInt("index", 0)
-                        val covId = u.optString("covenantId", u.optString("covenant_id", ""))
+                        val covId = u.optString("covenantId", u.optString("covenant_id", "")).trim().lowercase().removePrefix("0x")
+                        if (!covId.matches(Regex("[0-9a-f]{64}")) || txId.isBlank()) continue
                         val spk = CryptoUtils.blake2b256(hexToBytes(rHex)).joinToString("") { "%02x".format(it) }
                         val p2shAddr = CryptoUtils.encodeP2shAddress(hexToBytes(spk), prefix)
 
@@ -904,7 +1055,7 @@ object Kcc20NoteScanner {
                                 DiscoveredNote(
                                     txId = txId,
                                     outputIndex = outIdx,
-                                    covenantId = covId.ifBlank { "kron-$tick" },
+                                    covenantId = covId,
                                     sompiAmount = u.optLong("amount", 10_000L),
                                     rawTokenAmount = amt,
                                     scriptPublicKey = "aa20${spk}87",
@@ -913,7 +1064,7 @@ object Kcc20NoteScanner {
                                     redeemScriptHex = rHex,
                                     lineage = "kron",
                                     blockTime = System.currentTimeMillis(),
-                                    isUnspent = true
+                                    isUnspent = false
                                 )
                             )
                             registerRedeemScript(txId, outIdx, spk, rHex)
@@ -1052,24 +1203,119 @@ object Kcc20NoteScanner {
         )
     }
 
-    private fun resolveCovenantId(output: JSONObject, inputs: JSONArray): String? {
-        val direct = output.optString("covenant_id", output.optString("covenantId", "")).trim()
+    /**
+     * Decodes every leader `transfer(next_states, witness)` input across all KCC-20 families
+     * in a transaction (Guide §2.1: handles multi-family atomic/swap txs, ignores non-family
+     * geneses authorized by the same leader, and allows zero-amount continuations).
+     */
+    internal fun extractLeaderDecodedNotes(
+        tx: JSONObject,
+        txId: String,
+        blockTime: Long,
+        ownerPubKeyHex: String,
+        addressPrefix: String
+    ): List<DiscoveredNote> {
+        val inputsArray = tx.optJSONArray("inputs") ?: return emptyList()
+        val outputsArray = tx.optJSONArray("outputs") ?: return emptyList()
+        val cleanOwner = ownerPubKeyHex.trim().lowercase().removePrefix("0x")
+        val found = ArrayList<DiscoveredNote>()
+
+        for (j in 0 until inputsArray.length()) {
+            val input = inputsArray.optJSONObject(j) ?: continue
+            val sig = input.optString("signature_script", input.optString("signatureScript", ""))
+            if (sig.isBlank()) continue
+            val nextStates = Kcc20ReferenceProtocol.decodeLeaderTransferNextStates(sig) ?: continue
+            val spendInfo = runCatching { Kcc20ReferenceProtocol.programFromSpend(sig) }.getOrNull() ?: continue
+            val templateKind = runCatching { Kcc20ReferenceProtocol.identifyTemplate(spendInfo.program) }.getOrNull()
+                ?: continue
+
+            val inputCov = sequenceOf(
+                input.optString("covenant_id", ""),
+                input.optString("covenantId", ""),
+                input.optJSONObject("utxoEntry")?.optString("covenantId", "") ?: "",
+                input.optJSONObject("utxoEntry")?.optString("covenant_id", "") ?: "",
+                input.optJSONObject("utxo_entry")?.optString("covenantId", "") ?: "",
+                input.optJSONObject("utxo_entry")?.optString("covenant_id", "") ?: "",
+                input.optJSONObject("previous_outpoint_resolved")?.optString("covenant_id", "") ?: ""
+            ).map { it.trim().lowercase().removePrefix("0x") }
+                .firstOrNull { it.matches(Regex("[0-9a-f]{64}")) }
+
+            // Collect outputs bound to a covenant whose authorizingInput (if given) points to this leader.
+            data class BoundOut(val index: Int, val json: JSONObject, val spk: String, val targetHash: String, val covId: String, val authInput: Int?)
+            val boundOutputs = ArrayList<BoundOut>()
+            for (i in 0 until outputsArray.length()) {
+                val out = outputsArray.optJSONObject(i) ?: continue
+                val covId = resolveCovenantId(out) ?: continue
+                if (inputCov != null && covId != inputCov) continue
+                val covObj = out.optJSONObject("covenant")
+                val authIdx = if (covObj != null && (covObj.has("authorizing_input") || covObj.has("authorizingInput"))) {
+                    covObj.optInt("authorizingInput", covObj.optInt("authorizing_input", -1))
+                } else null
+                if (authIdx != null && authIdx != j) continue
+                val spk = readScriptHex(out)
+                val match = Regex("^aa20([0-9a-f]{64})87$").matchEntire(spk) ?: continue
+                boundOutputs += BoundOut(i, out, spk, match.groupValues[1], covId, authIdx)
+            }
+
+            // Group by covenantId to isolate this family's continuations from any other genesis bound by this leader.
+            val candidateGroups: List<List<BoundOut>> = if (inputCov != null) {
+                listOf(boundOutputs.filter { it.covId == inputCov })
+            } else {
+                boundOutputs.groupBy { it.covId }.values.filter { it.size == nextStates.size }
+            }
+
+            for (group in candidateGroups) {
+                if (group.size != nextStates.size) continue
+                // Verify all outputs match reconstructed programs before accepting any owned note.
+                val rebuiltPrograms = group.indices.mapNotNull { k ->
+                    val state = nextStates[k]
+                    val rebuilt = runCatching { Kcc20ReferenceProtocol.programFor(state, spendInfo.program) }.getOrNull()
+                        ?: return@mapNotNull null
+                    val h = CryptoUtils.blake2b256(rebuilt).joinToString("") { "%02x".format(it) }
+                    if (h != group[k].targetHash) return@mapNotNull null
+                    Triple(group[k], state, rebuilt)
+                }
+                if (rebuiltPrograms.size != nextStates.size) continue
+
+                for ((outInfo, state, rebuilt) in rebuiltPrograms) {
+                    if (state.ownerScheme != 0x00) continue
+                    val stateOwnerHex = state.owner.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                    if (!stateOwnerHex.equals(cleanOwner, ignoreCase = true)) continue
+                    if (state.amount.signum() < 0 || state.amount > java.math.BigInteger.valueOf(Long.MAX_VALUE)) continue
+
+                    val p2shAddr = CryptoUtils.encodeP2shAddress(hexToBytes(outInfo.targetHash), addressPrefix)
+                    found += DiscoveredNote(
+                        txId = txId,
+                        outputIndex = outInfo.index,
+                        covenantId = outInfo.covId,
+                        sompiAmount = readAmount(outInfo.json),
+                        rawTokenAmount = state.amount.toLong(),
+                        scriptPublicKey = outInfo.spk,
+                        targetScriptHash = outInfo.targetHash,
+                        p2shAddress = p2shAddr,
+                        redeemScriptHex = rebuilt.joinToString("") { "%02x".format(it.toInt() and 0xff) },
+                        lineage = templateKind.id,
+                        blockTime = blockTime,
+                        isUnspent = false
+                    )
+                }
+            }
+        }
+        return found
+    }
+
+    internal fun resolveCovenantId(output: JSONObject): String? {
+        val direct = output.optString("covenant_id", output.optString("covenantId", "")).trim().removePrefix("0x")
         if (direct.matches(Regex("[0-9a-fA-F]{64}"))) return direct.lowercase()
 
         val covObj = output.optJSONObject("covenant")
-        val nested = covObj?.optString("covenant_id", covObj.optString("covenantId", "")).orEmpty().trim()
+        val nested = covObj?.optString("covenant_id", covObj.optString("covenantId", "")).orEmpty().trim().removePrefix("0x")
         if (nested.matches(Regex("[0-9a-fA-F]{64}"))) return nested.lowercase()
 
         val verbose = output.optJSONObject("verbose_data") ?: output.optJSONObject("verboseData")
-        val verbCov = verbose?.optString("covenant_id", verbose.optString("covenantId", "")).orEmpty().trim()
+        val verbCov = verbose?.optString("covenant_id", verbose.optString("covenantId", "")).orEmpty().trim().removePrefix("0x")
         if (verbCov.matches(Regex("[0-9a-fA-F]{64}"))) return verbCov.lowercase()
 
-        // Fallback: check if inputs carry the covenant ID
-        for (j in 0 until inputs.length()) {
-            val inObj = inputs.optJSONObject(j) ?: continue
-            val inCov = inObj.optString("covenant_id", inObj.optString("covenantId", "")).trim()
-            if (inCov.matches(Regex("[0-9a-fA-F]{64}"))) return inCov.lowercase()
-        }
         return null
     }
 

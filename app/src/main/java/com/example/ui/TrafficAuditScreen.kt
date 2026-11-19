@@ -844,7 +844,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             text = if (engineStatus.passkeyDowngradedBySystem) {
                                 "System WebView policy warning: Custom Tab handoff ready"
                             } else {
-                                "Chromium WebView: FOR_BROWSER mode"
+                                "Kazview WebKit: FOR_BROWSER mode"
                             },
                             fontSize = 10.5.sp,
                             color = if (engineStatus.passkeyDowngradedBySystem) AmberCentral else EmeraldMesh,
@@ -1770,7 +1770,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "A privacy-focused Android browser powered by Kazview, fail-closed encrypted DoH, hardware-backed Credential Vault, and decentralized peer/DAG resolution (optional external SOCKS5/HTTP proxy supported).",
+                        text = "A privacy-focused Android browser powered by the Kazview WebKit engine with WebKitGTK standards, fail-closed encrypted DoH, hardware-backed Credential Vault, and decentralized peer/DAG resolution (optional external SOCKS5/HTTP proxy supported).",
                         color = TextSecondary,
                         fontSize = 11.5.sp,
                         lineHeight = 16.5.sp

@@ -1109,6 +1109,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                 resourceUrl = currentResource?.url
             )
             wv.stopLoading()
+            wv.settings.useWideViewPort = newMode
+            wv.settings.loadWithOverviewMode = newMode
+            if (newMode) {
+                wv.setInitialScale(0)
+            }
             KaspaPrivacyEngine.applyUserAgentAndMetadata(wv.settings, newMode, defaultDeviceUa)
             val curUrl = if (newMode && !rawUrl.isNullOrBlank()) {
                 KaspaPrivacyEngine.convertMobileUrlToDesktop(rawUrl)
@@ -1120,6 +1125,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             if (!curUrl.isNullOrBlank()) {
                 try {
                     val curHost = KaspaPrivacyEngine.extractHostFast(curUrl)
+                    if (curHost != null && (curHost.contains("faucet") || curHost.contains("kaspa") || KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(curUrl))) {
+                        challengeCookieHosts.add(curHost)
+                    }
                     val allowChallengeCookies = thirdPartyCookies ||
                         (curHost != null && challengeCookieHosts.contains(curHost)) ||
                         KaspaPrivacyEngine.isGoogleAuthUrl(curUrl) ||

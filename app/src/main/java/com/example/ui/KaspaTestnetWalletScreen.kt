@@ -120,9 +120,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -305,6 +308,7 @@ fun KaspaTestnetWalletScreen(
     val kcc20Tokens by viewModel.kcc20Tokens.collectAsState()
     val kcc20Transactions by viewModel.kcc20Transactions.collectAsState()
     val isLoadingKcc20 by viewModel.isLoadingKcc20.collectAsState()
+    val kcc20TransferState by viewModel.kcc20TransferState.collectAsState()
     val liveKasUsdPrice by viewModel.liveKasUsdPrice.collectAsState()
     val liveKas24hChange by viewModel.liveKas24hChange.collectAsState()
     var selectedTokenForDetails by remember { mutableStateOf<Krc20TokenBalance?>(null) }
@@ -315,7 +319,12 @@ fun KaspaTestnetWalletScreen(
     var recipientInput by remember { mutableStateOf("") }
     var amountInput by remember { mutableStateOf("") }
     var selectedSompiPerMass by remember { mutableStateOf<Long>(KaspaTransactionEngine.DEFAULT_SOMPI_PER_MASS) }
+    var selectedSendKcc20Token by remember { mutableStateOf<com.example.network.kaspa.Kcc20WalletToken?>(null) }
+    var kcc20RecipientInput by remember { mutableStateOf("") }
+    var kcc20AmountInput by remember { mutableStateOf("") }
     var showConfirmSendDialog by remember { mutableStateOf(false) }
+    var showConfirmKcc20SendDialog by remember { mutableStateOf(false) }
+    var showTrackKcc20Dialog by remember { mutableStateOf(false) }
     var showCompoundDialog by remember { mutableStateOf(false) }
 
     // Observe transaction state to show result overlay
@@ -338,12 +347,36 @@ fun KaspaTestnetWalletScreen(
         }
     }
 
+    LaunchedEffect(kcc20TransferState.isSending, kcc20TransferState.txId, kcc20TransferState.error) {
+        if (!kcc20TransferState.isSending) {
+            if (kcc20TransferState.txId != null) {
+                lastResultIsSuccess = true
+                lastResultTxId = kcc20TransferState.txId ?: ""
+                showResultOverlay = true
+                showConfirmKcc20SendDialog = false
+                selectedSendKcc20Token = null
+                kcc20RecipientInput = ""
+                kcc20AmountInput = ""
+                viewModel.refreshTestnetWallet()
+                viewModel.refreshKcc20Tokens()
+            } else if (kcc20TransferState.error != null) {
+                lastResultIsSuccess = false
+                lastResultError = kcc20TransferState.error ?: "KCC-20 transfer failed"
+                showConfirmKcc20SendDialog = false
+                showResultOverlay = true
+            }
+        }
+    }
+
     LaunchedEffect(isLegacyWalletFlagged) {
         if (isLegacyWalletFlagged) {
             showSendScreen = false
             showReceiveScreen = false
             showCompoundDialog = false
             showConfirmSendDialog = false
+            showConfirmKcc20SendDialog = false
+            showTrackKcc20Dialog = false
+            selectedSendKcc20Token = null
         }
     }
 
@@ -358,8 +391,15 @@ fun KaspaTestnetWalletScreen(
         } else if (showResultOverlay) {
             showResultOverlay = false
             viewModel.clearWalletStatusNotice()
+            viewModel.clearKcc20TransferState()
+        } else if (selectedKcc20TokenForDetails != null) {
+            selectedKcc20TokenForDetails = null
         } else if (selectedTokenForDetails != null) {
             selectedTokenForDetails = null
+        } else if (showTrackKcc20Dialog) {
+            showTrackKcc20Dialog = false
+        } else if (showConfirmKcc20SendDialog) {
+            showConfirmKcc20SendDialog = false
         } else if (showUnlockBeforeSeedSheet) {
             showUnlockBeforeSeedSheet = false
         } else if (showCompoundDialog) {
@@ -375,6 +415,8 @@ fun KaspaTestnetWalletScreen(
             isSeedPhrasePreUnlocked = false
         } else if (showFullWalletSetup) {
             showFullWalletSetup = false
+        } else if (selectedSendKcc20Token != null) {
+            selectedSendKcc20Token = null
         } else if (showSendScreen) {
             showSendScreen = false
         } else if (showReceiveScreen) {
@@ -806,12 +848,23 @@ fun KaspaTestnetWalletScreen(
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.1.sp
                         )
-                        if (isLoadingKcc20 && kcc20Tokens.isNotEmpty()) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                color = KaspaTea,
-                                strokeWidth = 1.5.dp
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (isLoadingKcc20 && kcc20Tokens.isNotEmpty()) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    color = KaspaTea,
+                                    strokeWidth = 1.5.dp
+                                )
+                            }
+                            TextButton(
+                                onClick = { showTrackKcc20Dialog = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.heightIn(min = 32.dp).testTag("wallet_track_kcc20_button")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Track KCC-20 Covenant", tint = KaspaTea, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("Track ID", color = KaspaTea, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                     val activeKcc20Tokens = remember(kcc20Tokens) {
@@ -857,13 +910,9 @@ fun KaspaTestnetWalletScreen(
                             priceChangeValue.signum() >= 0 -> EmeraldMesh
                             else -> RedTamper
                         }
-                        val resolvedLogoUrl = if (!token.imageUrl.isNullOrBlank()) token.imageUrl else when (token.ticker.uppercase()) {
-                            "KB" -> "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
-                            "NACHO" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/nacho.png"
-                            "KASPER" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kasper.png"
-                            "SOMI" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/somi.png"
-                            "BOMB" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/bomb.png"
-                            "KASPUMP" -> "https://raw.githubusercontent.com/kasplex/krc20-tokens/main/logos/kaspump.png"
+                        val resolvedLogoUrl = if (!token.imageUrl.isNullOrBlank()) token.imageUrl else when {
+                            token.contractId.equals(com.example.network.kaspa.KbKcc20Protocol.TOKEN_COVENANT_ID, ignoreCase = true) ->
+                                "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
                             else -> null
                         }
                         Row(
@@ -898,7 +947,7 @@ fun KaspaTestnetWalletScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = token.ticker.take(2).uppercase().ifEmpty { "KB" },
+                                                    text = token.ticker.take(2).uppercase().ifEmpty { "KC" },
                                                     color = KaspaTea,
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold
@@ -913,7 +962,7 @@ fun KaspaTestnetWalletScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(
-                                                    text = token.ticker.take(2).uppercase().ifEmpty { "KB" },
+                                                    text = token.ticker.take(2).uppercase().ifEmpty { "KC" },
                                                     color = KaspaTea,
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Bold
@@ -923,7 +972,7 @@ fun KaspaTestnetWalletScreen(
                                     )
                                 } else {
                                     Text(
-                                        text = token.ticker.take(2).uppercase().ifEmpty { "KB" },
+                                        text = token.ticker.take(2).uppercase().ifEmpty { "KC" },
                                         color = KaspaTea,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
@@ -1209,10 +1258,12 @@ fun KaspaTestnetWalletScreen(
                     showResultOverlay = false
                     viewModel.openTestnetTxExplorer(lastResultTxId)
                     viewModel.clearWalletStatusNotice()
+                    viewModel.clearKcc20TransferState()
                 },
                 onClose = {
                     showResultOverlay = false
                     viewModel.clearWalletStatusNotice()
+                    viewModel.clearKcc20TransferState()
                 }
             )
         }
@@ -1288,6 +1339,22 @@ fun KaspaTestnetWalletScreen(
             Kcc20TokenDetailSheet(
                 token = selectedKcc20TokenForDetails!!,
                 onDismiss = { selectedKcc20TokenForDetails = null },
+                onSendToken = { token ->
+                    if (isLegacyWalletFlagged) {
+                        selectedKcc20TokenForDetails = null
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                activeAccountLegacyWarning ?: "Signing is disabled on legacy insecure wallets."
+                            )
+                        }
+                    } else {
+                        selectedKcc20TokenForDetails = null
+                        viewModel.clearKcc20TransferState()
+                        kcc20RecipientInput = ""
+                        kcc20AmountInput = ""
+                        selectedSendKcc20Token = token
+                    }
+                },
                 onOpenExplorer = { contractId ->
                     selectedKcc20TokenForDetails = null
                     viewModel.openUrlInBrowser("https://kascov.io/token/$contractId")
@@ -1354,6 +1421,53 @@ fun KaspaTestnetWalletScreen(
                 showConfirmSendDialog = false
                 viewModel.sendKaspaTransaction(recipientInput, amountNum, selectedSompiPerMass)
             }
+        )
+    }
+
+    if (selectedSendKcc20Token != null) {
+        SendKcc20ModalDialog(
+            token = selectedSendKcc20Token!!,
+            senderAddress = testnetAddress,
+            gasBalanceKas = walletState.balanceKas,
+            selectedNetwork = selectedNetwork,
+            transferState = kcc20TransferState,
+            onSend = { toAddr, amt ->
+                kcc20RecipientInput = toAddr
+                kcc20AmountInput = amt
+                showConfirmKcc20SendDialog = true
+            },
+            onDismiss = {
+                if (!kcc20TransferState.isSending) {
+                    selectedSendKcc20Token = null
+                    viewModel.clearKcc20TransferState()
+                }
+            }
+        )
+    }
+
+    if (showConfirmKcc20SendDialog && selectedSendKcc20Token != null) {
+        ConfirmKcc20SendDialog(
+            token = selectedSendKcc20Token!!,
+            recipientAddress = kcc20RecipientInput.trim(),
+            amountDisplay = kcc20AmountInput.trim(),
+            selectedNetwork = selectedNetwork,
+            isSending = kcc20TransferState.isSending,
+            onConfirm = {
+                showConfirmKcc20SendDialog = false
+                viewModel.sendKcc20Transaction(
+                    token = selectedSendKcc20Token!!,
+                    recipientAddress = kcc20RecipientInput,
+                    amountInput = kcc20AmountInput
+                )
+            },
+            onDismiss = { showConfirmKcc20SendDialog = false }
+        )
+    }
+
+    if (showTrackKcc20Dialog) {
+        TrackKcc20ContractDialog(
+            onTrackContract = { id -> viewModel.trackKcc20Contract(id) },
+            onDismiss = { showTrackKcc20Dialog = false }
         )
     }
 
@@ -3717,11 +3831,15 @@ private fun SendScreenOverlay(
     onSendClick: () -> Unit,
     onClose: () -> Unit
 ) {
+    val isIgra = selectedNetwork.contains("Igra", ignoreCase = true)
+    val isKasplex = selectedNetwork.contains("Kasplex", ignoreCase = true)
+    val isEvm = isIgra || isKasplex || senderAddress.startsWith("0x")
     val currencySymbol = when {
-        selectedNetwork.contains("Igra", ignoreCase = true) -> "iKAS"
-        selectedNetwork.contains("Testnet", ignoreCase = true) -> "tKAS"
+        isIgra -> "iKAS"
+        selectedNetwork.contains("Testnet", ignoreCase = true) && !isKasplex -> "tKAS"
         else -> "KAS"
     }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -3745,7 +3863,7 @@ private fun SendScreenOverlay(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Send $currencySymbol", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
             }
-            
+
             SendTabContent(
                 senderAddress = senderAddress,
                 balanceKas = balanceKas,
@@ -7363,6 +7481,7 @@ fun WalletSetupFlow(
 fun Kcc20TokenDetailSheet(
     token: com.example.network.kaspa.Kcc20WalletToken,
     onDismiss: () -> Unit,
+    onSendToken: (com.example.network.kaspa.Kcc20WalletToken) -> Unit = {},
     onOpenExplorer: (String) -> Unit,
     onBuyTrade: (String) -> Unit = {}
 ) {
@@ -7393,8 +7512,9 @@ fun Kcc20TokenDetailSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                val resolvedLogoUrl = if (!token.imageUrl.isNullOrBlank()) token.imageUrl else when (token.ticker.uppercase()) {
-                    "KB" -> "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
+                val resolvedLogoUrl = if (!token.imageUrl.isNullOrBlank()) token.imageUrl else when {
+                    token.contractId.equals(com.example.network.kaspa.KbKcc20Protocol.TOKEN_COVENANT_ID, ignoreCase = true) ->
+                        "https://storage.googleapis.com/kaspa-rocket-prod-uploads/7c70c6f4-faa9-4d84-ba81-62553168f1a9.png"
                     else -> null
                 }
                 Box(
@@ -7538,22 +7658,42 @@ fun Kcc20TokenDetailSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            val hasSpendableBalance = (raw != null && raw.compareTo(java.math.BigDecimal.ZERO) > 0)
             Button(
-                onClick = {
-                    if (token.ticker.equals("KB", ignoreCase = true)) {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://kasparocket.fun/token/b75a6e90f569965bdeec23c460ebd59e0f0445d8aa8f5d4330fe15c66a47b4d8"))
-                        context.startActivity(intent)
-                    } else {
-                        onBuyTrade(token.contractId)
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = KaspaTea),
+                onClick = { onSendToken(token) },
+                enabled = hasSpendableBalance,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = KaspaTea,
+                    disabledContainerColor = SurfaceCardBorder
+                ),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("kcc20_detail_send_button")
+            ) {
+                Icon(Icons.Default.Send, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Send ${token.ticker.ifBlank { "KCC-20" }}",
+                    color = SurfaceDark,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = { onBuyTrade(token.contractId) },
+                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.6f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = KaspaTea),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
-                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = SurfaceDark, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Buy / Trade Token on BraidSwap DEX", color = SurfaceDark, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                Text("Buy / Trade Token on BraidSwap DEX", color = KaspaTea, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
             }
 
             Spacer(modifier = Modifier.height(10.dp))
