@@ -180,6 +180,7 @@ tasks.register<Exec>("cargoBuildKcc20Engine") {
     "build",
     "--release"
   )
+  environment("KCC20_RUNTIME_MANIFEST", file("$buildDir/generated/kcc20-argent/kcc20-runtime.json").absolutePath)
 }
 
 tasks.register("verifyKcc20ArgentArtifact") {
@@ -187,9 +188,9 @@ tasks.register("verifyKcc20ArgentArtifact") {
   description = "Regenerates the KCC20 covenant with pinned argentc and verifies its compiled artifact"
   val compilerManifest = providers.environmentVariable("ARGENT_COMPILER_MANIFEST")
     .orElse("$rootDir/third_party/argent/Cargo.toml")
-  val source = file("src/test/resources/kcc20-reference/contracts/public_mint.ag")
-  val fixture = file("src/test/resources/kcc20-reference/artifact-template.json")
-  val pinnedSil = file("src/test/resources/kcc20-reference/KCC20.sil")
+  val source = file("$rootDir/kcc20-engine/contracts/public_mint.ag")
+  val fixture = file("$rootDir/kcc20-engine/contracts/artifact-template.json")
+  val pinnedSil = file("$rootDir/kcc20-engine/contracts/KCC20.sil")
   val outputDir = file("$buildDir/generated/kcc20-argent")
   outputs.dir(outputDir)
 
