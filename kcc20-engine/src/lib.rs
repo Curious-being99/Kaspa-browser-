@@ -14,7 +14,7 @@ use kaspa_txscript::{EngineCtx, TxScriptEngine};
 use serde_json::{json, Value};
 use std::str::FromStr;
 
-const KCC20_ARTIFACT_FIXTURE: &str = include_str!("../../app/src/test/resources/kcc20-reference/artifact-template.json");
+const KCC20_RUNTIME_MANIFEST: &str = include_str!(concat!(env!("OUT_DIR"), "/kcc20-runtime.json"));
 
 fn bytes(value: &Value) -> Result<Vec<u8>, String> {
     let hex = value.as_str().ok_or_else(|| "Expected hex string".to_string())?;
@@ -313,7 +313,7 @@ fn assemble_reference_witness(request_text: &str) -> Result<String, String> {
     let req: Value=serde_json::from_str(request_text).map_err(|e|e.to_string())?;
     let template=decode_hex(req["templateHash"].as_str().ok_or("Missing template hash")?)?;
     let suffix=decode_hex(req["templateSuffix"].as_str().ok_or("Missing template suffix")?)?;
-    let pinned: Value=serde_json::from_str(KCC20_ARTIFACT_FIXTURE).map_err(|e|e.to_string())?;
+    let pinned: Value=serde_json::from_str(KCC20_RUNTIME_MANIFEST).map_err(|e|e.to_string())?;
     if template!=decode_hex(pinned["template_hash"].as_str().ok_or("Missing pinned template")?)? ||
        suffix!=decode_hex(pinned["suffix_hex"].as_str().ok_or("Missing pinned suffix")?)? {
         return Err("Witness template differs from pinned Argent artifact".into());
@@ -385,7 +385,7 @@ fn plan_reference_transfer(request_text: &str) -> Result<Value, String> {
     let recipient=decode_hex(req["recipientPublicKey"].as_str().ok_or("Missing recipient key")?)?;
     let template=decode_hex(req["templateHash"].as_str().ok_or("Missing template hash")?)?;
     let suffix=decode_hex(req["templateSuffix"].as_str().ok_or("Missing template suffix")?)?;
-    let pinned: Value=serde_json::from_str(KCC20_ARTIFACT_FIXTURE).map_err(|e|format!("Invalid embedded Argent artifact fixture: {e}"))?;
+    let pinned: Value=serde_json::from_str(KCC20_RUNTIME_MANIFEST).map_err(|e|format!("Invalid embedded Argent artifact fixture: {e}"))?;
     let pinned_template=decode_hex(pinned["template_hash"].as_str().ok_or("Pinned artifact has no template hash")?)?;
     let pinned_suffix=decode_hex(pinned["suffix_hex"].as_str().ok_or("Pinned artifact has no template suffix")?)?;
     if template!=pinned_template || suffix!=pinned_suffix { return Err("Planner template bytes do not match the embedded, pinned Argent artifact".into()); }
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn rust_planner_conserves_token_amount_and_builds_successors() {
-        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let pinned: Value = serde_json::from_str(KCC20_RUNTIME_MANIFEST).unwrap();
         let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
         let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
         let sender = vec![0x33; 32];
@@ -490,7 +490,7 @@ mod tests {
 
     #[test]
     fn rust_witness_assembler_builds_leader_and_delegator_paths() {
-        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let pinned: Value = serde_json::from_str(KCC20_RUNTIME_MANIFEST).unwrap();
         let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
         let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
         let sender = vec![0x33; 32];
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn rust_witness_assembler_builds_scheme_four_leader_without_owner_signature() {
-        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let pinned: Value = serde_json::from_str(KCC20_RUNTIME_MANIFEST).unwrap();
         let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
         let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
         let owner = vec![0x35; 32];
@@ -536,7 +536,7 @@ mod tests {
 
     #[test]
     fn rust_planner_rejects_program_with_unpinned_suffix() {
-        let pinned: Value = serde_json::from_str(KCC20_ARTIFACT_FIXTURE).unwrap();
+        let pinned: Value = serde_json::from_str(KCC20_RUNTIME_MANIFEST).unwrap();
         let template = decode_hex(pinned["template_hash"].as_str().unwrap()).unwrap();
         let suffix = decode_hex(pinned["suffix_hex"].as_str().unwrap()).unwrap();
         let sender = vec![0x33; 32];
