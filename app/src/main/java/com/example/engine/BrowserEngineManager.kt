@@ -442,7 +442,7 @@ object BrowserEngineManager {
     fun recordPasskeySupport(requestedEnabled: Boolean, actualSupport: Int) {
         val modeLabel = when {
             !requestedEnabled -> "Disabled by User"
-            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER -> "FOR_BROWSER Active"
+            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER -> "FOR_BROWSER (provider approval required)"
             actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP -> "FOR_APP (Digital Asset Links required)"
             actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE -> "Restricted by System Policy"
             else -> "Mode=$actualSupport"
