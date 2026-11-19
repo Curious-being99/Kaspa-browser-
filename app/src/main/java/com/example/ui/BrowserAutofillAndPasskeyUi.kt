@@ -699,13 +699,13 @@ fun PasskeyRecoveryBar(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Passkey couldn't complete in WebView",
+                        text = "Continue passkey sign-in in Chrome",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
                     Text(
-                        text = event.reason,
+                        text = event.reason + " Open the page in Chrome, then tap Sign in with passkey again. The pending WebView request cannot be transferred.",
                         fontSize = 11.5.sp,
                         color = TextSecondary,
                         lineHeight = 16.sp
@@ -736,7 +736,7 @@ fun PasskeyRecoveryBar(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Use System Browser", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Open Chrome & retry", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val fallbackCred = matchingPasswordCredentials.firstOrNull { it.hasPassword }
                 if (fallbackCred != null) {
