@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class, VaultCredentialEntity::class, AuthenticatorSecretEntity::class],
-    version = 16,
+    entities = [ContentEntity::class, TrafficAuditEntity::class, PeerEntity::class, AccountEntity::class, HistoryEntity::class, BookmarkEntity::class, BrowserTabEntity::class, BrowserSessionEntity::class, DomainEntity::class, NewsArticleEntity::class, TransactionEntity::class, VaultCredentialEntity::class, AuthenticatorSecretEntity::class, WebAuthnCredentialEntity::class],
+    version = 17,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -26,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
     abstract fun vaultCredentialDao(): VaultCredentialDao
     abstract fun authenticatorSecretDao(): AuthenticatorSecretDao
+    abstract fun webAuthnCredentialDao(): WebAuthnCredentialDao
 
     companion object {
         private val MIGRATION_11_12 = object : Migration(11, 12) {
@@ -49,9 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE transaction_history ADD COLUMN network TEXT NOT NULL DEFAULT 'UNKNOWN'"
-                )
+                db.execSQL("ALTER TABLE transaction_history ADD COLUMN network TEXT NOT NULL DEFAULT 'UNKNOWN'")
             }
         }
 
@@ -78,7 +77,6 @@ abstract class AppDatabase : RoomDatabase() {
                 )
             }
         }
-
 
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -136,6 +134,32 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS webauthn_credentials (
+                        id TEXT NOT NULL,
+                        rpId TEXT NOT NULL,
+                        origin TEXT NOT NULL,
+                        userHandle TEXT NOT NULL,
+                        userName TEXT NOT NULL,
+                        displayName TEXT NOT NULL,
+                        credentialId TEXT NOT NULL,
+                        publicKey TEXT NOT NULL,
+                        keyAlias TEXT NOT NULL,
+                        signCount INTEGER NOT NULL DEFAULT 0,
+                        createdAt INTEGER NOT NULL,
+                        lastUsedAt INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_webauthn_credentials_rpId_userHandle ON webauthn_credentials (rpId, userHandle)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_webauthn_credentials_credentialId ON webauthn_credentials (credentialId)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -146,7 +170,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "decentralnet_db"
                 )
-                    .addMigrations(MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                    .addMigrations(
+                        MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+                        MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17
+                    )
                     .build()
                 INSTANCE = instance
                 instance

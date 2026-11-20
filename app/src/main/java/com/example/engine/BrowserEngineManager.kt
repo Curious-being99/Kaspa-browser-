@@ -442,8 +442,8 @@ object BrowserEngineManager {
     fun recordPasskeySupport(requestedEnabled: Boolean, actualSupport: Int) {
         val modeLabel = when {
             !requestedEnabled -> "Disabled by User"
-            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER -> "FOR_BROWSER Active"
-            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP -> "FOR_APP Only"
+            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER -> "FOR_BROWSER (provider approval required)"
+            actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP -> "FOR_APP (Digital Asset Links required)"
             actualSupport == WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE -> "Restricted by System Policy"
             else -> "Mode=$actualSupport"
         }
@@ -618,6 +618,32 @@ object BrowserEngineManager {
                 context.startActivity(viewIntent)
                 true
             } catch (_: Throwable) {
+                false
+            }
+        }
+    }
+
+    fun openInExternalBrowser(context: Context, rawUrl: String?): Boolean {
+        if (rawUrl.isNullOrBlank()) return false
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return false
+        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return false
+
+        val newTask = if (context !is android.app.Activity) Intent.FLAG_ACTIVITY_NEW_TASK else 0
+        val chromeIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+            setPackage("com.android.chrome")
+            if (newTask != 0) addFlags(newTask)
+        }
+        return try {
+            context.startActivity(chromeIntent)
+            true
+        } catch (chromeUnavailable: Throwable) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
+                    if (newTask != 0) addFlags(newTask)
+                })
+                true
+            } catch (t: Throwable) {
+                Log.w(TAG, "External browser passkey handoff failed: ${t.message}")
                 false
             }
         }

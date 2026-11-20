@@ -388,6 +388,27 @@ class PasskeyVaultAndEngineTest {
             script.contains("CONFIRM_SIGN_IN") && script.contains("CONFIRM_CREATE_OR_UPGRADE")
         )
         assertTrue(
+            "Platform authenticator availability must be checked by Android instead of inferred from bridge presence",
+            script.contains("CHECK_UVPAA") && script.contains("UVPAA_RESULT")
+        )
+        assertTrue(
+            "Conditional creation and hybrid transport must not be advertised by the local vault",
+            script.contains("conditionalCreate: false") && script.contains("hybridTransport: false")
+        )
+        assertTrue(
+            "Unsupported signal APIs must not be replaced with no-op success handlers",
+            !script.contains("signalAllAcceptedCredentials = function() { return Promise.resolve(); }")
+        )
+        assertTrue(
+            "Android browser mode must preserve Chromium's native WebAuthn implementation",
+            script.contains("nativeBrowserWebAuthn === true")
+        )
+        assertTrue(
+            "Conditional mediation must not be advertised until a real conditional UI is implemented",
+            script.contains("conditionalGet: false") &&
+                script.contains("Conditional passkey autofill is not supported by Android WebView")
+        )
+        assertTrue(
             "DOMException errors must preserve WebAuthn error names instead of forcing NotAllowedError everywhere",
             script.contains("makeDomError")
         )

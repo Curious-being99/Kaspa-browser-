@@ -2,6 +2,7 @@ package com.example.util
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import android.webkit.CookieManager
@@ -22,13 +23,12 @@ object KaspaWebViewConfigurator {
     private val appliedWebAuthLevel = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Int>())
 
     /**
-     * Configures WebAuthn / FIDO2 Passkey support for a browser WebView using
-     * WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER (never FOR_APP, which rejects arbitrary websites).
-     * Memoized per WebSettings instance to prevent Compose recompositions from resetting
-     * Chromium's WebAuthn handler while an interactive passkey ceremony is in flight.
+     * Uses browser-mode WebAuthn only when Android has granted the privileged
+     * CREDENTIAL_MANAGER_SET_ORIGIN permission. Otherwise remains in app mode, which
+     * is limited to relying parties associated with this app through Digital Asset Links.
      * Returns the runtime-applied support level or -1 if unsupported.
      */
-    fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
+    fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean, context: Context): Int {
         return try {
             if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
                 -1
@@ -38,12 +38,15 @@ object KaspaWebViewConfigurator {
                 }
                 if (alreadyApplied) {
                     return synchronized(appliedWebAuthLevel) { appliedWebAuthLevel[settings] }
-                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                        ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 }
-                val targetLevel = if (enabled) {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
-                } else {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                val hasPrivilegedOriginPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                    context.checkSelfPermission("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN") ==
+                    PackageManager.PERMISSION_GRANTED
+                val targetLevel = when {
+                    !enabled -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                    hasPrivilegedOriginPermission -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                    else -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 }
                 WebSettingsCompat.setWebAuthenticationSupport(settings, targetLevel)
                 val actualLevel = try {
@@ -235,7 +238,7 @@ object KaspaWebViewConfigurator {
                 safeBrowsingEnabled = true
             }
 
-            applyWebAuthenticationSupport(this, webAuthEnabled)
+            applyWebAuthenticationSupport(this, webAuthEnabled, context)
             applyKazviewSettings(this)
             KaspaPrivacyEngine.applyUserAgentAndMetadata(this, isDesktop, defaultDeviceUa)
         }

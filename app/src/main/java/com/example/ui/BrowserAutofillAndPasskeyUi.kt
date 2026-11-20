@@ -444,10 +444,6 @@ fun PasskeyConfirmationDialog(
     onApprove: () -> Unit,
     onDecline: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var isAuthenticating by remember { mutableStateOf(false) }
-    var authError by remember { mutableStateOf<String?>(null) }
-
     val isSignIn = request.kind == PasskeyPromptKind.SIGN_IN
     val title = when {
         isSignIn -> "Use Passkey to Sign In"
@@ -537,7 +533,7 @@ fun PasskeyConfirmationDialog(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "RELYING PARTY ORIGIN",
+                        text = "WEBSITE",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextMuted,
@@ -552,10 +548,27 @@ fun PasskeyConfirmationDialog(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "PASSKEY RP ID",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextMuted,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = request.rpId,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     if (request.username.isNotBlank()) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Account: ${request.username}",
+                            text = "Account hint: ${request.username}",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -566,26 +579,15 @@ fun PasskeyConfirmationDialog(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = if (isSignIn) 
-                    "Confirm passkey authentication with device biometrics to securely verify your identity with ${request.host}." 
-                else 
-                    "Create a hardware-backed passkey for ${request.host} stored securely in your device vault.",
+                text = if (isSignIn)
+                    "Kaspa Browser will find this website's saved passkey and ask you to verify with biometrics or your device credential. The private key stays inside Android Keystore."
+                else
+                    "Kaspa Browser will create a unique passkey for this website in Android Keystore. Verify with biometrics or your device credential to complete registration.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
                 lineHeight = 18.sp
             )
-
-            if (authError != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = authError!!,
-                    color = RedTamper,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                )
-            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -608,25 +610,7 @@ fun PasskeyConfirmationDialog(
                 }
 
                 Button(
-                    onClick = {
-                        if (isAuthenticating) return@Button
-                        isAuthenticating = true
-                        authError = null
-                        com.example.utils.BiometricAuthHelper.authenticateWithBiometricOrDeviceLock(
-                            context = context,
-                            title = "System Passkey Manager",
-                            subtitle = "Verify identity for ${request.host}",
-                            onSuccess = {
-                                isAuthenticating = false
-                                onApprove()
-                            },
-                            onError = { errString ->
-                                isAuthenticating = false
-                                authError = errString.ifBlank { "Biometric verification failed" }
-                            }
-                        )
-                    },
-                    enabled = !isAuthenticating,
+                    onClick = onApprove,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
@@ -634,21 +618,13 @@ fun PasskeyConfirmationDialog(
                         .height(48.dp)
                         .testTag("passkey_confirm_approve_button")
                 ) {
-                    if (isAuthenticating) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = ObsidianBg,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Text(
-                            text = if (isSignIn) "Sign In" else "Create Passkey",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                    Text(
+                        text = if (isSignIn) "Continue to Passkeys" else "Continue to Create",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }
@@ -699,13 +675,13 @@ fun PasskeyRecoveryBar(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Passkey couldn't complete in WebView",
+                        text = "Continue passkey sign-in in Chrome",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
                     Text(
-                        text = event.reason,
+                        text = "This sign-in uses passkey autofill, which Android WebView does not support. Open this page in Chrome and tap Sign in with passkey again. The pending request cannot be transferred.",
                         fontSize = 11.5.sp,
                         color = TextSecondary,
                         lineHeight = 16.sp
@@ -736,7 +712,7 @@ fun PasskeyRecoveryBar(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Use System Browser", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Open Chrome & retry", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val fallbackCred = matchingPasswordCredentials.firstOrNull { it.hasPassword }
                 if (fallbackCred != null) {

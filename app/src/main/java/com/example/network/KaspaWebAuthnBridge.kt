@@ -74,8 +74,10 @@ data class RecordedPasskeyInfo(
 
 /**
  * Origin-checked, main-frame-only WebAuthn / FIDO2 Passkey coordinator built on
- * Chromium WebView (`WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER`), Jetpack WebKit
+ * Android WebView's browser-mode WebAuthn, Jetpack WebKit
  * `WebMessageListener` + `DOCUMENT_START_SCRIPT`, and Android `CredentialManager`.
+ * Browser mode requires CREDENTIAL_MANAGER_SET_ORIGIN and credential-provider approval
+ * before third-party relying-party origins can be served.
  *
  * Key reliability guarantees:
  * - Preserves browser user activation by invoking Chromium's real native WebAuthn
@@ -83,8 +85,8 @@ data class RecordedPasskeyInfo(
  * - Strips null/undefined fields cleanly from WebAuthn JSON before `CredentialManager`
  *   so Google Play Services FIDO2 does not reject options with "internal error".
  * - Preserves `PublicKeyCredential` native static methods & `Symbol.hasInstance`.
- * - Only supplies `origin` to `CredentialManager` when `CREDENTIAL_MANAGER_SET_ORIGIN`
- *   is granted by the OS; otherwise lets WebView / Custom Tab handle origin trust safely.
+ * - Uses WebView's FOR_APP mode for relying parties associated with this app through
+ *   Digital Asset Links. Third-party relying parties must authenticate in a browser context.
  */
 object KaspaWebAuthnBridge {
     private const val TAG = "KaspaWebAuthnBridge"
@@ -161,7 +163,13 @@ object KaspaWebAuthnBridge {
                 ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                     if (!isMainFrame) return@addWebMessageListener
                     val currentUrl = view.url.orEmpty()
-                    if (!currentUrl.startsWith("https://", ignoreCase = true)) return@addWebMessageListener
+                    val securePage = currentUrl.startsWith("https://", ignoreCase = true)
+                    val localhostPage = runCatching {
+                        val uri = java.net.URI(currentUrl)
+                        uri.scheme.equals("http", ignoreCase = true) &&
+                            uri.host.equals("localhost", ignoreCase = true)
+                    }.getOrDefault(false)
+                    if (!securePage && !localhostPage) return@addWebMessageListener
                     val currentOrigin = PasswordVaultRepository.normalizeOrigin(currentUrl, "")
                     val sourceStr = sourceOrigin.toString().lowercase(Locale.ROOT).trimEnd('/')
                     if (sourceStr != currentOrigin.lowercase(Locale.ROOT).trimEnd('/')) {
@@ -204,7 +212,13 @@ object KaspaWebAuthnBridge {
      */
     fun syncPageScriptAndPolicy(webView: WebView?, url: String?) {
         if (webView == null || url.isNullOrBlank()) return
-        if (!url.startsWith("https://", ignoreCase = true)) return
+        val secureOrigin = url.startsWith("https://", ignoreCase = true)
+        val localhostOrigin = runCatching {
+            val uri = java.net.URI(url)
+            uri.scheme.equals("http", ignoreCase = true) &&
+                uri.host.equals("localhost", ignoreCase = true)
+        }.getOrDefault(false)
+        if (!secureOrigin && !localhostOrigin) return
         CredentialSettingsStore.init(webView.context)
         val policyJson = buildPolicyJson()
         val script = buildInjectionScript(policyJson)
@@ -224,6 +238,7 @@ object KaspaWebAuthnBridge {
             put("allowPasskeyUpgrade", CredentialSettingsStore.allowPasskeyUpgradeEnabled.value)
             put("autoSignIn", CredentialSettingsStore.autoSignInEnabled.value)
             put("skipNativeWebView", status.passkeyDowngradedBySystem)
+            put("nativeBrowserWebAuthn", status.passkeySupportMode.startsWith("FOR_BROWSER"))
         }
         return obj.toString()
     }
@@ -315,6 +330,27 @@ object KaspaWebAuthnBridge {
     ) {
         val host = PasswordVaultRepository.normalizeHost(pageUrl) ?: return
         when (payload.optString("type")) {
+            "CHECK_UVPAA" -> {
+                val callId = payload.optString("callId", "")
+                if (!validCallbackIdRegex.matches(callId)) return
+                val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                } else {
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+                }
+                val available = androidx.biometric.BiometricManager.from(webView.context)
+                    .canAuthenticate(authenticators) ==
+                    androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+                postReply(
+                    webView,
+                    expectedOrigin,
+                    replyProxy,
+                    JSONObject().put("type", "UVPAA_RESULT")
+                        .put("callId", callId).put("available", available).toString()
+                )
+            }
+
             "CONFIRM_SIGN_IN" -> {
                 val callId = payload.optString("callId", "")
                 if (!validCallbackIdRegex.matches(callId)) return
@@ -398,6 +434,23 @@ object KaspaWebAuthnBridge {
                 }
             }
 
+            "PASSKEY_RECOVERY" -> {
+                val operation = payload.optString("operation", "get")
+                val reason = payload.optString("reason").ifBlank {
+                    "This WebView cannot display conditional passkey autofill. Open the page in Chrome and retry."
+                }
+                mainHandler.post {
+                    callbacks.onRecoveryNeeded(
+                        PasskeyRecoveryEvent(
+                            url = pageUrl,
+                            host = host,
+                            operation = operation,
+                            reason = reason
+                        )
+                    )
+                }
+            }
+
             "CREATE_CREDENTIAL" -> {
                 val callId = payload.optString("callId", "")
                 if (!validCallbackIdRegex.matches(callId)) return
@@ -443,12 +496,38 @@ object KaspaWebAuthnBridge {
                             else "Creating passkey for $host..."
                         )
                         val activity = findActivity(webView.context) ?: webView.context
-                        val credentialManager = CredentialManager.create(activity)
+                        if (activity !is androidx.fragment.app.FragmentActivity) {
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, "Native passkey authentication requires an Android FragmentActivity", "NotSupportedError")
+                            return@launch
+                        }
+                        try {
+                            val authenticator = com.example.security.WebAuthnAuthenticator(
+                                activity,
+                                com.example.data.AppDatabase.getDatabase(activity)
+                            )
+                            val response = authenticator.create(expectedOrigin, requestObj)
+                            sendCredSuccess(webView, expectedOrigin, replyProxy, callId, response.toString())
+                            val rpId = requestObj.optJSONObject("rp")?.optString("id").orEmpty().ifBlank { host }
+                            callbacks.onPasskeyRecorded(
+                                RecordedPasskeyInfo(
+                                    url = pageUrl,
+                                    rpId = rpId,
+                                    username = requestObj.optJSONObject("user")?.optString("name").orEmpty(),
+                                    siteName = requestObj.optJSONObject("rp")?.optString("name").orEmpty().ifBlank { rpId },
+                                    isUpgrade = isUpgrade
+                                )
+                            )
+                            callbacks.onStatusMessage("Passkey created in Kaspa Browser vault for $rpId")
+                        } catch (error: Throwable) {
+                            Log.w(TAG, "Native WebAuthn registration failed", error)
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, error.message ?: "Passkey registration failed", "NotAllowedError")
+                        }
+                        return@launch
+                                                val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
-                        val originArg = if (hasPrivilegedOriginPermission(activity)) expectedOrigin else null
                         val request = CreatePublicKeyCredentialRequest(
                             requestJson = validRequestJson,
-                            origin = originArg
+                            origin = expectedOrigin
                         )
                         val response = credentialManager.createCredential(activity, request)
                         if (response is CreatePublicKeyCredentialResponse) {
@@ -548,14 +627,34 @@ object KaspaWebAuthnBridge {
                     try {
                         callbacks.onStatusMessage("Requesting passkey verification for $host...")
                         val activity = findActivity(webView.context) ?: webView.context
-                        val credentialManager = CredentialManager.create(activity)
+                        if (activity is androidx.fragment.app.FragmentActivity) {
+                            try {
+                                val authenticator = com.example.security.WebAuthnAuthenticator(
+                                    activity,
+                                    com.example.data.AppDatabase.getDatabase(activity)
+                                )
+                                val response = authenticator.get(expectedOrigin, requestObj)
+                                sendCredSuccess(webView, expectedOrigin, replyProxy, callId, response.toString())
+                                callbacks.onStatusMessage("Passkey assertion signed by Kaspa Browser vault")
+                                return@launch
+                            } catch (error: Throwable) {
+                                Log.w(TAG, "Native WebAuthn assertion unavailable; checking Android providers", error)
+                                val noVaultCredential = error.message.orEmpty().contains("No matching passkey", ignoreCase = true)
+                                if (!noVaultCredential || !hasPrivilegedOriginPermission(activity)) {
+                                    sendCredError(webView, expectedOrigin, replyProxy, callId, error.message ?: "Passkey verification failed", "NotAllowedError")
+                                    return@launch
+                                }
+                            }
+                        } else if (!hasPrivilegedOriginPermission(activity)) {
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, "No authorized passkey provider is available", "NotAllowedError")
+                            return@launch
+                        }
+                                                val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
                         val option = GetPublicKeyCredentialOption(validRequestJson)
                         val reqBuilder = GetCredentialRequest.Builder()
                             .addCredentialOption(option)
-                        if (hasPrivilegedOriginPermission(activity)) {
-                            reqBuilder.setOrigin(expectedOrigin)
-                        }
+                            .setOrigin(expectedOrigin)
                         val response = credentialManager.getCredential(activity, reqBuilder.build())
                         val cred = response.credential
                         if (cred is PublicKeyCredential) {
@@ -724,6 +823,7 @@ object KaspaWebAuthnBridge {
                     if (!window.__kaspaPasskeyPolicy) {
                         window.__kaspaPasskeyPolicy = defaultPolicy;
                     }
+                    if (window.__kaspaPasskeyPolicy.nativeBrowserWebAuthn === true) return;
                     if (window.__kaspaWebAuthnInjected) return;
                     window.__kaspaWebAuthnInjected = true;
                     if (window.top !== window.self) return;
@@ -872,6 +972,8 @@ object KaspaWebAuthnBridge {
                             delete window.__kaspaWebAuthnPending[msg.callId];
                             if (msg.type === 'CONFIRM_RESULT') {
                                 activeCb.resolve(msg.approved === true);
+                            } else if (msg.type === 'UVPAA_RESULT') {
+                                activeCb.resolve(msg.available === true);
                             } else if (msg.type === 'CRED_RESULT') {
                                 if (msg.ok) {
                                     activeCb.resolve(buildPublicKeyCredential(msg.resultJson));
@@ -927,7 +1029,7 @@ object KaspaWebAuthnBridge {
                         });
                     }
 
-                    function executeViaCredentialManager(msgType, pubKeyOptions, extra) {
+                    function executeViaNativeAuthenticator(msgType, pubKeyOptions, extra) {
                         return new Promise(function(resolve, reject) {
                             if (!window.kaspaWebAuthnChannel) {
                                 reject(makeDomError('Passkey channel unavailable', 'NotSupportedError'));
@@ -989,19 +1091,28 @@ object KaspaWebAuthnBridge {
                     }
 
                     window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = function() {
-                        if (!getPolicy().webAuthEnabled) return Promise.resolve(false);
-                        if (origIsUvpaa) {
-                            return origIsUvpaa().then(function(ok) { return Boolean(ok || window.kaspaWebAuthnChannel); })
-                                .catch(function() { return true; });
+                        if (!getPolicy().webAuthEnabled || !window.kaspaWebAuthnChannel) {
+                            return Promise.resolve(false);
                         }
-                        return Promise.resolve(true);
+                        return new Promise(function(resolve) {
+                            var callId = nextCallId();
+                            window.__kaspaWebAuthnPending[callId] = {
+                                resolve: resolve,
+                                reject: function() { resolve(false); }
+                            };
+                            try {
+                                if (!postBridgeMessage({ type: 'CHECK_UVPAA', callId: callId })) {
+                                    delete window.__kaspaWebAuthnPending[callId];
+                                    resolve(false);
+                                }
+                            } catch (_) {
+                                delete window.__kaspaWebAuthnPending[callId];
+                                resolve(false);
+                            }
+                        });
                     };
 
                     window.PublicKeyCredential.isConditionalMediationAvailable = function() {
-                        if (!getPolicy().webAuthEnabled) return Promise.resolve(false);
-                        if (origIsConditional) {
-                            return origIsConditional().catch(function() { return false; });
-                        }
                         return Promise.resolve(false);
                     };
 
@@ -1009,39 +1120,26 @@ object KaspaWebAuthnBridge {
                         var p = getPolicy();
                         var enabled = Boolean(p.webAuthEnabled);
                         var base = {
-                            conditionalCreate: enabled && Boolean(p.allowPasskeyUpgrade),
+                            conditionalCreate: false,
                             conditionalGet: false,
-                            hybridTransport: enabled,
-                            passkeyPlatformAuthenticator: enabled,
-                            relatedOrigins: true,
-                            signalAllAcceptedCredentials: enabled,
-                            signalCurrentUserDetails: enabled,
-                            signalUnknownCredential: enabled,
-                            userVerifyingPlatformAuthenticator: enabled
+                            hybridTransport: false,
+                            passkeyPlatformAuthenticator: false,
+                            relatedOrigins: false,
+                            signalAllAcceptedCredentials: false,
+                            signalCurrentUserDetails: false,
+                            signalUnknownCredential: false,
+                            userVerifyingPlatformAuthenticator: false
                         };
-                        if (origGetCaps && enabled) {
-                            return origGetCaps().then(function(nativeCaps) {
-                                var merged = {};
-                                for (var k in base) merged[k] = base[k];
-                                if (nativeCaps && typeof nativeCaps === 'object') {
-                                    for (var nk in nativeCaps) merged[nk] = nativeCaps[nk];
-                                }
-                                merged.conditionalCreate = enabled && Boolean(p.allowPasskeyUpgrade);
-                                return merged;
-                            }).catch(function() { return base; });
-                        }
-                        return Promise.resolve(base);
+                        if (!enabled) return Promise.resolve(base);
+                        return window.PublicKeyCredential
+                            .isUserVerifyingPlatformAuthenticatorAvailable()
+                            .then(function(available) {
+                                base.passkeyPlatformAuthenticator = available === true;
+                                base.userVerifyingPlatformAuthenticator = available === true;
+                                return base;
+                            })
+                            .catch(function() { return base; });
                     };
-
-                    if (!window.PublicKeyCredential.signalAllAcceptedCredentials) {
-                        window.PublicKeyCredential.signalAllAcceptedCredentials = function() { return Promise.resolve(); };
-                    }
-                    if (!window.PublicKeyCredential.signalCurrentUserDetails) {
-                        window.PublicKeyCredential.signalCurrentUserDetails = function() { return Promise.resolve(); };
-                    }
-                    if (!window.PublicKeyCredential.signalUnknownCredential) {
-                        window.PublicKeyCredential.signalUnknownCredential = function() { return Promise.resolve(); };
-                    }
 
                     if (!navigator.credentials) {
                         navigator.credentials = {};
@@ -1073,6 +1171,9 @@ object KaspaWebAuthnBridge {
                         if (options.signal && options.signal.aborted) {
                             return Promise.reject(makeDomError('Aborted', 'AbortError'));
                         }
+                        if (navigator.userActivation && !navigator.userActivation.isActive) {
+                            return Promise.reject(makeDomError('A user gesture is required for passkey creation', 'NotAllowedError'));
+                        }
 
                         var policy = getPolicy();
                         if (!policy.webAuthEnabled) {
@@ -1090,33 +1191,10 @@ object KaspaWebAuthnBridge {
                         var userName = (pubKey.user && (pubKey.user.name || pubKey.user.displayName)) || '';
 
                         var proceedCreate = function(confirmedByDialog) {
-                            if (!isConditionalUpgrade && originalCreate && !policy.skipNativeWebView) {
-                                var t0 = Date.now();
-                                return originalCreate(options).then(function(cred) {
-                                    postBridgeMessage({
-                                        type: 'PASSKEY_NATIVE_CREATED',
-                                        rpId: rpId,
-                                        siteName: siteName,
-                                        username: userName,
-                                        isUpgrade: isConditionalUpgrade
-                                    });
-                                    return cred;
-                                }).catch(function(err) {
-                                    var elapsed = Date.now() - t0;
-                                    if (shouldFallbackAfterNativeError(err, elapsed, confirmedByDialog)) {
-                                        return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
-                                            isUpgrade: isConditionalUpgrade,
-                                            nativeElapsedMs: elapsed,
-                                            nativeError: (err && (err.name + ': ' + err.message)) || ''
-                                        });
-                                    }
-                                    throw err;
-                                });
-                            }
-                            return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
+                            return executeViaNativeAuthenticator('CREATE_CREDENTIAL', pubKey, {
                                 isUpgrade: isConditionalUpgrade,
                                 nativeElapsedMs: -1,
-                                nativeError: policy.skipNativeWebView ? 'WebView WebAuthn restricted by OS' : ''
+                                nativeError: ''
                             });
                         };
 
@@ -1145,6 +1223,10 @@ object KaspaWebAuthnBridge {
                         if (options.signal && options.signal.aborted) {
                             return Promise.reject(makeDomError('Aborted', 'AbortError'));
                         }
+                        if (options.mediation !== 'conditional' &&
+                            navigator.userActivation && !navigator.userActivation.isActive) {
+                            return Promise.reject(makeDomError('A user gesture is required for passkey sign-in', 'NotAllowedError'));
+                        }
 
                         var policy = getPolicy();
                         if (!policy.webAuthEnabled) {
@@ -1152,48 +1234,31 @@ object KaspaWebAuthnBridge {
                         }
 
                         if (options.mediation === 'conditional') {
-                            if (originalGet && !policy.skipNativeWebView) {
-                                return originalGet(options);
-                            }
-                            return Promise.reject(makeDomError('Conditional mediation not active in WebView', 'NotAllowedError'));
+                            return Promise.reject(makeDomError(
+                                'Conditional passkey autofill is not supported by Android WebView',
+                                'NotSupportedError'
+                            ));
                         }
 
                         var pubKey = options.publicKey;
                         var rpId = pubKey.rpId || (window.location && window.location.hostname) || '';
 
                         var proceedGet = function(confirmedByDialog) {
-                            if (originalGet && !policy.skipNativeWebView) {
-                                var t0 = Date.now();
-                                return originalGet(options).then(function(cred) {
-                                    postBridgeMessage({
-                                        type: 'PASSKEY_NATIVE_ASSERTED',
-                                        rpId: rpId
-                                    });
-                                    return cred;
-                                }).catch(function(err) {
-                                    var elapsed = Date.now() - t0;
-                                    if (shouldFallbackAfterNativeError(err, elapsed, confirmedByDialog)) {
-                                        return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
-                                            nativeElapsedMs: elapsed,
-                                            nativeError: (err && (err.name + ': ' + err.message)) || ''
-                                        });
-                                    }
-                                    throw err;
-                                });
-                            }
-                            return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
+                            return executeViaNativeAuthenticator('GET_CREDENTIAL', pubKey, {
                                 nativeElapsedMs: -1,
-                                nativeError: policy.skipNativeWebView ? 'WebView WebAuthn restricted by OS' : ''
+                                nativeError: ''
                             });
                         };
 
+                        // Respect the user's app-level auto sign-in preference. When disabled,
+                        // require explicit approval before opening the native authenticator.
                         if (!policy.autoSignIn) {
                             return requestUserConfirmation({
                                 type: 'CONFIRM_SIGN_IN',
                                 rpId: rpId
                             }).then(function(approved) {
                                 if (!approved) {
-                                    throw makeDomError('Sign-in cancelled by user confirmation prompt', 'NotAllowedError');
+                                    throw makeDomError('Passkey sign-in declined by user', 'NotAllowedError');
                                 }
                                 return proceedGet(true);
                             });
