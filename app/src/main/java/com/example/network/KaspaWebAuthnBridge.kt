@@ -1071,12 +1071,12 @@ object KaspaWebAuthnBridge {
                         var base = {
                             conditionalCreate: enabled && Boolean(p.allowPasskeyUpgrade),
                             conditionalGet: false,
-                            hybridTransport: enabled,
+                            hybridTransport: false,
                             passkeyPlatformAuthenticator: enabled,
-                            relatedOrigins: true,
-                            signalAllAcceptedCredentials: enabled,
-                            signalCurrentUserDetails: enabled,
-                            signalUnknownCredential: enabled,
+                            relatedOrigins: false,
+                            signalAllAcceptedCredentials: false,
+                            signalCurrentUserDetails: false,
+                            signalUnknownCredential: false,
                             userVerifyingPlatformAuthenticator: enabled
                         };
                         if (origGetCaps && enabled) {
@@ -1136,6 +1136,9 @@ object KaspaWebAuthnBridge {
                         if (options.signal && options.signal.aborted) {
                             return Promise.reject(makeDomError('Aborted', 'AbortError'));
                         }
+                        if (navigator.userActivation && !navigator.userActivation.isActive) {
+                            return Promise.reject(makeDomError('A user gesture is required for passkey creation', 'NotAllowedError'));
+                        }
 
                         var policy = getPolicy();
                         if (!policy.webAuthEnabled) {
@@ -1184,6 +1187,9 @@ object KaspaWebAuthnBridge {
                         }
                         if (options.signal && options.signal.aborted) {
                             return Promise.reject(makeDomError('Aborted', 'AbortError'));
+                        }
+                        if (navigator.userActivation && !navigator.userActivation.isActive) {
+                            return Promise.reject(makeDomError('A user gesture is required for passkey sign-in', 'NotAllowedError'));
                         }
 
                         var policy = getPolicy();
