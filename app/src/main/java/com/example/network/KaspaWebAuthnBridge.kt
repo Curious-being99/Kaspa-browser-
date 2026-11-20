@@ -1109,28 +1109,33 @@ object KaspaWebAuthnBridge {
                             conditionalCreate: enabled && Boolean(p.allowPasskeyUpgrade),
                             conditionalGet: false,
                             hybridTransport: false,
-                            passkeyPlatformAuthenticator: enabled,
+                            passkeyPlatformAuthenticator: false,
                             relatedOrigins: false,
                             signalAllAcceptedCredentials: false,
                             signalCurrentUserDetails: false,
                             signalUnknownCredential: false,
-                            userVerifyingPlatformAuthenticator: enabled
+                            userVerifyingPlatformAuthenticator: false
                         };
-                        if (origGetCaps && enabled) {
-                            return origGetCaps().then(function(nativeCaps) {
-                                var merged = {};
-                                for (var k in base) merged[k] = base[k];
-                                if (nativeCaps && typeof nativeCaps === 'object') {
-                                    for (var nk in nativeCaps) merged[nk] = nativeCaps[nk];
-                                }
-                                merged.conditionalCreate = enabled && Boolean(p.allowPasskeyUpgrade);
-                                return merged;
-                            }).then(function(merged) {
-                                merged.conditionalGet = false;
-                                return merged;
-                            }).catch(function() { return base; });
-                        }
-                        return Promise.resolve(base);
+                        if (!enabled) return Promise.resolve(base);
+                        var availability = window.PublicKeyCredential
+                            .isUserVerifyingPlatformAuthenticatorAvailable()
+                            .catch(function() { return false; });
+                        var nativeCapabilities = origGetCaps
+                            ? origGetCaps().catch(function() { return {}; })
+                            : Promise.resolve({});
+                        return Promise.all([availability, nativeCapabilities]).then(function(results) {
+                            var available = results[0] === true;
+                            var merged = {};
+                            for (var k in base) merged[k] = base[k];
+                            if (results[1] && typeof results[1] === 'object') {
+                                for (var nk in results[1]) merged[nk] = results[1][nk];
+                            }
+                            merged.conditionalCreate = enabled && Boolean(p.allowPasskeyUpgrade);
+                            merged.conditionalGet = false;
+                            merged.passkeyPlatformAuthenticator = available;
+                            merged.userVerifyingPlatformAuthenticator = available;
+                            return merged;
+                        }).catch(function() { return base; });
                     };
 
                     if (!window.PublicKeyCredential.signalAllAcceptedCredentials) {
