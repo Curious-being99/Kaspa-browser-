@@ -388,6 +388,14 @@ class PasskeyVaultAndEngineTest {
             script.contains("CONFIRM_SIGN_IN") && script.contains("CONFIRM_CREATE_OR_UPGRADE")
         )
         assertTrue(
+            "Platform authenticator availability must be checked by Android instead of inferred from bridge presence",
+            script.contains("CHECK_UVPAA") && script.contains("UVPAA_RESULT")
+        )
+        assertTrue(
+            "Conditional mediation must not be advertised until a real conditional UI is implemented",
+            script.contains("conditionalGet: false")
+        )
+        assertTrue(
             "DOMException errors must preserve WebAuthn error names instead of forcing NotAllowedError everywhere",
             script.contains("makeDomError")
         )
