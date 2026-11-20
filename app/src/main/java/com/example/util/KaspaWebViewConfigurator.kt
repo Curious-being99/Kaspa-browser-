@@ -28,7 +28,7 @@ object KaspaWebViewConfigurator {
      * is limited to relying parties associated with this app through Digital Asset Links.
      * Returns the runtime-applied support level or -1 if unsupported.
      */
-    fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
+    fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean, context: Context): Int {
         return try {
             if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
                 -1
@@ -41,7 +41,7 @@ object KaspaWebViewConfigurator {
                         ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 }
                 val hasPrivilegedOriginPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                    settings.context.checkSelfPermission("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN") ==
+                    context.checkSelfPermission("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN") ==
                     PackageManager.PERMISSION_GRANTED
                 val targetLevel = when {
                     !enabled -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
@@ -238,7 +238,7 @@ object KaspaWebViewConfigurator {
                 safeBrowsingEnabled = true
             }
 
-            applyWebAuthenticationSupport(this, webAuthEnabled)
+            applyWebAuthenticationSupport(this, webAuthEnabled, context)
             applyKazviewSettings(this)
             KaspaPrivacyEngine.applyUserAgentAndMetadata(this, isDesktop, defaultDeviceUa)
         }
