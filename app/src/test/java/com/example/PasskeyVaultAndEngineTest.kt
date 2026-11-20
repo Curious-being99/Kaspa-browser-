@@ -405,7 +405,8 @@ class PasskeyVaultAndEngineTest {
         )
         assertTrue(
             "Conditional mediation must not be advertised until a real conditional UI is implemented",
-            script.contains("conditionalGet: false")
+            script.contains("conditionalGet: false") &&
+                script.contains("Conditional passkey autofill is not supported by Android WebView")
         )
         assertTrue(
             "DOMException errors must preserve WebAuthn error names instead of forcing NotAllowedError everywhere",
