@@ -59,10 +59,14 @@ class WebAuthnAuthenticator(
             keyAlias = alias
         )
         try {
+            WebAuthnKeystore.sign(
+                activity, alias, MessageDigest.getInstance("SHA-256").digest(challenge),
+                "Create passkey", "Register a passkey for $rpId"
+            )
             val clientData = clientData("webauthn.create", challenge, origin)
             val authData = authenticatorData(
                 rpId, flags = 0x45, signCount = 0,
-                attestedCredential = credentialId + cose
+                credentialId = credentialId, cosePublicKey = cose
             )
             val attestation = Cbor.map(
                 "fmt" to Cbor.text("none"),
@@ -132,7 +136,8 @@ class WebAuthnAuthenticator(
         rpId: String,
         flags: Int,
         signCount: Long,
-        attestedCredential: ByteArray? = null
+        credentialId: ByteArray? = null,
+        cosePublicKey: ByteArray? = null
     ): ByteArray {
         val rpHash = MessageDigest.getInstance("SHA-256").digest(rpId.toByteArray(Charsets.UTF_8))
         val buffer = java.io.ByteArrayOutputStream()
@@ -142,13 +147,14 @@ class WebAuthnAuthenticator(
             (signCount ushr 24).toByte(), (signCount ushr 16).toByte(),
             (signCount ushr 8).toByte(), signCount.toByte()
         ))
-        if (attestedCredential != null) {
+        if (credentialId != null && cosePublicKey != null) {
             buffer.write(ByteArray(16))
             buffer.write(byteArrayOf(
-                (attestedCredential.size ushr 8).toByte(),
-                attestedCredential.size.toByte()
+                (credentialId.size ushr 8).toByte(),
+                credentialId.size.toByte()
             ))
-            buffer.write(attestedCredential)
+            buffer.write(credentialId)
+            buffer.write(cosePublicKey)
         }
         return buffer.toByteArray()
     }
@@ -175,7 +181,7 @@ class WebAuthnAuthenticator(
         val host = canonicalHost(hostOf(origin))
         require(host == rpId || host.endsWith(".$rpId")) { "RP ID is not a registrable suffix of the calling origin" }
         require(!rpId.contains(':') && !rpId.matches(Regex("[0-9.]+"))) { "IP address RP IDs are not supported" }
-        require(!setOf("com", "net", "org", "edu", "gov", "co.uk", "com.au", "co.jp").contains(rpId)) {
+        require(okhttp3.internal.publicsuffix.PublicSuffixDatabase.get().getEffectiveTldPlusOne(rpId) != null) {
             "RP ID cannot be a public suffix"
         }
     }
