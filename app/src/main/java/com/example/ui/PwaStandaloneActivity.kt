@@ -330,7 +330,7 @@ fun PwaStandaloneScreen(
         pwaAutoSignIn
     ) {
         webViewRef?.let { wv ->
-            KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, pwaWebAuthEnabled)
+            KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, pwaWebAuthEnabled, context)
             com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(wv, wv.url)
         }
     }
