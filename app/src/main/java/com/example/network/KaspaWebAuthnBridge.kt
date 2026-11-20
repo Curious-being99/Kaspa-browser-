@@ -605,8 +605,9 @@ object KaspaWebAuthnBridge {
                                 return@launch
                             } catch (error: Throwable) {
                                 Log.w(TAG, "Native WebAuthn assertion unavailable; checking Android providers", error)
-                                if (!hasPrivilegedOriginPermission(activity)) {
-                                    sendCredError(webView, expectedOrigin, replyProxy, callId, error.message ?: "No matching passkey in Kaspa Browser vault", "NotAllowedError")
+                                val noVaultCredential = error.message.orEmpty().contains("No matching passkey", ignoreCase = true)
+                                if (!noVaultCredential || !hasPrivilegedOriginPermission(activity)) {
+                                    sendCredError(webView, expectedOrigin, replyProxy, callId, error.message ?: "Passkey verification failed", "NotAllowedError")
                                     return@launch
                                 }
                             }
@@ -991,7 +992,7 @@ object KaspaWebAuthnBridge {
                         });
                     }
 
-                    function executeViaCredentialManager(msgType, pubKeyOptions, extra) {
+                    function executeViaNativeAuthenticator(msgType, pubKeyOptions, extra) {
                         return new Promise(function(resolve, reject) {
                             if (!window.kaspaWebAuthnChannel) {
                                 reject(makeDomError('Passkey channel unavailable', 'NotSupportedError'));
@@ -1156,7 +1157,7 @@ object KaspaWebAuthnBridge {
                         var userName = (pubKey.user && (pubKey.user.name || pubKey.user.displayName)) || '';
 
                         var proceedCreate = function(confirmedByDialog) {
-                            return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
+                            return executeViaNativeAuthenticator('CREATE_CREDENTIAL', pubKey, {
                                 isUpgrade: isConditionalUpgrade,
                                 nativeElapsedMs: -1,
                                 nativeError: ''
@@ -1199,7 +1200,7 @@ object KaspaWebAuthnBridge {
                         }
 
                         if (options.mediation === 'conditional') {
-                            return executeViaCredentialManager('GET_CREDENTIAL', options.publicKey, {
+                            return executeViaNativeAuthenticator('GET_CREDENTIAL', options.publicKey, {
                                 mediation: 'conditional',
                                 nativeElapsedMs: -1,
                                 nativeError: ''
@@ -1210,7 +1211,7 @@ object KaspaWebAuthnBridge {
                         var rpId = pubKey.rpId || (window.location && window.location.hostname) || '';
 
                         var proceedGet = function(confirmedByDialog) {
-                            return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
+                            return executeViaNativeAuthenticator('GET_CREDENTIAL', pubKey, {
                                 nativeElapsedMs: -1,
                                 nativeError: ''
                             });
