@@ -1108,7 +1108,7 @@ object KaspaWebAuthnBridge {
                         var p = getPolicy();
                         var enabled = Boolean(p.webAuthEnabled);
                         var base = {
-                            conditionalCreate: enabled && Boolean(p.allowPasskeyUpgrade),
+                            conditionalCreate: false,
                             conditionalGet: false,
                             hybridTransport: false,
                             passkeyPlatformAuthenticator: false,
@@ -1119,36 +1119,15 @@ object KaspaWebAuthnBridge {
                             userVerifyingPlatformAuthenticator: false
                         };
                         if (!enabled) return Promise.resolve(base);
-                        var availability = window.PublicKeyCredential
+                        return window.PublicKeyCredential
                             .isUserVerifyingPlatformAuthenticatorAvailable()
-                            .catch(function() { return false; });
-                        var nativeCapabilities = origGetCaps
-                            ? origGetCaps().catch(function() { return {}; })
-                            : Promise.resolve({});
-                        return Promise.all([availability, nativeCapabilities]).then(function(results) {
-                            var available = results[0] === true;
-                            var merged = {};
-                            for (var k in base) merged[k] = base[k];
-                            if (results[1] && typeof results[1] === 'object') {
-                                for (var nk in results[1]) merged[nk] = results[1][nk];
-                            }
-                            merged.conditionalCreate = enabled && Boolean(p.allowPasskeyUpgrade);
-                            merged.conditionalGet = false;
-                            merged.passkeyPlatformAuthenticator = available;
-                            merged.userVerifyingPlatformAuthenticator = available;
-                            return merged;
-                        }).catch(function() { return base; });
+                            .then(function(available) {
+                                base.passkeyPlatformAuthenticator = available === true;
+                                base.userVerifyingPlatformAuthenticator = available === true;
+                                return base;
+                            })
+                            .catch(function() { return base; });
                     };
-
-                    if (!window.PublicKeyCredential.signalAllAcceptedCredentials) {
-                        window.PublicKeyCredential.signalAllAcceptedCredentials = function() { return Promise.resolve(); };
-                    }
-                    if (!window.PublicKeyCredential.signalCurrentUserDetails) {
-                        window.PublicKeyCredential.signalCurrentUserDetails = function() { return Promise.resolve(); };
-                    }
-                    if (!window.PublicKeyCredential.signalUnknownCredential) {
-                        window.PublicKeyCredential.signalUnknownCredential = function() { return Promise.resolve(); };
-                    }
 
                     if (!navigator.credentials) {
                         navigator.credentials = {};
