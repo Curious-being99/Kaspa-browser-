@@ -32,7 +32,7 @@ class WebAuthnAuthenticator(
         }) { "This authenticator supports ES256 (alg -7) only" }
         val user = request.getJSONObject("user")
         val challenge = decode(request.getString("challenge"))
-        require(challenge.isNotEmpty()) { "WebAuthn challenge is empty" }
+        require(challenge.size in 16..1024) { "WebAuthn challenge must be between 16 and 1024 bytes" }
         val userHandleBytes = decode(user.getString("id"))
         require(userHandleBytes.size in 1..64) { "Invalid WebAuthn user handle" }
         val userHandle = encode(userHandleBytes)
@@ -104,7 +104,7 @@ class WebAuthnAuthenticator(
         val rpId = canonicalHost(request.optString("rpId").ifBlank { hostOf(origin) })
         validateRp(origin, rpId)
         val challenge = decode(request.getString("challenge"))
-        require(challenge.isNotEmpty()) { "WebAuthn challenge is empty" }
+        require(challenge.size in 16..1024) { "WebAuthn challenge must be between 16 and 1024 bytes" }
         val allow = request.optJSONArray("allowCredentials")
         val candidates = dao.forRp(rpId).filter { credential ->
             allow == null || allow.length() == 0 || (0 until allow.length()).any { i ->
@@ -208,9 +208,16 @@ class WebAuthnAuthenticator(
 
     private fun validateRp(origin: String, rpId: String) {
         val host = canonicalHost(hostOf(origin))
-        require(host == rpId || host.endsWith(".$rpId")) { "RP ID is not a registrable suffix of the calling origin" }
-        require(!rpId.contains(':') && !rpId.matches(Regex("[0-9.]+"))) { "IP address RP IDs are not supported" }
-        require(okhttp3.internal.publicsuffix.PublicSuffixDatabase.get().getEffectiveTldPlusOne(rpId) != null) {
+        require(rpId.isNotBlank() && rpId.length <= 253) { "Invalid WebAuthn RP ID" }
+        require(!rpId.contains(':') && !rpId.matches(Regex("[0-9.]+"))) {
+            "IP address RP IDs are not supported"
+        }
+        require(host == rpId || host.endsWith(".$rpId")) {
+            "RP ID is not a registrable suffix of the calling origin"
+        }
+        val registrableDomain = okhttp3.internal.publicsuffix.PublicSuffixDatabase
+            .get().getEffectiveTldPlusOne(rpId)
+        require(registrableDomain != null && (registrableDomain == rpId || rpId.endsWith(".$registrableDomain"))) {
             "RP ID cannot be a public suffix"
         }
     }
@@ -230,8 +237,12 @@ class WebAuthnAuthenticator(
     private fun canonicalHost(value: String): String =
         IDN.toASCII(value.trim().trimEnd('.'), IDN.USE_STD3_ASCII_RULES).lowercase()
 
-    private fun decode(value: String): ByteArray =
-        Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    private fun decode(value: String): ByteArray {
+        require(value.isNotEmpty() && value.matches(Regex("^[A-Za-z0-9_-]+$"))) {
+            "Invalid base64url WebAuthn binary value"
+        }
+        return Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    }
 
     private fun encode(value: ByteArray): String =
         Base64.encodeToString(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
