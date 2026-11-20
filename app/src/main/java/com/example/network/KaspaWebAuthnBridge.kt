@@ -1217,11 +1217,20 @@ object KaspaWebAuthnBridge {
                             });
                         };
 
-                        // A WebAuthn get() is already an explicit, user-initiated website action.
-                        // Do not pause it for a second app-owned dialog: that breaks the browser's
-                        // transient user activation and prevents Android's native passkey sheet.
-                        // Credential Manager / the platform authenticator provides the required
-                        // account-selection and user-verification consent UI.
+                        // Respect the user's app-level auto sign-in preference. When disabled,
+                        // require explicit approval before opening the native authenticator.
+                        if (!policy.autoSignIn) {
+                            return requestUserConfirmation({
+                                type: 'CONFIRM_SIGN_IN',
+                                rpId: rpId
+                            }).then(function(approved) {
+                                if (!approved) {
+                                    throw makeDomError('Passkey sign-in declined by user', 'NotAllowedError');
+                                }
+                                return proceedGet(true);
+                            });
+                        }
+
                         return proceedGet(false);
                     };
                 } catch (e) {
