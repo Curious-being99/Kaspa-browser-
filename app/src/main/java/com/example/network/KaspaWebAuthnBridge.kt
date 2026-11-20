@@ -206,7 +206,13 @@ object KaspaWebAuthnBridge {
      */
     fun syncPageScriptAndPolicy(webView: WebView?, url: String?) {
         if (webView == null || url.isNullOrBlank()) return
-        if (!url.startsWith("https://", ignoreCase = true)) return
+        val secureOrigin = url.startsWith("https://", ignoreCase = true)
+        val localhostOrigin = runCatching {
+            val uri = java.net.URI(url)
+            uri.scheme.equals("http", ignoreCase = true) &&
+                uri.host.equals("localhost", ignoreCase = true)
+        }.getOrDefault(false)
+        if (!secureOrigin && !localhostOrigin) return
         CredentialSettingsStore.init(webView.context)
         val policyJson = buildPolicyJson()
         val script = buildInjectionScript(policyJson)
