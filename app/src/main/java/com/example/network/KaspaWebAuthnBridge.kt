@@ -1153,33 +1153,10 @@ object KaspaWebAuthnBridge {
                         var userName = (pubKey.user && (pubKey.user.name || pubKey.user.displayName)) || '';
 
                         var proceedCreate = function(confirmedByDialog) {
-                            if (!confirmedByDialog && !isConditionalUpgrade && originalCreate && !policy.skipNativeWebView) {
-                                var t0 = Date.now();
-                                return Promise.resolve().then(function() { return originalCreate(options); }).then(function(cred) {
-                                    postBridgeMessage({
-                                        type: 'PASSKEY_NATIVE_CREATED',
-                                        rpId: rpId,
-                                        siteName: siteName,
-                                        username: userName,
-                                        isUpgrade: isConditionalUpgrade
-                                    });
-                                    return cred;
-                                }).catch(function(err) {
-                                    var elapsed = Date.now() - t0;
-                                    if (shouldFallbackAfterNativeError(err, elapsed, confirmedByDialog)) {
-                                        return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
-                                            isUpgrade: isConditionalUpgrade,
-                                            nativeElapsedMs: elapsed,
-                                            nativeError: (err && (err.name + ': ' + err.message)) || ''
-                                        });
-                                    }
-                                    throw err;
-                                });
-                            }
                             return executeViaCredentialManager('CREATE_CREDENTIAL', pubKey, {
                                 isUpgrade: isConditionalUpgrade,
                                 nativeElapsedMs: -1,
-                                nativeError: policy.skipNativeWebView ? 'WebView WebAuthn restricted by OS' : ''
+                                nativeError: ''
                             });
                         };
 
@@ -1230,28 +1207,9 @@ object KaspaWebAuthnBridge {
                         var rpId = pubKey.rpId || (window.location && window.location.hostname) || '';
 
                         var proceedGet = function(confirmedByDialog) {
-                            if (!confirmedByDialog && originalGet && !policy.skipNativeWebView) {
-                                var t0 = Date.now();
-                                return Promise.resolve().then(function() { return originalGet(options); }).then(function(cred) {
-                                    postBridgeMessage({
-                                        type: 'PASSKEY_NATIVE_ASSERTED',
-                                        rpId: rpId
-                                    });
-                                    return cred;
-                                }).catch(function(err) {
-                                    var elapsed = Date.now() - t0;
-                                    if (shouldFallbackAfterNativeError(err, elapsed, confirmedByDialog)) {
-                                        return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
-                                            nativeElapsedMs: elapsed,
-                                            nativeError: (err && (err.name + ': ' + err.message)) || ''
-                                        });
-                                    }
-                                    throw err;
-                                });
-                            }
                             return executeViaCredentialManager('GET_CREDENTIAL', pubKey, {
                                 nativeElapsedMs: -1,
-                                nativeError: policy.skipNativeWebView ? 'WebView WebAuthn restricted by OS' : ''
+                                nativeError: ''
                             });
                         };
 
