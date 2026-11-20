@@ -1238,7 +1238,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
         autoSignInEnabled
     ) {
         webViewInstance?.let { wv ->
-            com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, webAuthEnabled)
+            com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(wv.settings, webAuthEnabled, context)
             com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(wv, wv.url)
         }
     }
@@ -2517,7 +2517,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 // FORCE_DARK and ALGORITHMIC_DARKENING removed to prevent "black page" issues.
                                 
                                 // Native FIDO2 / WebAuthn Passkeys support via AndroidX Webkit (FOR_BROWSER)
-                                com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(this, webAuthEnabled)
+                                com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(this, webAuthEnabled, context)
                                 com.example.util.KaspaWebViewConfigurator.applyKazviewSettings(this)
 
                                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -3931,7 +3931,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                         KaspaPrivacyEngine.applyUserAgentAndMetadata(webView.settings, desktopModeEnabled, defaultDeviceUa)
 
                         // Sync WebAuthn support state with settings safely (FOR_BROWSER mode)
-                        com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(webView.settings, webAuthEnabled)
+                        com.example.util.KaspaWebViewConfigurator.applyWebAuthenticationSupport(webView.settings, webAuthEnabled, context)
 
                         val isDirectHttp = resource.url.startsWith("http://", ignoreCase = true) || resource.url.startsWith("https://", ignoreCase = true)
                         
