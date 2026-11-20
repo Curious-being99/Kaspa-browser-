@@ -317,6 +317,27 @@ object KaspaWebAuthnBridge {
     ) {
         val host = PasswordVaultRepository.normalizeHost(pageUrl) ?: return
         when (payload.optString("type")) {
+            "CHECK_UVPAA" -> {
+                val callId = payload.optString("callId", "")
+                if (!validCallbackIdRegex.matches(callId)) return
+                val authenticators = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                } else {
+                    androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG
+                }
+                val available = androidx.biometric.BiometricManager.from(webView.context)
+                    .canAuthenticate(authenticators) ==
+                    androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
+                postReply(
+                    webView,
+                    expectedOrigin,
+                    replyProxy,
+                    JSONObject().put("type", "UVPAA_RESULT")
+                        .put("callId", callId).put("available", available).toString()
+                )
+            }
+
             "CONFIRM_SIGN_IN" -> {
                 val callId = payload.optString("callId", "")
                 if (!validCallbackIdRegex.matches(callId)) return
@@ -937,6 +958,8 @@ object KaspaWebAuthnBridge {
                             delete window.__kaspaWebAuthnPending[msg.callId];
                             if (msg.type === 'CONFIRM_RESULT') {
                                 activeCb.resolve(msg.approved === true);
+                            } else if (msg.type === 'UVPAA_RESULT') {
+                                activeCb.resolve(msg.available === true);
                             } else if (msg.type === 'CRED_RESULT') {
                                 if (msg.ok) {
                                     activeCb.resolve(buildPublicKeyCredential(msg.resultJson));
@@ -1054,12 +1077,25 @@ object KaspaWebAuthnBridge {
                     }
 
                     window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = function() {
-                        if (!getPolicy().webAuthEnabled) return Promise.resolve(false);
-                        if (origIsUvpaa) {
-                            return origIsUvpaa().then(function(ok) { return Boolean(ok || window.kaspaWebAuthnChannel); })
-                                .catch(function() { return true; });
+                        if (!getPolicy().webAuthEnabled || !window.kaspaWebAuthnChannel) {
+                            return Promise.resolve(false);
                         }
-                        return Promise.resolve(true);
+                        return new Promise(function(resolve) {
+                            var callId = nextCallId();
+                            window.__kaspaWebAuthnPending[callId] = {
+                                resolve: resolve,
+                                reject: function() { resolve(false); }
+                            };
+                            try {
+                                if (!postBridgeMessage({ type: 'CHECK_UVPAA', callId: callId })) {
+                                    delete window.__kaspaWebAuthnPending[callId];
+                                    resolve(false);
+                                }
+                            } catch (_) {
+                                delete window.__kaspaWebAuthnPending[callId];
+                                resolve(false);
+                            }
+                        });
                     };
 
                     window.PublicKeyCredential.isConditionalMediationAvailable = function() {
