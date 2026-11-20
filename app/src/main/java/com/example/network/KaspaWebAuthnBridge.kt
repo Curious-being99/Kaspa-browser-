@@ -1155,7 +1155,7 @@ object KaspaWebAuthnBridge {
                         var proceedCreate = function(confirmedByDialog) {
                             if (!confirmedByDialog && !isConditionalUpgrade && originalCreate && !policy.skipNativeWebView) {
                                 var t0 = Date.now();
-                                return originalCreate(options).then(function(cred) {
+                                return Promise.resolve().then(function() { return originalCreate(options); }).then(function(cred) {
                                     postBridgeMessage({
                                         type: 'PASSKEY_NATIVE_CREATED',
                                         rpId: rpId,
@@ -1232,7 +1232,7 @@ object KaspaWebAuthnBridge {
                         var proceedGet = function(confirmedByDialog) {
                             if (!confirmedByDialog && originalGet && !policy.skipNativeWebView) {
                                 var t0 = Date.now();
-                                return originalGet(options).then(function(cred) {
+                                return Promise.resolve().then(function() { return originalGet(options); }).then(function(cred) {
                                     postBridgeMessage({
                                         type: 'PASSKEY_NATIVE_ASSERTED',
                                         rpId: rpId
