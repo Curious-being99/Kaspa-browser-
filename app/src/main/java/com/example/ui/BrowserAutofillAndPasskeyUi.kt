@@ -580,9 +580,9 @@ fun PasskeyConfirmationDialog(
 
             Text(
                 text = if (isSignIn)
-                    "Kaspa Browser will now ask Android to show passkeys available for this website. Choose an account in the Android passkey sheet, then verify with your device biometrics or screen lock. Kaspa Browser never receives your biometric data or passkey private key."
+                    "Kaspa Browser will find this website's saved passkey and ask you to verify with biometrics or your device credential. The private key stays inside Android Keystore."
                 else
-                    "Kaspa Browser will pass this website's registration request to Android. Android and your credential provider handle passkey creation and device verification; the website remains responsible for verifying the returned credential.",
+                    "Kaspa Browser will create a unique passkey for this website in Android Keystore. Verify with biometrics or your device credential to complete registration.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 textAlign = TextAlign.Center,
