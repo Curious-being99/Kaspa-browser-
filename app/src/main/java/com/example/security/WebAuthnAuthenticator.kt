@@ -218,7 +218,7 @@ class WebAuthnAuthenticator(
         val uri = java.net.URI(origin)
         require(
             uri.scheme == "https" && uri.host != null && uri.userInfo == null &&
-                uri.port in listOf(-1, 443) && uri.rawPath.orEmpty() in listOf("", "/") &&
+                (uri.port == -1 || uri.port in 1..65535) && uri.rawPath.orEmpty() in listOf("", "/") &&
                 uri.rawQuery == null && uri.rawFragment == null
         ) {
             "WebAuthn requires a canonical secure HTTPS origin"
