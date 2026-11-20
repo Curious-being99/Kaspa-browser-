@@ -392,6 +392,18 @@ class PasskeyVaultAndEngineTest {
             script.contains("CHECK_UVPAA") && script.contains("UVPAA_RESULT")
         )
         assertTrue(
+            "Conditional creation and hybrid transport must not be advertised by the local vault",
+            script.contains("conditionalCreate: false") && script.contains("hybridTransport: false")
+        )
+        assertTrue(
+            "Unsupported signal APIs must not be replaced with no-op success handlers",
+            !script.contains("signalAllAcceptedCredentials = function() { return Promise.resolve(); }")
+        )
+        assertTrue(
+            "Android browser mode must preserve Chromium's native WebAuthn implementation",
+            script.contains("nativeBrowserWebAuthn === true")
+        )
+        assertTrue(
             "Conditional mediation must not be advertised until a real conditional UI is implemented",
             script.contains("conditionalGet: false")
         )
