@@ -2,6 +2,7 @@ package com.example.util
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import android.webkit.CookieManager
@@ -22,9 +23,9 @@ object KaspaWebViewConfigurator {
     private val appliedWebAuthLevel = java.util.Collections.synchronizedMap(java.util.WeakHashMap<WebSettings, Int>())
 
     /**
-     * Enables WebAuthn only for websites that have established a Digital Asset Links
-     * association with this app. Third-party relying parties must use the external browser
-     * recovery path; this app is not an Android-privileged browser.
+     * Uses browser-mode WebAuthn only when Android has granted the privileged
+     * CREDENTIAL_MANAGER_SET_ORIGIN permission. Otherwise remains in app mode, which
+     * is limited to relying parties associated with this app through Digital Asset Links.
      * Returns the runtime-applied support level or -1 if unsupported.
      */
     fun applyWebAuthenticationSupport(settings: WebSettings, enabled: Boolean): Int {
@@ -39,10 +40,13 @@ object KaspaWebViewConfigurator {
                     return synchronized(appliedWebAuthLevel) { appliedWebAuthLevel[settings] }
                         ?: WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 }
-                val targetLevel = if (enabled) {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
-                } else {
-                    WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                val hasPrivilegedOriginPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                    settings.context.checkSelfPermission("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN") ==
+                    PackageManager.PERMISSION_GRANTED
+                val targetLevel = when {
+                    !enabled -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE
+                    hasPrivilegedOriginPermission -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER
+                    else -> WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP
                 }
                 WebSettingsCompat.setWebAuthenticationSupport(settings, targetLevel)
                 val actualLevel = try {
