@@ -10,6 +10,9 @@ import java.security.MessageDigest
 import java.security.interfaces.ECPublicKey
 import java.security.spec.X509EncodedKeySpec
 import java.util.UUID
+import android.app.AlertDialog
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import org.json.JSONArray
 
@@ -23,6 +26,10 @@ class WebAuthnAuthenticator(
         val rp = request.getJSONObject("rp")
         val rpId = canonicalHost(rp.optString("id").ifBlank { hostOf(origin) })
         validateRp(origin, rpId)
+        val algorithms = request.optJSONArray("pubKeyCredParams")
+        require(algorithms != null && (0 until algorithms.length()).any {
+            algorithms.optJSONObject(it)?.optInt("alg") == -7
+        }) { "This authenticator supports ES256 (alg -7) only" }
         val user = request.getJSONObject("user")
         val challenge = decode(request.getString("challenge"))
         require(challenge.isNotEmpty()) { "WebAuthn challenge is empty" }
@@ -55,7 +62,7 @@ class WebAuthnAuthenticator(
             userName = user.optString("name"),
             displayName = user.optString("displayName"),
             credentialId = credId,
-            publicKey = encode(cose),
+            publicKey = encode(publicKeyDer),
             keyAlias = alias
         )
         try {
@@ -83,7 +90,9 @@ class WebAuthnAuthenticator(
                 .put("response", JSONObject()
                     .put("clientDataJSON", encode(clientData))
                     .put("attestationObject", encode(attestation))
-                    .put("transports", JSONArray().put("internal")))
+                    .put("transports", JSONArray().put("internal"))
+                    .put("publicKey", encode(publicKeyDer))
+                    .put("publicKeyAlgorithm", -7))
         } catch (error: Throwable) {
             WebAuthnKeystore.deleteCredentialKey(alias)
             throw error
@@ -101,8 +110,8 @@ class WebAuthnAuthenticator(
                 allow.optJSONObject(i)?.optString("id") == credential.credentialId
             }
         }
-        val credential = candidates.singleOrNull()
-            ?: throw IllegalStateException(if (candidates.isEmpty()) "No matching passkey is stored for this website" else "More than one passkey matches; account selection is required")
+        if (candidates.isEmpty()) throw IllegalStateException("No matching passkey is stored for this website")
+        val credential = if (candidates.size == 1) candidates.first() else chooseCredential(candidates)
         val clientData = clientData("webauthn.get", challenge, origin)
         val authData = authenticatorData(rpId, flags = 0x05, signCount = credential.signCount + 1)
         val signaturePayload = authData + MessageDigest.getInstance("SHA-256").digest(clientData)
@@ -122,6 +131,25 @@ class WebAuthnAuthenticator(
                 .put("authenticatorData", encode(authData))
                 .put("signature", encode(signature))
                 .put("userHandle", credential.userHandle))
+    }
+
+    private suspend fun chooseCredential(
+        credentials: List<WebAuthnCredentialEntity>
+    ): WebAuthnCredentialEntity = suspendCancellableCoroutine { continuation ->
+        val labels = credentials.map {
+            it.userName.ifBlank { it.displayName.ifBlank { "Passkey account" } }
+        }.toTypedArray()
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("Choose a passkey")
+            .setItems(labels) { _, index ->
+                if (continuation.isActive) continuation.resume(credentials[index])
+            }
+            .setOnCancelListener {
+                if (continuation.isActive) continuation.cancel()
+            }
+            .create()
+        continuation.invokeOnCancellation { dialog.dismiss() }
+        dialog.show()
     }
 
     private fun clientData(type: String, challenge: ByteArray, origin: String): ByteArray =
