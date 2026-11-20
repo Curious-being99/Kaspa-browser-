@@ -1188,7 +1188,8 @@ object KaspaWebAuthnBridge {
                         if (options.signal && options.signal.aborted) {
                             return Promise.reject(makeDomError('Aborted', 'AbortError'));
                         }
-                        if (navigator.userActivation && !navigator.userActivation.isActive) {
+                        if (options.mediation !== 'conditional' &&
+                            navigator.userActivation && !navigator.userActivation.isActive) {
                             return Promise.reject(makeDomError('A user gesture is required for passkey sign-in', 'NotAllowedError'));
                         }
 
@@ -1198,15 +1199,11 @@ object KaspaWebAuthnBridge {
                         }
 
                         if (options.mediation === 'conditional') {
-                            postBridgeMessage({
-                                type: 'PASSKEY_RECOVERY',
-                                operation: 'get',
-                                reason: 'Android WebView does not support conditional passkey autofill. Open this page in Chrome and tap Sign in with passkey again.'
+                            return executeViaCredentialManager('GET_CREDENTIAL', options.publicKey, {
+                                mediation: 'conditional',
+                                nativeElapsedMs: -1,
+                                nativeError: ''
                             });
-                            return Promise.reject(makeDomError(
-                                'Conditional passkey autofill is unavailable in this browser tab. Open this page in Chrome and retry.',
-                                'NotSupportedError'
-                            ));
                         }
 
                         var pubKey = options.publicKey;
