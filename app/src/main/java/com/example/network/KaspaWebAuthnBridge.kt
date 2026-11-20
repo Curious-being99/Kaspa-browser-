@@ -462,23 +462,34 @@ object KaspaWebAuthnBridge {
                             else "Creating passkey for $host..."
                         )
                         val activity = findActivity(webView.context) ?: webView.context
-                        if (!hasPrivilegedOriginPermission(activity)) {
-                            sendCredError(
-                                webView, expectedOrigin, replyProxy, callId,
-                                "This browser is not authorized by Android to request passkeys for third-party website origins.",
-                                "NotAllowedError"
-                            )
-                            callbacks.onRecoveryNeeded(
-                                PasskeyRecoveryEvent(
-                                    url = pageUrl,
-                                    host = host,
-                                    operation = "create",
-                                    reason = "Android requires browser-origin authorization from the credential provider for third-party passkeys."
-                                )
-                            )
+                        if (activity !is androidx.fragment.app.FragmentActivity) {
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, "Native passkey authentication requires an Android FragmentActivity", "NotSupportedError")
                             return@launch
                         }
-                        val credentialManager = CredentialManager.create(activity)
+                        try {
+                            val authenticator = com.example.security.WebAuthnAuthenticator(
+                                activity,
+                                com.example.data.AppDatabase.getDatabase(activity)
+                            )
+                            val response = authenticator.create(expectedOrigin, requestObj)
+                            sendCredSuccess(webView, expectedOrigin, replyProxy, callId, response.toString())
+                            val rpId = requestObj.optJSONObject("rp")?.optString("id").orEmpty().ifBlank { host }
+                            callbacks.onPasskeyRecorded(
+                                RecordedPasskeyInfo(
+                                    url = pageUrl,
+                                    rpId = rpId,
+                                    username = requestObj.optJSONObject("user")?.optString("name").orEmpty(),
+                                    siteName = requestObj.optJSONObject("rp")?.optString("name").orEmpty().ifBlank { rpId },
+                                    isUpgrade = isUpgrade
+                                )
+                            )
+                            callbacks.onStatusMessage("Passkey created in Kaspa Browser vault for $rpId")
+                        } catch (error: Throwable) {
+                            Log.w(TAG, "Native WebAuthn registration failed", error)
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, error.message ?: "Passkey registration failed", "NotAllowedError")
+                        }
+                        return@launch
+                                                val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
                         val request = CreatePublicKeyCredentialRequest(
                             requestJson = validRequestJson,
@@ -582,23 +593,28 @@ object KaspaWebAuthnBridge {
                     try {
                         callbacks.onStatusMessage("Requesting passkey verification for $host...")
                         val activity = findActivity(webView.context) ?: webView.context
-                        if (!hasPrivilegedOriginPermission(activity)) {
-                            sendCredError(
-                                webView, expectedOrigin, replyProxy, callId,
-                                "This browser is not authorized by Android to request passkeys for third-party website origins.",
-                                "NotAllowedError"
-                            )
-                            callbacks.onRecoveryNeeded(
-                                PasskeyRecoveryEvent(
-                                    url = pageUrl,
-                                    host = host,
-                                    operation = "get",
-                                    reason = "Android requires browser-origin authorization from the credential provider for third-party passkeys."
+                        if (activity is androidx.fragment.app.FragmentActivity) {
+                            try {
+                                val authenticator = com.example.security.WebAuthnAuthenticator(
+                                    activity,
+                                    com.example.data.AppDatabase.getDatabase(activity)
                                 )
-                            )
+                                val response = authenticator.get(expectedOrigin, requestObj)
+                                sendCredSuccess(webView, expectedOrigin, replyProxy, callId, response.toString())
+                                callbacks.onStatusMessage("Passkey assertion signed by Kaspa Browser vault")
+                                return@launch
+                            } catch (error: Throwable) {
+                                Log.w(TAG, "Native WebAuthn assertion unavailable; checking Android providers", error)
+                                if (!hasPrivilegedOriginPermission(activity)) {
+                                    sendCredError(webView, expectedOrigin, replyProxy, callId, error.message ?: "No matching passkey in Kaspa Browser vault", "NotAllowedError")
+                                    return@launch
+                                }
+                            }
+                        } else if (!hasPrivilegedOriginPermission(activity)) {
+                            sendCredError(webView, expectedOrigin, replyProxy, callId, "No authorized passkey provider is available", "NotAllowedError")
                             return@launch
                         }
-                        val credentialManager = CredentialManager.create(activity)
+                                                val credentialManager = CredentialManager.create(activity)
                         val validRequestJson = requestObj.toString()
                         val option = GetPublicKeyCredentialOption(validRequestJson)
                         val reqBuilder = GetCredentialRequest.Builder()
