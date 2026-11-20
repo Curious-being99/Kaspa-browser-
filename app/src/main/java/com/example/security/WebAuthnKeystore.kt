@@ -4,6 +4,7 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import androidx.biometric.BiometricPrompt
+import androidx.biometric.BiometricManager
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import java.security.KeyPairGenerator
@@ -85,8 +86,8 @@ object WebAuthnKeystore {
                 .apply {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         setAllowedAuthenticators(
-                            BiometricPrompt.Authenticators.BIOMETRIC_STRONG or
-                                BiometricPrompt.Authenticators.DEVICE_CREDENTIAL
+                            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                BiometricManager.Authenticators.DEVICE_CREDENTIAL
                         )
                     } else {
                         setNegativeButtonText("Cancel")
