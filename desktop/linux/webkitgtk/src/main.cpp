@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <webkit2/webkit2.h>
+#include <cstring>
 #include <string>
 #include <iostream>
 #include <vector>

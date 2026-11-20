@@ -391,6 +391,41 @@ class PasskeyVaultAndEngineTest {
             "DOMException errors must preserve WebAuthn error names instead of forcing NotAllowedError everywhere",
             script.contains("makeDomError")
         )
+        assertTrue(
+            "WebAuthn bridge must fall back on platform/origin restriction messages regardless of timeout duration",
+            script.contains("looksPlatformError") && script.contains("privileged")
+        )
+    }
+
+    @Test
+    fun manifestDeclaresCredentialManagerSetOriginAndLoginPagesAreNotSkippedAsBotChallenges() {
+        val context = RuntimeEnvironment.getApplication()
+        val pkgInfo = context.packageManager.getPackageInfo(
+            context.packageName,
+            android.content.pm.PackageManager.GET_PERMISSIONS
+        )
+        val requestedPerms = pkgInfo.requestedPermissions?.toSet().orEmpty()
+        assertTrue(
+            "AndroidManifest must declare CREDENTIAL_MANAGER_SET_ORIGIN for WebView FOR_BROWSER passkeys",
+            requestedPerms.contains("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN")
+        )
+
+        assertFalse(
+            "GitHub login page must NOT be skipped as a bot challenge",
+            com.example.network.KaspaPrivacyEngine.isBotChallengeInterstitialUrl("https://github.com/login")
+        )
+        assertFalse(
+            "Passkeys demo page must NOT be skipped as a bot challenge",
+            com.example.network.KaspaPrivacyEngine.isBotChallengeInterstitialUrl("https://www.passkeys.io/")
+        )
+        assertFalse(
+            "WebAuthn endpoint must NOT be skipped as a bot challenge",
+            com.example.network.KaspaPrivacyEngine.isBotChallengeInterstitialUrl("https://example.org/auth/webauthn")
+        )
+        assertTrue(
+            "Cloudflare Turnstile interstitial must still be detected",
+            com.example.network.KaspaPrivacyEngine.isBotChallengeInterstitialUrl("https://challenges.cloudflare.com/turnstile/v0/api.js")
+        )
     }
 
     @Test

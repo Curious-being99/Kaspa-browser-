@@ -113,7 +113,8 @@ object KaspaWebAuthnBridge {
         return null
     }
 
-    private fun hasPrivilegedOriginPermission(context: Context): Boolean {
+    internal fun hasPrivilegedOriginPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
         return try {
             context.checkSelfPermission(PERM_SET_ORIGIN) == PackageManager.PERMISSION_GRANTED
         } catch (_: Throwable) {
@@ -244,6 +245,7 @@ object KaspaWebAuthnBridge {
                 val key = keys.next()
                 val rawVal = obj.opt(key)
                 if (rawVal == null || rawVal == JSONObject.NULL) continue
+                if (key == "timeout" && (rawVal as? Number)?.toLong()?.let { it <= 0L } == true) continue
                 when (rawVal) {
                     is JSONObject -> {
                         val sub = cleanObject(rawVal)
@@ -652,11 +654,11 @@ object KaspaWebAuthnBridge {
         val msg = rawError.orEmpty().lowercase(Locale.ROOT)
         return when {
             msg.contains("privileged") || msg.contains("assetlink") || msg.contains("origin") || msg.contains("role_browser") ->
-                "Android requires a system-privileged browser to unlock passkeys for $host."
+                "Google Password Manager requires privileged browser allowlisting for $host. 3rd-party passkey managers (Bitwarden/1Password) work in-tab, or tap Custom Tab to sign in with Chrome."
             msg.contains("no credential") || msg.contains("no passkey") ->
-                "Passkey sheet closed because stored passkeys for $host are scoped to your system browser or credential manager."
+                "No in-tab passkey was returned for $host (Google Password Manager restricts un-allowlisted browsers). Continue in System Browser Tab to use Chrome passkeys."
             else ->
-                "Passkey authentication closed in embedded WebView. Continue in a System Browser Tab or use a saved password."
+                "Passkey authentication could not complete in embedded WebView. Continue in a System Browser Tab or use a saved password."
         }
     }
 
@@ -1062,7 +1064,13 @@ object KaspaWebAuthnBridge {
                         if (confirmedByDialog) return true;
                         if (name !== 'NotAllowedError') return true;
                         var looksUserCancel = msg.indexOf('cancel') !== -1 || msg.indexOf('declined') !== -1 || msg.indexOf('aborted by user') !== -1;
-                        return !looksUserCancel && elapsedMs < 1200;
+                        var looksPlatformError = msg.indexOf('privileged') !== -1 ||
+                            msg.indexOf('origin') !== -1 ||
+                            msg.indexOf('not supported') !== -1 ||
+                            msg.indexOf('webauthentication') !== -1 ||
+                            msg.indexOf('user agent') !== -1 ||
+                            msg.indexOf('credential manager') !== -1;
+                        return !looksUserCancel && (looksPlatformError || elapsedMs < 1500);
                     }
 
                     navigator.credentials.create = function(options) {

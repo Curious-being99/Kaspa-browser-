@@ -173,6 +173,48 @@ object KaspaPrivacyEngine {
         return false
     }
 
+    private val BOT_CHALLENGE_ONLY_DOMAINS = setOf(
+        "arkoselabs.com",
+        "client-api.arkoselabs.com",
+        "octocaptcha.com",
+        "hcaptcha.com",
+        "newassets.hcaptcha.com",
+        "imgs.hcaptcha.com",
+        "recaptcha.net",
+        "challenges.cloudflare.com",
+        "geetest.com",
+        "friendlycaptcha.com",
+        "datadome.co",
+        "captcha-delivery.com",
+        "px-cdn.net",
+        "funcaptcha.com"
+    )
+
+    /**
+     * Checks strictly whether a URL is an anti-bot CAPTCHA or Turnstile interstitial challenge
+     * (excluding normal HTTPS login, OAuth, and passkey ceremony pages).
+     */
+    fun isBotChallengeInterstitialUrl(url: String): Boolean {
+        if (url.length < 5) return false
+        val lower = url.lowercase()
+        if (lower.contains("__cf_chl_")) return true
+        val host = extractHostFast(url)
+        if (host != null && BOT_CHALLENGE_ONLY_DOMAINS.any { host == it || host.endsWith(".$it") }) {
+            return true
+        }
+        val path = runCatching { android.net.Uri.parse(url).path?.lowercase() }.getOrNull() ?: ""
+        return path.contains("/cdn-cgi/challenge-platform") ||
+            path.contains("/cdn-cgi/l/chk_") ||
+            path.contains("/turnstile") ||
+            path.contains("/recaptcha") ||
+            path.contains("/hcaptcha") ||
+            path.contains("/geetest") ||
+            path.contains("/friendly-captcha") ||
+            path.contains("/arkose") ||
+            path.contains("/octocaptcha") ||
+            path.contains("/captcha")
+    }
+
     /**
      * Checks if a host belongs to Google Account login, profile, authentication or identity services.
      */

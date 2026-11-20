@@ -3257,7 +3257,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
 
                                     if (url != null && url.startsWith("https://", ignoreCase = true) &&
-                                        !KaspaPrivacyEngine.isEssentialAuthOrCaptchaUrl(url)
+                                        !KaspaPrivacyEngine.isBotChallengeInterstitialUrl(url)
                                     ) {
                                         com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                                     }
@@ -3375,11 +3375,12 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         )
                                     }
 
-                                    if (!isChallengeOrAuthUrl && com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
+                                    val isBotInterstitial = !url.isNullOrBlank() && KaspaPrivacyEngine.isBotChallengeInterstitialUrl(url)
+                                    if (!isBotInterstitial && com.example.security.PasswordAutofillBridge.isUrlEligibleForAutofill(url)) {
                                         com.example.security.PasswordAutofillBridge.scanPageForPasswordForms(view, url)
                                         com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                                     } else {
-                                        if (!isChallengeOrAuthUrl && url?.startsWith("https://", ignoreCase = true) == true) {
+                                        if (!isBotInterstitial && url?.startsWith("https://", ignoreCase = true) == true) {
                                             com.example.network.KaspaWebAuthnBridge.syncPageScriptAndPolicy(view, url)
                                         }
                                         activeAutofillEvent = null

@@ -1,0 +1,54 @@
+name: Desktop WebKitGTK CMake Build
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "desktop/linux/webkitgtk/**"
+      - "kaspasearch-core/**"
+      - ".github/workflows/desktop-webkitgtk-cmake.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "desktop/linux/webkitgtk/**"
+      - "kaspasearch-core/**"
+      - ".github/workflows/desktop-webkitgtk-cmake.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-webkitgtk-desktop:
+    name: Build Kazview WebKitGTK Linux Desktop Browser (CMake)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CMake, Ninja, GTK3, and WebKitGTK 4.1 development headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake ninja-build pkg-config file \
+            libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Configure CMake build for kazview-webkitgtk
+        run: |
+          cmake -S desktop/linux/webkitgtk -B build/webkitgtk -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile kazview-webkitgtk binary
+        run: |
+          cmake --build build/webkitgtk --target kazview-webkitgtk --parallel 2
+
+      - name: Verify CMake output binary
+        run: |
+          test -x build/webkitgtk/kazview-webkitgtk
+          file build/webkitgtk/kazview-webkitgtk
+
+      - name: Upload Linux WebKitGTK Desktop Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kazview-webkitgtk-linux-x64
+          path: build/webkitgtk/kazview-webkitgtk

@@ -197,6 +197,10 @@ fun WebAuthnDiagnosticsDialog(
                                 if (engineStatus.supportsWebAuthn) "Supported (FOR_BROWSER)" else "Unavailable on WebView"
                             )
                             DiagnosticRow(
+                                "Browser Origin Perm",
+                                if (engineStatus.hasSetOriginPermission) "SET_ORIGIN Granted" else "Missing SET_ORIGIN"
+                            )
+                            DiagnosticRow(
                                 "BFCache & Ad-Privacy",
                                 "${if (engineStatus.backForwardCacheEnabled) "BFCache On" else "Std Nav"} · ${if (engineStatus.attributionPrivacyDisabled) "Attribution Off" else "Default"}"
                             )
@@ -309,13 +313,13 @@ fun WebAuthnDiagnosticsDialog(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "1. Standard WebAuthn: Websites supporting WebView FIDO2 invoke Android Credential Manager directly inside the tab.",
+                                text = "1. Standard WebAuthn: Kazium enables WebView FOR_BROWSER mode and CREDENTIAL_MANAGER_SET_ORIGIN so 3rd-party passkey providers (Bitwarden, 1Password, Proton Pass) and device security keys work directly in-tab.",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 lineHeight = 17.sp
                             )
                             Text(
-                                text = "2. Privileged Browser Checks: Sites enforcing Chrome/Play Services Digital Asset Links can be completed seamlessly with one tap via System Browser Custom Tab handoff.",
+                                text = "2. Google Password Manager Allowlist: Google Play Services restricts GPM cross-origin passkeys to Google-allowlisted release browsers. Use one-tap 'Continue in System Browser Tab' below for Chrome/GPM passkeys.",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 lineHeight = 17.sp

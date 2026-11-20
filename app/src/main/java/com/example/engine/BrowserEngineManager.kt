@@ -58,7 +58,8 @@ data class BrowserEngineStatus(
     val preconnectCount: Int = 0,
     val frozenTabsCount: Int = 0,
     val hibernatedTabsCount: Int = 0,
-    val customTabsProvider: String? = null
+    val customTabsProvider: String? = null,
+    val hasSetOriginPermission: Boolean = false
 )
 
 /**
@@ -512,6 +513,15 @@ object BrowserEngineManager {
             null
         }
 
+        val hasOriginPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            runCatching {
+                context.checkSelfPermission("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN") ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }.getOrDefault(false)
+        } else {
+            true
+        }
+
         return prev.copy(
             engineName = ENGINE_BRAND_NAME,
             engineArchitecture = "Kazview WebKit / WebKitGTK Core",
@@ -525,7 +535,8 @@ object BrowserEngineManager {
             multiProfileSupported = supportsMultiProfile,
             stealthProfileActive = stealthActive,
             quicHintsCount = updateQuicHintStatus(prev, supportsMultiProfile),
-            customTabsProvider = customTabsPkg
+            customTabsProvider = customTabsPkg,
+            hasSetOriginPermission = hasOriginPerm
         )
     }
 

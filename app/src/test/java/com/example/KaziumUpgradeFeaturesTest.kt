@@ -152,13 +152,13 @@ class KaziumUpgradeFeaturesTest {
         assertEquals("app.example.org", cleanCreate.getJSONObject("rp").getString("id"))
         assertTrue("default pubKeyCredParams must be populated", cleanCreate.getJSONArray("pubKeyCredParams").length() >= 2)
 
-        val dirtyGet = JSONObject("""{"challenge":"xyz","timeout":null,"rpId":null}""")
+        val dirtyGet = JSONObject("""{"challenge":"xyz","timeout":0,"rpId":null}""")
         val cleanGet = KaspaWebAuthnBridge.sanitizeCredentialJsonForManager(
             source = dirtyGet,
             fallbackRpId = "login.example.org",
             isCreate = false
         )
-        assertFalse(cleanGet.has("timeout"))
+        assertFalse("Zero or negative timeout must be omitted for FIDO2", cleanGet.has("timeout"))
         assertEquals("login.example.org", cleanGet.getString("rpId"))
 
         val script = KaspaWebAuthnBridge.buildInjectionScript(
