@@ -681,7 +681,7 @@ fun PasskeyRecoveryBar(
                         color = TextPrimary
                     )
                     Text(
-                        text = event.reason + " Open the page in Chrome, then tap Sign in with passkey again. The pending WebView request cannot be transferred.",
+                        text = "This sign-in uses passkey autofill, which Android WebView does not support. Open this page in Chrome and tap Sign in with passkey again. The pending request cannot be transferred.",
                         fontSize = 11.5.sp,
                         color = TextSecondary,
                         lineHeight = 16.sp
