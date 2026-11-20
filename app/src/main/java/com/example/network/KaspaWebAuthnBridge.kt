@@ -400,6 +400,23 @@ object KaspaWebAuthnBridge {
                 }
             }
 
+            "PASSKEY_RECOVERY" -> {
+                val operation = payload.optString("operation", "get")
+                val reason = payload.optString("reason").ifBlank {
+                    "This WebView cannot display conditional passkey autofill. Open the page in Chrome and retry."
+                }
+                mainHandler.post {
+                    callbacks.onRecoveryNeeded(
+                        PasskeyRecoveryEvent(
+                            url = pageUrl,
+                            host = host,
+                            operation = operation,
+                            reason = reason
+                        )
+                    )
+                }
+            }
+
             "CREATE_CREDENTIAL" -> {
                 val callId = payload.optString("callId", "")
                 if (!validCallbackIdRegex.matches(callId)) return
@@ -759,11 +776,6 @@ object KaspaWebAuthnBridge {
                     window.__kaspaWebAuthnInjected = true;
                     if (window.top !== window.self) return;
 
-                    // Google owns this relying-party origin. Keep its WebAuthn API native:
-                    // do not wrap the request or retry it through an app-origin CredentialManager call.
-                    var authHost = (window.location && window.location.hostname || '').toLowerCase();
-                    if (authHost === 'accounts.google.com' || authHost.endsWith('.accounts.google.com')) return;
-
                     function getPolicy() {
                         return window.__kaspaPasskeyPolicy || defaultPolicy;
                     }
@@ -1034,10 +1046,6 @@ object KaspaWebAuthnBridge {
                     };
 
                     window.PublicKeyCredential.isConditionalMediationAvailable = function() {
-                        if (!getPolicy().webAuthEnabled) return Promise.resolve(false);
-                        if (origIsConditional) {
-                            return origIsConditional().catch(function() { return false; });
-                        }
                         return Promise.resolve(false);
                     };
 
@@ -1063,6 +1071,9 @@ object KaspaWebAuthnBridge {
                                     for (var nk in nativeCaps) merged[nk] = nativeCaps[nk];
                                 }
                                 merged.conditionalCreate = enabled && Boolean(p.allowPasskeyUpgrade);
+                                return merged;
+                            }).then(function(merged) {
+                                merged.conditionalGet = false;
                                 return merged;
                             }).catch(function() { return base; });
                         }
@@ -1188,10 +1199,15 @@ object KaspaWebAuthnBridge {
                         }
 
                         if (options.mediation === 'conditional') {
-                            if (originalGet && !policy.skipNativeWebView) {
-                                return originalGet(options);
-                            }
-                            return Promise.reject(makeDomError('Conditional mediation not active in WebView', 'NotAllowedError'));
+                            postBridgeMessage({
+                                type: 'PASSKEY_RECOVERY',
+                                operation: 'get',
+                                reason: 'Android WebView does not support conditional passkey autofill. Open this page in Chrome and tap Sign in with passkey again.'
+                            });
+                            return Promise.reject(makeDomError(
+                                'Conditional passkey autofill is unavailable in this browser tab. Open this page in Chrome and retry.',
+                                'NotSupportedError'
+                            ));
                         }
 
                         var pubKey = options.publicKey;
