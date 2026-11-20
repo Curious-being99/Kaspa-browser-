@@ -37,7 +37,7 @@ class WebAuthnAuthenticator(
         }
         val user = request.getJSONObject("user")
         val challenge = decode(request.getString("challenge"))
-        require(challenge.size in 1..1024) { "WebAuthn challenge must be between 1 and 1024 bytes" }
+        require(challenge.size in 16..1024) { "WebAuthn challenge must be between 16 and 1024 bytes" }
         val userHandleBytes = decode(user.getString("id"))
         require(userHandleBytes.size in 1..64) { "Invalid WebAuthn user handle" }
         val userHandle = encode(userHandleBytes)
@@ -234,12 +234,13 @@ class WebAuthnAuthenticator(
 
     private fun hostOf(origin: String): String {
         val uri = java.net.URI(origin)
+        val localHttpOrigin = uri.scheme == "http" && uri.host.equals("localhost", ignoreCase = true)
         require(
-            uri.scheme == "https" && uri.host != null && uri.userInfo == null &&
+            (uri.scheme == "https" || localHttpOrigin) && uri.host != null && uri.userInfo == null &&
                 (uri.port == -1 || uri.port in 1..65535) && uri.rawPath.orEmpty() in listOf("", "/") &&
                 uri.rawQuery == null && uri.rawFragment == null
         ) {
-            "WebAuthn requires a canonical secure HTTPS origin"
+            "WebAuthn requires HTTPS, except for the localhost development origin"
         }
         return uri.host
     }
