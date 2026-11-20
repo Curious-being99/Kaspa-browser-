@@ -226,6 +226,7 @@ object KaspaWebAuthnBridge {
             put("allowPasskeyUpgrade", CredentialSettingsStore.allowPasskeyUpgradeEnabled.value)
             put("autoSignIn", CredentialSettingsStore.autoSignInEnabled.value)
             put("skipNativeWebView", status.passkeyDowngradedBySystem)
+            put("nativeBrowserWebAuthn", status.passkeySupportMode.startsWith("FOR_BROWSER"))
         }
         return obj.toString()
     }
@@ -810,6 +811,7 @@ object KaspaWebAuthnBridge {
                     if (!window.__kaspaPasskeyPolicy) {
                         window.__kaspaPasskeyPolicy = defaultPolicy;
                     }
+                    if (window.__kaspaPasskeyPolicy.nativeBrowserWebAuthn === true) return;
                     if (window.__kaspaWebAuthnInjected) return;
                     window.__kaspaWebAuthnInjected = true;
                     if (window.top !== window.self) return;
