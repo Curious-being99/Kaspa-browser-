@@ -4210,7 +4210,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
             )
 
             val recoveryEvent = pendingPasskeyRecovery
-            if (recoveryEvent != null && !isInputFocused && !isReaderMode) {
+            if (recoveryEvent != null) {
                 PasskeyRecoveryBar(
                     event = recoveryEvent,
                     matchingPasswordCredentials = matchingAutofillCredentials,
