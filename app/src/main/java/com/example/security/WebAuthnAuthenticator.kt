@@ -90,6 +90,7 @@ class WebAuthnAuthenticator(
                 .put("response", JSONObject()
                     .put("clientDataJSON", encode(clientData))
                     .put("attestationObject", encode(attestation))
+                    .put("authenticatorData", encode(authData))
                     .put("transports", JSONArray().put("internal"))
                     .put("publicKey", encode(publicKeyDer))
                     .put("publicKeyAlgorithm", -7))
