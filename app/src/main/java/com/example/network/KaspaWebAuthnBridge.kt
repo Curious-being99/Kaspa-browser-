@@ -85,8 +85,8 @@ data class RecordedPasskeyInfo(
  * - Strips null/undefined fields cleanly from WebAuthn JSON before `CredentialManager`
  *   so Google Play Services FIDO2 does not reject options with "internal error".
  * - Preserves `PublicKeyCredential` native static methods & `Symbol.hasInstance`.
- * - Only supplies `origin` to `CredentialManager` when `CREDENTIAL_MANAGER_SET_ORIGIN`
- *   is granted by the OS; otherwise lets WebView / Custom Tab handle origin trust safely.
+ * - Uses WebView's FOR_APP mode for relying parties associated with this app through
+ *   Digital Asset Links. Third-party relying parties must authenticate in a browser context.
  */
 object KaspaWebAuthnBridge {
     private const val TAG = "KaspaWebAuthnBridge"
@@ -1239,18 +1239,11 @@ object KaspaWebAuthnBridge {
                             });
                         };
 
-                        if (!policy.autoSignIn) {
-                            return requestUserConfirmation({
-                                type: 'CONFIRM_SIGN_IN',
-                                rpId: rpId
-                            }).then(function(approved) {
-                                if (!approved) {
-                                    throw makeDomError('Sign-in cancelled by user confirmation prompt', 'NotAllowedError');
-                                }
-                                return proceedGet(true);
-                            });
-                        }
-
+                        // A WebAuthn get() is already an explicit, user-initiated website action.
+                        // Do not pause it for a second app-owned dialog: that breaks the browser's
+                        // transient user activation and prevents Android's native passkey sheet.
+                        // Credential Manager / the platform authenticator provides the required
+                        // account-selection and user-verification consent UI.
                         return proceedGet(false);
                     };
                 } catch (e) {
