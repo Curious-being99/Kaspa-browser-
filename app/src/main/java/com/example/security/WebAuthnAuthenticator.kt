@@ -28,11 +28,16 @@ class WebAuthnAuthenticator(
         validateRp(origin, rpId)
         val algorithms = request.optJSONArray("pubKeyCredParams")
         require(algorithms != null && (0 until algorithms.length()).any {
-            algorithms.optJSONObject(it)?.optInt("alg") == -7
+            val parameter = algorithms.optJSONObject(it)
+            parameter?.optString("type") == "public-key" && parameter.optInt("alg") == -7
         }) { "This authenticator supports ES256 (alg -7) only" }
+        val selection = request.optJSONObject("authenticatorSelection")
+        require(selection?.optString("authenticatorAttachment").orEmpty() != "cross-platform") {
+            "Kaspa Browser only provides a platform authenticator"
+        }
         val user = request.getJSONObject("user")
         val challenge = decode(request.getString("challenge"))
-        require(challenge.size in 16..1024) { "WebAuthn challenge must be between 16 and 1024 bytes" }
+        require(challenge.size in 1..1024) { "WebAuthn challenge must be between 1 and 1024 bytes" }
         val userHandleBytes = decode(user.getString("id"))
         require(userHandleBytes.size in 1..64) { "Invalid WebAuthn user handle" }
         val userHandle = encode(userHandleBytes)
@@ -113,6 +118,7 @@ class WebAuthnAuthenticator(
         }
         if (candidates.isEmpty()) throw IllegalStateException("No matching passkey is stored for this website")
         val credential = if (candidates.size == 1) candidates.first() else chooseCredential(candidates)
+        require(credential.signCount in 0..0xffff_ffffL) { "Stored WebAuthn signature counter is invalid" }
         val clientData = clientData("webauthn.get", challenge, origin)
         val authData = authenticatorData(rpId, flags = 0x05, signCount = credential.signCount + 1)
         val signaturePayload = authData + MessageDigest.getInstance("SHA-256").digest(clientData)
@@ -217,7 +223,11 @@ class WebAuthnAuthenticator(
         }
         val registrableDomain = okhttp3.internal.publicsuffix.PublicSuffixDatabase
             .get().getEffectiveTldPlusOne(rpId)
-        require(registrableDomain != null && (registrableDomain == rpId || rpId.endsWith(".$registrableDomain"))) {
+        require(
+            rpId == "localhost" ||
+                (registrableDomain != null &&
+                    (registrableDomain == rpId || rpId.endsWith(".$registrableDomain")))
+        ) {
             "RP ID cannot be a public suffix"
         }
     }
