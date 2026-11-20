@@ -1234,11 +1234,10 @@ object KaspaWebAuthnBridge {
                         }
 
                         if (options.mediation === 'conditional') {
-                            return executeViaNativeAuthenticator('GET_CREDENTIAL', options.publicKey, {
-                                mediation: 'conditional',
-                                nativeElapsedMs: -1,
-                                nativeError: ''
-                            });
+                            return Promise.reject(makeDomError(
+                                'Conditional passkey autofill is not supported by Android WebView',
+                                'NotSupportedError'
+                            ));
                         }
 
                         var pubKey = options.publicKey;
