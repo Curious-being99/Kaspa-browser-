@@ -163,7 +163,13 @@ object KaspaWebAuthnBridge {
                 ) { view, message, sourceOrigin, isMainFrame, replyProxy ->
                     if (!isMainFrame) return@addWebMessageListener
                     val currentUrl = view.url.orEmpty()
-                    if (!currentUrl.startsWith("https://", ignoreCase = true)) return@addWebMessageListener
+                    val securePage = currentUrl.startsWith("https://", ignoreCase = true)
+                    val localhostPage = runCatching {
+                        val uri = java.net.URI(currentUrl)
+                        uri.scheme.equals("http", ignoreCase = true) &&
+                            uri.host.equals("localhost", ignoreCase = true)
+                    }.getOrDefault(false)
+                    if (!securePage && !localhostPage) return@addWebMessageListener
                     val currentOrigin = PasswordVaultRepository.normalizeOrigin(currentUrl, "")
                     val sourceStr = sourceOrigin.toString().lowercase(Locale.ROOT).trimEnd('/')
                     if (sourceStr != currentOrigin.lowercase(Locale.ROOT).trimEnd('/')) {
