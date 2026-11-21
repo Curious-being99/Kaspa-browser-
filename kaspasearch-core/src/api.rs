@@ -88,6 +88,89 @@ pub fn sanitize_navigation_url(raw: &str) -> Result<String, NavigationError> {
     validate_navigation_url(raw).map(|url| crate::privacy::PrivacyGuard::sanitize_url(&url))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum SpeculativePreloadDecision {
+    AllowPreconnectAndPrefetch = 1,
+    SkipPrivacyOrRelayActive = -1,
+    SkipLowRamDevice = -2,
+    SkipNonHttps = -3,
+    SkipAuthOrChallenge = -4,
+    SkipTrackerDomain = -5,
+    SkipInvalidUrl = -6,
+}
+
+pub fn evaluate_speculative_preload(
+    raw_url: &str,
+    privacy_relay_or_incognito: bool,
+    low_ram_device: bool,
+) -> SpeculativePreloadDecision {
+    if privacy_relay_or_incognito {
+        return SpeculativePreloadDecision::SkipPrivacyOrRelayActive;
+    }
+    if low_ram_device {
+        return SpeculativePreloadDecision::SkipLowRamDevice;
+    }
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return SpeculativePreloadDecision::SkipInvalidUrl;
+    }
+    let parsed = match url::Url::parse(trimmed) {
+        Ok(u) => u,
+        Err(_) => return SpeculativePreloadDecision::SkipInvalidUrl,
+    };
+    if !parsed.scheme().eq_ignore_ascii_case("https") {
+        return SpeculativePreloadDecision::SkipNonHttps;
+    }
+    let host = match parsed.host_str() {
+        Some(h) if !h.is_empty() => h.to_ascii_lowercase(),
+        _ => return SpeculativePreloadDecision::SkipInvalidUrl,
+    };
+    if host == "localhost" || host == "127.0.0.1" {
+        return SpeculativePreloadDecision::SkipInvalidUrl;
+    }
+    if crate::privacy::PrivacyGuard::is_google_account_or_auth_url(trimmed)
+        || crate::privacy::PrivacyGuard::is_google_account_domain(&host)
+    {
+        return SpeculativePreloadDecision::SkipAuthOrChallenge;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("/cdn-cgi/")
+        || lower.contains("turnstile")
+        || lower.contains("hcaptcha")
+        || lower.contains("recaptcha")
+        || lower.contains("arkose")
+        || lower.contains("datadome")
+        || lower.contains("/login")
+        || lower.contains("/oauth")
+        || lower.contains("/signin")
+        || lower.contains("/webauthn")
+        || lower.contains("/passkey")
+    {
+        return SpeculativePreloadDecision::SkipAuthOrChallenge;
+    }
+    if crate::privacy::PrivacyGuard::is_tracker_or_ad(trimmed) {
+        return SpeculativePreloadDecision::SkipTrackerDomain;
+    }
+    SpeculativePreloadDecision::AllowPreconnectAndPrefetch
+}
+
+/// C-ABI export usable by Desktop C++ (WebKitGTK) and iOS Swift/Obj-C++ layers.
+#[no_mangle]
+pub unsafe extern "C" fn kazview_eval_speculative_preload(
+    url_ptr: *const std::os::raw::c_char,
+    privacy_relay_or_incognito: bool,
+    low_ram_device: bool,
+) -> i32 {
+    if url_ptr.is_null() {
+        return SpeculativePreloadDecision::SkipInvalidUrl as i32;
+    }
+    let Ok(raw) = std::ffi::CStr::from_ptr(url_ptr).to_str() else {
+        return SpeculativePreloadDecision::SkipInvalidUrl as i32;
+    };
+    evaluate_speculative_preload(raw, privacy_relay_or_incognito, low_ram_device) as i32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -114,5 +197,33 @@ mod tests {
         let url = sanitize_navigation_url("https://example.com/?q=kaspa&utm_source=test").unwrap();
         assert!(url.contains("q=kaspa"));
         assert!(!url.contains("utm_source"));
+    }
+
+    #[test]
+    fn speculative_preload_gating_respects_privacy_low_ram_auth_and_trackers() {
+        assert_eq!(
+            evaluate_speculative_preload("https://kaspa.org/", false, false),
+            SpeculativePreloadDecision::AllowPreconnectAndPrefetch
+        );
+        assert_eq!(
+            evaluate_speculative_preload("https://kaspa.org/", true, false),
+            SpeculativePreloadDecision::SkipPrivacyOrRelayActive
+        );
+        assert_eq!(
+            evaluate_speculative_preload("https://kaspa.org/", false, true),
+            SpeculativePreloadDecision::SkipLowRamDevice
+        );
+        assert_eq!(
+            evaluate_speculative_preload("http://example.com/", false, false),
+            SpeculativePreloadDecision::SkipNonHttps
+        );
+        assert_eq!(
+            evaluate_speculative_preload("https://accounts.google.com/signin", false, false),
+            SpeculativePreloadDecision::SkipAuthOrChallenge
+        );
+        assert_eq!(
+            evaluate_speculative_preload("https://doubleclick.net/pixel.js", false, false),
+            SpeculativePreloadDecision::SkipTrackerDomain
+        );
     }
 }

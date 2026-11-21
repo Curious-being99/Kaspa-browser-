@@ -1,13 +1,20 @@
 package com.example.engine
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
+import android.app.role.RoleManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
+import android.content.MutableContextWrapper
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.WebStorage
@@ -15,6 +22,13 @@ import android.webkit.WebView
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsClient
 import androidx.browser.customtabs.CustomTabsIntent
+import java.io.ByteArrayInputStream
+import java.security.MessageDigest
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import androidx.webkit.PrefetchException
+import androidx.webkit.PrerenderException
+import androidx.webkit.PrerenderOperationCallback
 import androidx.webkit.Profile
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebSettingsCompat
@@ -25,6 +39,8 @@ import androidx.webkit.WebViewStartUpConfig
 import androidx.webkit.WebViewStartUpResult
 import androidx.webkit.WebViewStartupException
 import com.example.network.KaspaPrivacyEngine
+import com.example.network.OriginAssetManifestStore
+import com.example.network.WebViewAssetLruCache
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,10 +50,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 data class BrowserEngineStatus(
     val engineName: String = "Kazview",
-    val engineArchitecture: String = "Kazview WebKit / WebKitGTK Core",
+    val engineArchitecture: String = "Kazview WebKit / Hybrid + Rust/C++17 Core",
     val webViewPackage: String = "Checking...",
     val webViewVersion: String = "Unknown",
     val isMultiProcess: Boolean = false,
@@ -51,33 +68,65 @@ data class BrowserEngineStatus(
     val supportsWebMessageListener: Boolean = false,
     val supportsProxyOverride: Boolean = false,
     val backForwardCacheEnabled: Boolean = false,
+    val bfCacheMaxPages: Int = 0,
+    val speculativeWebSettingsEnabled: Boolean = false,
     val attributionPrivacyDisabled: Boolean = false,
+    val offscreenPreRasterEnabled: Boolean = false,
+    val supportsUrlPrefetch: Boolean = false,
+    val supportsUrlPrerender: Boolean = false,
+    val standbyRendererReady: Boolean = false,
+    val nativeEngineMode: String = KazviewNativeCore.modeLabel(),
     val multiProfileSupported: Boolean = false,
     val stealthProfileActive: Boolean = false,
     val quicHintsCount: Int = 0,
     val preconnectCount: Int = 0,
+    val prefetchAttemptsCount: Int = 0,
+    val prerenderAttemptsCount: Int = 0,
+    val prerenderActivationsCount: Int = 0,
+    val prerenderCancelledCount: Int = 0,
+    val memoryEvictionsCount: Int = 0,
+    val mmapWarmCount: Int = 0,
+    val manifestWarmCount: Int = 0,
+    val visualCommitsCount: Int = 0,
+    val lastFirstPaintMs: Long = 0L,
+    val lastTtfbMs: Long = 0L,
+    val lastDomInteractiveMs: Long = 0L,
+    val lastFcpMs: Long = 0L,
     val frozenTabsCount: Int = 0,
     val hibernatedTabsCount: Int = 0,
     val customTabsProvider: String? = null,
-    val hasSetOriginPermission: Boolean = false
+    val hasSetOriginPermission: Boolean = false,
+    val packageName: String = "org.kaspa.browser",
+    val signingSha256: String = "Checking...",
+    val isDebugSigned: Boolean = false,
+    val isDefaultBrowserRoleHeld: Boolean = false
 )
 
 /**
- * Kazview Browser Core Coordinator (WebKit & WebKitGTK Standards).
+ * Kazview Browser Core Coordinator (Universal WebKit / Chromium / Cronet + Rust/C++17).
  *
- * Combines Android's high-speed WebKit rendering engine (`android.webkit` / `androidx.webkit`),
- * multi-process isolation, WebKitGTK Linux standards parity, WebAuthn FOR_BROWSER passkeys,
- * and Custom Tabs handoff with Kazview's privacy & speed layer:
+ * Strictly capability-aware performance layer:
  * - Async off-UI-thread WebKit renderer warm-up
- * - Native WebKit Back/Forward Cache & Attribution Reporting privacy hardening
- * - HTTP/3 QUIC profile hints + privacy-gated TLS/QUIC speculative preconnect
- * - Isolated WebKit Multi-Profile storage for Stealth sessions
- * - Non-destructive background tab freezer & cold-tab memory hibernation
+ * - Standby pre-warmed WebView pool for instant Home -> Page transitions
+ * - Rust/C++17 speculative eligibility & origin cooldown gating with tracked CancellationSignal
+ * - Capability-probed BFCache, offscreen pre-raster, prefetch & single-slot prerender
+ * - Explicit memory-pressure eviction + speculative prerender cancellation
  */
 object BrowserEngineManager {
     private const val TAG = "Kazview"
     const val ENGINE_BRAND_NAME = "Kazview"
     const val STEALTH_PROFILE_NAME = "kazview_stealth"
+    const val GOOGLE_ALLOWLIST_FORM_URL =
+        "https://docs.google.com/forms/d/e/1FAIpQLScRuk9tTg0QPfSWl9SbpbIorX8xx2FCXlmoUYftCX2MxG4qyg/viewform"
+    private val PREFERRED_CUSTOM_TAB_PACKAGES = listOf(
+        "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.brave.browser",
+        "com.microsoft.emmx",
+        "com.sec.android.app.sbrowser",
+        "org.mozilla.firefox"
+    )
     private const val DEFAULT_MAX_SAVED_STATE_BYTES = 512 * 1024 // 512 KB per tab avoids TransactionTooLargeException
     private const val PRECONNECT_COOLDOWN_MS = 60_000L
 
@@ -94,16 +143,52 @@ object BrowserEngineManager {
     private val startupExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private val dirInitLock = Any()
+    private val speculativeLock = Any()
+    private val standbyLock = Any()
     private val warmupStarted = AtomicBoolean(false)
     private val webViewStartupCompleted = AtomicBoolean(false)
     private val profileTuned = AtomicBoolean(false)
     private val pendingReadyCallbacks = mutableListOf<() -> Unit>()
     private val totalPreconnects = AtomicInteger(0)
+    private val totalPrefetchAttempts = AtomicInteger(0)
+    private val totalPrerenderAttempts = AtomicInteger(0)
+    private val totalPrerenderActivations = AtomicInteger(0)
+    private val totalPrerenderCancelled = AtomicInteger(0)
+    private val totalMemoryEvictions = AtomicInteger(0)
+    private val totalMmapWarms = AtomicInteger(0)
+    private val totalManifestWarms = AtomicInteger(0)
+    private val totalVisualCommits = AtomicInteger(0)
     private val totalHibernatedTabs = AtomicInteger(0)
+    private val lastFirstPaintLatencyMs = AtomicLong(0L)
+    private val lastTtfbLatencyMs = AtomicLong(0L)
+    private val lastDomInteractiveLatencyMs = AtomicLong(0L)
+    private val lastFcpLatencyMs = AtomicLong(0L)
     private val recentPreconnects = ConcurrentHashMap<String, Long>()
+
+    @Volatile
+    private var activePrefetchSignal: CancellationSignal? = null
+
+    @Volatile
+    private var activePrerenderSignal: CancellationSignal? = null
+
+    @Volatile
+    private var lastSpeculativeUrl: String? = null
+
+    @Volatile
+    private var standbyWebView: WebView? = null
+
+    @Volatile
+    private var standbyIncognito: Boolean = false
 
     private val _engineStatus = MutableStateFlow(BrowserEngineStatus())
     val engineStatus: StateFlow<BrowserEngineStatus> = _engineStatus.asStateFlow()
+
+    fun isLowRamDevice(context: Context): Boolean {
+        return runCatching {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            am?.isLowRamDevice == true
+        }.getOrDefault(false)
+    }
 
     /**
      * Ensures Chromium WebView's required cache and storage directory trees exist and are
@@ -291,6 +376,75 @@ object BrowserEngineManager {
     }
 
     /**
+     * Pre-warms a single standby NestedWebView on idle main thread so Home -> Webpage navigation
+     * skips cold WebView inflation. Skipped automatically on low-RAM devices.
+     */
+    fun prepareStandbyWebView(context: Context, isIncognito: Boolean = false) {
+        val appContext = context.applicationContext ?: context
+        if (isLowRamDevice(appContext)) return
+        val prepareTask = Runnable {
+            synchronized(standbyLock) {
+                if (standbyWebView != null && standbyIncognito == isIncognito) return@Runnable
+                evictStandbyWebViewLocked()
+                runCatching {
+                    val wrapper = MutableContextWrapper(appContext)
+                    val wv = com.example.ui.NestedWebView(wrapper)
+                    wv.setBackgroundColor(android.graphics.Color.parseColor("#08090C"))
+                    assignProfileForTab(wv, isIncognito)
+                    standbyWebView = wv
+                    standbyIncognito = isIncognito
+                    _engineStatus.value = _engineStatus.value.copy(standbyRendererReady = true)
+                }.onFailure {
+                    standbyWebView = null
+                    _engineStatus.value = _engineStatus.value.copy(standbyRendererReady = false)
+                }
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            prepareTask.run()
+        } else {
+            mainHandler.post(prepareTask)
+        }
+    }
+
+    fun consumeStandbyWebView(context: Context, isIncognito: Boolean = false): WebView? {
+        return synchronized(standbyLock) {
+            val wv = standbyWebView ?: return@synchronized null
+            if (standbyIncognito != isIncognito) return@synchronized null
+            standbyWebView = null
+            runCatching {
+                (wv.context as? MutableContextWrapper)?.baseContext = context
+            }
+            _engineStatus.value = _engineStatus.value.copy(standbyRendererReady = false)
+            wv
+        }
+    }
+
+    fun evictStandbyWebView(): Boolean {
+        return synchronized(standbyLock) {
+            evictStandbyWebViewLocked()
+        }
+    }
+
+    private fun evictStandbyWebViewLocked(): Boolean {
+        val wv = standbyWebView ?: return false
+        standbyWebView = null
+        val destroyTask = Runnable {
+            runCatching {
+                wv.stopLoading()
+                wv.destroy()
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            destroyTask.run()
+        } else {
+            mainHandler.post(destroyTask)
+        }
+        _engineStatus.value = _engineStatus.value.copy(standbyRendererReady = false)
+        return true
+    }
+
+    /**
      * Applies Chromium Profile-level QUIC hints & renderer process warmup when supported,
      * keeping all calls safely gated behind WebViewFeature checks.
      */
@@ -412,10 +566,272 @@ object BrowserEngineManager {
         }
     }
 
-    fun recordWebSettingsApplied(bfCacheEnabled: Boolean, attributionDisabled: Boolean) {
+    /**
+     * Cancels any active speculative prefetch or prerender requests cleanly when tabs switch,
+     * the user edits the URL bar, memory tightens, or privacy mode engages.
+     */
+    fun cancelSpeculativeWork(reason: String = "cancelled"): Boolean {
+        var cancelledAny = false
+        synchronized(speculativeLock) {
+            activePrefetchSignal?.let { sig ->
+                runCatching { sig.cancel() }
+                activePrefetchSignal = null
+                cancelledAny = true
+            }
+            activePrerenderSignal?.let { sig ->
+                runCatching { sig.cancel() }
+                activePrerenderSignal = null
+                cancelledAny = true
+            }
+            lastSpeculativeUrl = null
+        }
+        if (cancelledAny) {
+            val count = totalPrerenderCancelled.incrementAndGet()
+            _engineStatus.value = _engineStatus.value.copy(prerenderCancelledCount = count)
+            Log.d(TAG, "Cancelled active speculative preload ($reason)")
+        }
+        return cancelledAny
+    }
+
+    /**
+     * Capability-aware speculative warm-up (balanced mode):
+     * 1. Gated through Rust/C++17 eligibility & cooldown rules (no Tor/Incognito/low-RAM/auth/trackers).
+     * 2. Always supersedes prior pending speculative work via CancellationSignal.
+     * 3. Triggers origin preconnect + capability-probed Profile.prefetchUrlAsync + single-slot prerenderUrlAsync.
+     */
+    @SuppressLint("WrongConstant")
+    @androidx.annotation.OptIn(
+        Profile.ExperimentalUrlPrefetch::class
+    )
+    fun scheduleSpeculativePreload(
+        context: Context,
+        rawUrl: String?,
+        activeWebView: WebView? = null,
+        allowPrerender: Boolean = false,
+        isPrivacyBlocked: Boolean = false,
+        hasRendererCrash: Boolean = false
+    ): Boolean {
+        if (isPrivacyBlocked || hasRendererCrash || rawUrl.isNullOrBlank()) return false
+        val appContext = context.applicationContext ?: context
+        val lowRam = isLowRamDevice(appContext)
+        val trimmed = rawUrl.trim()
+
+        if (!KazviewNativeCore.isSpeculativeEligible(trimmed, privacyBlocked = false, lowRamDevice = lowRam)) {
+            return false
+        }
+
+        val parsed = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return false
+        val host = parsed.host?.lowercase(Locale.ROOT)?.takeIf { it.isNotBlank() } ?: return false
+        val origin = "https://$host"
+
+        synchronized(speculativeLock) {
+            if (trimmed == lastSpeculativeUrl && !allowPrerender) {
+                return false
+            }
+        }
+
+        cancelSpeculativeWork("superseded")
+
+        synchronized(speculativeLock) {
+            lastSpeculativeUrl = trimmed
+        }
+
+        // Origin DNS / TLS / QUIC socket warm-up guarded by C++17 ring-buffer cooldown
+        val didPreconnect = if (KazviewNativeCore.tryAcquireOriginWarmupSlot(origin)) {
+            preconnectOrigin(origin, isPrivacyRelayActive = false)
+        } else {
+            false
+        }
+
+        // Pre-warm persisted critical CSS/font/script subresources for this origin over Cronet HTTP/3
+        // directly into WebViewAssetLruCache + POSIX mmap before Blink starts HTML tokenization.
+        val manifestDispatched = OriginAssetManifestStore.warmOriginAssets(
+            urlOrOrigin = trimmed,
+            isPrivacyBlocked = false,
+            maxAssets = 6
+        ) {
+            recordManifestWarm()
+        }
+
+        var scheduledNetworkWork = didPreconnect || manifestDispatched > 0
+        try {
+            val supportsMultiProfile = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+            if (supportsMultiProfile) {
+                val profile = ProfileStore.getInstance().getProfile(Profile.DEFAULT_PROFILE_NAME)
+                if (profile != null) {
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.PREFETCH_CACHE_V1)) {
+                        runCatching {
+                            profile.prefetchCache.setMaxPrefetches(6)
+                            profile.prefetchCache.setPrefetchTtlSeconds(60)
+                        }
+                    }
+
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.PROFILE_URL_PREFETCH)) {
+                        val prefetchSignal = CancellationSignal()
+                        synchronized(speculativeLock) {
+                            activePrefetchSignal = prefetchSignal
+                        }
+                        totalPrefetchAttempts.incrementAndGet()
+                        profile.prefetchUrlAsync(
+                            trimmed,
+                            prefetchSignal,
+                            startupExecutor,
+                            object : WebViewOutcomeReceiver<Void?, PrefetchException> {
+                                override fun onResult(result: Void?) {
+                                    synchronized(speculativeLock) {
+                                        if (activePrefetchSignal === prefetchSignal) {
+                                            activePrefetchSignal = null
+                                        }
+                                    }
+                                }
+
+                                override fun onError(error: PrefetchException) {
+                                    synchronized(speculativeLock) {
+                                        if (activePrefetchSignal === prefetchSignal) {
+                                            activePrefetchSignal = null
+                                        }
+                                    }
+                                    Log.d(TAG, "Prefetch skipped/cancelled: ${error.message}")
+                                }
+                            }
+                        )
+                        scheduledNetworkWork = true
+                    }
+
+                    val targetPrerenderView = activeWebView ?: synchronized(standbyLock) { standbyWebView }
+                    if (allowPrerender &&
+                        !lowRam &&
+                        targetPrerenderView != null &&
+                        WebViewFeature.isFeatureSupported(WebViewFeature.PRERENDER_WITH_URL)
+                    ) {
+                        if (WebViewFeature.isFeatureSupported(WebViewFeature.SET_MAX_PRERENDERS_V1)) {
+                            runCatching { profile.setMaxPrerenders(1) }
+                        }
+                        val prerenderSignal = CancellationSignal()
+                        synchronized(speculativeLock) {
+                            activePrerenderSignal = prerenderSignal
+                        }
+                        totalPrerenderAttempts.incrementAndGet()
+                        WebViewCompat.prerenderUrlAsync(
+                            targetPrerenderView,
+                            trimmed,
+                            prerenderSignal,
+                            startupExecutor,
+                            object : PrerenderOperationCallback {
+                                override fun onPrerenderActivated() {
+                                    synchronized(speculativeLock) {
+                                        if (activePrerenderSignal === prerenderSignal) {
+                                            activePrerenderSignal = null
+                                        }
+                                    }
+                                    val activated = totalPrerenderActivations.incrementAndGet()
+                                    _engineStatus.value = _engineStatus.value.copy(
+                                        prerenderActivationsCount = activated
+                                    )
+                                }
+
+                                override fun onError(exception: PrerenderException) {
+                                    synchronized(speculativeLock) {
+                                        if (activePrerenderSignal === prerenderSignal) {
+                                            activePrerenderSignal = null
+                                        }
+                                    }
+                                    Log.d(TAG, "Prerender skipped/cancelled: ${exception.message}")
+                                }
+                            }
+                        )
+                        scheduledNetworkWork = true
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "Speculative warmup fallback notice: ${t.message}")
+        }
+
+        _engineStatus.value = _engineStatus.value.copy(
+            prefetchAttemptsCount = totalPrefetchAttempts.get(),
+            prerenderAttemptsCount = totalPrerenderAttempts.get()
+        )
+        return scheduledNetworkWork
+    }
+
+    fun recordWebSettingsApplied(
+        bfCacheEnabled: Boolean,
+        attributionDisabled: Boolean,
+        offscreenPreRasterEnabled: Boolean = false,
+        bfCacheMaxPages: Int = 0,
+        speculativeWebSettingsEnabled: Boolean = false
+    ) {
         _engineStatus.value = _engineStatus.value.copy(
             backForwardCacheEnabled = _engineStatus.value.backForwardCacheEnabled || bfCacheEnabled,
-            attributionPrivacyDisabled = _engineStatus.value.attributionPrivacyDisabled || attributionDisabled
+            bfCacheMaxPages = maxOf(_engineStatus.value.bfCacheMaxPages, bfCacheMaxPages),
+            speculativeWebSettingsEnabled = _engineStatus.value.speculativeWebSettingsEnabled || speculativeWebSettingsEnabled,
+            attributionPrivacyDisabled = _engineStatus.value.attributionPrivacyDisabled || attributionDisabled,
+            offscreenPreRasterEnabled = _engineStatus.value.offscreenPreRasterEnabled || offscreenPreRasterEnabled
+        )
+    }
+
+    fun recordFirstPaintLatency(latencyMs: Long) {
+        if (latencyMs <= 0L || latencyMs > 60_000L) return
+        lastFirstPaintLatencyMs.set(latencyMs)
+        _engineStatus.value = _engineStatus.value.copy(lastFirstPaintMs = latencyMs)
+    }
+
+    fun recordWebVitals(ttfbMs: Long, domInteractiveMs: Long, fcpMs: Long) {
+        val validTtfb = ttfbMs.takeIf { it in 1L..60_000L } ?: lastTtfbLatencyMs.get()
+        val validDom = domInteractiveMs.takeIf { it in 1L..60_000L } ?: lastDomInteractiveLatencyMs.get()
+        val validFcp = fcpMs.takeIf { it in 1L..60_000L } ?: lastFcpLatencyMs.get()
+        lastTtfbLatencyMs.set(validTtfb)
+        lastDomInteractiveLatencyMs.set(validDom)
+        lastFcpLatencyMs.set(validFcp)
+        _engineStatus.value = _engineStatus.value.copy(
+            lastTtfbMs = validTtfb,
+            lastDomInteractiveMs = validDom,
+            lastFcpMs = validFcp
+        )
+    }
+
+    fun recordVisualCommit() {
+        val count = totalVisualCommits.incrementAndGet()
+        _engineStatus.value = _engineStatus.value.copy(visualCommitsCount = count)
+    }
+
+    fun recordManifestWarm() {
+        val count = totalManifestWarms.incrementAndGet()
+        val mmapCount = totalMmapWarms.incrementAndGet()
+        _engineStatus.value = _engineStatus.value.copy(
+            manifestWarmCount = count,
+            mmapWarmCount = mmapCount
+        )
+    }
+
+    fun recordMmapWarm() {
+        val count = totalMmapWarms.incrementAndGet()
+        _engineStatus.value = _engineStatus.value.copy(mmapWarmCount = count)
+    }
+
+    fun trimMemory(level: Int, context: Context? = null) {
+        val cancelled = cancelSpeculativeWork("trim_memory_$level")
+        val evictedStandby = evictStandbyWebView()
+        KazviewNativeCore.resetWarmupCache()
+
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+        ) {
+            runCatching { WebViewAssetLruCache.clearCache() }
+            runCatching { OriginAssetManifestStore.clear() }
+        }
+
+        if (cancelled || evictedStandby || level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            val evictions = totalMemoryEvictions.incrementAndGet()
+            _engineStatus.value = _engineStatus.value.copy(
+                memoryEvictionsCount = evictions,
+                standbyRendererReady = false
+            )
+        }
+        Log.d(
+            TAG,
+            "Memory trim level=$level cancelledSpeculative=$cancelled evictedStandby=$evictedStandby lowRam=${context?.let { isLowRamDevice(it) }}"
         )
     }
 
@@ -498,6 +914,21 @@ object BrowserEngineManager {
         } catch (_: Throwable) {
             false
         }
+        val supportsPrefetch = try {
+            WebViewFeature.isFeatureSupported(WebViewFeature.PROFILE_URL_PREFETCH)
+        } catch (_: Throwable) {
+            false
+        }
+        val supportsPrerender = try {
+            WebViewFeature.isFeatureSupported(WebViewFeature.PRERENDER_WITH_URL)
+        } catch (_: Throwable) {
+            false
+        }
+        val supportsPreRaster = try {
+            WebViewFeature.isFeatureSupported(WebViewFeature.OFF_SCREEN_PRERASTER)
+        } catch (_: Throwable) {
+            false
+        }
         val stealthActive = if (supportsMultiProfile && allowProfileQuery) {
             try {
                 ProfileStore.getInstance().getAllProfileNames().contains(STEALTH_PROFILE_NAME)
@@ -508,7 +939,7 @@ object BrowserEngineManager {
             prev.stealthProfileActive
         }
         val customTabsPkg = try {
-            CustomTabsClient.getPackageName(context, null)
+            resolveCustomTabsPackage(context)
         } catch (_: Throwable) {
             null
         }
@@ -516,15 +947,18 @@ object BrowserEngineManager {
         val hasOriginPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             runCatching {
                 context.checkSelfPermission("android.permission.CREDENTIAL_MANAGER_SET_ORIGIN") ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                    PackageManager.PERMISSION_GRANTED
             }.getOrDefault(false)
         } else {
             true
         }
 
+        val (sha256, isDebug) = extractSigningCertSha256(context)
+        val isDefaultBrowser = checkIsDefaultBrowser(context)
+
         return prev.copy(
             engineName = ENGINE_BRAND_NAME,
-            engineArchitecture = "Kazview WebKit / WebKitGTK Core",
+            engineArchitecture = "Kazview WebKit / Hybrid + Rust/C++17 Core",
             webViewPackage = pkgInfo?.packageName ?: "Android System WebView",
             webViewVersion = pkgInfo?.versionName ?: "Runtime Default",
             isMultiProcess = multiProcess,
@@ -532,12 +966,148 @@ object BrowserEngineManager {
             supportsDocumentStartScript = supportsDocStart,
             supportsWebMessageListener = supportsMsgListener,
             supportsProxyOverride = supportsProxy,
+            offscreenPreRasterEnabled = prev.offscreenPreRasterEnabled || supportsPreRaster,
+            supportsUrlPrefetch = supportsPrefetch,
+            supportsUrlPrerender = supportsPrerender,
+            standbyRendererReady = standbyWebView != null,
+            nativeEngineMode = KazviewNativeCore.modeLabel(),
             multiProfileSupported = supportsMultiProfile,
             stealthProfileActive = stealthActive,
             quicHintsCount = updateQuicHintStatus(prev, supportsMultiProfile),
+            prefetchAttemptsCount = totalPrefetchAttempts.get(),
+            prerenderAttemptsCount = totalPrerenderAttempts.get(),
+            prerenderActivationsCount = totalPrerenderActivations.get(),
+            prerenderCancelledCount = totalPrerenderCancelled.get(),
+            memoryEvictionsCount = totalMemoryEvictions.get(),
+            mmapWarmCount = totalMmapWarms.get(),
+            manifestWarmCount = totalManifestWarms.get(),
+            visualCommitsCount = totalVisualCommits.get(),
+            lastFirstPaintMs = lastFirstPaintLatencyMs.get(),
+            lastTtfbMs = lastTtfbLatencyMs.get(),
+            lastDomInteractiveMs = lastDomInteractiveLatencyMs.get(),
+            lastFcpMs = lastFcpLatencyMs.get(),
             customTabsProvider = customTabsPkg,
-            hasSetOriginPermission = hasOriginPerm
+            hasSetOriginPermission = hasOriginPerm,
+            packageName = context.packageName,
+            signingSha256 = sha256,
+            isDebugSigned = isDebug,
+            isDefaultBrowserRoleHeld = isDefaultBrowser
         )
+    }
+
+    private fun resolveCustomTabsPackage(context: Context): String? {
+        val preferred = PREFERRED_CUSTOM_TAB_PACKAGES.filter { !it.equals(context.packageName, ignoreCase = true) }
+        val resolved = CustomTabsClient.getPackageName(context, preferred, true)
+            ?: CustomTabsClient.getPackageName(context, preferred, false)
+        return resolved?.takeIf { !it.equals(context.packageName, ignoreCase = true) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun extractSigningCertSha256(context: Context): Pair<String, Boolean> {
+        return try {
+            val pm = context.packageManager
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                PackageManager.GET_SIGNATURES
+            }
+            val pkgInfo = pm.getPackageInfo(context.packageName, flags)
+            val certBytes: ByteArray? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val signingInfo = pkgInfo.signingInfo
+                val signers = if (signingInfo != null) {
+                    if (signingInfo.hasMultipleSigners()) signingInfo.apkContentsSigners else signingInfo.signingCertificateHistory
+                } else null
+                signers?.firstOrNull()?.toByteArray()
+            } else {
+                pkgInfo.signatures?.firstOrNull()?.toByteArray()
+            }
+            if (certBytes == null) {
+                return Pair("Unavailable", false)
+            }
+            val digest = MessageDigest.getInstance("SHA-256").digest(certBytes)
+            val hex = digest.joinToString(":") { "%02X".format(it) }
+            val isDebugCert = runCatching {
+                val cf = CertificateFactory.getInstance("X.509")
+                val cert = cf.generateCertificate(ByteArrayInputStream(certBytes)) as? X509Certificate
+                cert?.subjectX500Principal?.name?.contains("Android Debug", ignoreCase = true) == true
+            }.getOrDefault(false)
+            Pair(hex, isDebugCert)
+        } catch (_: Throwable) {
+            Pair("Unavailable", false)
+        }
+    }
+
+    private fun checkIsDefaultBrowser(context: Context): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val rm = context.getSystemService(RoleManager::class.java)
+                if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+                    return rm.isRoleHeld(RoleManager.ROLE_BROWSER)
+                }
+            }
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+            val resolved = context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            resolved?.activityInfo?.packageName == context.packageName
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    fun createDefaultBrowserRoleIntent(context: Context): Intent? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val rm = context.getSystemService(RoleManager::class.java)
+                if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+                    return rm.createRequestRoleIntent(RoleManager.ROLE_BROWSER)
+                }
+            }
+            Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+        } catch (_: Throwable) {
+            runCatching { Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS) }.getOrNull()
+        }
+    }
+
+    fun openCredentialProviderSettings(context: Context): Boolean {
+        val candidates = mutableListOf<Intent>()
+        if (Build.VERSION.SDK_INT >= 35) {
+            candidates += Intent("android.settings.CREDENTIAL_PROVIDER").apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            candidates += Intent("android.settings.CREDENTIAL_PROVIDER")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            candidates += Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+        }
+        candidates += Intent(Settings.ACTION_SECURITY_SETTINGS)
+        candidates += Intent(Settings.ACTION_SETTINGS)
+
+        for (intent in candidates) {
+            try {
+                if (context !is android.app.Activity) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                return true
+            } catch (_: Throwable) {
+            }
+        }
+        return false
+    }
+
+    fun formatAllowlistSubmissionText(status: BrowserEngineStatus): String {
+        val buildKind = if (status.isDebugSigned) {
+            "DEBUG (submit your RELEASE / Play App Signing SHA-256 instead)"
+        } else {
+            "RELEASE"
+        }
+        return """
+            Package Name: ${status.packageName}
+            Signing SHA-256: ${status.signingSha256}
+            Build Key Type: $buildKind
+            Allowlist Form: $GOOGLE_ALLOWLIST_FORM_URL
+        """.trimIndent()
     }
 
     @androidx.annotation.OptIn(Profile.ExperimentalAddQuicHints::class)
@@ -609,7 +1179,7 @@ object BrowserEngineManager {
                 .setShareState(CustomTabsIntent.SHARE_STATE_ON)
                 .build()
 
-            val pkg = CustomTabsClient.getPackageName(context, null)
+            val pkg = resolveCustomTabsPackage(context)
             if (!pkg.isNullOrBlank()) {
                 customTabsIntent.intent.setPackage(pkg)
             }

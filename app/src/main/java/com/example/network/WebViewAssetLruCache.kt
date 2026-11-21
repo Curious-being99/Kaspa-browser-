@@ -12,6 +12,10 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
@@ -28,12 +32,15 @@ object WebViewAssetLruCache {
     // Default Cache Config: 256 MB max size, 5,000 max entries
     private const val DEFAULT_MAX_SIZE_BYTES = 256L * 1024L * 1024L // 256MB
     private const val DEFAULT_MAX_ENTRIES = 5000
+    private const val MAX_INFLIGHT_WARMS = 8
 
     private var cacheDir: File? = null
     private var maxSizeBytes: Long = DEFAULT_MAX_SIZE_BYTES
     private var maxEntries: Int = DEFAULT_MAX_ENTRIES
 
     private val rwLock = ReentrantReadWriteLock()
+    private val warmScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val inflightWarms = ConcurrentHashMap.newKeySet<String>()
 
     // Metrics counters
     private val hitCount = AtomicLong(0)
@@ -269,6 +276,43 @@ object WebViewAssetLruCache {
         } catch (e: Exception) {
             null
         }
+    }
+
+    fun isCached(url: String): Boolean {
+        val dir = cacheDir ?: return false
+        val key = CryptoUtils.sha256(url)
+        val meta = memoryIndex[key] ?: return false
+        return File(dir, "${meta.key}.data").exists()
+    }
+
+    /**
+     * Enqueues non-blocking background warming of static HTTPS subresources over Cronet HTTP/3
+     * so repeat navigations and same-site transitions hit POSIX mmap directly on zero-copy reads.
+     */
+    fun warmSubresourceAsync(
+        url: String,
+        requestHeaders: Map<String, String>? = null,
+        onWarmed: (() -> Unit)? = null
+    ): Boolean {
+        if (cacheDir == null) return false
+        if (!url.startsWith("https://", ignoreCase = true)) return false
+        if (!shouldCache(url, method = "GET", isMainFrame = false)) return false
+        if (isCached(url)) return false
+        if (inflightWarms.size >= MAX_INFLIGHT_WARMS) return false
+        if (!inflightWarms.add(url)) return false
+
+        warmScope.launch {
+            try {
+                val resp = fetchAndCache(url, requestHeaders)
+                if (resp != null && isCached(url)) {
+                    onWarmed?.invoke()
+                }
+            } catch (_: Throwable) {
+            } finally {
+                inflightWarms.remove(url)
+            }
+        }
+        return true
     }
 
     /**

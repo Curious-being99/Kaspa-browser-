@@ -656,6 +656,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
     var webViewRecreateKey by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var rendererCrashCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var lastCrashTimestamp by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var pageNavStartMs by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var webProgress by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
@@ -757,8 +758,44 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
     LaunchedEffect(activeTabId) {
         val tabId = activeTabId ?: return@LaunchedEffect
+        com.example.engine.BrowserEngineManager.cancelSpeculativeWork("tab_switched")
         viewModel.webViewTabManager.activateTab(tabId)
         viewModel.webViewTabManager.logMemorySnapshot(context, "tab-activated:$tabId")
+    }
+
+    // Balanced Kazview type-ahead warmup: preconnect + capability-gated prefetch while editing URLs,
+    // immediately suppressed & cancelled when Tor/Relay/Incognito is active or input clears.
+    val incognitoMode by viewModel.incognitoMode.collectAsState()
+    val isPrivacyRelayEnabled by viewModel.isPrivacyRelayEnabled.collectAsState()
+    LaunchedEffect(textFieldValue.text, isInputFocused, incognitoMode, isPrivacyRelayEnabled) {
+        if (!isInputFocused) return@LaunchedEffect
+        if (incognitoMode || isPrivacyRelayEnabled || rendererCrashCount > 0) {
+            com.example.engine.BrowserEngineManager.cancelSpeculativeWork("privacy_or_crash")
+            return@LaunchedEffect
+        }
+        val typed = textFieldValue.text.trim()
+        val looksLikeUrl = typed.length >= 4 &&
+            !typed.contains(' ') &&
+            (typed.startsWith("https://", ignoreCase = true) ||
+                (typed.contains('.') && !typed.startsWith("http://", ignoreCase = true)))
+        if (!looksLikeUrl) {
+            com.example.engine.BrowserEngineManager.cancelSpeculativeWork("search_query")
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(250L)
+        val candidateUrl = if (typed.startsWith("https://", ignoreCase = true)) {
+            typed
+        } else {
+            "https://$typed"
+        }
+        com.example.engine.BrowserEngineManager.scheduleSpeculativePreload(
+            context = context,
+            rawUrl = candidateUrl,
+            activeWebView = webViewInstance,
+            allowPrerender = false,
+            isPrivacyBlocked = incognitoMode || isPrivacyRelayEnabled,
+            hasRendererCrash = rendererCrashCount > 0
+        )
     }
 
     LaunchedEffect(activeTabId, webViewInstance, backgroundPlaybackEnabled) {
@@ -2454,7 +2491,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             val (webView, isNewlyCreated) = viewModel.webViewTabManager.getOrCreateWebView(
                                 tabId = currentTabId,
                                 context = ctx,
-                                savedStateBundle = savedBundle
+                                savedStateBundle = savedBundle,
+                                isIncognito = viewModel.incognitoMode.value
                             ) { newWv ->
                                 com.example.engine.BrowserEngineManager.assignProfileForTab(
                                     newWv,
@@ -2528,7 +2566,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 loadsImagesAutomatically = true
                                 blockNetworkImage = false
                                 blockNetworkLoads = false
-                                offscreenPreRaster = false
                                 val defaultDeviceUa = try {
                                     WebSettings.getDefaultUserAgent(ctx)
                                 } catch (_: Throwable) {
@@ -3155,6 +3192,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                 }
 
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    pageNavStartMs = android.os.SystemClock.elapsedRealtime()
                                     if (view != null) {
                                         val isDesktop = viewModel.desktopModeEnabled.value
                                         val startDefaultUa = try {
@@ -3225,14 +3263,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
 
-                                    view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(
-                                            safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
-                                            isDesktop = viewModel.desktopModeEnabled.value,
-                                            baseUa = defaultDeviceUa
-                                        ),
-                                        null
+                                    val hasDocStart = androidx.webkit.WebViewFeature.isFeatureSupported(
+                                        androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT
                                     )
+                                    if (!hasDocStart) {
+                                        view?.evaluateJavascript(
+                                            KaspaPrivacyEngine.getPrivacyShieldScript(
+                                                safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
+                                                isDesktop = viewModel.desktopModeEnabled.value,
+                                                baseUa = defaultDeviceUa
+                                            ),
+                                            null
+                                        )
+                                    }
 
                                     // Inject WebRTC STUN/TURN UDP Leak Shield ONLY when a custom proxy/relay is active;
                                     // stripping WebRTC on direct connections causes sites to falsely demand "turn off your VPN" and fail bot checks.
@@ -3244,7 +3287,9 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     }
                                     if (isCustomProxyActive) {
                                         view?.evaluateJavascript(
-                                            "window.__kaspa_relay_shield = true;\n" + KaspaPrivacyRelayEngine.getWebRtcLeakShieldScript(),
+                                            "window.__kaspa_relay_shield = true;\n" +
+                                                KaspaPrivacyEngine.JS_PRIVACY_SHIELD_INJECTION + "\n" +
+                                                KaspaPrivacyRelayEngine.getWebRtcLeakShieldScript(),
                                             null
                                         )
                                     }
@@ -3266,6 +3311,58 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         !com.example.security.PasswordVaultRepository.isHostMatch(pendingPasskeyRecovery!!.host, startedHost)
                                     ) {
                                         pendingPasskeyRecovery = null
+                                    }
+                                    if (url != null &&
+                                        url.startsWith("https://", ignoreCase = true) &&
+                                        !viewModel.incognitoMode.value &&
+                                        !viewModel.isPrivacyRelayEnabled.value &&
+                                        rendererCrashCount == 0
+                                    ) {
+                                        com.example.network.OriginAssetManifestStore.warmOriginAssets(
+                                            urlOrOrigin = url,
+                                            isPrivacyBlocked = false,
+                                            maxAssets = 6
+                                        ) {
+                                            com.example.engine.BrowserEngineManager.recordManifestWarm()
+                                        }
+                                    }
+                                }
+
+                                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                                    super.onPageCommitVisible(view, url)
+                                    if (pageNavStartMs > 0L) {
+                                        val firstPaintMs = (android.os.SystemClock.elapsedRealtime() - pageNavStartMs).coerceAtLeast(1L)
+                                        com.example.engine.BrowserEngineManager.recordFirstPaintLatency(firstPaintMs)
+                                    }
+                                    if (view != null && androidx.webkit.WebViewFeature.isFeatureSupported(
+                                            androidx.webkit.WebViewFeature.VISUAL_STATE_CALLBACK
+                                        )
+                                    ) {
+                                        runCatching {
+                                            androidx.webkit.WebViewCompat.postVisualStateCallback(
+                                                view,
+                                                pageNavStartMs,
+                                                object : androidx.webkit.WebViewCompat.VisualStateCallback {
+                                                    override fun onComplete(requestId: Long) {
+                                                        com.example.engine.BrowserEngineManager.recordVisualCommit()
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                    if (isWebLoading && webProgress < 0.72f) {
+                                        webProgress = 0.72f
+                                    }
+                                    if (url != null &&
+                                        url.startsWith("https://", ignoreCase = true) &&
+                                        !viewModel.incognitoMode.value &&
+                                        !viewModel.isPrivacyRelayEnabled.value &&
+                                        rendererCrashCount == 0
+                                    ) {
+                                        com.example.engine.BrowserEngineManager.prepareStandbyWebView(
+                                            view?.context ?: context,
+                                            isIncognito = false
+                                        )
                                     }
                                 }
 
@@ -3352,14 +3449,19 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         }
                                     }
 
-                                    view?.evaluateJavascript(
-                                        KaspaPrivacyEngine.getPrivacyShieldScript(
-                                            safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
-                                            isDesktop = viewModel.desktopModeEnabled.value,
-                                            baseUa = defaultDeviceUa
-                                        ),
-                                        null
-                                    )
+                                    if (!androidx.webkit.WebViewFeature.isFeatureSupported(
+                                            androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT
+                                        )
+                                    ) {
+                                        view?.evaluateJavascript(
+                                            KaspaPrivacyEngine.getPrivacyShieldScript(
+                                                safeGpuMode = !KaspaPrivacyEngine.isDrmRendernodeAvailable || rendererCrashCount > 0,
+                                                isDesktop = viewModel.desktopModeEnabled.value,
+                                                baseUa = defaultDeviceUa
+                                            ),
+                                            null
+                                        )
+                                    }
 
                                     if (blockTrackers && !isChallengeOrAuthUrl) {
                                         view?.evaluateJavascript(
@@ -3387,7 +3489,7 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         matchingAutofillCredentials = emptyList()
                                     }
 
-                                    // Automatic PWA Manifest and Metadata extraction for Device Installation
+                                    // Automatic PWA Manifest, Metadata & real W3C Web Vitals (TTFB/DOM/FCP) extraction
                                     val currentLoadedUrl = url ?: ""
                                     if (currentLoadedUrl.startsWith("http://") || currentLoadedUrl.startsWith("https://") || currentLoadedUrl.startsWith("kas://")) {
                                         view?.evaluateJavascript("""
@@ -3401,11 +3503,25 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                                  document.querySelector('link[rel="icon"][sizes="192x192"]') || 
                                                                  document.querySelector('link[rel="icon"]');
                                                     var iconUrl = iconEl ? iconEl.href : '';
+                                                    var nav = performance && performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
+                                                    var ttfb = nav && nav.responseStart > 0 && nav.requestStart >= 0 ? Math.round(nav.responseStart - nav.requestStart) : 0;
+                                                    var domInt = nav && nav.domInteractive > 0 ? Math.round(nav.domInteractive - (nav.fetchStart || 0)) : 0;
+                                                    var paints = performance && performance.getEntriesByType ? performance.getEntriesByType('paint') : [];
+                                                    var fcp = 0;
+                                                    for (var i = 0; i < paints.length; i++) {
+                                                        if (paints[i].name === 'first-contentful-paint' && paints[i].startTime > 0) {
+                                                            fcp = Math.round(paints[i].startTime);
+                                                            break;
+                                                        }
+                                                    }
                                                     return JSON.stringify({ 
                                                         title: t, 
                                                         icon: iconUrl, 
                                                         manifestUrl: manifestUrl, 
-                                                        hasManifest: m !== null 
+                                                        hasManifest: m !== null,
+                                                        ttfb: ttfb,
+                                                        dom: domInt,
+                                                        fcp: fcp
                                                     });
                                                 } catch(e) { return '{}'; }
                                             })();
@@ -3426,6 +3542,11 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                                         iconUrl = if (ic.isNotBlank()) ic else null,
                                                         manifestUrl = if (mf.isNotBlank()) mf else null,
                                                         hasManifest = hasM
+                                                    )
+                                                    com.example.engine.BrowserEngineManager.recordWebVitals(
+                                                        ttfbMs = json.optLong("ttfb", 0L),
+                                                        domInteractiveMs = json.optLong("dom", 0L),
+                                                        fcpMs = json.optLong("fcp", 0L)
                                                     )
                                                 }
                                             } catch (_: Exception) {
@@ -3476,6 +3597,8 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     } catch (_: Throwable) {}
 
                                     viewModel.webViewTabManager.destroyTab(tabId, "renderer crash")
+                                    com.example.engine.BrowserEngineManager.cancelSpeculativeWork("renderer_gone")
+                                    com.example.engine.BrowserEngineManager.evictStandbyWebView()
                                     webViewInstance = null
 
                                     val now = System.currentTimeMillis()
@@ -3588,9 +3711,29 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
 
 
                                     if (com.example.network.WebViewAssetLruCache.shouldCache(reqUrl, request.method, request.isForMainFrame)) {
+                                        val isCriticalStatic = isStyleOrFont || path.endsWith(".js") || path.endsWith(".mjs")
+                                        val privacyBlocked = viewModel.incognitoMode.value || viewModel.isPrivacyRelayEnabled.value
+                                        if (isCriticalStatic && !privacyBlocked) {
+                                            val refOrigin = request.requestHeaders?.get("Referer")
+                                                ?: request.requestHeaders?.get("referer")
+                                                ?: viewModel.urlInput.value
+                                            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                                                pageUrlOrOrigin = refOrigin,
+                                                assetUrl = reqUrl,
+                                                isPrivacyBlocked = false
+                                            )
+                                        }
                                         val cachedResponse = com.example.network.WebViewAssetLruCache.get(reqUrl)
                                         if (cachedResponse != null) {
                                             return cachedResponse
+                                        }
+                                        if (isCriticalStatic) {
+                                            com.example.network.WebViewAssetLruCache.warmSubresourceAsync(
+                                                url = reqUrl,
+                                                requestHeaders = request.requestHeaders
+                                            ) {
+                                                com.example.engine.BrowserEngineManager.recordMmapWarm()
+                                            }
                                         }
                                     }
 
@@ -3704,6 +3847,23 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                     val handled = handleDeepLinkOrNavigate(view, targetUrl, hasGesture)
                                     if (handled) {
                                         return true
+                                    }
+
+                                    if (effectiveUrl.startsWith("https://", ignoreCase = true) &&
+                                        !viewModel.incognitoMode.value &&
+                                        !viewModel.isPrivacyRelayEnabled.value
+                                    ) {
+                                        com.example.engine.BrowserEngineManager.preconnectOrigin(
+                                            effectiveUrl,
+                                            isPrivacyRelayActive = false
+                                        )
+                                        com.example.network.OriginAssetManifestStore.warmOriginAssets(
+                                            urlOrOrigin = effectiveUrl,
+                                            isPrivacyBlocked = false,
+                                            maxAssets = 6
+                                        ) {
+                                            com.example.engine.BrowserEngineManager.recordManifestWarm()
+                                        }
                                     }
 
                                     return false
@@ -4218,6 +4378,10 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                     onContinueInCustomTab = {
                         com.example.engine.BrowserEngineManager.openInCustomTab(context, recoveryEvent.url)
                         pendingPasskeyRecovery = null
+                    },
+                    onOpenPasskeySetup = {
+                        pendingPasskeyRecovery = null
+                        viewModel.setShowWebAuthnRpIdDialog(true)
                     },
                     onUseSavedPassword = { cred ->
                         val rawPass = viewModel.decryptVaultPassword(cred)
@@ -8153,7 +8317,7 @@ fun YouTubeVideoCard(
                                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                                         safeBrowsingEnabled = true
                                     }
-                                    offscreenPreRaster = false
+                                    com.example.util.KaspaWebViewConfigurator.applyKazviewSettings(this)
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
                                     @Suppress("DEPRECATION")

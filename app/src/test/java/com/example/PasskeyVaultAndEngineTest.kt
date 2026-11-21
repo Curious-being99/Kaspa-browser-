@@ -435,4 +435,212 @@ class PasskeyVaultAndEngineTest {
         assertTrue(js.contains("addEventListener('click'"))
         assertTrue(js.contains("e.key === 'Enter'"))
     }
+
+    @Test
+    fun allowlistRegistrationKitAndDefaultBrowserRoleAreConfigured() {
+        val context = RuntimeEnvironment.getApplication()
+        val status = BrowserEngineManager.refreshEngineStatus(context)
+
+        assertEquals(context.packageName, status.packageName)
+        assertNotEquals("Custom Tabs must never resolve back to host app package", context.packageName, status.customTabsProvider)
+
+        val formatted = BrowserEngineManager.formatAllowlistSubmissionText(status)
+        assertTrue(formatted.contains(status.packageName))
+        assertTrue(formatted.contains(status.signingSha256))
+        assertTrue(formatted.contains(BrowserEngineManager.GOOGLE_ALLOWLIST_FORM_URL))
+
+        val roleIntent = BrowserEngineManager.createDefaultBrowserRoleIntent(context)
+        assertNotNull("Default browser role / settings intent must be creatable", roleIntent)
+    }
+
+    @Test
+    fun kazviewNativeCoreGatesEligibilityAndCooldownSafelyWithoutNdk() {
+        com.example.engine.KazviewNativeCore.resetWarmupCache()
+        assertFalse(com.example.engine.KazviewNativeCore.modeLabel().isBlank())
+
+        assertTrue(com.example.engine.KazviewNativeCore.isSpeculativeEligible("https://kaspa.org", privacyBlocked = false, lowRamDevice = false))
+        assertFalse("Privacy/Tor/Incognito must block speculative preload", com.example.engine.KazviewNativeCore.isSpeculativeEligible("https://kaspa.org", privacyBlocked = true, lowRamDevice = false))
+        assertFalse("Low-RAM device must block speculative preload", com.example.engine.KazviewNativeCore.isSpeculativeEligible("https://kaspa.org", privacyBlocked = false, lowRamDevice = true))
+        assertFalse("HTTP must not speculatively preload", com.example.engine.KazviewNativeCore.isSpeculativeEligible("http://kaspa.org", privacyBlocked = false, lowRamDevice = false))
+        assertFalse("Login/auth pages must not speculatively preload", com.example.engine.KazviewNativeCore.isSpeculativeEligible("https://github.com/login", privacyBlocked = false, lowRamDevice = false))
+        assertFalse("Turnstile/challenges must not speculatively preload", com.example.engine.KazviewNativeCore.isSpeculativeEligible("https://challenges.cloudflare.com/turnstile", privacyBlocked = false, lowRamDevice = false))
+
+        assertTrue(com.example.engine.KazviewNativeCore.tryAcquireOriginWarmupSlot("https://kaspa.org", nowMs = 10_000L, cooldownMs = 60_000L))
+        assertFalse("Origin within cooldown must be throttled", com.example.engine.KazviewNativeCore.tryAcquireOriginWarmupSlot("https://kaspa.org", nowMs = 20_000L, cooldownMs = 60_000L))
+        assertTrue("Origin after cooldown window should re-acquire", com.example.engine.KazviewNativeCore.tryAcquireOriginWarmupSlot("https://kaspa.org", nowMs = 80_000L, cooldownMs = 60_000L))
+    }
+
+    @Test
+    fun kazviewStandbyPoolSpeculativeCancelAndMemoryPressureEvictionWorkSafely() {
+        val context = RuntimeEnvironment.getApplication()
+        com.example.engine.KazviewNativeCore.resetWarmupCache()
+
+        // Privacy / crash guardrails must suppress speculative scheduling cleanly
+        assertFalse(
+            BrowserEngineManager.scheduleSpeculativePreload(
+                context = context,
+                rawUrl = "https://kaspa.org",
+                allowPrerender = true,
+                isPrivacyBlocked = true,
+                hasRendererCrash = false
+            )
+        )
+        assertFalse(
+            BrowserEngineManager.scheduleSpeculativePreload(
+                context = context,
+                rawUrl = "https://kaspa.org",
+                allowPrerender = true,
+                isPrivacyBlocked = false,
+                hasRendererCrash = true
+            )
+        )
+
+        // First-paint latency and standby pool lifecycle
+        BrowserEngineManager.recordFirstPaintLatency(142L)
+        assertEquals(142L, BrowserEngineManager.engineStatus.value.lastFirstPaintMs)
+
+        BrowserEngineManager.prepareStandbyWebView(context, isIncognito = false)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        val consumed = BrowserEngineManager.consumeStandbyWebView(context, isIncognito = false)
+        try {
+            assertNotNull("Standby WebView should be reusable for fast tab creation", consumed)
+        } finally {
+            consumed?.destroy()
+        }
+
+        BrowserEngineManager.prepareStandbyWebView(context, isIncognito = false)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        val evictionsBefore = BrowserEngineManager.engineStatus.value.memoryEvictionsCount
+        BrowserEngineManager.trimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL, context)
+        assertTrue(
+            "Memory pressure trim should increment eviction count and clear standby renderer",
+            BrowserEngineManager.engineStatus.value.memoryEvictionsCount > evictionsBefore
+        )
+        assertFalse(BrowserEngineManager.engineStatus.value.standbyRendererReady)
+    }
+
+    @Test
+    fun webViewAssetLruCacheWarmSubresourceEnforcesSafetyGates() {
+        val context = RuntimeEnvironment.getApplication()
+        com.example.network.WebViewAssetLruCache.initialize(context)
+        assertFalse(com.example.network.WebViewAssetLruCache.warmSubresourceAsync("http://example.com/app.css"))
+        assertFalse(com.example.network.WebViewAssetLruCache.warmSubresourceAsync("https://example.com/cdn-cgi/challenge-platform/h/b"))
+        assertFalse(com.example.network.WebViewAssetLruCache.warmSubresourceAsync("https://example.com/login"))
+    }
+
+    @Test
+    fun originAssetManifestStoreAndWebVitalsMetricsWorkWithPrivacyAndBounds() {
+        val context = RuntimeEnvironment.getApplication()
+        com.example.network.OriginAssetManifestStore.clear()
+        com.example.network.OriginAssetManifestStore.initialize(context)
+
+        // Privacy mode blocks recording & warming
+        assertFalse(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/docs",
+                "https://example.org/static/app.css",
+                isPrivacyBlocked = true
+            )
+        )
+        // Non-HTTPS, images, localhost, and challenge assets must be rejected
+        assertFalse(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "http://example.org/",
+                "https://example.org/static/app.css",
+                isPrivacyBlocked = false
+            )
+        )
+        assertFalse(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://127.0.0.1/",
+                "https://127.0.0.1/app.css",
+                isPrivacyBlocked = false
+            )
+        )
+        assertFalse(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/",
+                "https://example.org/hero.png",
+                isPrivacyBlocked = false
+            )
+        )
+        assertFalse(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/",
+                "https://example.org/cdn-cgi/challenge-platform/h/b.js",
+                isPrivacyBlocked = false
+            )
+        )
+
+        // Record out of order -> manifest must sort CSS -> WOFF2 -> JS
+        assertTrue(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/explorer",
+                "https://example.org/assets/bundle.js",
+                isPrivacyBlocked = false
+            )
+        )
+        assertTrue(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/explorer",
+                "https://example.org/assets/font.woff2",
+                isPrivacyBlocked = false
+            )
+        )
+        assertTrue(
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/explorer",
+                "https://example.org/assets/main.css",
+                isPrivacyBlocked = false
+            )
+        )
+        val sorted = com.example.network.OriginAssetManifestStore.getAssetsForOrigin("https://example.org/other")
+        assertEquals(
+            listOf(
+                "https://example.org/assets/main.css",
+                "https://example.org/assets/font.woff2",
+                "https://example.org/assets/bundle.js"
+            ),
+            sorted
+        )
+
+        // Enforce per-origin cap cleanly
+        for (i in 1..15) {
+            com.example.network.OriginAssetManifestStore.recordCriticalAsset(
+                "https://example.org/",
+                "https://example.org/assets/chunk_$i.js",
+                isPrivacyBlocked = false
+            )
+        }
+        assertEquals(
+            com.example.network.OriginAssetManifestStore.MAX_ASSETS_PER_ORIGIN,
+            com.example.network.OriginAssetManifestStore.getAssetsForOrigin("https://example.org").size
+        )
+
+        // Privacy relay blocks warming even when assets exist
+        assertEquals(
+            0,
+            com.example.network.OriginAssetManifestStore.warmOriginAssets(
+                "https://example.org",
+                isPrivacyBlocked = true
+            )
+        )
+
+        // Web Vitals + Visual Commit + Manifest Warm counters
+        val visualBefore = BrowserEngineManager.engineStatus.value.visualCommitsCount
+        val manifestBefore = BrowserEngineManager.engineStatus.value.manifestWarmCount
+        BrowserEngineManager.recordWebVitals(ttfbMs = 42L, domInteractiveMs = 115L, fcpMs = 168L)
+        BrowserEngineManager.recordVisualCommit()
+        BrowserEngineManager.recordManifestWarm()
+        val updated = BrowserEngineManager.engineStatus.value
+        assertEquals(42L, updated.lastTtfbMs)
+        assertEquals(115L, updated.lastDomInteractiveMs)
+        assertEquals(168L, updated.lastFcpMs)
+        assertEquals(visualBefore + 1, updated.visualCommitsCount)
+        assertEquals(manifestBefore + 1, updated.manifestWarmCount)
+
+        // Background memory pressure evicts manifests too
+        BrowserEngineManager.trimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND, context)
+        assertEquals(0, com.example.network.OriginAssetManifestStore.getOriginCount())
+    }
 }

@@ -1014,6 +1014,47 @@ class DecentralViewModel(
         }
     }
 
+    fun trimMemoryUnderPressure(level: Int) {
+        val appContext = getApplication<android.app.Application>()
+        com.example.engine.BrowserEngineManager.trimMemory(level, appContext)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            val activeId = _activeTabId.value
+            viewModelScope.launch {
+                try {
+                    val hibernatedRecords = mutableListOf<Triple<String, ByteArray?, Pair<Int, Int>?>>()
+                    val hibernatedHistories = mutableMapOf<String, String>()
+                    webViewTabManager.hibernateColdTabsIfNeeded(
+                        activeTabId = activeId,
+                        maxLiveWebViews = if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) 1 else 2
+                    ) { coldId, bundle, scroll, historyJson ->
+                        val bytes = BrowserTabWebViewManager.bundleToByteArray(bundle)
+                        hibernatedRecords.add(Triple(coldId, bytes, scroll))
+                        if (historyJson != "[]") {
+                            hibernatedHistories[coldId] = historyJson
+                        }
+                    }
+                    if (hibernatedRecords.isNotEmpty()) {
+                        withContext(Dispatchers.IO) {
+                            hibernatedRecords.forEach { (coldId, bytes, scroll) ->
+                                val coldTab = database.browserTabDao().getTabById(coldId) ?: return@forEach
+                                database.browserTabDao().insert(
+                                    coldTab.copy(
+                                        webViewState = bytes ?: coldTab.webViewState,
+                                        scrollX = scroll?.first ?: coldTab.scrollX,
+                                        scrollY = scroll?.second ?: coldTab.scrollY,
+                                        historyJson = hibernatedHistories[coldId] ?: coldTab.historyJson
+                                    )
+                                )
+                            }
+                        }
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.w("DecentralViewModel", "trimMemoryUnderPressure notice: ${t.message}")
+                }
+            }
+        }
+    }
+
     fun setActiveTab(id: String?) {
         if (id == null || id == _activeTabId.value) return
         val prevId = _activeTabId.value

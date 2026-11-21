@@ -4,15 +4,19 @@ on:
   pull_request:
     branches: [main, master]
     paths:
+      - "Cargo.toml"
       - "kaspasearch-engine/**"
       - "kaspasearch-core/**"
+      - "app/src/main/cpp/**"
       - "desktop/linux/cef/**"
       - ".github/workflows/shared-rust-core.yml"
   push:
     branches: [main, master]
     paths:
+      - "Cargo.toml"
       - "kaspasearch-engine/**"
       - "kaspasearch-core/**"
+      - "app/src/main/cpp/**"
       - "desktop/linux/cef/**"
       - ".github/workflows/shared-rust-core.yml"
   workflow_dispatch:
@@ -33,8 +37,17 @@ jobs:
           workspaces: |
             kaspasearch-engine
             kaspasearch-core
-      - name: Run Rust unit tests
-        run: cargo test --manifest-path kaspasearch-core/Cargo.toml
+      - name: Verify or generate workspace Cargo.lock
+        run: |
+          if [ -f Cargo.lock ]; then
+            cargo test --workspace --locked
+          else
+            cargo generate-lockfile
+            cargo test --workspace
+          fi
+      - name: Verify Kazview C++17 native core header & logic syntax
+        run: |
+          g++ -std=c++17 -fsyntax-only -Wall -Wextra -DKAZVIEW_SKIP_ANDROID_JNI app/src/main/cpp/kazview_native_core.cpp
       - name: Validate Linux CEF smoke-test script
         run: python3 -m py_compile desktop/linux/cef/tests/render_smoke.py
 

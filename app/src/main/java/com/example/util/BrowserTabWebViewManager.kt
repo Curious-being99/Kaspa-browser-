@@ -93,6 +93,7 @@ class BrowserTabWebViewManager {
         tabId: String,
         context: Context,
         savedStateBundle: Bundle? = null,
+        isIncognito: Boolean = false,
         configurator: (WebView) -> Unit
     ): Pair<WebView, Boolean> {
         updateActivityContext(context)
@@ -102,8 +103,12 @@ class BrowserTabWebViewManager {
         }
 
         BrowserStateLog.webViewCreated("Creating new preserved WebView for tab $tabId")
-        val wrapper = MutableContextWrapper(context)
-        val newWebView = com.example.ui.NestedWebView(wrapper)
+        val standby = if (savedStateBundle == null) {
+            com.example.engine.BrowserEngineManager.consumeStandbyWebView(context, isIncognito)
+        } else {
+            null
+        }
+        val newWebView = standby ?: com.example.ui.NestedWebView(MutableContextWrapper(context))
         configurator(newWebView)
 
         if (savedStateBundle != null) {

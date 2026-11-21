@@ -4,10 +4,11 @@ struct ContentView: View {
     @StateObject private var tabManager = TabManager()
     @StateObject private var biometricAuth = BiometricAuthManager()
     @State private var urlInput: String = "https://kaspa.org"
+    @State private var warmupWorkItem: DispatchWorkItem?
 
     var body: some View {
         ZStack {
-            Color.black.edgesIgnoringSafeArea(.all)
+            Color(red: 0.031, green: 0.035, blue: 0.047).edgesIgnoringSafeArea(.all)
 
             VStack(spacing: 0) {
                 // Top Address Bar
@@ -28,6 +29,14 @@ struct ContentView: View {
                     .disableAutocorrection(true)
 
                     Button(action: {
+                        tabManager.reloadActiveTab()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .foregroundColor(.cyan)
+                            .padding(6)
+                    }
+
+                    Button(action: {
                         tabManager.activeTabBinding.wrappedValue.isDesktopMode.toggle()
                     }) {
                         Image(systemName: tabManager.activeTabBinding.wrappedValue.isDesktopMode ? "desktopcomputer" : "iphone")
@@ -40,17 +49,20 @@ struct ContentView: View {
                 .background(Color(red: 0.05, green: 0.06, blue: 0.08))
 
                 if tabManager.activeTabBinding.wrappedValue.isLoading {
-                    ProgressView()
+                    ProgressView(value: max(0.08, tabManager.activeTabBinding.wrappedValue.estimatedProgress))
                         .progressViewStyle(LinearProgressViewStyle(tint: .cyan))
                 }
 
                 // Active WebKit WebView Tab
                 KazviewWebView(
+                    tabId: tabManager.activeTabId,
                     urlString: tabManager.activeTabBinding.urlString,
                     isDesktopMode: tabManager.activeTabBinding.isDesktopMode,
                     canGoBack: tabManager.activeTabBinding.canGoBack,
                     canGoForward: tabManager.activeTabBinding.canGoForward,
-                    isLoading: tabManager.activeTabBinding.isLoading
+                    isLoading: tabManager.activeTabBinding.isLoading,
+                    estimatedProgress: tabManager.activeTabBinding.estimatedProgress,
+                    pendingNavAction: $tabManager.pendingNavAction
                 )
                 .id(tabManager.activeTabId)
                 .edgesIgnoringSafeArea(.bottom)
@@ -58,7 +70,7 @@ struct ContentView: View {
                 // Bottom Multi-Tab Navigation Bar
                 HStack {
                     Button(action: {
-                        // Go back action
+                        tabManager.goBackActiveTab()
                     }) {
                         Image(systemName: "chevron.backward")
                             .foregroundColor(tabManager.activeTabBinding.wrappedValue.canGoBack ? .cyan : .gray)
@@ -67,7 +79,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
 
                     Button(action: {
-                        // Go forward action
+                        tabManager.goForwardActiveTab()
                     }) {
                         Image(systemName: "chevron.forward")
                             .foregroundColor(tabManager.activeTabBinding.wrappedValue.canGoForward ? .cyan : .gray)
@@ -107,6 +119,18 @@ struct ContentView: View {
         }
         .onChange(of: tabManager.activeTabBinding.wrappedValue.urlString) { newUrl in
             urlInput = newUrl
+        }
+        .onChange(of: urlInput) { typed in
+            warmupWorkItem?.cancel()
+            let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count >= 4, !trimmed.contains(" "),
+                  trimmed.hasPrefix("https://") || trimmed.contains(".") else { return }
+            let candidate = trimmed.hasPrefix("https://") ? trimmed : "https://\(trimmed)"
+            let item = DispatchWorkItem {
+                KazviewPreloadCoordinator.shared.warmOriginIfEligible(rawUrl: candidate)
+            }
+            warmupWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: item)
         }
     }
 }

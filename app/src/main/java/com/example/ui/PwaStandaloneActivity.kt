@@ -1233,6 +1233,10 @@ fun PwaStandaloneScreen(
                         com.example.engine.BrowserEngineManager.openInCustomTab(context, recoveryEvent.url)
                         pwaPendingPasskeyRecovery = null
                     },
+                    onOpenPasskeySetup = {
+                        pwaPendingPasskeyRecovery = null
+                        com.example.engine.BrowserEngineManager.openCredentialProviderSettings(context)
+                    },
                     onUseSavedPassword = { cred ->
                         val pw = pwaVaultRepo.decryptPassword(cred)
                         if (pw != null) {

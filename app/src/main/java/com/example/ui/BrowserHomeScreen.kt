@@ -191,6 +191,47 @@ fun BrowserHomeScreen(
         viewModel.refreshNewsFeeds()
     }
 
+    // Balanced Instant Mode: warm the primary top site for instant first tap
+    LaunchedEffect(incognitoMode, isPrivacyRelayEnabled, customShortcuts, pinnedContents) {
+        if (incognitoMode || isPrivacyRelayEnabled) {
+            com.example.engine.BrowserEngineManager.cancelSpeculativeWork("home_privacy_active")
+            return@LaunchedEffect
+        }
+        val topSiteUrl = customShortcuts.firstOrNull()?.url?.takeIf { it.startsWith("https://", ignoreCase = true) }
+            ?: pinnedContents.firstOrNull()?.centralizedMirrorUrl?.takeIf { it.startsWith("https://", ignoreCase = true) }
+            ?: "https://kaspa.org"
+        kotlinx.coroutines.delay(450L)
+        com.example.engine.BrowserEngineManager.scheduleSpeculativePreload(
+            context = context,
+            rawUrl = topSiteUrl,
+            activeWebView = null,
+            allowPrerender = true,
+            isPrivacyBlocked = incognitoMode || isPrivacyRelayEnabled,
+            hasRendererCrash = false
+        )
+    }
+
+    // Balanced preconnect when typing a domain in the Home search bar
+    LaunchedEffect(searchQuery, incognitoMode, isPrivacyRelayEnabled) {
+        if (incognitoMode || isPrivacyRelayEnabled) return@LaunchedEffect
+        val typed = searchQuery.trim()
+        val looksLikeUrl = typed.length >= 4 &&
+            !typed.contains(' ') &&
+            (typed.startsWith("https://", ignoreCase = true) ||
+                (typed.contains('.') && !typed.startsWith("http://", ignoreCase = true)))
+        if (!looksLikeUrl) return@LaunchedEffect
+        kotlinx.coroutines.delay(250L)
+        val candidateUrl = if (typed.startsWith("https://", ignoreCase = true)) typed else "https://$typed"
+        com.example.engine.BrowserEngineManager.scheduleSpeculativePreload(
+            context = context,
+            rawUrl = candidateUrl,
+            activeWebView = null,
+            allowPrerender = false,
+            isPrivacyBlocked = false,
+            hasRendererCrash = false
+        )
+    }
+
     val homeDensity = LocalDensity.current
     var homeViewportHeightDp by remember { mutableStateOf(640.dp) }
     val moreMenuScrollState = rememberScrollState()

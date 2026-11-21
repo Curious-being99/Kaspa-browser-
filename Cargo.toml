@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = [
+    "kaspasearch-core",
+    "kaspasearch-engine",
+]
+
+[profile.release]
+lto = "thin"
+opt-level = 3
+codegen-units = 1
+strip = "symbols"

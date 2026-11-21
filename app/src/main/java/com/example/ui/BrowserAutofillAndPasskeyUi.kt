@@ -1,6 +1,9 @@
 package com.example.ui
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,8 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,12 +60,20 @@ fun WebAuthnDiagnosticsDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    @Suppress("DEPRECATION")
+    val clipboardManager = LocalClipboardManager.current
     val engineStatus by BrowserEngineManager.engineStatus.collectAsState()
     val webAuthEnabled by viewModel.webAuthEnabled.collectAsState()
     val rpHost = remember(currentUrl) { PasswordVaultRepository.normalizeHost(currentUrl) }
     val isHttpUrl = remember(currentUrl) {
         currentUrl?.startsWith("http://", ignoreCase = true) == true ||
             currentUrl?.startsWith("https://", ignoreCase = true) == true
+    }
+
+    val roleLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        BrowserEngineManager.refreshEngineStatus(context)
     }
 
     LaunchedEffect(Unit) {
@@ -185,6 +198,11 @@ fun WebAuthnDiagnosticsDialog(
                             )
                             HorizontalDivider(color = SurfaceCardBorder.copy(alpha = 0.6f))
                             DiagnosticRow("Browser Core", "${engineStatus.engineName} (${engineStatus.engineArchitecture})")
+                            DiagnosticRow("Package ID", engineStatus.packageName)
+                            DiagnosticRow(
+                                "Default Browser Role",
+                                if (engineStatus.isDefaultBrowserRoleHeld) "ROLE_BROWSER Active" else "Not Default Browser"
+                            )
                             DiagnosticRow("Active RP Origin", rpHost ?: "No active site")
                             DiagnosticRow("WebView Runtime", "${engineStatus.webViewPackage} (${engineStatus.webViewVersion})")
                             DiagnosticRow(
@@ -201,12 +219,45 @@ fun WebAuthnDiagnosticsDialog(
                                 if (engineStatus.hasSetOriginPermission) "SET_ORIGIN Granted" else "Missing SET_ORIGIN"
                             )
                             DiagnosticRow(
+                                "Signing Key Type",
+                                if (engineStatus.isDebugSigned) "DEBUG Key (Not GPM Allowlistable)" else "RELEASE Certificate"
+                            )
+                            DiagnosticRow("Signing SHA-256", engineStatus.signingSha256)
+                            DiagnosticRow(
                                 "BFCache & Ad-Privacy",
-                                "${if (engineStatus.backForwardCacheEnabled) "BFCache On" else "Std Nav"} · ${if (engineStatus.attributionPrivacyDisabled) "Attribution Off" else "Default"}"
+                                "${if (engineStatus.backForwardCacheEnabled) "BFCache On" else "Std Nav"}${if (engineStatus.bfCacheMaxPages > 0) " (${engineStatus.bfCacheMaxPages}p)" else ""} · ${if (engineStatus.attributionPrivacyDisabled) "Attribution Off" else "Default"}"
                             )
                             DiagnosticRow(
-                                "QUIC & Preconnect",
-                                "${engineStatus.quicHintsCount} QUIC hints · ${engineStatus.preconnectCount} preconnects"
+                                "Native Accelerator",
+                                engineStatus.nativeEngineMode
+                            )
+                            DiagnosticRow(
+                                "Pre-Raster & Standby",
+                                "${if (engineStatus.offscreenPreRasterEnabled) "PreRaster On" else "Std Raster"} · ${if (engineStatus.standbyRendererReady) "Standby Warm" else "On-Demand"}${if (engineStatus.speculativeWebSettingsEnabled) " · Speculative Rules On" else ""}"
+                            )
+                            DiagnosticRow(
+                                "First Paint / Commit",
+                                if (engineStatus.lastFirstPaintMs > 0L) {
+                                    "${engineStatus.lastFirstPaintMs} ms (${engineStatus.visualCommitsCount} visual commits)"
+                                } else {
+                                    "Awaiting Page Commit"
+                                }
+                            )
+                            DiagnosticRow(
+                                "W3C Web Vitals",
+                                if (engineStatus.lastTtfbMs > 0L || engineStatus.lastDomInteractiveMs > 0L || engineStatus.lastFcpMs > 0L) {
+                                    "TTFB ${engineStatus.lastTtfbMs}ms · DOM ${engineStatus.lastDomInteractiveMs}ms · FCP ${engineStatus.lastFcpMs}ms"
+                                } else {
+                                    "Load a page to measure"
+                                }
+                            )
+                            DiagnosticRow(
+                                "QUIC & Speculative",
+                                "${engineStatus.quicHintsCount} QUIC · ${engineStatus.preconnectCount} preconnect · ${engineStatus.prefetchAttemptsCount} prefetch · ${engineStatus.prerenderAttemptsCount} prerender"
+                            )
+                            DiagnosticRow(
+                                "Cancel / Evict / Mmap",
+                                "${engineStatus.prerenderCancelledCount} cancelled · ${engineStatus.memoryEvictionsCount} evicted · ${engineStatus.mmapWarmCount} mmap (${engineStatus.manifestWarmCount} manifest)"
                             )
                             DiagnosticRow(
                                 "Stealth Profile",
@@ -223,7 +274,7 @@ fun WebAuthnDiagnosticsDialog(
                                 "${if (engineStatus.supportsDocumentStartScript) "DocStart" else "Std"} · ${if (engineStatus.supportsWebMessageListener) "Origin-Checked" else "Unavailable"}"
                             )
                             DiagnosticRow(
-                                "Custom Tabs Handoff",
+                                "Custom Tabs Provider",
                                 engineStatus.customTabsProvider ?: "System Browser Fallback"
                             )
                         }
@@ -299,6 +350,119 @@ fun WebAuthnDiagnosticsDialog(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = SurfaceCard,
+                        border = BorderStroke(
+                            1.dp,
+                            if (engineStatus.isDebugSigned) AmberCentral.copy(alpha = 0.45f) else ElectricCyan.copy(alpha = 0.45f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Brave / Chrome Passkey Allowlist Setup (${engineStatus.packageName})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (engineStatus.isDebugSigned) AmberCentral else ElectricCyan
+                            )
+                            Text(
+                                text = if (engineStatus.isDebugSigned) {
+                                    "This APK is currently debug-signed. Like Brave Browser, Google Password Manager only unlocks in-tab passkeys once your RELEASE (or Play App Signing) SHA-256 is approved on Google's Privileged Browser Allowlist."
+                                } else {
+                                    "Submit ${engineStatus.packageName} and your release SHA-256 certificate below to Google's Privileged Browser Allowlist form to enable direct in-tab Google Password Manager biometrics just like Brave and Chrome."
+                                },
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                lineHeight = 17.sp
+                            )
+
+                            if (!engineStatus.isDefaultBrowserRoleHeld) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val roleIntent = BrowserEngineManager.createDefaultBrowserRoleIntent(context)
+                                        if (roleIntent != null) {
+                                            runCatching { roleLauncher.launch(roleIntent) }
+                                                .onFailure {
+                                                    Toast.makeText(context, "Open Android Default Apps to set Kazium as browser", Toast.LENGTH_SHORT).show()
+                                                }
+                                        }
+                                    },
+                                    border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.65f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .testTag("passkey_set_default_browser_button")
+                                ) {
+                                    Icon(Icons.Default.Language, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(17.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Set Kazium as Default Browser (ROLE_BROWSER)", color = ElectricCyan, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val payload = BrowserEngineManager.formatAllowlistSubmissionText(engineStatus)
+                                        clipboardManager.setText(AnnotatedString(payload))
+                                        Toast.makeText(context, "Copied ${engineStatus.packageName} + SHA-256", Toast.LENGTH_SHORT).show()
+                                    },
+                                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag("passkey_copy_sha256_button")
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Copy SHA-256", color = TextPrimary, fontSize = 12.sp, maxLines = 1)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        BrowserEngineManager.openInCustomTab(context, BrowserEngineManager.GOOGLE_ALLOWLIST_FORM_URL)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 48.dp)
+                                        .testTag("passkey_google_allowlist_form_button")
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Google Form", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    if (!BrowserEngineManager.openCredentialProviderSettings(context)) {
+                                        Toast.makeText(context, "Open Android Settings > Passwords, passkeys & autofill", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.55f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp)
+                                    .testTag("passkey_android_provider_settings_button")
+                            ) {
+                                Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Android Passkey & Autofill Providers (Bitwarden / 1Password)", color = EmeraldMesh, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = SurfaceCard,
                         border = BorderStroke(1.dp, SurfaceCardBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -319,7 +483,7 @@ fun WebAuthnDiagnosticsDialog(
                                 lineHeight = 17.sp
                             )
                             Text(
-                                text = "2. Google Password Manager Allowlist: Google Play Services restricts GPM cross-origin passkeys to Google-allowlisted release browsers. Use one-tap 'Continue in System Browser Tab' below for Chrome/GPM passkeys.",
+                                text = "2. Google Password Manager Allowlist: Just like Brave Browser, Google Play Services restricts GPM cross-origin passkeys to Google-allowlisted release builds of ${engineStatus.packageName}. Submit your release SHA-256 above for direct in-tab GPM access.",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 lineHeight = 17.sp
@@ -669,6 +833,7 @@ fun PasskeyRecoveryBar(
     event: PasskeyRecoveryEvent,
     matchingPasswordCredentials: List<VaultCredentialEntity>,
     onContinueInCustomTab: () -> Unit,
+    onOpenPasskeySetup: () -> Unit = {},
     onUseSavedPassword: (VaultCredentialEntity) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -676,6 +841,7 @@ fun PasskeyRecoveryBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 10.dp, vertical = 8.dp)
             .testTag("passkey_recovery_bar"),
         shape = RoundedCornerShape(16.dp),
@@ -703,10 +869,12 @@ fun PasskeyRecoveryBar(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Passkey couldn't complete in WebView",
+                        text = "Passkey needs setup for ${event.host}",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = TextPrimary
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = event.reason,
@@ -718,10 +886,10 @@ fun PasskeyRecoveryBar(
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .testTag("passkey_recovery_dismiss_button")
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextMuted, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = TextMuted, modifier = Modifier.size(18.dp))
                 }
             }
             Row(
@@ -730,17 +898,17 @@ fun PasskeyRecoveryBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
-                    onClick = onContinueInCustomTab,
+                    onClick = onOpenPasskeySetup,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = ObsidianBg),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 42.dp)
-                        .testTag("passkey_recovery_custom_tab_button")
+                        .heightIn(min = 48.dp)
+                        .testTag("passkey_recovery_setup_button")
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Use System Browser", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Passkey Setup", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val fallbackCred = matchingPasswordCredentials.firstOrNull { it.hasPassword }
                 if (fallbackCred != null) {
@@ -749,13 +917,25 @@ fun PasskeyRecoveryBar(
                         border = BorderStroke(1.dp, EmeraldMesh.copy(alpha = 0.65f)),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
-                            .heightIn(min = 42.dp)
+                            .heightIn(min = 48.dp)
                             .testTag("passkey_recovery_password_button")
                     ) {
                         Icon(Icons.Default.VpnKey, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(5.dp))
                         Text("Use Password", fontSize = 12.sp, color = EmeraldMesh, maxLines = 1)
                     }
+                }
+                OutlinedButton(
+                    onClick = onContinueInCustomTab,
+                    border = BorderStroke(1.dp, SurfaceCardBorder),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("passkey_recovery_custom_tab_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open in External Tab", tint = TextPrimary, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("External", fontSize = 11.5.sp, color = TextPrimary, maxLines = 1)
                 }
             }
         }

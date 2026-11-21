@@ -488,4 +488,24 @@ pub extern "system" fn Java_com_example_network_KaspaPrivacyRelayEngine_nativeSe
     }
 }
 
+#[no_mangle]
+pub extern "system" fn Java_com_example_engine_KazviewNativeCore_rustEvalSpeculativePreload(
+    mut env: JNIEnv,
+    _class: JClass,
+    url: JString,
+    privacy_relay_or_incognito: jboolean,
+    low_ram_device: jboolean,
+) -> jni::sys::jint {
+    let raw_url: String = match env.get_string(&url) {
+        Ok(s) => s.into(),
+        Err(_) => return kaspasearch_core::api::SpeculativePreloadDecision::SkipInvalidUrl as i32,
+    };
+    kaspasearch_core::api::evaluate_speculative_preload(
+        &raw_url,
+        privacy_relay_or_incognito == JNI_TRUE,
+        low_ram_device == JNI_TRUE,
+    ) as i32
+}
+
+
 

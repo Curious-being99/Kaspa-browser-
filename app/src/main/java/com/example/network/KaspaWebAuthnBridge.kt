@@ -586,7 +586,6 @@ object KaspaWebAuthnBridge {
                                 reason = buildRecoveryReason(e.message ?: nativeError, host)
                             )
                         )
-                        callbacks.onStatusMessage("Passkey unavailable in WebView — System Browser Tab handoff ready")
                     } catch (e: GetCredentialException) {
                         val elapsed = System.currentTimeMillis() - startMs
                         val domName = mapGetDomErrorName(e)
@@ -605,7 +604,6 @@ object KaspaWebAuthnBridge {
                                 )
                             )
                         }
-                        callbacks.onStatusMessage("Passkey could not complete in embedded WebView")
                     } catch (t: Throwable) {
                         Log.w(TAG, "Unexpected getCredential error: ${t.message}")
                         sendCredError(webView, expectedOrigin, replyProxy, callId, t.message ?: "Passkey verification failed", "UnknownError")
@@ -651,14 +649,18 @@ object KaspaWebAuthnBridge {
     }
 
     private fun buildRecoveryReason(rawError: String?, host: String): String {
+        val status = BrowserEngineManager.engineStatus.value
+        val pkg = status.packageName.ifBlank { "org.kaspa.browser" }
         val msg = rawError.orEmpty().lowercase(Locale.ROOT)
         return when {
+            status.isDebugSigned && (msg.contains("no credential") || msg.contains("no passkey") || msg.contains("privileged") || msg.contains("origin")) ->
+                "This debug build of $pkg isn't on Google Password Manager's release allowlist for $host. Open Passkey Setup to configure an Android passkey provider or view your release SHA-256."
             msg.contains("privileged") || msg.contains("assetlink") || msg.contains("origin") || msg.contains("role_browser") ->
-                "Google Password Manager requires privileged browser allowlisting for $host. 3rd-party passkey managers (Bitwarden/1Password) work in-tab, or tap Custom Tab to sign in with Chrome."
+                "Google Password Manager requires $pkg's release SHA-256 on Google's Privileged Browser Allowlist for $host. Open Passkey Setup to copy & submit your SHA-256."
             msg.contains("no credential") || msg.contains("no passkey") ->
-                "No in-tab passkey was returned for $host (Google Password Manager restricts un-allowlisted browsers). Continue in System Browser Tab to use Chrome passkeys."
+                "Google Password Manager blocked cross-origin passkeys for $host because $pkg isn't allowlisted yet. Use Passkey Setup to register $pkg or enable Bitwarden/1Password."
             else ->
-                "Passkey authentication could not complete in embedded WebView. Continue in a System Browser Tab or use a saved password."
+                "Passkey authentication could not complete for $host. Open Passkey Setup for $pkg allowlist details or use a saved password."
         }
     }
 

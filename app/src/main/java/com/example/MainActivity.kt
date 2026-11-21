@@ -62,6 +62,10 @@ class MainActivity : FragmentActivity() {
         Log.w("MainActivity", "Failed to enable WebView debugging: ${e.message}")
       }
       applyInitialWebViewProxyConfig()
+      com.example.engine.BrowserEngineManager.prepareStandbyWebView(
+        applicationContext,
+        viewModel.incognitoMode.value
+      )
     }
 
     enableEdgeToEdge()
@@ -91,6 +95,7 @@ class MainActivity : FragmentActivity() {
       try {
         com.example.network.CronetClientFactory.initialize(applicationContext)
         com.example.network.WebViewAssetLruCache.initialize(applicationContext)
+        com.example.network.OriginAssetManifestStore.initialize(applicationContext)
         com.example.network.KrpRelayDaemon.start()
         if (viewModel.isPrivacyRelayEnabled.value) {
             com.example.network.LightweightTorEngine.start()
@@ -183,9 +188,7 @@ class MainActivity : FragmentActivity() {
   override fun onTrimMemory(level: Int) {
     super.onTrimMemory(level)
     try {
-      if (level >= TRIM_MEMORY_BACKGROUND) {
-        com.example.network.WebViewAssetLruCache.clearCache()
-      }
+      viewModel.trimMemoryUnderPressure(level)
     } catch (_: Exception) {}
   }
 

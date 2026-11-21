@@ -462,6 +462,7 @@ private suspend fun clearCacheOnly(context: Context): Long {
         clearDirectoryContents(context.cacheDir, excludedNames = setOf("WebView", "webview_asset_lru_cache"))
         clearDirectoryContents(context.externalCacheDir, excludedNames = setOf("WebView"))
         runCatching { WebViewAssetLruCache.clearCache() }
+        runCatching { com.example.network.OriginAssetManifestStore.clear() }
         total
     }
     // Delegate HTTP/Code cache clearing to Chromium's own cache backend on the Main thread

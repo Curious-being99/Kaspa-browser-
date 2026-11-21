@@ -9,20 +9,30 @@ option(KAZIUM_WITH_RUST_FFI "Link against compiled kaspasearch Rust wallet FFI l
 set(KAZIUM_WALLET_FFI_LIB "" CACHE FILEPATH "Path to libkaspasearch.so or libkaspasearch.a")
 
 find_package(PkgConfig REQUIRED)
+find_package(Threads REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 pkg_check_modules(WEBKIT REQUIRED webkit2gtk-4.1)
 
+set(KAZVIEW_CPP_SHARED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../app/src/main/cpp")
+
 add_executable(kazview-webkitgtk
     src/main.cpp
+    "${KAZVIEW_CPP_SHARED_DIR}/kazview_native_core.cpp"
 )
 
 target_include_directories(kazview-webkitgtk PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    "${KAZVIEW_CPP_SHARED_DIR}"
     ${GTK3_INCLUDE_DIRS}
     ${WEBKIT_INCLUDE_DIRS}
 )
 
+target_compile_definitions(kazview-webkitgtk PRIVATE
+    KAZVIEW_SKIP_ANDROID_JNI=1
+)
+
 target_link_libraries(kazview-webkitgtk PRIVATE
+    Threads::Threads
     ${GTK3_LIBRARIES}
     ${WEBKIT_LIBRARIES}
 )

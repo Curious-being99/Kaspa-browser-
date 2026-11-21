@@ -2,6 +2,12 @@ import Foundation
 import SwiftUI
 import Combine
 
+enum WebNavigationAction: Equatable {
+    case goBack(tabId: UUID, nonce: UUID)
+    case goForward(tabId: UUID, nonce: UUID)
+    case reload(tabId: UUID, nonce: UUID)
+}
+
 /// Model representing a browser tab in Kazium iOS
 struct BrowserTab: Identifiable, Equatable {
     let id: UUID
@@ -11,6 +17,7 @@ struct BrowserTab: Identifiable, Equatable {
     var canGoBack: Bool
     var canGoForward: Bool
     var isLoading: Bool
+    var estimatedProgress: Double
 
     init(
         id: UUID = UUID(),
@@ -25,13 +32,15 @@ struct BrowserTab: Identifiable, Equatable {
         self.canGoBack = false
         self.canGoForward = false
         self.isLoading = false
+        self.estimatedProgress = 0.0
     }
 
     static func == (lhs: BrowserTab, rhs: BrowserTab) -> Bool {
         lhs.id == rhs.id &&
         lhs.urlString == rhs.urlString &&
         lhs.title == rhs.title &&
-        lhs.isDesktopMode == rhs.isDesktopMode
+        lhs.isDesktopMode == rhs.isDesktopMode &&
+        lhs.estimatedProgress == rhs.estimatedProgress
     }
 }
 
@@ -40,6 +49,7 @@ class TabManager: ObservableObject {
     @Published var tabs: [BrowserTab] = []
     @Published var activeTabId: UUID = UUID()
     @Published var isTabSwitcherPresented: Bool = false
+    @Published var pendingNavAction: WebNavigationAction? = nil
 
     init() {
         let initialTab = BrowserTab()
@@ -61,6 +71,18 @@ class TabManager: ObservableObject {
                 }
             }
         )
+    }
+
+    func goBackActiveTab() {
+        pendingNavAction = .goBack(tabId: activeTabId, nonce: UUID())
+    }
+
+    func goForwardActiveTab() {
+        pendingNavAction = .goForward(tabId: activeTabId, nonce: UUID())
+    }
+
+    func reloadActiveTab() {
+        pendingNavAction = .reload(tabId: activeTabId, nonce: UUID())
     }
 
     func addNewTab(url: String = "https://kaspa.org", isDesktop: Bool = false) {

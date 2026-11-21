@@ -135,6 +135,17 @@ android {
       jniLibs.srcDirs("src/main/jniLibs", "build/rustJniLibs")
     }
   }
+  val sdkRootPath = System.getenv("ANDROID_SDK_ROOT") ?: System.getenv("ANDROID_HOME")
+  val hasNdkToolchain = !sdkRootPath.isNullOrBlank() &&
+      file("$sdkRootPath/ndk").listFiles()?.isNotEmpty() == true &&
+      file("$sdkRootPath/cmake").listFiles()?.isNotEmpty() == true
+  if (hasNdkToolchain) {
+    externalNativeBuild {
+      cmake {
+        path = file("src/main/cpp/CMakeLists.txt")
+      }
+    }
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true

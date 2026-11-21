@@ -65,21 +65,60 @@ object KaspaWebViewConfigurator {
     }
 
     /**
-     * Applies Kazview's native WebKit & WebKitGTK enhancements (Back-Forward Cache for instant
-     * back/forward navigation and Privacy Sandbox Attribution Reporting suppression) safely
-     * behind WebViewFeature checks.
+     * Applies Kazview's native WebKit & Chromium WebSettings enhancements:
+     * - Back-Forward Cache + tuned 6-page/300s capacity with forward entry retention
+     * - Speculative loading prerender support behind capability checks
+     * - Offscreen pre-rastering for smooth first scroll frames
+     * - Privacy Sandbox Attribution Reporting & Requested-With suppression
      */
     @SuppressLint("RestrictedApi")
+    @androidx.annotation.OptIn(
+        WebSettingsCompat.ExperimentalBackForwardCacheSettings::class,
+        WebSettingsCompat.ExperimentalSpeculativeLoading::class
+    )
     fun applyKazviewSettings(settings: WebSettings) {
         var bfCache = false
+        var bfMaxPages = 0
+        var speculativeEnabled = false
         var attributionDisabled = false
+        var offscreenPreRasterEnabled = false
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE)) {
                 WebSettingsCompat.setBackForwardCacheEnabled(settings, true)
                 bfCache = runCatching { WebSettingsCompat.getBackForwardCacheEnabled(settings) }.getOrDefault(true)
             }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.BACK_FORWARD_CACHE_SETTINGS)) {
+                val bfSettings = WebSettingsCompat.getBackForwardCacheSettings(settings)
+                bfSettings.setMaxPagesInCache(6)
+                bfSettings.setTimeoutSeconds(300L)
+                runCatching { bfSettings.setKeepForwardEntriesEnabled(true) }
+                bfMaxPages = runCatching { bfSettings.getMaxPagesInCache() }.getOrDefault(6)
+                bfCache = true
+            }
         } catch (t: Throwable) {
             Log.d(TAG, "BFCache setup notice: ${t.message}")
+        }
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.SPECULATIVE_LOADING)) {
+                WebSettingsCompat.setSpeculativeLoadingStatus(
+                    settings,
+                    WebSettingsCompat.SPECULATIVE_LOADING_PRERENDER_ENABLED
+                )
+                speculativeEnabled = runCatching {
+                    WebSettingsCompat.getSpeculativeLoadingStatus(settings) ==
+                        WebSettingsCompat.SPECULATIVE_LOADING_PRERENDER_ENABLED
+                }.getOrDefault(true)
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "Speculative WebSettings setup notice: ${t.message}")
+        }
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.OFF_SCREEN_PRERASTER)) {
+                WebSettingsCompat.setOffscreenPreRaster(settings, true)
+                offscreenPreRasterEnabled = true
+            }
+        } catch (t: Throwable) {
+            Log.d(TAG, "Offscreen pre-raster setup notice: ${t.message}")
         }
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.ATTRIBUTION_REGISTRATION_BEHAVIOR)) {
@@ -102,7 +141,10 @@ object KaspaWebViewConfigurator {
         }
         BrowserEngineManager.recordWebSettingsApplied(
             bfCacheEnabled = bfCache,
-            attributionDisabled = attributionDisabled
+            attributionDisabled = attributionDisabled,
+            offscreenPreRasterEnabled = offscreenPreRasterEnabled,
+            bfCacheMaxPages = bfMaxPages,
+            speculativeWebSettingsEnabled = speculativeEnabled
         )
     }
 
@@ -226,7 +268,6 @@ object KaspaWebViewConfigurator {
             loadsImagesAutomatically = true
             blockNetworkImage = false
             blockNetworkLoads = false
-            offscreenPreRaster = false
 
             // Web Platform Parity: Compatibility mode allows secure webapps and modern PWAs to render seamlessly
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
