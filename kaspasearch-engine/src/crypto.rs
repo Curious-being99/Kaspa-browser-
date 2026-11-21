@@ -307,7 +307,8 @@ pub fn x25519_diffie_hellman(priv_key: &[u8; 32], pub_key: &[u8; 32]) -> [u8; 32
 
         sub_16(&mut z3, &e_fe, &f);
         sqr_16(&mut z3);
-        mul_16(&mut z3, &z3, &x1);
+        let z3_input = z3;
+        mul_16(&mut z3, &z3_input, &x1);
 
         sqr_16(&mut a);
         sqr_16(&mut b);
@@ -315,7 +316,8 @@ pub fn x25519_diffie_hellman(priv_key: &[u8; 32], pub_key: &[u8; 32]) -> [u8; 32
 
         sub_16(&mut e_fe, &a, &b);
         mul_a24_16(&mut a, &e_fe);
-        add_16(&mut a, &a, &b);
+        let a_input = a;
+        add_16(&mut a, &a_input, &b);
         mul_16(&mut z2, &e_fe, &a);
     }
 
@@ -323,7 +325,8 @@ pub fn x25519_diffie_hellman(priv_key: &[u8; 32], pub_key: &[u8; 32]) -> [u8; 32
     cswap_16(&mut z2, &mut z3, swap);
 
     recip_16(&mut z2);
-    mul_16(&mut x2, &x2, &z2);
+    let x2_input = x2;
+    mul_16(&mut x2, &x2_input, &z2);
 
     let mut out = [0u8; 32];
     pack_16(&mut out, &x2);
@@ -414,7 +417,8 @@ fn recip_16(o: &mut [i64; 16]) {
     for i in (0..254).rev() {
         sqr_16(&mut z);
         if i != 2 && i != 4 {
-            mul_16(&mut z, &z, o);
+            let z_input = z;
+            mul_16(&mut z, &z_input, o);
         }
     }
     for i in 0..16 {
@@ -534,7 +538,7 @@ pub fn chacha20_block(key: &[u8; 32], counter: u32, nonce: &[u8; 12]) -> [u8; 64
 
 pub fn chacha20_encrypt_decrypt(key: &[u8; 32], initial_counter: u32, nonce: &[u8; 12], input: &[u8]) -> Vec<u8> {
     let mut output = vec![0u8; input.len()];
-    let mut counter = initial_counter;
+    let counter = initial_counter;
 
     for (i, chunk) in input.chunks(64).enumerate() {
         let key_stream = chacha20_block(key, counter + (i as u32), nonce);
@@ -589,10 +593,10 @@ pub fn poly1305_mac(key: &[u8; 32], message: &[u8]) -> [u8; 16] {
     h[0] &= 0x03ffffffffffffff;
     h[2] &= 0x0001ffffffffffff;
 
-    let mac0 = (h[0] & 0xffffffff) + s0;
-    let mac1 = ((h[0] >> 32) & 0xffffffff) + s1 + (mac0 >> 32);
-    let mac2 = (h[1] & 0xffffffff) + s2 + (mac1 >> 32);
-    let mac3 = ((h[1] >> 32) & 0xffffffff) + s3 + (mac2 >> 32);
+    let mac0 = (h[0] & 0xffffffff) + (s0 as u128);
+    let mac1 = ((h[0] >> 32) & 0xffffffff) + (s1 as u128) + (mac0 >> 32);
+    let mac2 = (h[1] & 0xffffffff) + (s2 as u128) + (mac1 >> 32);
+    let mac3 = ((h[1] >> 32) & 0xffffffff) + (s3 as u128) + (mac2 >> 32);
 
     let mut tag = [0u8; 16];
     tag[0..4].copy_from_slice(&(mac0 as u32).to_le_bytes());
