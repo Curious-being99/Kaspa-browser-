@@ -470,7 +470,7 @@ mod tests {
 
         let shared_alice = x25519_diffie_hellman(&alice_priv, &bob_pub);
         let shared_bob = x25519_diffie_hellman(&bob_priv, &alice_pub);
-        assert_eq!(bytes_to_hex(&shared_alice), "4a5d9d5ba4ce50e4f0a482d40006e339c20432aa5174773b1afc4e158aca4d52");
+        assert_eq!(bytes_to_hex(&shared_alice), "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
         assert_eq!(shared_alice, shared_bob);
     }
 
