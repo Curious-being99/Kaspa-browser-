@@ -4,7 +4,7 @@ use std::os::raw::{c_char, c_int};
 pub const WALLET_BRIDGE_VERSION: u32 = 1;
 
 // SAFETY: The C caller must provide a valid, readable, NUL-terminated string pointer.
-unsafe fn read_ffi_string<'a>(ptr: *const c_char) -> Option<&'a str> {
+fn read_ffi_string<'a>(ptr: *const c_char) -> Option<&'a str> {
     if ptr.is_null() {
         return None;
     }
@@ -13,7 +13,7 @@ unsafe fn read_ffi_string<'a>(ptr: *const c_char) -> Option<&'a str> {
 }
 
 // SAFETY: Caller must provide a writable buffer of at least capacity bytes.
-unsafe fn write_ffi_string(out_buf: *mut c_char, capacity: usize, value: &str) -> Option<c_int> {
+fn write_ffi_string(out_buf: *mut c_char, capacity: usize, value: &str) -> Option<c_int> {
     let bytes = value.as_bytes();
     if out_buf.is_null() || capacity == 0 || bytes.len() >= capacity || bytes.len() > c_int::MAX as usize {
         return None;
@@ -32,7 +32,7 @@ unsafe fn write_ffi_string(out_buf: *mut c_char, capacity: usize, value: &str) -
 /// address_ptr must be null or point to a readable, NUL-terminated C string.
 #[no_mangle]
 pub extern "C" fn kaspa_wallet_validate_address(address_ptr: *const c_char) -> c_int {
-    let addr = match unsafe { read_ffi_string(address_ptr) } {
+    let addr = match read_ffi_string(address_ptr) {
         Some(s) => s.trim(),
         None => return 0,
     };
@@ -63,15 +63,15 @@ pub extern "C" fn kaspa_wallet_build_kcc20_payload(
     out_buf: *mut c_char,
     out_len: usize,
 ) -> c_int {
-    let symbol = match unsafe { read_ffi_string(symbol_ptr) } {
+    let symbol = match read_ffi_string(symbol_ptr) {
         Some(s) => s.trim().to_uppercase(),
         None => return -1,
     };
-    let amount = match unsafe { read_ffi_string(amount_ptr) } {
+    let amount = match read_ffi_string(amount_ptr) {
         Some(s) => s.trim(),
         None => return -1,
     };
-    let recipient = match unsafe { read_ffi_string(recipient_ptr) } {
+    let recipient = match read_ffi_string(recipient_ptr) {
         Some(s) => s.trim(),
         None => return -1,
     };
@@ -84,7 +84,7 @@ pub extern "C" fn kaspa_wallet_build_kcc20_payload(
         "to": recipient
     }).to_string();
 
-    match unsafe { write_ffi_string(out_buf, out_len, &payload) } {
+    match write_ffi_string(out_buf, out_len, &payload) {
         Some(written) => written,
         None => -1,
     }
@@ -103,7 +103,7 @@ pub extern "C" fn kaspa_wallet_format_sompi(
     let rem = amount_sompi % 100_000_000;
     let formatted = format!("{}.{:08}", kas, rem);
 
-    match unsafe { write_ffi_string(out_buf, out_len, &formatted) } {
+    match write_ffi_string(out_buf, out_len, &formatted) {
         Some(written) => written,
         None => -1,
     }
