@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 
 pub const WALLET_BRIDGE_VERSION: u32 = 1;
@@ -114,6 +114,7 @@ pub extern "C" fn kaspa_wallet_version() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn test_validate_address() {
