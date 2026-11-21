@@ -22,6 +22,4 @@ scraper = "0.19"
 url = "2.5"
 regex = "1.10"
 urlencoding = "2.1"
-x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
-poly1305 = "0.8.0"
 html5ever = "0.27"
