@@ -381,60 +381,11 @@ pub fn chacha20_encrypt_decrypt(key: &[u8; 32], initial_counter: u32, nonce: &[u
 }
 
 pub fn poly1305_mac(key: &[u8; 32], message: &[u8]) -> [u8; 16] {
-    let r_bytes = &key[0..16];
-    let s_bytes = &key[16..32];
+    use poly1305::{Poly1305, universal_hash::{KeyInit, UniversalHash}};
 
-    let mut r = [0u64; 3];
-    r[0] = (u32::from_le_bytes([r_bytes[0], r_bytes[1], r_bytes[2], r_bytes[3]]) & 0x0fffffff) as u64;
-    r[1] = (u32::from_le_bytes([r_bytes[4], r_bytes[5], r_bytes[6], r_bytes[7]]) & 0x0ffffffc) as u64;
-    r[2] = (u32::from_le_bytes([r_bytes[8], r_bytes[9], r_bytes[10], r_bytes[11]]) & 0x0ffffffc) as u64;
-
-    let s0 = u64::from(u32::from_le_bytes([s_bytes[0], s_bytes[1], s_bytes[2], s_bytes[3]]));
-    let s1 = u64::from(u32::from_le_bytes([s_bytes[4], s_bytes[5], s_bytes[6], s_bytes[7]]));
-    let s2 = u64::from(u32::from_le_bytes([s_bytes[8], s_bytes[9], s_bytes[10], s_bytes[11]]));
-    let s3 = u64::from(u32::from_le_bytes([s_bytes[12], s_bytes[13], s_bytes[14], s_bytes[15]]));
-
-    let mut h = [0u128; 3];
-
-    for chunk in message.chunks(16) {
-        let mut block = [0u8; 17];
-        block[..chunk.len()].copy_from_slice(chunk);
-        block[chunk.len()] = 0x01;
-
-        let c0 = u32::from_le_bytes([block[0], block[1], block[2], block[3]]) as u128;
-        let c1 = u32::from_le_bytes([block[4], block[5], block[6], block[7]]) as u128;
-        let c2 = u32::from_le_bytes([block[8], block[9], block[10], block[11]]) as u128;
-
-        h[0] += c0;
-        h[1] += c1;
-        h[2] += c2;
-
-        let d0 = h[0] * (r[0] as u128) + h[1] * ((r[2] as u128) * 5) + h[2] * ((r[1] as u128) * 5);
-        let d1 = h[0] * (r[1] as u128) + h[1] * (r[0] as u128) + h[2] * ((r[2] as u128) * 5);
-        let d2 = h[0] * (r[2] as u128) + h[1] * (r[1] as u128) + h[2] * (r[0] as u128);
-
-        h[0] = d0 & 0x03ffffffffffffff;
-        h[1] = (d1 + (d0 >> 58)) & 0x03ffffffffffffff;
-        h[2] = d2 + (d1 >> 58);
-    }
-
-    let mask = h[2] >> 56;
-    h[0] += mask * 5;
-    h[1] += h[0] >> 58;
-    h[0] &= 0x03ffffffffffffff;
-    h[2] &= 0x0001ffffffffffff;
-
-    let mac0 = (h[0] & 0xffffffff) + (s0 as u128);
-    let mac1 = ((h[0] >> 32) & 0xffffffff) + (s1 as u128) + (mac0 >> 32);
-    let mac2 = (h[1] & 0xffffffff) + (s2 as u128) + (mac1 >> 32);
-    let mac3 = ((h[1] >> 32) & 0xffffffff) + (s3 as u128) + (mac2 >> 32);
-
-    let mut tag = [0u8; 16];
-    tag[0..4].copy_from_slice(&(mac0 as u32).to_le_bytes());
-    tag[4..8].copy_from_slice(&(mac1 as u32).to_le_bytes());
-    tag[8..12].copy_from_slice(&(mac2 as u32).to_le_bytes());
-    tag[12..16].copy_from_slice(&(mac3 as u32).to_le_bytes());
-    tag
+    let mut mac = Poly1305::new(key.into());
+    mac.update_padded(message);
+    mac.finalize().into()
 }
 
 pub fn chacha20_poly1305_encrypt(
@@ -443,26 +394,15 @@ pub fn chacha20_poly1305_encrypt(
     plaintext: &[u8],
     aad: &[u8],
 ) -> (Vec<u8>, [u8; 16]) {
-    let poly_key_block = chacha20_block(key, 0, nonce);
-    let mut poly_key = [0u8; 32];
-    poly_key.copy_from_slice(&poly_key_block[..32]);
+    use chacha20poly1305::{ChaCha20Poly1305, Nonce, Payload, aead::{Aead, KeyInit}};
 
-    let ciphertext = chacha20_encrypt_decrypt(key, 1, nonce, plaintext);
-
-    let mut mac_data = Vec::new();
-    mac_data.extend_from_slice(aad);
-    if aad.len() % 16 != 0 {
-        mac_data.resize(mac_data.len() + (16 - (aad.len() % 16)), 0);
-    }
-    mac_data.extend_from_slice(&ciphertext);
-    if ciphertext.len() % 16 != 0 {
-        mac_data.resize(mac_data.len() + (16 - (ciphertext.len() % 16)), 0);
-    }
-    mac_data.extend_from_slice(&(aad.len() as u64).to_le_bytes());
-    mac_data.extend_from_slice(&(ciphertext.len() as u64).to_le_bytes());
-
-    let tag = poly1305_mac(&poly_key, &mac_data);
-    (ciphertext, tag)
+    let cipher = ChaCha20Poly1305::new(key.into());
+    let mut output = cipher.encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
+        .expect("ChaCha20-Poly1305 encryption should not fail for valid inputs");
+    let tag_start = output.len() - 16;
+    let tag: [u8; 16] = output[tag_start..].try_into().expect("AEAD tag is 16 bytes");
+    output.truncate(tag_start);
+    (output, tag)
 }
 
 pub fn chacha20_poly1305_decrypt(
@@ -472,35 +412,14 @@ pub fn chacha20_poly1305_decrypt(
     tag: &[u8; 16],
     aad: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    let poly_key_block = chacha20_block(key, 0, nonce);
-    let mut poly_key = [0u8; 32];
-    poly_key.copy_from_slice(&poly_key_block[..32]);
+    use chacha20poly1305::{ChaCha20Poly1305, Nonce, aead::{Aead, KeyInit}};
 
-    let mut mac_data = Vec::new();
-    mac_data.extend_from_slice(aad);
-    if aad.len() % 16 != 0 {
-        mac_data.resize(mac_data.len() + (16 - (aad.len() % 16)), 0);
-    }
-    mac_data.extend_from_slice(ciphertext);
-    if ciphertext.len() % 16 != 0 {
-        mac_data.resize(mac_data.len() + (16 - (ciphertext.len() % 16)), 0);
-    }
-    mac_data.extend_from_slice(&(aad.len() as u64).to_le_bytes());
-    mac_data.extend_from_slice(&(ciphertext.len() as u64).to_le_bytes());
-
-    let expected_tag = poly1305_mac(&poly_key, &mac_data);
-
-    let mut diff = 0u8;
-    for i in 0..16 {
-        diff |= tag[i] ^ expected_tag[i];
-    }
-
-    if diff != 0 {
-        return Err("Poly1305 Authentication Tag Verification Failed - Ciphertext Damaged or Tampered");
-    }
-
-    let plaintext = chacha20_encrypt_decrypt(key, 1, nonce, ciphertext);
-    Ok(plaintext)
+    let cipher = ChaCha20Poly1305::new(key.into());
+    let mut authenticated = Vec::with_capacity(ciphertext.len() + tag.len());
+    authenticated.extend_from_slice(ciphertext);
+    authenticated.extend_from_slice(tag);
+    cipher.decrypt(Nonce::from_slice(nonce), authenticated.as_ref())
+        .map_err(|_| "Poly1305 Authentication Tag Verification Failed - Ciphertext Damaged or Tampered")
 }
 
 #[cfg(test)]
