@@ -13,7 +13,7 @@ find_package(Threads REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 pkg_check_modules(WEBKIT REQUIRED webkit2gtk-4.1)
 
-set(KAZVIEW_CPP_SHARED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../app/src/main/cpp")
+set(KAZVIEW_CPP_SHARED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../app/src/main/cpp")
 
 add_executable(kazview-webkitgtk
     src/main.cpp
