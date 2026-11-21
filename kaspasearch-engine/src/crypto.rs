@@ -412,7 +412,7 @@ pub fn chacha20_poly1305_decrypt(
     tag: &[u8; 16],
     aad: &[u8],
 ) -> Result<Vec<u8>, &'static str> {
-    use chacha20poly1305::{ChaCha20Poly1305, Nonce, aead::{Aead, KeyInit}};
+    use chacha20poly1305::{ChaCha20Poly1305, Nonce, aead::{Aead, KeyInit, Payload}};
 
     let cipher = ChaCha20Poly1305::new(key.into());
     let mut authenticated = Vec::with_capacity(ciphertext.len() + tag.len());
