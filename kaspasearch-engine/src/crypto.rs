@@ -239,191 +239,22 @@ pub fn generate_nonce_96() -> [u8; 12] {
 // ============================================================================
 
 pub fn generate_x25519_keypair() -> ([u8; 32], [u8; 32]) {
+    use x25519_dalek::{PublicKey, StaticSecret};
+
     let mut priv_key = [0u8; 32];
     fill_csprng_bytes(&mut priv_key);
-
-    priv_key[0] &= 248;
-    priv_key[31] &= 127;
-    priv_key[31] |= 64;
-
-    let base_point = [
-        9u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ];
-    let pub_key = x25519_diffie_hellman(&priv_key, &base_point);
-    (priv_key, pub_key)
+    let secret = StaticSecret::from(priv_key);
+    let public = PublicKey::from(&secret);
+    (priv_key, public.to_bytes())
 }
 
-/// Computes X25519 shared secret S = scalar * point on Montgomery curve Curve25519 (RFC 7748)
+/// Computes X25519 shared secret S = scalar * point (RFC 7748).
 pub fn x25519_diffie_hellman(priv_key: &[u8; 32], pub_key: &[u8; 32]) -> [u8; 32] {
-    let mut e = *priv_key;
-    e[0] &= 248;
-    e[31] &= 127;
-    e[31] |= 64;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
-    let mut x1 = [0i64; 16];
-    let mut x2 = [0i64; 16];
-    let mut z2 = [0i64; 16];
-    let mut x3 = [0i64; 16];
-    let mut z3 = [0i64; 16];
-    let mut a = [0i64; 16];
-    let mut b = [0i64; 16];
-    let mut c = [0i64; 16];
-    let mut d = [0i64; 16];
-    let mut e_fe = [0i64; 16];
-    let mut f = [0i64; 16];
-
-    for i in 0..32 {
-        x1[i / 2] |= (pub_key[i] as i64) << ((i & 1) * 8);
-    }
-
-    x2[0] = 1;
-    for i in 0..16 {
-        x3[i] = x1[i];
-    }
-    z3[0] = 1;
-
-    let mut bit: i64;
-    let mut swap = 0i64;
-
-    for i in (0..256).rev() {
-        bit = ((e[i >> 3] >> (i & 7)) & 1) as i64;
-        swap ^= bit;
-
-        cswap_16(&mut x2, &mut x3, swap);
-        cswap_16(&mut z2, &mut z3, swap);
-        swap = bit;
-
-        add_16(&mut a, &x2, &z2);
-        sub_16(&mut b, &x2, &z2);
-        add_16(&mut c, &x3, &z3);
-        sub_16(&mut d, &x3, &z3);
-
-        mul_16(&mut e_fe, &a, &d);
-        mul_16(&mut f, &b, &c);
-
-        add_16(&mut x3, &e_fe, &f);
-        sqr_16(&mut x3);
-
-        sub_16(&mut z3, &e_fe, &f);
-        sqr_16(&mut z3);
-        let z3_input = z3;
-        mul_16(&mut z3, &z3_input, &x1);
-
-        sqr_16(&mut a);
-        sqr_16(&mut b);
-        mul_16(&mut x2, &a, &b);
-
-        sub_16(&mut e_fe, &a, &b);
-        mul_a24_16(&mut a, &e_fe);
-        let a_input = a;
-        add_16(&mut a, &a_input, &b);
-        mul_16(&mut z2, &e_fe, &a);
-    }
-
-    cswap_16(&mut x2, &mut x3, swap);
-    cswap_16(&mut z2, &mut z3, swap);
-
-    recip_16(&mut z2);
-    let x2_input = x2;
-    mul_16(&mut x2, &x2_input, &z2);
-
-    let mut out = [0u8; 32];
-    pack_16(&mut out, &x2);
-    out
-}
-
-fn add_16(o: &mut [i64; 16], a: &[i64; 16], b: &[i64; 16]) {
-    for i in 0..16 {
-        o[i] = a[i] + b[i];
-    }
-}
-
-fn sub_16(o: &mut [i64; 16], a: &[i64; 16], b: &[i64; 16]) {
-    for i in 0..16 {
-        o[i] = a[i] - b[i];
-    }
-}
-
-fn cswap_16(a: &mut [i64; 16], b: &mut [i64; 16], swap: i64) {
-    let mask = -swap;
-    for i in 0..16 {
-        let x = mask & (a[i] ^ b[i]);
-        a[i] ^= x;
-        b[i] ^= x;
-    }
-}
-
-fn mul_16(o: &mut [i64; 16], a: &[i64; 16], b: &[i64; 16]) {
-    let mut t = [0i64; 31];
-    for i in 0..16 {
-        for j in 0..16 {
-            t[i + j] += a[i] * b[j];
-        }
-    }
-    for i in 0..15 {
-        t[i] += t[i + 16] * 38;
-    }
-
-    let mut c: i64;
-    for i in 0..16 {
-        c = t[i] >> 16;
-        t[i] &= 0xffff;
-        t[(i + 1) % 16] += if i == 15 { c * 38 } else { c };
-    }
-    for i in 0..16 {
-        o[i] = t[i];
-    }
-}
-
-fn sqr_16(o: &mut [i64; 16]) {
-    let a = *o;
-    mul_16(o, &a, &a);
-}
-
-fn mul_a24_16(o: &mut [i64; 16], a: &[i64; 16]) {
-    let mut t = [0i64; 16];
-    for i in 0..16 {
-        t[i] = a[i] * 121665;
-    }
-    let mut c: i64;
-    for i in 0..16 {
-        c = t[i] >> 16;
-        t[i] &= 0xffff;
-        t[(i + 1) % 16] += if i == 15 { c * 38 } else { c };
-    }
-    for i in 0..16 {
-        o[i] = t[i];
-    }
-}
-
-fn pack_16(o: &mut [u8; 32], a: &[i64; 16]) {
-    let mut t = *a;
-    for _ in 0..2 {
-        let mut c: i64;
-        for i in 0..16 {
-            c = t[i] >> 16;
-            t[i] &= 0xffff;
-            t[(i + 1) % 16] += if i == 15 { c * 38 } else { c };
-        }
-    }
-    for i in 0..32 {
-        o[i] = ((t[i / 2] >> ((i & 1) * 8)) & 0xff) as u8;
-    }
-}
-
-fn recip_16(o: &mut [i64; 16]) {
-    let mut z = *o;
-    for i in (0..254).rev() {
-        sqr_16(&mut z);
-        if i != 2 && i != 4 {
-            let z_input = z;
-            mul_16(&mut z, &z_input, o);
-        }
-    }
-    for i in 0..16 {
-        o[i] = z[i];
-    }
+    let secret = StaticSecret::from(*priv_key);
+    let public = PublicKey::from(*pub_key);
+    secret.diffie_hellman(&public).to_bytes()
 }
 
 // ============================================================================
