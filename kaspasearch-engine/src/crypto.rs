@@ -394,7 +394,7 @@ pub fn chacha20_poly1305_encrypt(
     plaintext: &[u8],
     aad: &[u8],
 ) -> (Vec<u8>, [u8; 16]) {
-    use chacha20poly1305::{ChaCha20Poly1305, Nonce, Payload, aead::{Aead, KeyInit}};
+    use chacha20poly1305::{ChaCha20Poly1305, Nonce, aead::{Aead, KeyInit, Payload}};
 
     let cipher = ChaCha20Poly1305::new(key.into());
     let mut output = cipher.encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
@@ -418,7 +418,7 @@ pub fn chacha20_poly1305_decrypt(
     let mut authenticated = Vec::with_capacity(ciphertext.len() + tag.len());
     authenticated.extend_from_slice(ciphertext);
     authenticated.extend_from_slice(tag);
-    cipher.decrypt(Nonce::from_slice(nonce), authenticated.as_ref())
+    cipher.decrypt(Nonce::from_slice(nonce), Payload { msg: &authenticated, aad })
         .map_err(|_| "Poly1305 Authentication Tag Verification Failed - Ciphertext Damaged or Tampered")
 }
 
