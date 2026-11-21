@@ -3,24 +3,45 @@ use std::os::raw::{c_char, c_int};
 
 pub const WALLET_BRIDGE_VERSION: u32 = 1;
 
+// SAFETY: The C caller must provide a valid, readable, NUL-terminated string pointer.
+unsafe fn read_ffi_string<'a>(ptr: *const c_char) -> Option<&'a str> {
+    if ptr.is_null() {
+        return None;
+    }
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- required C ABI pointer read; caller contract documented above
+    unsafe { CStr::from_ptr(ptr) }.to_str().ok()
+}
+
+// SAFETY: Caller must provide a writable buffer of at least capacity bytes.
+unsafe fn write_ffi_string(out_buf: *mut c_char, capacity: usize, value: &str) -> Option<c_int> {
+    let bytes = value.as_bytes();
+    if out_buf.is_null() || capacity == 0 || bytes.len() >= capacity || bytes.len() > c_int::MAX as usize {
+        return None;
+    }
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- required C ABI buffer write; caller must supply capacity-sized writable storage
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_buf.cast::<u8>(), bytes.len());
+        *out_buf.add(bytes.len()) = 0;
+    }
+    Some(bytes.len() as c_int)
+}
+
 /// Validates whether a given address string is a syntactically valid Kaspa address.
 /// Returns 1 if valid, 0 if invalid.
+/// # Safety
+/// address_ptr must be null or point to a readable, NUL-terminated C string.
 #[no_mangle]
 pub extern "C" fn kaspa_wallet_validate_address(address_ptr: *const c_char) -> c_int {
-    if address_ptr.is_null() {
-        return 0;
-    }
-    let c_str = unsafe { CStr::from_ptr(address_ptr) };
-    let addr = match c_str.to_str() {
-        Ok(s) => s.trim(),
-        Err(_) => return 0,
+    let addr = match unsafe { read_ffi_string(address_ptr) } {
+        Some(s) => s.trim(),
+        None => return 0,
     };
 
     if addr.len() < 61 || addr.len() > 70 {
         return 0;
     }
 
-    if addr.starts_with("kaspa:") || addr.starts_with("kaspatest:") || 
+    if addr.starts_with("kaspa:") || addr.starts_with("kaspatest:") ||
        addr.starts_with("kaspadev:") || addr.starts_with("kaspasim:") {
         1
     } else {
@@ -31,6 +52,9 @@ pub extern "C" fn kaspa_wallet_validate_address(address_ptr: *const c_char) -> c
 /// Builds a standard KCC-20 covenant transfer payload.
 /// Writes result into out_buf (up to out_len bytes).
 /// Returns number of bytes written, or -1 on error.
+/// # Safety
+/// Each input pointer must be null or point to a readable, NUL-terminated C string.
+/// out_buf must be null or point to out_len writable bytes.
 #[no_mangle]
 pub extern "C" fn kaspa_wallet_build_kcc20_payload(
     symbol_ptr: *const c_char,
@@ -39,21 +63,17 @@ pub extern "C" fn kaspa_wallet_build_kcc20_payload(
     out_buf: *mut c_char,
     out_len: usize,
 ) -> c_int {
-    if symbol_ptr.is_null() || amount_ptr.is_null() || recipient_ptr.is_null() || out_buf.is_null() || out_len == 0 {
-        return -1;
-    }
-
-    let symbol = match unsafe { CStr::from_ptr(symbol_ptr) }.to_str() {
-        Ok(s) => s.trim().to_uppercase(),
-        Err(_) => return -1,
+    let symbol = match unsafe { read_ffi_string(symbol_ptr) } {
+        Some(s) => s.trim().to_uppercase(),
+        None => return -1,
     };
-    let amount = match unsafe { CStr::from_ptr(amount_ptr) }.to_str() {
-        Ok(s) => s.trim(),
-        Err(_) => return -1,
+    let amount = match unsafe { read_ffi_string(amount_ptr) } {
+        Some(s) => s.trim(),
+        None => return -1,
     };
-    let recipient = match unsafe { CStr::from_ptr(recipient_ptr) }.to_str() {
-        Ok(s) => s.trim(),
-        Err(_) => return -1,
+    let recipient = match unsafe { read_ffi_string(recipient_ptr) } {
+        Some(s) => s.trim(),
+        None => return -1,
     };
 
     let payload = serde_json::json!({
@@ -64,45 +84,29 @@ pub extern "C" fn kaspa_wallet_build_kcc20_payload(
         "to": recipient
     }).to_string();
 
-    let bytes = payload.as_bytes();
-    if bytes.len() >= out_len {
-        return -1;
+    match unsafe { write_ffi_string(out_buf, out_len, &payload) } {
+        Some(written) => written,
+        None => -1,
     }
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, out_buf, bytes.len());
-        *out_buf.add(bytes.len()) = 0; // Null terminator
-    }
-
-    bytes.len() as c_int
 }
 
 /// Formats sompi (1 KAS = 100,000,000 sompi) into standard decimal string.
+/// # Safety
+/// out_buf must be null or point to out_len writable bytes.
 #[no_mangle]
 pub extern "C" fn kaspa_wallet_format_sompi(
     amount_sompi: u64,
     out_buf: *mut c_char,
     out_len: usize,
 ) -> c_int {
-    if out_buf.is_null() || out_len == 0 {
-        return -1;
-    }
-
     let kas = amount_sompi / 100_000_000;
     let rem = amount_sompi % 100_000_000;
     let formatted = format!("{}.{:08}", kas, rem);
 
-    let bytes = formatted.as_bytes();
-    if bytes.len() >= out_len {
-        return -1;
+    match unsafe { write_ffi_string(out_buf, out_len, &formatted) } {
+        Some(written) => written,
+        None => -1,
     }
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(bytes.as_ptr() as *const c_char, out_buf, bytes.len());
-        *out_buf.add(bytes.len()) = 0;
-    }
-
-    bytes.len() as c_int
 }
 
 /// Returns the wallet bridge protocol version
@@ -116,6 +120,11 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
+    fn buffer_to_string(buf: &[c_char]) -> String {
+        let bytes = buf.iter().take_while(|&&b| b != 0).map(|&b| b as u8).collect();
+        String::from_utf8(bytes).unwrap()
+    }
+
     #[test]
     fn test_validate_address() {
         let valid = CString::new("kaspa:qpzry9x8gf2tvdw0s3jn54khce6mua7lcw20uq3wh5q29bdqq97jye27u28").unwrap();
@@ -123,6 +132,7 @@ mod tests {
 
         let invalid = CString::new("invalid_address").unwrap();
         assert_eq!(kaspa_wallet_validate_address(invalid.as_ptr()), 0);
+        assert_eq!(kaspa_wallet_validate_address(std::ptr::null()), 0);
     }
 
     #[test]
@@ -130,7 +140,12 @@ mod tests {
         let mut buf = [0i8; 64];
         let len = kaspa_wallet_format_sompi(100_000_000, buf.as_mut_ptr(), buf.len());
         assert!(len > 0);
-        let s = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_str().unwrap();
-        assert_eq!(s, "1.00000000");
+        assert_eq!(buffer_to_string(&buf), "1.00000000");
+    }
+
+    #[test]
+    fn test_format_sompi_rejects_short_buffer() {
+        let mut buf = [0i8; 4];
+        assert_eq!(kaspa_wallet_format_sompi(100_000_000, buf.as_mut_ptr(), buf.len()), -1);
     }
 }
