@@ -7864,7 +7864,7 @@ fun KaspaNewsSection(
     viewModel: DecentralViewModel? = null,
     onNavigate: (String) -> Unit
 ) {
-    var selectedFilter by remember { mutableStateOf("All") }
+    var selectedFilter by remember { mutableStateOf<String?>(null) }
     var visibleItemCount by remember(selectedFilter) { mutableStateOf(15) }
 
     val defaultItems = remember { emptyList<com.example.data.KaspaNewsItem>() }
@@ -7928,7 +7928,7 @@ fun KaspaNewsSection(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val categories = listOf("All", "News", "YouTube", "Reddit", "GitHub")
+            val categories = listOf("News", "YouTube", "Reddit", "GitHub")
             categories.forEach { cat ->
                 val isSelected = selectedFilter == cat
                 Surface(
@@ -7941,7 +7941,7 @@ fun KaspaNewsSection(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
                         .clickable {
-                            selectedFilter = if (selectedFilter == cat && cat != "All") "All" else cat
+                            selectedFilter = if (selectedFilter == cat) null else cat
                         }
                 ) {
                     Row(
@@ -7991,7 +7991,7 @@ fun KaspaNewsSection(
         val filteredItems = remember(newsItems, selectedFilter) {
             val deduplicated = newsItems.distinctBy { getKaspaNewsDeduplicationKey(it) }
             when (selectedFilter) {
-                "All" -> deduplicated.sortedByDescending { it.epochMillis }
+                null, "All" -> deduplicated.sortedByDescending { it.epochMillis }
                 "YouTube" -> deduplicated.filter {
                     it.category.equals("YouTube", ignoreCase = true) ||
                     it.videoId != null ||
@@ -8015,9 +8015,16 @@ fun KaspaNewsSection(
                     it.category.equals("GitHub", ignoreCase = true) ||
                     it.url.contains("github.com")
                 }.sortedByDescending { it.epochMillis }
-                else -> deduplicated.filter {
-                    it.category.contains(selectedFilter, ignoreCase = true)
-                }.sortedByDescending { it.epochMillis }
+                else -> {
+                    val filter = selectedFilter
+                    if (filter != null) {
+                        deduplicated.filter {
+                            it.category.contains(filter, ignoreCase = true)
+                        }.sortedByDescending { it.epochMillis }
+                    } else {
+                        deduplicated.sortedByDescending { it.epochMillis }
+                    }
+                }
             }
         }
 
