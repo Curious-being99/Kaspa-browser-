@@ -698,7 +698,10 @@ object BrowserEngineManager {
                         scheduledNetworkWork = true
                     }
 
-                    val targetPrerenderView = activeWebView ?: synchronized(standbyLock) { standbyWebView }
+                    // Only prerender onto an explicit active WebView—never mutate the pooled standbyWebView,
+                    // because consuming a pre-navigated standbyWebView for a different destination causes
+                    // Chromium to initialize and load twice before the user's site renders.
+                    val targetPrerenderView = activeWebView
                     if (allowPrerender &&
                         !lowRam &&
                         targetPrerenderView != null &&

@@ -643,4 +643,150 @@ class PasskeyVaultAndEngineTest {
         BrowserEngineManager.trimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND, context)
         assertEquals(0, com.example.network.OriginAssetManifestStore.getOriginCount())
     }
+
+    @Test
+    fun toolbarProgressTrackerFollowsChromeBraveMonotonicSinglePassLifecycle() {
+        val tracker = com.example.util.ToolbarProgressTracker()
+
+        // Untrackable URLs (about:blank, data:, kaspa-error://) never trigger loading bar
+        tracker.startNavigation("about:blank", sessionId = 1)
+        assertEquals(com.example.util.ToolbarProgressPhase.IDLE, tracker.state.value.phase)
+        assertFalse(tracker.state.value.isVisible)
+
+        // Real navigation starts immediately once
+        tracker.startNavigation("https://example.org", sessionId = 1)
+        assertEquals(com.example.util.ToolbarProgressPhase.LOADING, tracker.state.value.phase)
+        assertTrue(tracker.state.value.isVisible)
+        assertEquals(com.example.util.ToolbarProgressTracker.INITIAL_PROGRESS, tracker.state.value.progress, 0.001f)
+
+        // Advance via progress & visual commit
+        tracker.onProgressChanged(42)
+        assertEquals(0.42f, tracker.state.value.progress, 0.001f)
+
+        // HTTP redirect or duplicate onPageStarted in the same navigation must NOT reset progress backward
+        tracker.startNavigation("https://www.example.org/home", sessionId = 1)
+        assertEquals(0.42f, tracker.state.value.progress, 0.001f)
+        assertEquals(com.example.util.ToolbarProgressPhase.LOADING, tracker.state.value.phase)
+
+        // Regression progress reports are clamped monotonically
+        tracker.onProgressChanged(20)
+        assertEquals(0.42f, tracker.state.value.progress, 0.001f)
+
+        // Visual commit jumps smoothly toward 0.72f
+        tracker.onVisualCommit()
+        assertEquals(0.72f, tracker.state.value.progress, 0.001f)
+
+        // Completion sweeps to 1.0f and becomes immune to trailing background subframe noise
+        tracker.finishNavigation()
+        val epoch = tracker.state.value.completionEpoch
+        assertEquals(com.example.util.ToolbarProgressPhase.FINISHING, tracker.state.value.phase)
+        assertEquals(1.0f, tracker.state.value.progress, 0.001f)
+        assertTrue(tracker.state.value.isVisible)
+
+        tracker.onProgressChanged(35)
+        assertEquals(com.example.util.ToolbarProgressPhase.FINISHING, tracker.state.value.phase)
+        assertEquals(1.0f, tracker.state.value.progress, 0.001f)
+
+        // Fade-out hides visibility while keeping progress locked at 1.0f (no snap-back flicker)
+        tracker.beginFadeOut(epoch)
+        assertFalse(tracker.state.value.isVisible)
+        assertEquals(1.0f, tracker.state.value.progress, 0.001f)
+
+        // Only after invisible does it reset cleanly to IDLE 0f
+        tracker.finishFadeOutReset(epoch)
+        assertEquals(com.example.util.ToolbarProgressPhase.IDLE, tracker.state.value.phase)
+        assertEquals(0f, tracker.state.value.progress, 0.001f)
+    }
+
+    @Test
+    fun webViewSingleLoadGuardPreventsDoubleLoadAcrossRedirectsAndRebuilds() {
+        // Fresh WebView for session 1 should dispatch once
+        assertTrue(
+            com.example.util.WebViewSingleLoadGuard.shouldDispatchHttpLoad(
+                currentState = null,
+                sessionId = 1,
+                targetUrl = "https://example.org",
+                webViewCurrentUrl = null
+            )
+        )
+
+        val dispatched = com.example.util.WebViewSingleLoadGuard.DispatchedLoadState(
+            sessionId = 1,
+            dispatchedUrl = "https://example.org"
+        )
+
+        // Recomposition after redirect or https upgrade for same session 1 must NOT dispatch a 2nd load
+        assertFalse(
+            com.example.util.WebViewSingleLoadGuard.shouldDispatchHttpLoad(
+                currentState = dispatched,
+                sessionId = 1,
+                targetUrl = "https://www.example.org/dashboard",
+                webViewCurrentUrl = "https://www.example.org/dashboard"
+            )
+        )
+
+        // New user navigation increments sessionId -> dispatches once for session 2
+        assertTrue(
+            com.example.util.WebViewSingleLoadGuard.shouldDispatchHttpLoad(
+                currentState = dispatched,
+                sessionId = 2,
+                targetUrl = "https://kaspa.org",
+                webViewCurrentUrl = "https://www.example.org/dashboard"
+            )
+        )
+
+        // Non-HTTP loadDataWithBaseURL dispatches once per (sessionId, dataLoadKey)
+        val dataState = com.example.util.WebViewSingleLoadGuard.DispatchedLoadState(
+            sessionId = 3,
+            dispatchedUrl = "kaspa://explorer",
+            dataLoadKey = "kaspa://explorer_cid1"
+        )
+        assertFalse(
+            com.example.util.WebViewSingleLoadGuard.shouldDispatchDataLoad(
+                currentState = dataState,
+                sessionId = 3,
+                dataLoadKey = "kaspa://explorer_cid1"
+            )
+        )
+        assertTrue(
+            com.example.util.WebViewSingleLoadGuard.shouldDispatchDataLoad(
+                currentState = dataState,
+                sessionId = 4,
+                dataLoadKey = "kaspa://explorer_cid1"
+            )
+        )
+    }
+
+    @Test
+    fun speculativePreloadKeepsStandbyWebViewUnnavigatedWhenActiveWebViewIsNull() {
+        val context = RuntimeEnvironment.getApplication()
+        com.example.engine.KazviewNativeCore.resetWarmupCache()
+
+        BrowserEngineManager.prepareStandbyWebView(context, isIncognito = false)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        val prerendersBefore = BrowserEngineManager.engineStatus.value.prerenderAttemptsCount
+        BrowserEngineManager.scheduleSpeculativePreload(
+            context = context,
+            rawUrl = "https://kaspa.org",
+            activeWebView = null,
+            allowPrerender = true,
+            isPrivacyBlocked = false,
+            hasRendererCrash = false
+        )
+        assertEquals(
+            "Standby WebView pool must never be prerendered into before a real tab destination is chosen",
+            prerendersBefore,
+            BrowserEngineManager.engineStatus.value.prerenderAttemptsCount
+        )
+
+        val standby = BrowserEngineManager.consumeStandbyWebView(context, isIncognito = false)
+        try {
+            assertNotNull(standby)
+            org.junit.Assert.assertNull("Consumed standby WebView must start unnavigated with null url", standby?.url)
+        } finally {
+            standby?.destroy()
+        }
+    }
 }
+

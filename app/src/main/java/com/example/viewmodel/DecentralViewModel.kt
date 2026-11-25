@@ -1061,11 +1061,48 @@ class DecentralViewModel(
         if (prevId != null && !_backgroundPlaybackEnabled.value) webViewTabManager.pauseTab(prevId)
         webViewTabManager.resumeTab(id)
         BrowserStateLog.tabSwitch("Switching active tab from $prevId to $id")
+
+        // Synchronize resource/URL state BEFORE emitting _activeTabId so Compose never renders
+        // the incoming tab's WebView against the outgoing tab's currentResource.
+        val cachedTab = browserTabs.value.find { it.id == id }
+        if (cachedTab != null) {
+            if (cachedTab.url.isBlank()) {
+                _navigationSessionId.value = _navigationSessionId.value + 1
+                _urlInput.value = ""
+                _currentResource.value = null
+                _isLoading.value = false
+            } else {
+                _urlInput.value = cachedTab.url
+                val isHttp = cachedTab.url.startsWith("http://", ignoreCase = true) || cachedTab.url.startsWith("https://", ignoreCase = true)
+                if (isHttp) {
+                    val host = try { java.net.URI(cachedTab.url).host ?: cachedTab.url } catch (_: Exception) { cachedTab.url }
+                    _currentResource.value = ResolvedResource(
+                        url = cachedTab.url,
+                        resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                        cid = com.example.network.CryptoUtils.generateCid(cachedTab.url),
+                        title = if (cachedTab.title.isNotBlank()) cachedTab.title else host,
+                        content = "",
+                        contentType = "text/html",
+                        sizeBytes = 0L,
+                        latencyMs = 15L,
+                        centralizedUrl = cachedTab.url,
+                        centralizedLatencyMs = 15L,
+                        centralizedIp = "Direct High-Speed Stack",
+                        verificationStatus = VerificationStatus.UNVERIFIED,
+                        cryptographicHash = com.example.network.CryptoUtils.sha256(cachedTab.url),
+                        routedVia = "Direct High-Speed Web Stack: $host"
+                    )
+                    _isLoading.value = false
+                } else {
+                    resolveUrl(cachedTab.url)
+                }
+            }
+        }
         _activeTabId.value = id
         savedStateHandle["active_tab_id"] = id
 
         viewModelScope.launch {
-            val tab = database.browserTabDao().getTabById(id) ?: browserTabs.value.find { it.id == id }
+            val tab = database.browserTabDao().getTabById(id) ?: cachedTab
             if (tab != null) {
                 appPrefs.edit()
                     .putString("last_active_tab_id", id)
@@ -1100,32 +1137,34 @@ class DecentralViewModel(
                         }
                     }
                 }
-                if (tab.url.isBlank()) {
-                    resetToHome()
-                } else {
-                    _urlInput.value = tab.url
-                    val isHttp = tab.url.startsWith("http://", ignoreCase = true) || tab.url.startsWith("https://", ignoreCase = true)
-                    if (isHttp) {
-                        val host = try { java.net.URI(tab.url).host ?: tab.url } catch (_: Exception) { tab.url }
-                        _currentResource.value = ResolvedResource(
-                            url = tab.url,
-                            resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
-                            cid = com.example.network.CryptoUtils.generateCid(tab.url),
-                            title = if (tab.title.isNotBlank()) tab.title else host,
-                            content = "",
-                            contentType = "text/html",
-                            sizeBytes = 0L,
-                            latencyMs = 15L,
-                            centralizedUrl = tab.url,
-                            centralizedLatencyMs = 15L,
-                            centralizedIp = "Direct High-Speed Stack",
-                            verificationStatus = VerificationStatus.UNVERIFIED,
-                            cryptographicHash = com.example.network.CryptoUtils.sha256(tab.url),
-                            routedVia = "Direct High-Speed Web Stack: $host"
-                        )
-                        _isLoading.value = false
+                if (cachedTab == null) {
+                    if (tab.url.isBlank()) {
+                        resetToHome()
                     } else {
-                        resolveUrl(tab.url)
+                        _urlInput.value = tab.url
+                        val isHttp = tab.url.startsWith("http://", ignoreCase = true) || tab.url.startsWith("https://", ignoreCase = true)
+                        if (isHttp) {
+                            val host = try { java.net.URI(tab.url).host ?: tab.url } catch (_: Exception) { tab.url }
+                            _currentResource.value = ResolvedResource(
+                                url = tab.url,
+                                resolvedProtocol = NetworkProtocol.CENTRALIZED_HTTP,
+                                cid = com.example.network.CryptoUtils.generateCid(tab.url),
+                                title = if (tab.title.isNotBlank()) tab.title else host,
+                                content = "",
+                                contentType = "text/html",
+                                sizeBytes = 0L,
+                                latencyMs = 15L,
+                                centralizedUrl = tab.url,
+                                centralizedLatencyMs = 15L,
+                                centralizedIp = "Direct High-Speed Stack",
+                                verificationStatus = VerificationStatus.UNVERIFIED,
+                                cryptographicHash = com.example.network.CryptoUtils.sha256(tab.url),
+                                routedVia = "Direct High-Speed Web Stack: $host"
+                            )
+                            _isLoading.value = false
+                        } else {
+                            resolveUrl(tab.url)
+                        }
                     }
                 }
             }
@@ -1167,15 +1206,30 @@ class DecentralViewModel(
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     database.browserTabDao().insert(newTab)
                 }
+                val prevId = _activeTabId.value
+                if (prevId != null && !_backgroundPlaybackEnabled.value) {
+                    webViewTabManager.pauseTab(prevId)
+                }
+                // Update resource/URL BEFORE switching _activeTabId so the new tab never mounts
+                // with the previous tab's resource and triggers an extra WebView load.
+                if (url.isBlank()) {
+                    _navigationSessionId.value = _navigationSessionId.value + 1
+                    _urlInput.value = ""
+                    _currentResource.value = null
+                    _statusMessage.value = null
+                    _isLoading.value = false
+                    appPrefs.edit()
+                        .putString("last_active_tab_url", "")
+                        .putString("last_active_tab_title", "Home")
+                        .apply()
+                    savedStateHandle["active_tab_url"] = ""
+                    savedStateHandle["active_tab_title"] = "Home"
+                } else {
+                    resolveUrl(url)
+                }
                 _activeTabId.value = newId
                 savedStateHandle["active_tab_id"] = newId
                 BrowserStateLog.save("Created new tab $newId ($title)")
-                if (url.isBlank()) {
-                    resetToHome()
-                } else {
-                    _urlInput.value = url
-                    resolveUrl(url)
-                }
                 scheduleSaveDebounced("new tab created: $newId")
                 android.util.Log.d("BrowserGateway", "createNewTab: finish - created newId=$newId, totalTabs=${tabs.size + 1}")
             } catch (e: Throwable) {
@@ -1219,10 +1273,12 @@ class DecentralViewModel(
             if (_activeTabId.value == id) {
                 if (remaining.isNotEmpty()) {
                     val nextTab = remaining.maxByOrNull { it.lastAccessed } ?: remaining.first()
-                    _activeTabId.value = nextTab.id
-                    savedStateHandle["active_tab_id"] = nextTab.id
                     if (nextTab.url.isBlank()) {
-                        resetToHome()
+                        _navigationSessionId.value = _navigationSessionId.value + 1
+                        _urlInput.value = ""
+                        _currentResource.value = null
+                        _statusMessage.value = null
+                        _isLoading.value = false
                     } else {
                         _urlInput.value = nextTab.url
                         val isHttp = nextTab.url.startsWith("http://", ignoreCase = true) || nextTab.url.startsWith("https://", ignoreCase = true)
@@ -1249,6 +1305,8 @@ class DecentralViewModel(
                             resolveUrl(nextTab.url)
                         }
                     }
+                    _activeTabId.value = nextTab.id
+                    savedStateHandle["active_tab_id"] = nextTab.id
                 } else {
                     val newId = java.util.UUID.randomUUID().toString()
                     val newTab = BrowserTabEntity(
@@ -1259,9 +1317,13 @@ class DecentralViewModel(
                         lastAccessed = System.currentTimeMillis()
                     )
                     database.browserTabDao().insert(newTab)
+                    _navigationSessionId.value = _navigationSessionId.value + 1
+                    _urlInput.value = ""
+                    _currentResource.value = null
+                    _statusMessage.value = null
+                    _isLoading.value = false
                     _activeTabId.value = newId
                     savedStateHandle["active_tab_id"] = newId
-                    resetToHome()
                 }
             }
 
@@ -2587,6 +2649,16 @@ class DecentralViewModel(
             refreshNewsFeeds()
         }
 
+        // Real-time background endpoint polling for KCC-20 tokens & transactions every 15 seconds without user notice
+        viewModelScope.launch {
+            while (isActive) {
+                delay(15000L) // 15 seconds
+                try {
+                    refreshKcc20Tokens()
+                } catch (_: Exception) {}
+            }
+        }
+
         // Cold-start restoration of browser session and tabs BEFORE initial navigation
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -2625,11 +2697,7 @@ class DecentralViewModel(
                         val shouldStartOnHome = targetTab.url.isBlank()
 
                         if (shouldStartOnHome) {
-                            val homeTab = tabs.find { it.url.isBlank() }
-                            if (homeTab != null) {
-                                _activeTabId.value = homeTab.id
-                                savedStateHandle["active_tab_id"] = homeTab.id
-                            } else {
+                            val resolvedHomeId = tabs.find { it.url.isBlank() }?.id ?: run {
                                 val newId = java.util.UUID.randomUUID().toString()
                                 val freshHomeTab = BrowserTabEntity(
                                     id = newId,
@@ -2639,15 +2707,19 @@ class DecentralViewModel(
                                     lastAccessed = System.currentTimeMillis()
                                 )
                                 database.browserTabDao().insert(freshHomeTab)
-                                _activeTabId.value = newId
-                                savedStateHandle["active_tab_id"] = newId
+                                newId
                             }
-                            resetToHome()
+                            _navigationSessionId.value = _navigationSessionId.value + 1
+                            _urlInput.value = ""
+                            _currentResource.value = null
+                            _statusMessage.value = null
+                            _isLoading.value = false
+                            _activeTabId.value = resolvedHomeId
+                            savedStateHandle["active_tab_id"] = resolvedHomeId
+                            savedStateHandle["active_tab_url"] = ""
+                            savedStateHandle["active_tab_title"] = "Home"
                             BrowserStateLog.restore("Cold-start: started on Home screen, preserved ${tabs.size} tabs")
                         } else {
-                            _activeTabId.value = targetTab.id
-                            savedStateHandle["active_tab_id"] = targetTab.id
-                            BrowserStateLog.restore("Cold-start: restored ${tabs.size} tabs, active tab: ${targetTab.id} (url: ${targetTab.url})")
                             if (targetTab.url.isNotBlank()) {
                                 _urlInput.value = targetTab.url
                                 val isHttp = targetTab.url.startsWith("http://", ignoreCase = true) || targetTab.url.startsWith("https://", ignoreCase = true)
@@ -2676,6 +2748,9 @@ class DecentralViewModel(
                                     resolveUrl(targetTab.url)
                                 }
                             }
+                            _activeTabId.value = targetTab.id
+                            savedStateHandle["active_tab_id"] = targetTab.id
+                            BrowserStateLog.restore("Cold-start: restored ${tabs.size} tabs, active tab: ${targetTab.id} (url: ${targetTab.url})")
                         }
                     }
                 }
@@ -2851,13 +2926,11 @@ class DecentralViewModel(
                 if (isEvmNetwork(network) || network.contains("11")) {
                     _kcc20Tokens.value = emptyList()
                     _kcc20Transactions.value = emptyList()
-                    _isLoadingKcc20.value = false
                     return@withLock
                 }
                 val isMainnet = network.contains("Mainnet", ignoreCase = true)
                 val kascovNetwork = if (isMainnet) "mainnet" else "testnet-10"
 
-                _isLoadingKcc20.value = true
                 try {
                     // 1. Fetch authentic KAS live oracle price stream from https://kascov.io/data/price.json
                     val liveKasUsd = kcc20Service.fetchKasUsdPriceFromOracle().getOrNull()
@@ -2947,7 +3020,6 @@ class DecentralViewModel(
                 } catch (_: Exception) {
                     // Preserve the last successful live indexer result on transient failures.
                 } finally {
-                    _isLoadingKcc20.value = false
                 }
             }
         }
@@ -4243,9 +4315,12 @@ class DecentralViewModel(
                     isExternal = true
                 )
                 database.browserTabDao().insert(newTab)
-                _activeTabId.value = newId
-                _urlInput.value = cleanTarget
+                if (activeId != null && !_backgroundPlaybackEnabled.value) {
+                    webViewTabManager.pauseTab(activeId)
+                }
                 resolveUrl(cleanTarget)
+                _activeTabId.value = newId
+                savedStateHandle["active_tab_id"] = newId
             } else {
                 // Inside the browser (clicking bookmark, history, or speed dial), load it in the CURRENT active tab.
                 if (activeTab != null) {
@@ -4255,7 +4330,6 @@ class DecentralViewModel(
                         lastAccessed = System.currentTimeMillis()
                     )
                     database.browserTabDao().insert(updatedTab)
-                    _urlInput.value = cleanTarget
                     resolveUrl(cleanTarget)
                 } else {
                     // Fallback: create new tab if no active tab exists
@@ -4267,9 +4341,9 @@ class DecentralViewModel(
                         lastAccessed = System.currentTimeMillis()
                     )
                     database.browserTabDao().insert(newTab)
-                    _activeTabId.value = newId
-                    _urlInput.value = cleanTarget
                     resolveUrl(cleanTarget)
+                    _activeTabId.value = newId
+                    savedStateHandle["active_tab_id"] = newId
                 }
             }
         }
@@ -4321,7 +4395,6 @@ class DecentralViewModel(
                 } else {
                     target
                 }
-                _urlInput.value = displayInput
                 com.example.engine.BrowserEngineManager.preconnectOrigin(
                     rawUrl = target,
                     isPrivacyRelayActive = _isPrivacyRelayEnabled.value || _incognitoMode.value
@@ -4329,7 +4402,7 @@ class DecentralViewModel(
 
                 val activeId = _activeTabId.value
                 val activeTab = if (activeId != null) {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    browserTabs.value.find { it.id == activeId } ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         database.browserTabDao().getTabById(activeId)
                     }
                 } else null
@@ -4348,8 +4421,12 @@ class DecentralViewModel(
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         database.browserTabDao().insert(newTab)
                     }
-                    _activeTabId.value = newId
+                    if (!_backgroundPlaybackEnabled.value) {
+                        webViewTabManager.pauseTab(activeTab.id)
+                    }
                     resolveUrl(target, overrideDisplayInput = displayInput)
+                    _activeTabId.value = newId
+                    savedStateHandle["active_tab_id"] = newId
                 } else {
                     resolveUrl(target, overrideDisplayInput = displayInput)
                 }
@@ -4761,7 +4838,7 @@ class DecentralViewModel(
                     _statusMessage.value = "Failed to resolve: ${e.localizedMessage}"
                 }
             } finally {
-                if (_navigationSessionId.value == currentSessionId) {
+                if (!isHttp && _navigationSessionId.value == currentSessionId) {
                     _isLoading.value = false
                 }
             }

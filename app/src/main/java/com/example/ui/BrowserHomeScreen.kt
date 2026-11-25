@@ -205,7 +205,7 @@ fun BrowserHomeScreen(
             context = context,
             rawUrl = topSiteUrl,
             activeWebView = null,
-            allowPrerender = true,
+            allowPrerender = false,
             isPrivacyBlocked = incognitoMode || isPrivacyRelayEnabled,
             hasRendererCrash = false
         )

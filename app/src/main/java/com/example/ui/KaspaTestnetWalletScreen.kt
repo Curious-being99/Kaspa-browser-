@@ -24,6 +24,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
@@ -1358,13 +1360,6 @@ fun KaspaTestnetWalletScreen(
                 onOpenExplorer = { contractId ->
                     selectedKcc20TokenForDetails = null
                     viewModel.openUrlInBrowser("https://kascov.io/token/$contractId")
-                },
-                onBuyTrade = { contractId ->
-                    selectedKcc20TokenForDetails = null
-                    if (!viewModel.selectedNetwork.value.contains("Mainnet", ignoreCase = true)) {
-                        viewModel.selectNetwork("Kaspa Mainnet")
-                    }
-                    viewModel.openUrlInBrowser("https://app.braidswap.com/swap?outputCurrency=$contractId")
                 }
             )
         }
@@ -1884,6 +1879,7 @@ private fun HistoryTabContent(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -7482,8 +7478,7 @@ fun Kcc20TokenDetailSheet(
     token: com.example.network.kaspa.Kcc20WalletToken,
     onDismiss: () -> Unit,
     onSendToken: (com.example.network.kaspa.Kcc20WalletToken) -> Unit = {},
-    onOpenExplorer: (String) -> Unit,
-    onBuyTrade: (String) -> Unit = {}
+    onOpenExplorer: (String) -> Unit
 ) {
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -7680,20 +7675,6 @@ fun Kcc20TokenDetailSheet(
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp
                 )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            OutlinedButton(
-                onClick = { onBuyTrade(token.contractId) },
-                border = BorderStroke(1.dp, KaspaTea.copy(alpha = 0.6f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = KaspaTea),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth().height(48.dp)
-            ) {
-                Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = KaspaTea, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Buy / Trade Token on BraidSwap DEX", color = KaspaTea, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
             }
 
             Spacer(modifier = Modifier.height(10.dp))
