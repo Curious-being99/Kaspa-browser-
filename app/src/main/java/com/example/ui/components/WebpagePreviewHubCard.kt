@@ -257,8 +257,6 @@ fun WebpagePreviewHubCard(
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
-                                @Suppress("DEPRECATION")
-                                databaseEnabled = true
                                 loadWithOverviewMode = true
                                 useWideViewPort = true
                                 setSupportZoom(false)

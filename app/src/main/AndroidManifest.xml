@@ -52,6 +52,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:hardwareAccelerated="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.MyApplication" >
         <service
             android:name=".util.BrowserMediaPlaybackService"

@@ -2528,8 +2528,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
-                                @Suppress("DEPRECATION")
-                                databaseEnabled = true
                                 mediaPlaybackRequiresUserGesture = false
                                 setGeolocationEnabled(false)
                                 allowFileAccess = false
@@ -2968,7 +2966,6 @@ fun BrowserGatewayScreen(viewModel: DecentralViewModel, modifier: Modifier = Mod
                                         settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                         settings.cacheMode = WebSettings.LOAD_DEFAULT
                                         settings.domStorageEnabled = true
-                                        settings.databaseEnabled = false
                                         com.example.util.KaspaWebViewConfigurator.applyKazviewSettings(settings)
                                         KaspaPrivacyEngine.applyUserAgentAndMetadata(settings, viewModel.desktopModeEnabled.value, defaultDeviceUa)
                                         val cm = android.webkit.CookieManager.getInstance()
@@ -8327,8 +8324,6 @@ fun YouTubeVideoCard(
                                     com.example.util.KaspaWebViewConfigurator.applyKazviewSettings(this)
                                     val defaultUa = userAgentString
                                     userAgentString = defaultUa.replace("; wv", "")
-                                    @Suppress("DEPRECATION")
-                                    databaseEnabled = true
                                     domStorageEnabled = true
                                     mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                     // Dark mode forcing removed to prevent rendering issues

@@ -1132,7 +1132,6 @@ fun PwaStandaloneScreen(
                                     settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                     settings.cacheMode = WebSettings.LOAD_DEFAULT
                                     settings.domStorageEnabled = true
-                                    settings.databaseEnabled = false
                                     webViewClient = object : WebViewClient() {
                                         override fun onPageStarted(wv: WebView?, url: String?, favicon: Bitmap?) {
                                             super.onPageStarted(wv, url, favicon)

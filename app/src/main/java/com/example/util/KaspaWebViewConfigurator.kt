@@ -248,8 +248,6 @@ object KaspaWebViewConfigurator {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            @Suppress("DEPRECATION")
-            databaseEnabled = true
             allowFileAccess = false
             allowContentAccess = false
             @Suppress("DEPRECATION")
