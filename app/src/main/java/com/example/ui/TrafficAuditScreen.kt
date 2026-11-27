@@ -430,14 +430,14 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Play Integrity",
-                                    tint = EmeraldMesh,
+                                    imageVector = if (integrityState is com.example.security.PlayIntegrityManager.DeviceIntegrityState.TokenReceived) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                    contentDescription = "Play Integrity token status",
+                                    tint = if (integrityState is com.example.security.PlayIntegrityManager.DeviceIntegrityState.TokenReceived) AmberCentral else TextMuted,
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Play Integrity Device Assurance",
+                                    text = "Play Integrity token status",
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextPrimary
@@ -555,7 +555,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(13.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Rotate Keys", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = ElectricCyan)
+                                Text("Rotate Local Relay Keys", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = ElectricCyan)
                             }
                         }
 
