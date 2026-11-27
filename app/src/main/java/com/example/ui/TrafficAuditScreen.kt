@@ -363,7 +363,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "For encrypted DNS across your phone, enable Android Private DNS. It is separate from Kazium's local relay.",
+                        text = "For encrypted DNS across your phone, find and enable Private DNS in Android network settings. It is separate from Kazium's local relay.",
                         fontSize = 10.5.sp,
                         color = TextSecondary,
                         lineHeight = 14.sp
@@ -372,16 +372,12 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         onClick = {
                             try {
                                 context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
-                            } catch (_: Exception) {
-                                try {
-                                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
-                                } catch (_: Exception) {}
-                            }
+                            } catch (_: Exception) {}
                         },
                         modifier = Modifier.fillMaxWidth().height(36.dp),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("Open Android Private DNS settings", fontSize = 11.sp)
+                        Text("Open Android network settings", fontSize = 11.sp)
                     }
 
                     if (isPrivacyRelayEnabled && activeRelayCircuit != null) {
