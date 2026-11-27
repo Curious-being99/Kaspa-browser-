@@ -132,7 +132,7 @@ Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, 
 - **Local Loopback Relay & SOCKS5 Forwarder (`KrpRelayDaemon.kt`, `LightweightTorEngine.kt`, `WebViewProxyManager.kt`)**:
   - `KrpRelayDaemon` binds localhost (`127.0.0.1`) Entry (`8443`) and Exit (`8444`) sockets implementing X25519 key exchange, HKDF-SHA256, ChaCha20-Poly1305, and 1024-byte cell framing.
   - `LightweightTorEngine` runs a localhost SOCKS5 listener (`9155`/`9156`) resolving domains through fail-closed Encrypted DoH and blocking recursive self-loops into local daemon ports.
-  - **Transparency Note**: Running these loopback listeners in-process secures local loopback transport and forces encrypted DoH, **but does not change your public egress IP** unless a real external upstream SOCKS5/HTTP proxy (such as Orbot/Tor) is configured.
+  - **Transparency Note**: These local relay components are not currently wired to normal browser page navigation. Pages use Android's system DNS; relay-scoped DoH does not provide browser-wide DNS protection or public IP masking. For encrypted DNS across the phone, users can enable Android Private DNS. External IP masking requires a real upstream proxy and verified traffic routing.
 
 ### 5. Web3, Kaspa Wallet, ZKP & Decentralized Discovery (`network/kaspa/`, `network/zk/`, `dapp/`, `ui/`)
 - **Kaspa Wallet & dApp Bridge (`KaspaWalletService.kt`, `KaspaTransactionEngine.kt`, `KaspaTestnetWalletScreen.kt`, `DappsScreen.kt`, `DappPromptSheet.kt`, `TransactionConfirmationBottomSheet.kt`)**: On-device HD wallet & key management (`BouncyCastle`, `Web3j`), Kaspa testnet wallet interface, and explicit user-approved dApp signing sheets.
