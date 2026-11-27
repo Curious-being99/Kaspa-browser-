@@ -361,6 +361,29 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                         )
                     }
 
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "For encrypted DNS across your phone, enable Android Private DNS. It is separate from Kazium's local relay.",
+                        fontSize = 10.5.sp,
+                        color = TextSecondary,
+                        lineHeight = 14.sp
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_PRIVATE_DNS_SETTINGS))
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Open Android Private DNS settings", fontSize = 11.sp)
+                    }
+
                     if (isPrivacyRelayEnabled && activeRelayCircuit != null) {
                         val circuit = activeRelayCircuit!!
                         val activeTorCircuit by com.example.network.LightweightTorEngine.activeOnionCircuit.collectAsState()
@@ -371,58 +394,23 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Compact Route Ribbon with Genuine Telemetry
                         Surface(
                             shape = RoundedCornerShape(6.dp),
                             color = SurfaceCard,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 40.dp)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val destinationText = liveAuditResult?.let {
-                                    "${it.countryCode} (${it.latencyMs}ms)"
-                                } ?: "No external relay"
+                            Column(modifier = Modifier.padding(10.dp)) {
                                 Text(
-                                    text = androidx.compose.ui.text.buildAnnotatedString {
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = TextPrimary, fontWeight = FontWeight.Bold))
-                                        append("Client")
-                                        pop()
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = ElectricCyan))
-                                        append(" ➔ ")
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
-                                        append("Local Relay")
-                                        pop()
-                                        pop()
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = AmberCentral))
-                                        append(" ➔ ")
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
-                                        append("Relay-only DoH")
-                                        pop()
-                                        pop()
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = EmeraldMesh))
-                                        append(" ➔ ")
-                                        pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold))
-                                        append(destinationText)
-                                        pop()
-                                        pop()
-                                    },
-                                    modifier = Modifier.weight(1f),
+                                    text = "Browser navigation: Android system DNS",
                                     fontSize = 11.sp,
-                                    lineHeight = 16.sp
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary
                                 )
                                 Text(
-                                    text = "Not browser-wide protection",
+                                    text = "Encrypted DoH is relay-only and is not currently routing browser pages. Local relay components do not mask your public IP.",
                                     fontSize = 10.sp,
-                                    color = EmeraldMesh,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
+                                    color = TextSecondary,
+                                    lineHeight = 14.sp
                                 )
                             }
                         }
@@ -457,7 +445,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             }
                             val (badgeText, badgeColor) = when (integrityState) {
                                 is com.example.security.PlayIntegrityManager.DeviceIntegrityState.TokenReceived -> "Token received · Unverified" to AmberCentral
-                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.DevelopmentOrSandbox -> "No token · Unverified" to TextMuted
+                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.DevelopmentOrSandbox -> "Request unavailable · Unverified" to TextMuted
                                 is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Error -> "Action Required" to RedTamper
                                 else -> "Not verified" to TextMuted
                             }
@@ -547,7 +535,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                 } else {
                                     Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldMesh, modifier = Modifier.size(13.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Audit Live IP", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EmeraldMesh)
+                                    Text("Audit Device IP", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = EmeraldMesh)
                                 }
                             }
 
