@@ -333,13 +333,13 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "Kaspa Privacy Relay",
+                                    text = "Local Relay Components",
                                     fontWeight = FontWeight.Bold,
                                     color = TextPrimary,
                                     fontSize = 14.sp
                                 )
                                 Text(
-                                    text = if (isPrivacyRelayEnabled) "Relay services running · WebView may connect directly" else "Disabled · Direct connection",
+                                    text = if (isPrivacyRelayEnabled) "Enabled locally · Browser pages still use system DNS and may connect directly" else "Off · Browser pages use system DNS",
                                     color = if (isPrivacyRelayEnabled) EmeraldMesh else TextMuted,
                                     fontSize = 11.sp
                                 )
@@ -388,7 +388,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                             ) {
                                 val destinationText = liveAuditResult?.let {
                                     "${it.countryCode} (${it.latencyMs}ms)"
-                                } ?: "Secure TLS"
+                                } ?: "No external relay"
                                 Text(
                                     text = androidx.compose.ui.text.buildAnnotatedString {
                                         pushStyle(androidx.compose.ui.text.SpanStyle(color = TextPrimary, fontWeight = FontWeight.Bold))
@@ -397,13 +397,13 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                         pushStyle(androidx.compose.ui.text.SpanStyle(color = ElectricCyan))
                                         append(" ➔ ")
                                         pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
-                                        append("Privacy Shield")
+                                        append("Local Relay")
                                         pop()
                                         pop()
                                         pushStyle(androidx.compose.ui.text.SpanStyle(color = AmberCentral))
                                         append(" ➔ ")
                                         pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Medium))
-                                        append("Encrypted DoH")
+                                        append("Relay-only DoH")
                                         pop()
                                         pop()
                                         pushStyle(androidx.compose.ui.text.SpanStyle(color = EmeraldMesh))
@@ -418,7 +418,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                     lineHeight = 16.sp
                                 )
                                 Text(
-                                    text = "Privacy Shield",
+                                    text = "Not browser-wide protection",
                                     fontSize = 10.sp,
                                     color = EmeraldMesh,
                                     fontWeight = FontWeight.Bold,
@@ -456,10 +456,10 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                                 )
                             }
                             val (badgeText, badgeColor) = when (integrityState) {
-                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Verified -> "Hardware Verified" to EmeraldMesh
-                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.DevelopmentOrSandbox -> "Protected Runtime" to EmeraldMesh
+                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.TokenReceived -> "Token received · Unverified" to AmberCentral
+                                is com.example.security.PlayIntegrityManager.DeviceIntegrityState.DevelopmentOrSandbox -> "No token · Unverified" to TextMuted
                                 is com.example.security.PlayIntegrityManager.DeviceIntegrityState.Error -> "Action Required" to RedTamper
-                                else -> "Active Shield" to EmeraldMesh
+                                else -> "Not verified" to TextMuted
                             }
                             Text(
                                 text = badgeText,
