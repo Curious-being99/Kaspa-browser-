@@ -125,10 +125,10 @@ Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, 
   - Foreground-to-background synchronization (`markItemsSeen`) prevents articles fetched inside the app from triggering repeat background alerts.
   - Silent first-run baseline initialization, `MAX_NOTIFICATIONS_PER_RUN = 2` burst cap (prioritizing Breaking alerts), `POST_NOTIFICATIONS` runtime check (API 33+), `http`/`https` URI verification, `setOnlyAlertOnce(true)`, and non-colliding notification IDs (`>= 10_000`).
 
-### 4. Networking, Privacy Shielding & Relay Transport (`network/`, `TrafficAuditScreen.kt`)
+### 4. Networking, Tracker Blocking & Local Relay Components (`network/`, `TrafficAuditScreen.kt`)
 - **Cronet + OkHttp3 (`CronetClientFactory.kt`)**: Enables Chromium Cronet HTTP/3 (QUIC), HTTP/2, Brotli, AsyncDNS, and StaleDNS via `CronetInterceptor`.
 - **Ad & Tracker Shielding (`KaspaPrivacyEngine.kt`, `UBlockEngine.kt`, `TrafficAuditScreen.kt`)**: Intercepts subresource and ServiceWorker tracker/ad requests while preserving stylesheets, scripts, fonts, OAuth, and challenge flows; logs real allowed/blocked traffic in **Traffic Audit**.
-- **Relay-scoped Encrypted DoH (`KaspaPrivacyRelayEngine.kt`)**: Its resolver uses `cloudflare-dns.com`, `dns.quad9.net`, and `dns.google` with pinned bootstrap IPs and no system-DNS fallback for relay lookups. This is not used for normal browser page navigation; pages currently use Android's DNS path. Android Private DNS can encrypt DNS system-wide
+- **Relay-scoped Encrypted DoH (`KaspaPrivacyRelayEngine.kt`)**: Its resolver uses `cloudflare-dns.com`, `dns.quad9.net`, and `dns.google` with pinned bootstrap IPs and no system-DNS fallback for relay lookups. This is not used for normal browser page navigation; pages currently use Android's DNS path. Android Private DNS can encrypt DNS system-wide.
 - **Local Loopback Relay & SOCKS5 Forwarder (`KrpRelayDaemon.kt`, `LightweightTorEngine.kt`, `WebViewProxyManager.kt`)**:
   - `KrpRelayDaemon` binds localhost (`127.0.0.1`) Entry (`8443`) and Exit (`8444`) sockets implementing X25519 key exchange, HKDF-SHA256, ChaCha20-Poly1305, and 1024-byte cell framing.
   - `LightweightTorEngine` runs a localhost SOCKS5 listener (`9155`/`9156`) resolving domains through fail-closed Encrypted DoH and blocking recursive self-loops into local daemon ports.
