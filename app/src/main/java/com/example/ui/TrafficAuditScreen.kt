@@ -371,7 +371,7 @@ fun TrafficAuditScreen(viewModel: DecentralViewModel, modifier: Modifier = Modif
                     OutlinedButton(
                         onClick = {
                             try {
-                                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_PRIVATE_DNS_SETTINGS))
+                                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
                             } catch (_: Exception) {
                                 try {
                                     context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS))
