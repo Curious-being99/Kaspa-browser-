@@ -60,7 +60,7 @@ class SiAgentToolRuntimeTest {
         assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5, emptySet()))
         assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send to $address", address, 2.5, emptySet()))
         assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 12.5 KAS to $address", address, 2.5, emptySet()))
-        assertTrue(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5, setOf(address)))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5))
     }
 
     private fun names(tools: org.json.JSONArray): Set<String> =
