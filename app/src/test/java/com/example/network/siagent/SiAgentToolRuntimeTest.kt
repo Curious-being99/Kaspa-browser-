@@ -56,10 +56,10 @@ class SiAgentToolRuntimeTest {
     @Test
     fun paymentRequiresExactRecipientAndExplicitAmountInCurrentText() {
         val address = "kaspa:qqexample"
-        assertTrue(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS to $address", address, 2.5, emptySet()))
-        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5, emptySet()))
-        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send to $address", address, 2.5, emptySet()))
-        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 12.5 KAS to $address", address, 2.5, emptySet()))
+        assertTrue(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS to $address", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send to $address", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 12.5 KAS to $address", address, 2.5))
         assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5))
     }
 
