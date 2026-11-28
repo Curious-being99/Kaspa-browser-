@@ -25,7 +25,7 @@ object SiAgentMemoryStore {
             for (index in start until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
                 val text = item.optString("text").take(MAX_MESSAGE_CHARS)
-                if (text.isNotBlank()) add(Turn(text, item.optBoolean("user"), item.optBoolean("web_content", false)))
+                if (text.isNotBlank()) add(Turn(text, item.optBoolean("user"), item.optBoolean("web_content", false) || looksWebDerived(text)))
             }
         }
     }.getOrDefault(emptyList())
@@ -42,6 +42,12 @@ object SiAgentMemoryStore {
             .putString(KEY_MESSAGES, array.toString())
             .apply()
     }
+
+    private fun looksWebDerived(text: String): Boolean =
+        Regex("(?i)https?://\\S+").containsMatchIn(text) ||
+            text.contains("Sources:", ignoreCase = true) ||
+            text.contains("Sources crawled", ignoreCase = true) ||
+            text.contains("search results", ignoreCase = true)
 
     private fun sanitize(value: String): String {
         var safe = value
