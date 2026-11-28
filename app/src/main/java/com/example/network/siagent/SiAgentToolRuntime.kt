@@ -573,7 +573,7 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
 
     internal fun paymentAuthorizationMatches(userText: String, recipient: String, amountKas: Double, savedAddresses: Set<String>): Boolean {
         val recipientAuthorized = userText.contains(recipient) || recipient in savedAddresses
-        val amountText = Regex("""(?<![\\w.])(?:0|[1-9]\\d*)(?:\\.\\d+)?(?![\\w.])""")
+        val amountText = Regex("""(?<![\w.])(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])""")
             .findAll(userText)
             .any { match ->
                 runCatching { java.math.BigDecimal(match.value).compareTo(java.math.BigDecimal.valueOf(amountKas)) == 0 }.getOrDefault(false)
