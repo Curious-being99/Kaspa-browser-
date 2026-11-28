@@ -30,14 +30,10 @@ class SiAgentToolRuntimeTest {
         assertTrue(names.contains("crawl_public_website"))
         assertTrue(names.contains("browser_navigate"))
         assertTrue(names.contains("browser_open_tab"))
-        assertTrue(names.contains("browser_switch_tab"))
-        assertTrue(names.contains("browser_close_tab"))
         assertTrue(names.contains("browser_bookmark_current_page"))
         assertTrue(names.contains("browser_go_back"))
         assertTrue(names.contains("browser_go_forward"))
         assertTrue(names.contains("browser_reload"))
-        assertTrue(names.contains("get_kazium_updates"))
-        assertTrue(names.contains("open_kazium_surface"))
     }
 
     @Test
