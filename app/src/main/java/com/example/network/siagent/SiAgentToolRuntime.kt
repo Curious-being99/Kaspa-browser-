@@ -43,7 +43,7 @@ object SiAgentToolRuntime {
         "search_public_web", "crawl_public_website", "browser_navigate", "browser_open_tab"
     )
 
-    fun definitions(): JSONArray = allDefinitions()
+    fun definitions(): JSONArray = filteredDefinitions(privateToolNames + webToolNames)
 
     fun privateDefinitions(): JSONArray = filteredDefinitions(privateToolNames)
 
