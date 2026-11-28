@@ -156,6 +156,9 @@ object SiAgentToolRuntime {
 
     suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject, currentUserText: String = "", savedAddresses: Set<String> = emptySet(), onPaymentPrepared: (suspend (String, Double) -> Unit)? = null): String {
         return try {
+            if (name !in privateToolNames && name !in webToolNames) {
+                return errorJson("Tool is not permitted by SI Agent's private/web isolation policy.")
+            }
             when (name) {
                 "prepare_kaspa_payment" -> {
                     val recipient = args.optString("recipient_address").trim()
