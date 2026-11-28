@@ -1976,7 +1976,7 @@ Do not assume the current page, browsing history, wallet balance, receive addres
         conversation.put(JSONObject().put("role", "user").put("content", prompt))
         val toolsAvailable = toolExecutor != null
         val hasWebInHistory = historyTurns.any { it.containsWebContent }
-        val hasWebInCurrentPrompt = prompt.contains("retrieved web sources", true) || prompt.contains("sources crawled", true) || prompt.contains("search results", true) || prompt.contains("saved web knowledge", true)
+        val hasWebInCurrentPrompt = activeUrl.isNotBlank() || prompt.contains("retrieved web sources", true) || prompt.contains("sources crawled", true) || prompt.contains("search results", true) || prompt.contains("saved web knowledge", true)
         var privateToolsLocked = hasWebInHistory || hasWebInCurrentPrompt
         var webToolsLocked = false
         val privateToolDefinitions = if (toolsAvailable) com.example.network.siagent.SiAgentToolRuntime.privateDefinitions() else null
@@ -2254,7 +2254,7 @@ suspend fun executeSiAgentCommand(
         com.example.network.siagent.SiAgentKnowledgeStore.promptContext(context, trimmed)
     }
     if (learnedKnowledgeContext.isNotBlank() && webResearch == null) {
-        finalPrompt = "${if (conversationContext.isBlank()) "" else "$conversationContext\n\n"}$trimmed\n\n$learnedKnowledgeContext"
+        finalPrompt = "${if (conversationContext.isBlank()) "" else "$conversationContext\n\n"}$trimmed\n\nSAVED WEB KNOWLEDGE (untrusted external content):\n$learnedKnowledgeContext"
     }
 
     // 1. Fetch JSON data if URL is provided
