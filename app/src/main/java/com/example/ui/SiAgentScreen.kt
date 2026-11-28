@@ -1923,8 +1923,7 @@ private suspend fun callGroqApi(
     historyTurns: List<com.example.network.siagent.SiAgentMemoryStore.Turn> = emptyList(),
     currentUserText: String = "",
     onStreamChunk: ((String) -> Unit)? = null,
-    toolExecutor: (suspend (String, JSONObject) -> String)? = null,
-    currentUserText: String = ""
+    toolExecutor: (suspend (String, JSONObject) -> String)? = null
 ): String? {
     return try {
         val client = OkHttpClient.Builder()
@@ -1939,6 +1938,8 @@ private suspend fun callGroqApi(
             return null
         }
 
+        val hasWebInHistory = historyTurns.any { it.containsWebContent }
+        val hasWebInCurrentPrompt = activeUrl.isNotBlank() || prompt.contains("retrieved web sources", true) || prompt.contains("sources crawled", true) || prompt.contains("search results", true) || prompt.contains("saved web knowledge", true)
         var systemPrompt = """You are SI Agent, the intelligent native command and operations copilot inside Kazium (powered by the Kazview WebKit engine with WebKitGTK standards; formerly known as KaspaBrowser).
 You are a reflective, context-aware assistant: understand your role, available tools, current task, known facts, uncertainty, and limits. For complex requests, reason carefully through the goal, constraints, evidence, and available tool results before choosing an answer. Present the conclusion, concise rationale, and relevant evidence; do not expose private chain-of-thought. Before answering, check whether you have direct evidence, whether a tool is needed, and whether your answer conflicts with reliable context. If you discover an error, acknowledge it plainly and correct it. Track the user's immediate goal across the conversation without claiming human feelings, subjective experience, independent consciousness, or abilities you do not have. Never claim an action succeeded unless the tool confirms it. Write each fact or instruction once: do not repeat words, phrases, sentences, paragraphs, headings, or conclusions. Avoid restating the user's question. If a point has already been made, add new information or stop.
 
@@ -1978,8 +1979,6 @@ Do not assume the current page, browsing history, wallet balance, receive addres
             }
         conversation.put(JSONObject().put("role", "user").put("content", prompt))
         val toolsAvailable = toolExecutor != null
-        val hasWebInHistory = historyTurns.any { it.containsWebContent }
-        val hasWebInCurrentPrompt = activeUrl.isNotBlank() || prompt.contains("retrieved web sources", true) || prompt.contains("sources crawled", true) || prompt.contains("search results", true) || prompt.contains("saved web knowledge", true)
         var privateToolsLocked = hasWebInHistory || hasWebInCurrentPrompt
         var webToolsLocked = false
         val privateToolDefinitions = if (toolsAvailable) com.example.network.siagent.SiAgentToolRuntime.privateDefinitions() else null
@@ -2155,6 +2154,7 @@ suspend fun executeSiAgentCommand(
     conversationContext: String = "",
     mode: SiAgentMode = SiAgentMode.ADAPTIVE,
     historyTurns: List<com.example.network.siagent.SiAgentMemoryStore.Turn> = emptyList(),
+    currentUserText: String = input,
     onStreamChunk: ((String) -> Unit)? = null,
     onPaymentPrepared: (suspend (String, Double) -> Unit)? = null
 ): String {
@@ -2281,7 +2281,7 @@ suspend fun executeSiAgentCommand(
             mode = mode,
             historyTurns = historyTurns,
             onStreamChunk = onStreamChunk,
-            toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, onPaymentPrepared) } }
+            toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, currentUserText, onPaymentPrepared = onPaymentPrepared) } }
         )
     }
 
