@@ -154,7 +154,7 @@ object SiAgentToolRuntime {
         } ?: false
     }
 
-    suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject, currentUserText: String = "", savedAddresses: Set<String> = emptySet(), onPaymentPrepared: (suspend (String, Double) -> Unit)? = null): String {
+    suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject, currentUserText: String = "", onPaymentPrepared: (suspend (String, Double) -> Unit)? = null): String {
         return try {
             if (name !in privateToolNames && name !in webToolNames) {
                 return errorJson("Tool is not permitted by SI Agent's private/web isolation policy.")
@@ -172,8 +172,8 @@ object SiAgentToolRuntime {
                         errorJson("KAS payments are unavailable on the selected network: $network. Select Kaspa Mainnet, Kaspa Testnet 10, or Kaspa Testnet 11 in the wallet first. No network was changed.")
                     } else if (!amount.isFinite() || amount <= 0.0) {
                         errorJson("amount_kas must be a finite number greater than zero.")
-                    } else if (!paymentAuthorizationMatches(currentUserText, recipient, amount, savedAddresses)) {
-                        errorJson("Payment authorization failed: the exact recipient must be present in your current message or saved address book, and the amount must be explicitly stated. No payment sheet was opened.")
+                    } else if (!paymentAuthorizationMatches(currentUserText, recipient, amount)) {
+                        errorJson("Payment authorization failed: the exact recipient and amount must both be explicitly present in your current message. No payment sheet was opened.")
                     } else if (!recipient.startsWith("$expectedPrefix:", true) ||
                         !com.example.network.CryptoUtils.isValidKaspaAddress(recipient, expectedPrefix)) {
                         errorJson("Recipient address is invalid or does not match the selected $network network.")
@@ -571,8 +571,8 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
         } catch (_: Exception) { false }
     }
 
-    internal fun paymentAuthorizationMatches(userText: String, recipient: String, amountKas: Double, savedAddresses: Set<String>): Boolean {
-        val recipientAuthorized = userText.contains(recipient) || recipient in savedAddresses
+    internal fun paymentAuthorizationMatches(userText: String, recipient: String, amountKas: Double): Boolean {
+        val recipientAuthorized = userText.contains(recipient)
         val amountText = Regex("""(?<![\w.])(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])""")
             .findAll(userText)
             .any { match ->
