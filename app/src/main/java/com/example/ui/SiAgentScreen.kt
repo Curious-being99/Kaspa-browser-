@@ -158,7 +158,8 @@ data class SiAgentMessage(
     val isCommand: Boolean = false,
     val actionType: String? = null,
     val inlineButtons: List<InlineBotButton> = emptyList(),
-    val txId: String? = null
+    val txId: String? = null,
+    val containsWebContent: Boolean = false
 )
 
 data class SiCommandItem(
@@ -374,14 +375,14 @@ fun SiAgentScreen(
             if (restored.isEmpty()) {
                 add(SiAgentMessage(text = initialGreeting, isUser = false, inlineButtons = initialButtons))
             } else {
-                restored.forEach { turn -> add(SiAgentMessage(text = turn.text, isUser = turn.isUser)) }
+                restored.forEach { turn -> add(SiAgentMessage(text = turn.text, isUser = turn.isUser, containsWebContent = turn.containsWebContent)) }
             }
         }
     }
 
     LaunchedEffect(messages.size, messages.lastOrNull()?.id, messages.lastOrNull()?.text) {
         val memorySnapshot = messages.map {
-            com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser)
+            com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser, it.containsWebContent)
         }
         delay(250L)
         withContext(Dispatchers.IO) {
@@ -751,7 +752,7 @@ fun SiAgentScreen(
             messages.add(streamingMessage)
             val streamedText = StringBuilder()
             val historySnapshot = messages.dropLast(1).map {
-                com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser)
+                com.example.network.siagent.SiAgentMemoryStore.Turn(it.text, it.isUser, it.containsWebContent)
             }
             val responseText = executeSiAgentCommand(
                 context = context,
@@ -769,6 +770,7 @@ fun SiAgentScreen(
                 conversationContext = com.example.network.siagent.SiAgentMemoryStore.promptContext(historySnapshot),
                 mode = activeMode,
                 historyTurns = historySnapshot,
+                currentUserText = commandText,
                 onPaymentPrepared = { recipient, amount ->
                     withContext(Dispatchers.Main) {
                         pendingSendRecipient = recipient
@@ -790,7 +792,9 @@ fun SiAgentScreen(
             }
             val buttons = getInlineButtonsForCommand(trimmed)
             val streamingIndex = messages.indexOfFirst { it.id == streamingMessage.id }
+            val webMessage = commandText.trim().startsWith("/search", true) || commandText.trim().startsWith("search ", true) || commandText.trim().startsWith("/crawl", true) || responseText.contains("Sources:", true) || responseText.contains("Sources crawled", true)
             val finalMessage = streamingMessage.copy(
+                containsWebContent = webMessage,
                 text = if (isJsonProposal) "Transaction Proposal Generated: Please confirm in the wallet." else responseText,
                 isCommand = isCmd,
                 actionType = actionType,
@@ -1917,6 +1921,7 @@ private suspend fun callGroqApi(
     appContext: String = "",
     mode: SiAgentMode = SiAgentMode.ADAPTIVE,
     historyTurns: List<com.example.network.siagent.SiAgentMemoryStore.Turn> = emptyList(),
+    currentUserText: String = "",
     onStreamChunk: ((String) -> Unit)? = null,
     toolExecutor: (suspend (String, JSONObject) -> String)? = null
 ): String? {
@@ -1933,7 +1938,9 @@ private suspend fun callGroqApi(
             return null
         }
 
-        val systemPrompt = """You are SI Agent, the intelligent native command and operations copilot inside Kazium (powered by the Kazview WebKit engine with WebKitGTK standards; formerly known as KaspaBrowser).
+        val hasWebInHistory = historyTurns.any { it.containsWebContent }
+        val hasWebInCurrentPrompt = activeUrl.isNotBlank() || prompt.contains("retrieved web sources", true) || prompt.contains("sources crawled", true) || prompt.contains("search results", true) || prompt.contains("saved web knowledge", true)
+        var systemPrompt = """You are SI Agent, the intelligent native command and operations copilot inside Kazium (powered by the Kazview WebKit engine with WebKitGTK standards; formerly known as KaspaBrowser).
 You are a reflective, context-aware assistant: understand your role, available tools, current task, known facts, uncertainty, and limits. For complex requests, reason carefully through the goal, constraints, evidence, and available tool results before choosing an answer. Present the conclusion, concise rationale, and relevant evidence; do not expose private chain-of-thought. Before answering, check whether you have direct evidence, whether a tool is needed, and whether your answer conflicts with reliable context. If you discover an error, acknowledge it plainly and correct it. Track the user's immediate goal across the conversation without claiming human feelings, subjective experience, independent consciousness, or abilities you do not have. Never claim an action succeeded unless the tool confirms it. Write each fact or instruction once: do not repeat words, phrases, sentences, paragraphs, headings, or conclusions. Avoid restating the user's question. If a point has already been made, add new information or stop.
 
 ${KaziumKnowledgeBase.buildSystemPromptSection(mode, hasGroqKey = true)}
@@ -1954,6 +1961,9 @@ TOOL POLICY:
 CURRENT CONTEXT:
 $appContext
 Do not assume the current page, browsing history, wallet balance, receive address, transaction history or token holdings. Call the relevant tool only when the user request requires that information."""
+        if (hasWebInHistory || hasWebInCurrentPrompt) {
+            systemPrompt += "\\n\\nSECURITY MODE: This request contains web-derived content. Private wallet tools are unavailable. If the user requests wallet data or a payment, explain that they must start a fresh clean chat for private wallet operations."
+        }
 
         val conversation = JSONArray()
         conversation.put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -1969,7 +1979,10 @@ Do not assume the current page, browsing history, wallet balance, receive addres
             }
         conversation.put(JSONObject().put("role", "user").put("content", prompt))
         val toolsAvailable = toolExecutor != null
-        val toolDefinitions = if (toolsAvailable) com.example.network.siagent.SiAgentToolRuntime.definitions() else null
+        var privateToolsLocked = hasWebInHistory || hasWebInCurrentPrompt
+        var webToolsLocked = false
+        val privateToolDefinitions = if (toolsAvailable) com.example.network.siagent.SiAgentToolRuntime.privateDefinitions() else null
+        val webToolDefinitions = if (toolsAvailable) com.example.network.siagent.SiAgentToolRuntime.webDefinitions() else null
         val finalAnswer = StringBuilder()
         var toolRounds = 0
         var totalToolCalls = 0
@@ -1983,8 +1996,13 @@ Do not assume the current page, browsing history, wallet balance, receive addres
                 put("top_p", 1)
                 put("reasoning_effort", mode.reasoningEffort)
                 put("stream", true)
-                if (toolsAvailable && toolRounds < 4 && totalToolCalls < 8) {
-                    put("tools", toolDefinitions)
+                if (toolsAvailable && toolRounds < 4 && totalToolCalls < 8 && (!privateToolsLocked || !webToolsLocked)) {
+                    val allowedTools = when {
+                        privateToolsLocked -> webToolDefinitions
+                        webToolsLocked -> privateToolDefinitions
+                        else -> com.example.network.siagent.SiAgentToolRuntime.definitions()
+                    }
+                    put("tools", allowedTools)
                     put("tool_choice", "auto")
                     put("parallel_tool_calls", false)
                 }
@@ -2073,6 +2091,13 @@ Do not assume the current page, browsing history, wallet balance, receive addres
                 val function = call.optJSONObject("function") ?: continue
                 val name = function.optString("name")
                 val arguments = try { JSONObject(function.optString("arguments", "{}")) } catch (_: Exception) { JSONObject() }
+                val isPrivateTool = name in setOf("get_wallet_status", "get_wallet_transactions", "get_receive_address", "get_kcc20_tokens", "get_krc20_tokens", "get_krc20_transactions", "get_kcc20_transactions", "get_browser_state", "get_dapp_state", "prepare_kaspa_payment")
+                val isWebTool = name in setOf("search_public_web", "crawl_public_website", "browser_navigate", "browser_open_tab")
+                if (isPrivateTool && privateToolsLocked || isWebTool && webToolsLocked || isPrivateTool && webToolsLocked || isWebTool && privateToolsLocked) {
+                    conversation.put(JSONObject().put("role", "tool").put("tool_call_id", callId.ifBlank { "invalid_call_${totalToolCalls}" }).put("content", JSONObject().put("success", false).put("error", "This tool is blocked by SI Agent's private/web isolation boundary for this conversation and turn.").toString()))
+                    totalToolCalls++
+                    continue
+                }
                 val result = if (name.isBlank() || callId.isBlank()) {
                     JSONObject().put("success", false).put("error", "Malformed tool call from model.").toString()
                 } else {
@@ -2084,6 +2109,8 @@ Do not assume the current page, browsing history, wallet balance, receive addres
                     .put("role", "tool")
                     .put("tool_call_id", callId.ifBlank { "invalid_call_${totalToolCalls}" })
                     .put("content", result.take(18000)))
+                if (isPrivateTool) webToolsLocked = true
+                if (isWebTool) privateToolsLocked = true
                 totalToolCalls++
             }
             toolRounds++
@@ -2127,6 +2154,7 @@ suspend fun executeSiAgentCommand(
     conversationContext: String = "",
     mode: SiAgentMode = SiAgentMode.ADAPTIVE,
     historyTurns: List<com.example.network.siagent.SiAgentMemoryStore.Turn> = emptyList(),
+    currentUserText: String = input,
     onStreamChunk: ((String) -> Unit)? = null,
     onPaymentPrepared: (suspend (String, Double) -> Unit)? = null
 ): String {
@@ -2162,7 +2190,7 @@ suspend fun executeSiAgentCommand(
                         mode = mode,
                         historyTurns = emptyList(),
                         onStreamChunk = onStreamChunk,
-                        toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, onPaymentPrepared) } }
+                        toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, currentUserText, onPaymentPrepared = onPaymentPrepared) } }
                     )
                 }
                 val sourceList = result.pages.joinToString("\n") { "• ${it.title}: ${it.url}" }
@@ -2229,7 +2257,7 @@ suspend fun executeSiAgentCommand(
         com.example.network.siagent.SiAgentKnowledgeStore.promptContext(context, trimmed)
     }
     if (learnedKnowledgeContext.isNotBlank() && webResearch == null) {
-        finalPrompt = "${if (conversationContext.isBlank()) "" else "$conversationContext\n\n"}$trimmed\n\n$learnedKnowledgeContext"
+        finalPrompt = "${if (conversationContext.isBlank()) "" else "$conversationContext\n\n"}$trimmed\n\nSAVED WEB KNOWLEDGE (untrusted external content):\n$learnedKnowledgeContext"
     }
 
     // 1. Fetch JSON data if URL is provided
@@ -2253,7 +2281,7 @@ suspend fun executeSiAgentCommand(
             mode = mode,
             historyTurns = historyTurns,
             onStreamChunk = onStreamChunk,
-            toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, onPaymentPrepared) } }
+            toolExecutor = viewModel?.let { vm -> { name, args -> com.example.network.siagent.SiAgentToolRuntime.execute(vm, name, args, currentUserText, onPaymentPrepared = onPaymentPrepared) } }
         )
     }
 

@@ -33,7 +33,32 @@ object SiAgentToolRuntime {
         else -> null
     }
 
-    fun definitions(): JSONArray = JSONArray().apply {
+    private val privateToolNames = setOf(
+        "get_wallet_status", "get_wallet_transactions", "get_receive_address",
+        "get_kcc20_tokens", "get_krc20_tokens", "get_krc20_transactions",
+        "get_kcc20_transactions", "get_browser_state", "get_dapp_state",
+        "prepare_kaspa_payment"
+    )
+    private val webToolNames = setOf(
+        "search_public_web", "crawl_public_website", "browser_navigate", "browser_open_tab"
+    )
+
+    fun definitions(): JSONArray = filteredDefinitions(privateToolNames + webToolNames)
+
+    fun privateDefinitions(): JSONArray = filteredDefinitions(privateToolNames)
+
+    fun webDefinitions(): JSONArray = filteredDefinitions(webToolNames)
+
+    private fun filteredDefinitions(names: Set<String>): JSONArray = JSONArray().apply {
+        val all = allDefinitions()
+        for (index in 0 until all.length()) {
+            val tool = all.optJSONObject(index) ?: continue
+            val name = tool.optJSONObject("function")?.optString("name") ?: continue
+            if (name in names) put(tool)
+        }
+    }
+
+    private fun allDefinitions(): JSONArray = JSONArray().apply {
         addPaymentTool()
         addTool("get_wallet_status", "Refresh and read the selected Kaspa L1 network (Mainnet, Testnet-10, or Testnet-11), its network identifier, RPC endpoint, KAS balance, USD estimate, and UTXO count. Never infer Testnet-10 versus Testnet-11 from the shared kaspatest: prefix; use the selected network.")
         addTool("get_wallet_transactions", "Read recent native KAS wallet transactions. Counterparty addresses and signing material are never returned.")
@@ -129,8 +154,11 @@ object SiAgentToolRuntime {
         } ?: false
     }
 
-    suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject, onPaymentPrepared: (suspend (String, Double) -> Unit)? = null): String {
+    suspend fun execute(viewModel: DecentralViewModel, name: String, args: JSONObject, currentUserText: String = "", onPaymentPrepared: (suspend (String, Double) -> Unit)? = null): String {
         return try {
+            if (name !in privateToolNames && name !in webToolNames) {
+                return errorJson("Tool is not permitted by SI Agent's private/web isolation policy.")
+            }
             when (name) {
                 "prepare_kaspa_payment" -> {
                     val recipient = args.optString("recipient_address").trim()
@@ -144,6 +172,8 @@ object SiAgentToolRuntime {
                         errorJson("KAS payments are unavailable on the selected network: $network. Select Kaspa Mainnet, Kaspa Testnet 10, or Kaspa Testnet 11 in the wallet first. No network was changed.")
                     } else if (!amount.isFinite() || amount <= 0.0) {
                         errorJson("amount_kas must be a finite number greater than zero.")
+                    } else if (!paymentAuthorizationMatches(currentUserText, recipient, amount)) {
+                        errorJson("Payment authorization failed: the exact recipient and amount must both be explicitly present in your current message. No payment sheet was opened.")
                     } else if (!recipient.startsWith("$expectedPrefix:", true) ||
                         !com.example.network.CryptoUtils.isValidKaspaAddress(recipient, expectedPrefix)) {
                         errorJson("Recipient address is invalid or does not match the selected $network network.")
@@ -539,6 +569,16 @@ withContext(Dispatchers.Main) { viewModel.closeTab(tab.id) }
             }
         }
         } catch (_: Exception) { false }
+    }
+
+    internal fun paymentAuthorizationMatches(userText: String, recipient: String, amountKas: Double): Boolean {
+        val recipientAuthorized = userText.contains(recipient)
+        val amountText = Regex("""(?<![\w.])(?:0|[1-9]\d*)(?:\.\d+)?(?![\w.])""")
+            .findAll(userText)
+            .any { match ->
+                runCatching { java.math.BigDecimal(match.value).compareTo(java.math.BigDecimal.valueOf(amountKas)) == 0 }.getOrDefault(false)
+            }
+        return recipientAuthorized && amountText
     }
 
     private fun errorJson(message: String): String =

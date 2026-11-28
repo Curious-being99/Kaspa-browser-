@@ -14,7 +14,7 @@ object SiAgentMemoryStore {
     private const val MAX_MESSAGES = 40
     private const val MAX_MESSAGE_CHARS = 6_000
 
-    data class Turn(val text: String, val isUser: Boolean)
+    data class Turn(val text: String, val isUser: Boolean, val containsWebContent: Boolean = false)
 
     fun load(context: Context): List<Turn> = runCatching {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -25,7 +25,7 @@ object SiAgentMemoryStore {
             for (index in start until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
                 val text = item.optString("text").take(MAX_MESSAGE_CHARS)
-                if (text.isNotBlank()) add(Turn(text, item.optBoolean("user")))
+                if (text.isNotBlank()) add(Turn(text, item.optBoolean("user"), item.optBoolean("web_content", false) || looksWebDerived(text)))
             }
         }
     }.getOrDefault(emptyList())
@@ -35,13 +35,19 @@ object SiAgentMemoryStore {
         turns.takeLast(MAX_MESSAGES).forEach { turn ->
             val text = sanitize(turn.text).take(MAX_MESSAGE_CHARS)
             if (text.isNotBlank()) array.put(
-                JSONObject().put("text", text).put("user", turn.isUser)
+                JSONObject().put("text", text).put("user", turn.isUser).put("web_content", turn.containsWebContent)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_MESSAGES, array.toString())
             .apply()
     }
+
+    private fun looksWebDerived(text: String): Boolean =
+        Regex("(?i)https?://\\S+").containsMatchIn(text) ||
+            text.contains("Sources:", ignoreCase = true) ||
+            text.contains("Sources crawled", ignoreCase = true) ||
+            text.contains("search results", ignoreCase = true)
 
     private fun sanitize(value: String): String {
         var safe = value
@@ -62,7 +68,7 @@ object SiAgentMemoryStore {
         if (turns.isEmpty()) return ""
         return buildString {
             appendLine("RECENT CONVERSATION MEMORY (user-visible messages, newest last):")
-            turns.takeLast(maxTurns).forEach { turn ->
+            turns.filterNot { it.containsWebContent }.takeLast(maxTurns).forEach { turn ->
                 append(if (turn.isUser) "User: " else "SI Agent: ")
                 appendLine(turn.text.take(2_000))
             }

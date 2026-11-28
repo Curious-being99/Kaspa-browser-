@@ -30,15 +30,33 @@ class SiAgentToolRuntimeTest {
         assertTrue(names.contains("crawl_public_website"))
         assertTrue(names.contains("browser_navigate"))
         assertTrue(names.contains("browser_open_tab"))
-        assertTrue(names.contains("browser_switch_tab"))
-        assertTrue(names.contains("browser_close_tab"))
-        assertTrue(names.contains("browser_bookmark_current_page"))
-        assertTrue(names.contains("browser_go_back"))
-        assertTrue(names.contains("browser_go_forward"))
-        assertTrue(names.contains("browser_reload"))
-        assertTrue(names.contains("get_kazium_updates"))
-        assertTrue(names.contains("open_kazium_surface"))
     }
+
+    @Test
+    fun privateAndWebToolsAreDisjoint() {
+        val privateNames = names(SiAgentToolRuntime.privateDefinitions())
+        val webNames = names(SiAgentToolRuntime.webDefinitions())
+        assertTrue(privateNames.containsAll(setOf(
+            "get_wallet_status", "get_wallet_transactions", "get_receive_address",
+            "get_kcc20_tokens", "get_krc20_tokens", "get_krc20_transactions",
+            "get_kcc20_transactions", "get_browser_state", "get_dapp_state", "prepare_kaspa_payment"
+        )))
+        assertTrue(webNames.containsAll(setOf("search_public_web", "crawl_public_website", "browser_navigate", "browser_open_tab")))
+        assertTrue(privateNames.intersect(webNames).isEmpty())
+    }
+
+    @Test
+    fun paymentRequiresExactRecipientAndExplicitAmountInCurrentText() {
+        val address = "kaspa:qqexample"
+        assertTrue(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS to $address", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send to $address", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 12.5 KAS to $address", address, 2.5))
+        assertFalse(SiAgentToolRuntime.paymentAuthorizationMatches("Send 2.5 KAS", address, 2.5))
+    }
+
+    private fun names(tools: org.json.JSONArray): Set<String> =
+        (0 until tools.length()).mapNotNull { tools.optJSONObject(it)?.optJSONObject("function")?.optString("name") }.toSet()
 
     @Test
     fun resolvesKaspaL1NetworksWithoutConflatingTestnets() {
