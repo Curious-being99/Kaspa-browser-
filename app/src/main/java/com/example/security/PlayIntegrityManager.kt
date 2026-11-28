@@ -22,9 +22,8 @@ import kotlin.coroutines.resume
 /**
  * Google Play Integrity API Manager
  * 
- * Verifies that the Kaspa Privacy Relay & Browser engine is running on an
- * authentic, unmodified Android device to prevent memory injection,
- * malicious packet interception, and hostile IP-leak exploits.
+ * Requests a Play Integrity token. Token receipt is not a device verdict; server-side
+ * validation is required before any integrity claims can be made.
  */
 object PlayIntegrityManager {
     private const val TAG = "PlayIntegrityManager"
@@ -32,10 +31,9 @@ object PlayIntegrityManager {
 
     sealed class DeviceIntegrityState {
         object Initializing : DeviceIntegrityState()
-        data class Verified(
+        data class TokenReceived(
             val tokenDigest: String,
-            val isGenuineHardware: Boolean = true,
-            val message: String = "Genuine device verified via Google Play Integrity"
+            val message: String = "Play Integrity token received; verdict not verified"
         ) : DeviceIntegrityState()
         data class DevelopmentOrSandbox(
             val reason: String = "Development / Emulator / Sandbox Environment"
@@ -121,13 +119,12 @@ object PlayIntegrityManager {
                     .digest(token.toByteArray(Charsets.UTF_8))
                 val digestHex = digest.joinToString("") { "%02x".format(it) }.take(16)
 
-                val verified = DeviceIntegrityState.Verified(
+                val received = DeviceIntegrityState.TokenReceived(
                     tokenDigest = digestHex,
-                    isGenuineHardware = true,
-                    message = "Play Integrity Token Verified (${digestHex.uppercase()})"
+                    message = "Play Integrity token received (${digestHex.uppercase()}); verdict not verified"
                 )
-                _integrityState.value = verified
-                return@withContext verified
+                _integrityState.value = received
+                return@withContext received
             } else {
                 val sandbox = DeviceIntegrityState.DevelopmentOrSandbox("Protected development/sandbox environment")
                 _integrityState.value = sandbox

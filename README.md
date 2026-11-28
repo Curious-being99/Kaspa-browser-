@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/License-Apache%202.0-475569.svg?style=for-the-badge" alt="Apache 2.0 License" />
 </p>
 
-**Kazium** is an Android web browser and Web3 gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It pairs **Kazview** (its hybrid Chromium/Android System WebView + Jetpack WebKit + Custom Tabs orchestration core) with a hardware-backed Password & Passkey Vault, fail-closed encrypted DNS-over-HTTPS (DoH), real-time tracker/ad shielding, decentralized name resolution, an encrypted Kaspa wallet & dApp bridge, signal-only ecosystem notifications, and optional native Rust crates (`kaspasearch-engine`, `kaspasearch-core`).
+**Kazium** is an Android web browser and Web3 gateway built with **Kotlin** and **Jetpack Compose (Material 3)**. It pairs **Kazview** (its hybrid Chromium/Android System WebView + Jetpack WebKit + Custom Tabs orchestration core) with an on-device Password & Passkey Vault, tracker/ad shielding, decentralized name resolution, an encrypted Kaspa wallet & dApp bridge, signal-only ecosystem notifications, and optional native Rust crates (`kaspasearch-engine`, `kaspasearch-core`).
 
 ---
 
@@ -52,9 +52,9 @@ Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, 
    - All tabs, preview WebViews, and ServiceWorkers enforce strict sandboxing (`allowFileAccess = false`, `allowContentAccess = false`, `MIXED_CONTENT_NEVER_ALLOW`, SSL cancel-on-error, Google Safe Browsing, and `http`/`https`-only external intent checks).
 2. **Kazview Hybrid Architecture (Full Web Compatibility + Custom Control)**:
    - Instead of maintaining a fragile forked browser binary or leaving stock WebView unoptimized, **Kazview** layers asynchronous renderer warmup, QUIC profile hints, Blink Back/Forward Cache, Privacy Sandbox Attribution suppression, multi-profile Stealth isolation, bounded tab hibernation, and Custom Tabs WebAuthn handoff directly over Android System WebView + Jetpack WebKit.
-3. **Truthful Networking & Fail-Closed Encrypted DNS**:
-   - DNS resolution goes through pinned **Encrypted DoH** (`cloudflare-dns.com`, `dns.quad9.net`, `dns.google`) with unencrypted system DNS fallback disabled.
-   - All blocked/allowed requests are visible live in **Traffic Audit**, and local loopback privacy daemons (`KrpRelayDaemon`, `LightweightTorEngine`) explicitly document their guarantees without overclaiming external IP masking unless an upstream SOCKS5/HTTP proxy (such as Orbot) is configured.
+3. **Transparent Network Privacy Status**:
+   - Browser page navigation currently uses Android's normal DNS path; Kazium's encrypted DoH resolver is used by the local relay components, not browser-wide navigation. For phone-wide DNS encryption, users can enable Android **Private DNS** in system settings.
+   - Local loopback relay components do not mask the device's public IP. External IP masking is not active unless a real upstream proxy is configured and traffic is routed through it.
 4. **Native Web3, Kaspa & Mesh Capabilities Built Into the Browser**:
    - Ships first-class `.kas`, `.hns`, `.eth`, and `ipfs://` resolution (`DualStackResolver`), an on-device HD/Testnet wallet & transaction confirmation sheet, KRC-20 / KCC-20 protocol support, a secp256k1 Schnorr Sigma Zero-Knowledge Proof utility (`ZkProofEngine`), and live LAN/NSD + Bluetooth **Mesh Radar**.
 5. **Zero-Spam, Zero-Duplicate Ecosystem Notifications**:
@@ -125,14 +125,14 @@ Mainstream mobile browsers prioritize ad-tech telemetry, cloud account lock-in, 
   - Foreground-to-background synchronization (`markItemsSeen`) prevents articles fetched inside the app from triggering repeat background alerts.
   - Silent first-run baseline initialization, `MAX_NOTIFICATIONS_PER_RUN = 2` burst cap (prioritizing Breaking alerts), `POST_NOTIFICATIONS` runtime check (API 33+), `http`/`https` URI verification, `setOnlyAlertOnce(true)`, and non-colliding notification IDs (`>= 10_000`).
 
-### 4. Networking, Privacy Shielding & Relay Transport (`network/`, `TrafficAuditScreen.kt`)
+### 4. Networking, Tracker Blocking & Local Relay Components (`network/`, `TrafficAuditScreen.kt`)
 - **Cronet + OkHttp3 (`CronetClientFactory.kt`)**: Enables Chromium Cronet HTTP/3 (QUIC), HTTP/2, Brotli, AsyncDNS, and StaleDNS via `CronetInterceptor`.
 - **Ad & Tracker Shielding (`KaspaPrivacyEngine.kt`, `UBlockEngine.kt`, `TrafficAuditScreen.kt`)**: Intercepts subresource and ServiceWorker tracker/ad requests while preserving stylesheets, scripts, fonts, OAuth, and challenge flows; logs real allowed/blocked traffic in **Traffic Audit**.
-- **Fail-Closed Encrypted DoH (`KaspaPrivacyRelayEngine.kt`)**: Resolves hostnames via `cloudflare-dns.com`, `dns.quad9.net`, and `dns.google` using pinned bootstrap IPs with system DNS disabled on relay resolution.
+- **Relay-scoped Encrypted DoH (`KaspaPrivacyRelayEngine.kt`)**: Its resolver uses `cloudflare-dns.com`, `dns.quad9.net`, and `dns.google` with pinned bootstrap IPs and no system-DNS fallback for relay lookups. This is not used for normal browser page navigation; pages currently use Android's DNS path. Android Private DNS can encrypt DNS system-wide.
 - **Local Loopback Relay & SOCKS5 Forwarder (`KrpRelayDaemon.kt`, `LightweightTorEngine.kt`, `WebViewProxyManager.kt`)**:
   - `KrpRelayDaemon` binds localhost (`127.0.0.1`) Entry (`8443`) and Exit (`8444`) sockets implementing X25519 key exchange, HKDF-SHA256, ChaCha20-Poly1305, and 1024-byte cell framing.
   - `LightweightTorEngine` runs a localhost SOCKS5 listener (`9155`/`9156`) resolving domains through fail-closed Encrypted DoH and blocking recursive self-loops into local daemon ports.
-  - **Transparency Note**: Running these loopback listeners in-process secures local loopback transport and forces encrypted DoH, **but does not change your public egress IP** unless a real external upstream SOCKS5/HTTP proxy (such as Orbot/Tor) is configured.
+  - **Transparency Note**: These local relay components are not currently wired to normal browser page navigation. Pages use Android's system DNS; relay-scoped DoH does not provide browser-wide DNS protection or public IP masking. For encrypted DNS across the phone, users can enable Android Private DNS. External IP masking requires a real upstream proxy and verified traffic routing.
 
 ### 5. Web3, Kaspa Wallet, ZKP & Decentralized Discovery (`network/kaspa/`, `network/zk/`, `dapp/`, `ui/`)
 - **Kaspa Wallet & dApp Bridge (`KaspaWalletService.kt`, `KaspaTransactionEngine.kt`, `KaspaTestnetWalletScreen.kt`, `DappsScreen.kt`, `DappPromptSheet.kt`, `TransactionConfirmationBottomSheet.kt`)**: On-device HD wallet & key management (`BouncyCastle`, `Web3j`), Kaspa testnet wallet interface, and explicit user-approved dApp signing sheets.
